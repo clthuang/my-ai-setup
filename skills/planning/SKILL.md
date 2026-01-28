@@ -111,4 +111,4 @@ Items depending on Phase 2.
 ## Completion
 
 "Plan complete. Saved to plan.md."
-"Run /verify to check, or /tasks to break into actionable items."
+"Run /verify to check, or /create-tasks to break into actionable items."

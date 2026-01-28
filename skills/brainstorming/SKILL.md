@@ -11,7 +11,7 @@ Guide divergent thinking to explore the problem space.
 
 Check for feature context:
 - Look for feature folder in `docs/features/`
-- If not found: "No active feature. Run /feature first, or describe what you want to explore."
+- If not found: "No active feature. Run /create-feature first, or describe what you want to explore."
 
 ## Read Feature Context
 
@@ -105,12 +105,12 @@ Write to `docs/features/{id}-{slug}/brainstorm.md`:
 - {Question 2}
 
 ## Next Steps
-Ready for /spec to define requirements.
+Ready for /specify to define requirements.
 ```
 
 ## Completion
 
 "Brainstorm complete. Saved to brainstorm.md."
 
-For Standard/Full mode: "Run /verify to check, or /spec to continue."
-For Quick mode: "Run /spec to continue."
+For Standard/Full mode: "Run /verify to check, or /specify to continue."
+For Quick mode: "Run /specify to continue."

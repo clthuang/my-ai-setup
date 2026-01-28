@@ -21,10 +21,66 @@
 
 ## Quick Start
 
+### 0. Installation
+
+Choose based on how you want to use these components:
+
+#### Option A: Use Within This Project Only
+
+```bash
+git clone https://github.com/clthuang/my-ai-setup.git
+cd my-ai-setup
+
+# Create symlinks so Claude Code can discover components
+ln -sfn ../skills .claude/skills
+ln -sfn ../agents .claude/agents
+ln -sfn ../commands .claude/commands
+
+claude .
+```
+
+Claude Code discovers components from `.claude/skills/`, `.claude/agents/`, and `.claude/commands/`.
+
+#### Option B: Global Installation (Individual Symlinks)
+
+Add individual components to `~/.claude/` for use across all projects:
+
+```bash
+# Clone to a permanent location
+git clone https://github.com/clthuang/my-ai-setup.git ~/repos/my-ai-setup
+
+# Create directories if they don't exist
+mkdir -p ~/.claude/skills ~/.claude/agents ~/.claude/commands
+
+# Symlink individual skills
+ln -sfn ~/repos/my-ai-setup/skills/implementing-with-tdd ~/.claude/skills/
+ln -sfn ~/repos/my-ai-setup/skills/systematic-debugging ~/.claude/skills/
+ln -sfn ~/repos/my-ai-setup/skills/brainstorming ~/.claude/skills/
+
+# Symlink individual agents
+ln -sfn ~/repos/my-ai-setup/agents/implementer.md ~/.claude/agents/
+
+# Symlink individual commands
+ln -sfn ~/repos/my-ai-setup/commands/create-feature.md ~/.claude/commands/
+```
+
+This adds components alongside any existing ones without replacing them. Restart Claude Code after symlinking.
+
+#### Option C: Global Directory Symlinks (Not Recommended)
+
+> **Warning:** Symlinking entire directories to `~/.claude/` **replaces** those directories completely. Any other skills, agents, or commands you had installed globally will become inaccessible.
+
+```bash
+# This REPLACES ~/.claude/skills/ entirely - other skills will be hidden!
+ln -sfn ~/repos/my-ai-setup/skills ~/.claude/skills
+```
+
+Only use this approach if this repository is your **single source of truth** for all Claude Code configuration. Otherwise, use Option B to symlink individual components.
+
 ### 1. Start a Feature
 
 ```bash
-/feature "add user authentication"
+/create-feature "add user authentication"
 ```
 
 Claude will:
@@ -35,12 +91,12 @@ Claude will:
 ### 2. Work Through Phases
 
 ```bash
-/brainstorm    # Ideation, options exploration
-/spec          # Requirements, acceptance criteria
-/design        # Architecture, interfaces
-/plan          # Implementation approach
-/tasks         # Break into actionable items
-/implement     # Execute the work
+/brainstorm      # Ideation, options exploration
+/specify         # Requirements, acceptance criteria
+/design          # Architecture, interfaces
+/plan            # Implementation approach
+/create-tasks    # Break into actionable items
+/implement       # Execute the work
 ```
 
 **Each phase:**
@@ -64,15 +120,15 @@ Verifiers check with fresh perspective:
 ### 4. Check Status
 
 ```bash
-/status        # Current feature state
-/features      # All active features
+/show-status     # Current feature state
+/list-features   # All active features
 ```
 
 ### 5. Complete Feature
 
 ```bash
-/finish        # Merge, cleanup worktree, suggest retro
-/retro         # Capture learnings (optional)
+/finish          # Merge, cleanup worktree, suggest retro
+/retrospect      # Capture learnings (optional)
 ```
 
 ---
@@ -82,7 +138,7 @@ Verifiers check with fresh perspective:
 | Mode | Phases | Verification | Use When |
 |------|--------|--------------|----------|
 | **Hotfix** | implement only | None | Single file fix |
-| **Quick** | spec → tasks → implement | After implement | Small feature |
+| **Quick** | specify → create-tasks → implement | After implement | Small feature |
 | **Standard** | All phases | Suggested | Normal feature |
 | **Full** | All phases | Required | Large/risky change |
 
@@ -101,12 +157,25 @@ project/
 │   │       ├── plan.md          # Approach
 │   │       ├── tasks.md         # Task list
 │   │       └── retro.md         # Learnings
-│   │
-│   └── knowledge-bank/
-│       ├── constitution.md      # Core principles
-│       ├── patterns.md          # What works
-│       ├── anti-patterns.md     # What to avoid
-│       └── heuristics.md        # Decision guides
+│   ├── guides/
+│   │   └── component-authoring.md
+│   ├── knowledge-bank/
+│   │   ├── constitution.md      # Core principles
+│   │   ├── patterns.md          # What works
+│   │   ├── anti-patterns.md     # What to avoid
+│   │   └── heuristics.md        # Decision guides
+│   └── plans/
+│       └── {date}-{topic}-{type}.md
+├── skills/
+│   └── {skill-name}/
+│       ├── SKILL.md
+│       ├── references/
+│       ├── scripts/
+│       └── templates/
+├── agents/
+│   └── {agent-name}.md
+└── commands/
+    └── {command-name}.md
 ```
 
 ---
@@ -115,33 +184,68 @@ project/
 
 | Command | Purpose | Output |
 |---------|---------|--------|
-| `/feature` | Start new feature | Folder, worktree, mode selection |
+| `/create-feature` | Start new feature | Folder, worktree, mode selection |
 | `/brainstorm` | Ideation phase | brainstorm.md |
-| `/spec` | Specification | spec.md |
+| `/specify` | Specification | spec.md |
 | `/design` | Architecture | design.md |
 | `/plan` | Planning | plan.md |
-| `/tasks` | Task breakdown | tasks.md |
+| `/create-tasks` | Task breakdown | tasks.md |
 | `/implement` | Execute work | Code changes |
 | `/verify` | Quality check | Issue report |
-| `/status` | Current state | Status summary |
-| `/features` | List all features | Feature list |
+| `/show-status` | Current state | Status summary |
+| `/list-features` | List all features | Feature list |
 | `/finish` | Complete feature | Merge, cleanup |
-| `/retro` | Capture learnings | retro.md, knowledge-bank updates |
+| `/retrospect` | Capture learnings | retro.md, knowledge-bank updates |
+
+---
+
+## Skills
+
+Skills are instructions Claude follows for specific development practices.
+
+### Feature Workflow
+| Skill | Purpose |
+|-------|---------|
+| `brainstorming` | Ideation with YAGNI discipline |
+| `specifying` | Requirements and acceptance criteria |
+| `designing` | Architecture and interfaces |
+| `planning` | Implementation approach |
+| `breaking-down-tasks` | Create actionable tasks |
+| `implementing` | Code execution with TDD |
+| `verifying` | Phase-appropriate verification |
+| `retrospecting` | Capture learnings |
+
+### Advanced Disciplines
+| Skill | Purpose |
+|-------|---------|
+| `implementing-with-tdd` | RED-GREEN-REFACTOR enforcement |
+| `systematic-debugging` | Root cause investigation |
+| `verifying-before-completion` | Evidence before claims |
+| `subagent-driven-development` | Three-agent workflow per task |
+| `dispatching-parallel-agents` | Concurrent investigation |
+
+### Infrastructure
+| Skill | Purpose |
+|-------|---------|
+| `using-git-worktrees` | Isolated workspace creation |
+| `finishing-branch` | Branch completion options |
+| `writing-skills` | TDD for skill authoring |
 
 ---
 
 ## Agents
 
 **Implementation:**
-- `investigation-agent` — Read-only research
-- `frontend-specialist` — React, CSS, components
-- `api-specialist` — API implementation
-- `database-specialist` — Migrations, queries
-- `generic-worker` — General implementation
+- `implementer` — Task implementation with self-review, TDD
+- `generic-worker` — General-purpose implementation
 
-**Verification:**
-- `phase-verifiers` — Check artifact quality
-- `quality-reviewer` — Code quality, cleanup
+**Review:**
+- `spec-reviewer` — Verify implementation matches specification
+- `code-quality-reviewer` — Code quality assessment
+- `quality-reviewer` — Post-implementation quality check
+
+**Research:**
+- `investigation-agent` — Read-only context gathering
 
 ---
 
@@ -154,7 +258,7 @@ Learnings accumulate in `docs/knowledge-bank/`:
 - **anti-patterns.md** — Things to avoid
 - **heuristics.md** — Decision guides
 
-Updated via `/retro` after feature completion.
+Updated via `/retrospect` after feature completion.
 
 ---
 
@@ -210,7 +314,8 @@ No routing layer. No orchestration. Just well-written prompts.
 
 ## References
 
-- [Feature Workflow Design](./docs/plans/2026-01-28-feature-workflow-design.md)
 - [Component Authoring Guide](./docs/guides/component-authoring.md)
-- [Superpowers](https://github.com/obra/superpowers)
+- [Feature Workflow Design](./docs/plans/2026-01-28-feature-workflow-design.md)
+- [Superpowers Patterns](./docs/plans/2026-01-28-superpowers-patterns-design.md)
+- [Superpowers Repository](https://github.com/obra/superpowers)
 - [Spec-kit](https://github.com/github/spec-kit)

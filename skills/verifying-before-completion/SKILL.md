@@ -1,5 +1,5 @@
 ---
-name: verification-before-completion
+name: verifying-before-completion
 description: Requires verification evidence before any completion claims. Use when about to claim work is complete, fixed, or passing.
 ---
 

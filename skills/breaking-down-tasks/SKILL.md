@@ -1,5 +1,5 @@
 ---
-name: task-breakdown
+name: breaking-down-tasks
 description: Breaks implementation plan into small, actionable tasks. Use after planning to create executable work items. Produces tasks.md.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: test-driven-development
+name: implementing-with-tdd
 description: Enforces RED-GREEN-REFACTOR cycle with rationalization prevention. Use when implementing any feature or bugfix, before writing implementation code.
 ---
 

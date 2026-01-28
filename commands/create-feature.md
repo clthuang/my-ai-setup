@@ -3,7 +3,7 @@ description: Start a new feature with folder structure and optional worktree
 argument-hint: <feature-description>
 ---
 
-# /feature Command
+# /create-feature Command
 
 Start a new feature development workflow.
 
@@ -49,7 +49,7 @@ Choose mode [1-4] or press Enter for {suggested}:
 - Create folder: `docs/features/{id}-{slug}/`
 - Ask: "Create worktree? (y/n)"
 - If yes: `git worktree add ../{project}-{id}-{slug} -b feature/{id}-{slug}`
-- Inform: "Quick mode. Run /spec to start."
+- Inform: "Quick mode. Run /specify to start."
 
 ### For Standard/Full Mode
 - Create folder: `docs/features/{id}-{slug}/`

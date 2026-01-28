@@ -61,9 +61,10 @@ model: [Optional: haiku for speed, sonnet for quality]
 
 **Authoring Rules:**
 1. **Single Responsibility**: Each agent does ONE thing well
-2. **Tool Scoping**: Explicitly list `tools:` to restrict capabilities
-3. **Context Isolation**: Agents have separate context windows—use for deep dives
-4. **Output Format**: Define how results should be returned to parent
+2. **Personality**: The agent's personality traits and approximating character, e.g. Elon Musk, Steve Jobs, etc.
+3. **Tool Scoping**: Explicitly list `tools:` to restrict capabilities, default to all skills if undefined
+4. **Context Isolation**: Agents have separate context windows—use for deep dives
+5. **Output Format**: Define how results should be returned to parent
 
 ---
 
@@ -100,6 +101,10 @@ plugin-name/
 ## Commands
 
 **Location:** `commands/{command-name}.md`
+
+**Naming convention:** Use verbs and be explicit. 
+* Bad: feature (ambiguous)
+* Good: create-feature
 
 **Required Structure:**
 ```markdown

@@ -10,14 +10,14 @@ Execute the implementation plan.
 ## Prerequisites
 
 - If `tasks.md` exists: Read for task list
-- If not: "No tasks found. Run /tasks first, or describe what to implement."
+- If not: "No tasks found. Run /create-tasks first, or describe what to implement."
 
 ## Related Skills
 
 For complex implementations:
 - `subagent-driven-development` - Fresh subagent per task with two-stage review
-- `test-driven-development` - RED-GREEN-REFACTOR discipline
-- `verification-before-completion` - Evidence before claims
+- `implementing-with-tdd` - RED-GREEN-REFACTOR discipline
+- `verifying-before-completion` - Evidence before claims
 
 ## Read Feature Context
 

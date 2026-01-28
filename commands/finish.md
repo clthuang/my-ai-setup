@@ -9,7 +9,7 @@ Complete a feature and clean up.
 
 ## Determine Feature
 
-Same logic as /status command.
+Same logic as /show-status command.
 
 ## Pre-Completion Checks
 
@@ -76,5 +76,5 @@ If Vibe-Kanban:
 ✓ Feature {id}-{slug} completed
 
 Capture learnings? This helps improve future work.
-Run /retro to reflect on this feature.
+Run /retrospect to reflect on this feature.
 ```

@@ -1,5 +1,5 @@
 ---
-name: design
+name: designing
 description: Creates architecture and interface definitions. Use after specification to design the technical approach. Produces design.md with architecture, interfaces, and contracts.
 ---
 
@@ -10,7 +10,7 @@ Design the technical architecture.
 ## Prerequisites
 
 - If `spec.md` exists: Read for requirements
-- If not: "No spec found. Run /spec first, or describe requirements now."
+- If not: "No spec found. Run /specify first, or describe requirements now."
 
 ## Read Feature Context
 

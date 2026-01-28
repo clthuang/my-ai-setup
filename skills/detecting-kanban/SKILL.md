@@ -1,5 +1,5 @@
 ---
-name: kanban-detection
+name: detecting-kanban
 description: Detects Vibe-Kanban availability and provides fallback to TodoWrite. Internal skill used by other workflow components.
 ---
 

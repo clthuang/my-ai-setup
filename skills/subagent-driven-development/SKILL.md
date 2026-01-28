@@ -61,8 +61,8 @@ Only mark task complete when both reviews pass.
 ## Integration
 
 **Required skills:**
-- `test-driven-development` - Subagents follow TDD
-- `verification-before-completion` - Verify before claiming done
+- `implementing-with-tdd` - Subagents follow TDD
+- `verifying-before-completion` - Verify before claiming done
 
 **When complete:**
 - Use `finishing-branch` skill to handle merge/PR/cleanup

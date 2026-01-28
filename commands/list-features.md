@@ -2,7 +2,7 @@
 description: List all active features across worktrees
 ---
 
-# /features Command
+# /list-features Command
 
 List all active features.
 
@@ -32,9 +32,9 @@ ID   Name              Phase        Worktree                    Last Activity
 40   hotfix-login      complete     (none)                      1 day ago
 
 Commands:
-  /status {id}     View feature details
-  /feature         Start new feature
-  cd {worktree}    Switch to feature
+  /show-status {id}   View feature details
+  /create-feature     Start new feature
+  cd {worktree}       Switch to feature
 ```
 
 ## If No Features
@@ -42,5 +42,5 @@ Commands:
 ```
 No active features.
 
-Run /feature "description" to start a new feature.
+Run /create-feature "description" to start a new feature.
 ```

@@ -1,5 +1,5 @@
 ---
-name: specification
+name: specifying
 description: Creates precise feature specifications with requirements and acceptance criteria. Use after brainstorming or when requirements need documenting. Produces spec.md.
 ---
 
