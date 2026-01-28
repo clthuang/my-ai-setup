@@ -23,59 +23,34 @@
 
 ### 0. Installation
 
-Choose based on how you want to use these components:
-
-#### Option A: Use Within This Project Only
+This repository is a Claude Code plugin. Components are auto-discovered from the project root.
 
 ```bash
 git clone https://github.com/clthuang/my-ai-setup.git
 cd my-ai-setup
-
-# Create symlinks so Claude Code can discover components
-ln -sfn ../skills .claude/skills
-ln -sfn ../agents .claude/agents
-ln -sfn ../commands .claude/commands
-
 claude .
 ```
 
-Claude Code discovers components from `.claude/skills/`, `.claude/agents/`, and `.claude/commands/`.
+Claude Code recognizes this as a plugin via `.claude-plugin/plugin.json` and discovers:
+- Skills from `skills/{name}/SKILL.md`
+- Agents from `agents/{name}.md`
+- Commands from `commands/{name}.md`
 
-#### Option B: Global Installation (Individual Symlinks)
+#### Using Components in Other Projects
 
-Add individual components to `~/.claude/` for use across all projects:
-
-```bash
-# Clone to a permanent location
-git clone https://github.com/clthuang/my-ai-setup.git ~/repos/my-ai-setup
-
-# Create directories if they don't exist
-mkdir -p ~/.claude/skills ~/.claude/agents ~/.claude/commands
-
-# Symlink individual skills
-ln -sfn ~/repos/my-ai-setup/skills/implementing-with-tdd ~/.claude/skills/
-ln -sfn ~/repos/my-ai-setup/skills/systematic-debugging ~/.claude/skills/
-ln -sfn ~/repos/my-ai-setup/skills/brainstorming ~/.claude/skills/
-
-# Symlink individual agents
-ln -sfn ~/repos/my-ai-setup/agents/implementer.md ~/.claude/agents/
-
-# Symlink individual commands
-ln -sfn ~/repos/my-ai-setup/commands/create-feature.md ~/.claude/commands/
-```
-
-This adds components alongside any existing ones without replacing them. Restart Claude Code after symlinking.
-
-#### Option C: Global Directory Symlinks (Not Recommended)
-
-> **Warning:** Symlinking entire directories to `~/.claude/` **replaces** those directories completely. Any other skills, agents, or commands you had installed globally will become inaccessible.
+To use these components in another project, install this plugin:
 
 ```bash
-# This REPLACES ~/.claude/skills/ entirely - other skills will be hidden!
-ln -sfn ~/repos/my-ai-setup/skills ~/.claude/skills
+cd your-other-project
+
+# Install as a project plugin (recommended)
+claude /plugin install ~/repos/my-ai-setup --project .
+
+# Or install globally (available in all projects)
+claude /plugin install ~/repos/my-ai-setup
 ```
 
-Only use this approach if this repository is your **single source of truth** for all Claude Code configuration. Otherwise, use Option B to symlink individual components.
+> **Note:** Global installation makes all components available everywhere. Project-level components override global ones if names conflict.
 
 ### 1. Start a Feature
 
