@@ -12,6 +12,16 @@ Design the technical architecture.
 - If `spec.md` exists: Read for requirements
 - If not: "No spec found. Run /spec first, or describe requirements now."
 
+## Read Feature Context
+
+1. Find active feature folder in `docs/features/`
+2. Read `.meta.json` for mode and context
+3. Adjust behavior based on mode:
+   - Hotfix: Skip to implementation guidance
+   - Quick: Streamlined process
+   - Standard: Full process with optional verification
+   - Full: Full process with required verification
+
 ## Process
 
 ### 1. Architecture Overview

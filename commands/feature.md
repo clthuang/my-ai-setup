@@ -57,6 +57,20 @@ Choose mode [1-4] or press Enter for {suggested}:
 - Inform: "Created worktree at ../{project}-{id}-{slug}"
 - Inform: "Standard mode. Run /brainstorm to start."
 
+## Create Metadata File
+
+Write to `docs/features/{id}-{slug}/.meta.json`:
+
+```json
+{
+  "id": "{id}",
+  "name": "{slug}",
+  "mode": "{selected-mode}",
+  "created": "{ISO timestamp}",
+  "worktree": "{path or null}"
+}
+```
+
 ## State Tracking
 
 If Vibe-Kanban available:

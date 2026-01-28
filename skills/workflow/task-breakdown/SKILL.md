@@ -12,6 +12,16 @@ Create small, actionable, testable tasks.
 - If `plan.md` exists: Read for implementation order
 - If not: "No plan found. Run /plan first."
 
+## Read Feature Context
+
+1. Find active feature folder in `docs/features/`
+2. Read `.meta.json` for mode and context
+3. Adjust behavior based on mode:
+   - Hotfix: Skip to implementation guidance
+   - Quick: Streamlined process
+   - Standard: Full process with optional verification
+   - Full: Full process with required verification
+
 ## Process
 
 ### 1. Break Down Each Plan Item
