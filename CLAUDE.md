@@ -10,7 +10,8 @@ Meta-repository for developing and documenting Claude Code configuration pattern
 
 This is a **documentation and design repository**—no plugin components exist yet:
 
-- `docs/prds/claude_code_special_force_design.md` - Main design document (centralized config architecture)
+- `docs/prds/claude_code_special_force_design.md` - Architecture design (three-tier config hierarchy)
+- `docs/guides/component-authoring.md` - Component specifications (skills, agents, plugins, hooks)
 - `for_windsurf/rules/global_rules.md` - Engineering principles template
 - `validate.sh` - Validation script (ready for when components are added)
 
@@ -23,42 +24,18 @@ This is a **documentation and design repository**—no plugin components exist y
 
 Note: Currently validates nothing since no `skills/`, `agents/`, `commands/`, or `.claude-plugin/` directories exist.
 
-## Component Authoring Standards
+## Key References
 
-### Skills (`skills/*/SKILL.md`)
-- **Name**: lowercase, hyphens, gerund form (`creating-tests`, `reviewing-code`)
-- **Description**: Third-person, includes WHAT it does AND WHEN to use it
-- **Size**: Under 500 lines; use reference files for details
+| Document | Use When |
+|----------|----------|
+| [Component Authoring Guide](docs/guides/component-authoring.md) | Creating skills, agents, plugins, commands, or hooks |
+| [Architecture Design](docs/prds/claude_code_special_force_design.md) | Understanding the three-tier config hierarchy |
 
-### Agents (`agents/*.md`)
-- Single responsibility per agent
-- Explicit `tools:` list to restrict capabilities
-- Define output format for parent consumption
+## Quick Reference
 
-### Plugins
-- Valid `plugin.json` with name, version, description
-- README.md documenting usage
-- Semantic versioning (MAJOR.MINOR.PATCH)
+**Naming conventions:** lowercase, hyphens, no spaces
+- Skills: gerund form (`creating-tests`, `reviewing-code`)
+- Agents: action/role (`code-reviewer`, `security-auditor`)
+- Plugins: noun (`datascience-team`)
 
-## Validation
-
-The `validate.sh` script checks:
-- YAML frontmatter syntax and required fields
-- Name format (lowercase, hyphens)
-- Description quality (length, trigger phrases)
-- SKILL.md line count (<500)
-- plugin.json and marketplace.json structure
-
-## Naming Conventions
-
-| Component | Format | Example |
-|-----------|--------|---------|
-| Skill name | gerund, lowercase | `creating-tests` |
-| Agent name | action, lowercase | `code-reviewer` |
-| Plugin name | noun, lowercase | `datascience-team` |
-
-## Token Budget
-
-- Skill metadata: ~100 tokens each
-- Full SKILL.md: Target <5,000 tokens
-- Skills list in system prompt: 15,000-character limit
+**Token budget:** SKILL.md <500 lines, <5,000 tokens
