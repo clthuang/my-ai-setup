@@ -162,7 +162,7 @@ echo "Agent Teams Repository Validation"
 echo "=========================================="
 echo ""
 
-# Validate skills (supports nested directories: skills/*/SKILL.md and skills/*/*/SKILL.md)
+# Validate skills (skills/category/name.md)
 echo "Validating Skills..."
 skill_count=0
 while IFS= read -r skill_file; do
@@ -172,7 +172,7 @@ while IFS= read -r skill_file; do
     validate_description "$skill_file"
     validate_skill_size "$skill_file"
     ((skill_count++)) || true
-done < <(find . -type f -name "SKILL.md" -path "./skills/*" 2>/dev/null)
+done < <(find . -type f -name "*.md" -path "./skills/*" ! -name ".gitkeep" 2>/dev/null)
 if [ $skill_count -eq 0 ]; then
     log_info "No skills found"
 fi
