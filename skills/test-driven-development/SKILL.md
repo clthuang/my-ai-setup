@@ -81,3 +81,21 @@ Before marking work complete:
 - [ ] Tests use real code (mocks only if unavoidable)
 
 Can't check all boxes? Start over with TDD.
+
+## Reference Materials
+
+**Advanced Techniques:**
+- [Interface Contracts](references/interface-contracts.md) - Design APIs before implementation
+- [Testing Anti-Patterns](references/testing-anti-patterns.md) - Common mistakes with mocks and test methods
+
+## Interface-Leading TDD
+
+Beyond basic TDD: design the interface BEFORE writing tests.
+
+1. **Define what the interface should look like** (signatures, contracts)
+2. **Write test that uses the interface** as a consumer would
+3. **Watch it fail** (interface doesn't exist)
+4. **Implement minimal interface** to pass
+5. **Refactor internals** without changing interface
+
+See [Interface Contracts](references/interface-contracts.md) for full guide.

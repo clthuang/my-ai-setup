@@ -71,3 +71,31 @@ If you've tried 3 fixes without success:
 - Discuss with user before continuing
 
 This indicates an architectural problem, not a bug.
+
+## Reference Materials
+
+**Deep Dive Techniques:**
+- [Root Cause Tracing](references/root-cause-tracing.md) - Trace backward through call chains
+- [Defense in Depth](references/defense-in-depth.md) - Multi-layer validation
+- [Condition-Based Waiting](references/condition-based-waiting.md) - Fix flaky tests
+
+**Scripts:**
+- [find-polluter.sh](scripts/find-polluter.sh) - Find which test creates pollution
+
+## Quick Reference: Tracing Techniques
+
+| Technique | When to Use |
+|-----------|-------------|
+| Stack trace logging | Bug deep in execution |
+| `console.error()` | Tests suppress logger |
+| `new Error().stack` | See complete call chain |
+| Bisection script | Unknown test pollution |
+
+## Quick Reference: Defense Layers
+
+| Layer | Purpose |
+|-------|---------|
+| Entry validation | Reject invalid at API boundary |
+| Business logic | Ensure data makes sense for operation |
+| Environment guards | Prevent dangerous ops in test/prod |
+| Debug instrumentation | Capture context for forensics |

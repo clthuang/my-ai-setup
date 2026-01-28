@@ -66,3 +66,31 @@ Only mark task complete when both reviews pass.
 
 **When complete:**
 - Use `finishing-branch` skill to handle merge/PR/cleanup
+
+## Prompt Templates
+
+Use these templates when dispatching subagents:
+
+- [Implementer Prompt](templates/implementer-prompt.md) - Task implementation dispatch
+- [Spec Reviewer Prompt](templates/spec-reviewer-prompt.md) - Spec compliance verification
+- [Code Quality Reviewer Prompt](templates/code-quality-reviewer-prompt.md) - Quality assessment
+
+## Key Template Principles
+
+**Implementer:**
+- Provide FULL task text (don't make subagent read file)
+- Include scene-setting context
+- Encourage questions before starting
+- Require self-review before reporting
+
+**Spec Reviewer:**
+- Do NOT trust implementer report
+- Verify by reading actual code
+- Check for missing requirements
+- Check for extra/unneeded work
+
+**Code Quality Reviewer:**
+- Only after spec compliance passes
+- Focus on HOW not WHAT
+- Categorize issues (Critical/Important/Minor)
+- Provide fix suggestions
