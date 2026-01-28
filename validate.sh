@@ -162,35 +162,57 @@ echo "Agent Teams Repository Validation"
 echo "=========================================="
 echo ""
 
-# Validate skills
+# Validate skills (supports nested directories: skills/*/SKILL.md and skills/*/*/SKILL.md)
 echo "Validating Skills..."
-for skill_file in $(find . -path "*/skills/*/SKILL.md" -type f 2>/dev/null); do
+skill_count=0
+while IFS= read -r skill_file; do
+    [ -z "$skill_file" ] && continue
     log_info "Checking $skill_file"
     validate_frontmatter "$skill_file" && log_success "Frontmatter valid"
     validate_description "$skill_file"
     validate_skill_size "$skill_file"
-done
+    ((skill_count++))
+done < <(find . -type f -name "SKILL.md" \( -path "*/skills/*/SKILL.md" -o -path "*/skills/*/*/SKILL.md" \) 2>/dev/null)
+if [ $skill_count -eq 0 ]; then
+    log_info "No skills found"
+fi
 echo ""
 
-# Validate agents
+# Validate agents (agents/*/*.md - each agent in its own subdirectory)
 echo "Validating Agents..."
-for agent_file in $(find . -path "*/agents/*.md" -type f 2>/dev/null); do
+agent_count=0
+while IFS= read -r agent_file; do
+    [ -z "$agent_file" ] && continue
     log_info "Checking $agent_file"
     validate_frontmatter "$agent_file" && log_success "Frontmatter valid"
-done
+    validate_description "$agent_file"
+    ((agent_count++))
+done < <(find . -type f -name "*.md" -path "*/agents/*/*.md" 2>/dev/null)
+if [ $agent_count -eq 0 ]; then
+    log_info "No agents found"
+fi
 echo ""
 
-# Validate commands
+# Validate commands (commands/*.md - check for description field in frontmatter)
 echo "Validating Commands..."
-for cmd_file in $(find . -path "*/commands/*.md" -type f 2>/dev/null); do
+cmd_count=0
+while IFS= read -r cmd_file; do
+    [ -z "$cmd_file" ] && continue
     log_info "Checking $cmd_file"
-    # Commands only need description in frontmatter
-    if ! grep -q "^description:" "$cmd_file"; then
+    # Commands require description in frontmatter
+    local_content=$(cat "$cmd_file")
+    if ! echo "$local_content" | head -1 | grep -q "^---$"; then
+        log_error "$cmd_file: Missing opening frontmatter marker (---)"
+    elif ! echo "$local_content" | sed -n '/^---$/,/^---$/p' | grep -q "^description:"; then
         log_error "$cmd_file: Missing 'description' field in frontmatter"
     else
         log_success "Frontmatter valid"
     fi
-done
+    ((cmd_count++))
+done < <(find . -type f -name "*.md" -path "*/commands/*.md" 2>/dev/null)
+if [ $cmd_count -eq 0 ]; then
+    log_info "No commands found"
+fi
 echo ""
 
 # Validate plugin.json files
