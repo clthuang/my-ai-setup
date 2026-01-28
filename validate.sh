@@ -14,12 +14,12 @@ WARNINGS=0
 
 log_error() {
     echo -e "${RED}ERROR: $1${NC}"
-    ((ERRORS++))
+    ((ERRORS++)) || true
 }
 
 log_warning() {
     echo -e "${YELLOW}WARNING: $1${NC}"
-    ((WARNINGS++))
+    ((WARNINGS++)) || true
 }
 
 log_success() {
@@ -57,7 +57,7 @@ validate_frontmatter() {
     fi
 
     # Validate name format (lowercase, hyphens only)
-    local name=$(echo "$frontmatter" | grep "^name:" | sed 's/^name:\s*//')
+    local name=$(echo "$frontmatter" | grep "^name:" | sed 's/^name:[[:space:]]*//')
     if ! echo "$name" | grep -qE "^[a-z][a-z0-9-]*$"; then
         log_error "$file: Name '$name' must be lowercase with hyphens only"
         return 1
@@ -71,7 +71,7 @@ validate_description() {
     local file=$1
     local content=$(cat "$file")
     local frontmatter=$(echo "$content" | sed -n '/^---$/,/^---$/p' | sed '1d;$d')
-    local description=$(echo "$frontmatter" | grep "^description:" | sed 's/^description:\s*//')
+    local description=$(echo "$frontmatter" | grep "^description:" | sed 's/^description:[[:space:]]*//')
 
     # Check minimum length
     if [ ${#description} -lt 50 ]; then
@@ -171,8 +171,8 @@ while IFS= read -r skill_file; do
     validate_frontmatter "$skill_file" && log_success "Frontmatter valid"
     validate_description "$skill_file"
     validate_skill_size "$skill_file"
-    ((skill_count++))
-done < <(find . -type f -name "SKILL.md" \( -path "*/skills/*/SKILL.md" -o -path "*/skills/*/*/SKILL.md" \) 2>/dev/null)
+    ((skill_count++)) || true
+done < <(find . -type f -name "SKILL.md" -path "./skills/*" 2>/dev/null)
 if [ $skill_count -eq 0 ]; then
     log_info "No skills found"
 fi
@@ -186,8 +186,8 @@ while IFS= read -r agent_file; do
     log_info "Checking $agent_file"
     validate_frontmatter "$agent_file" && log_success "Frontmatter valid"
     validate_description "$agent_file"
-    ((agent_count++))
-done < <(find . -type f -name "*.md" -path "*/agents/*/*.md" 2>/dev/null)
+    ((agent_count++)) || true
+done < <(find . -type f -name "*.md" -path "./agents/*" 2>/dev/null)
 if [ $agent_count -eq 0 ]; then
     log_info "No agents found"
 fi
@@ -208,8 +208,8 @@ while IFS= read -r cmd_file; do
     else
         log_success "Frontmatter valid"
     fi
-    ((cmd_count++))
-done < <(find . -type f -name "*.md" -path "*/commands/*.md" 2>/dev/null)
+    ((cmd_count++)) || true
+done < <(find . -type f -name "*.md" -path "./commands/*" 2>/dev/null)
 if [ $cmd_count -eq 0 ]; then
     log_info "No commands found"
 fi
