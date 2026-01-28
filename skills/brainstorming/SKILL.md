@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: Guides ideation and exploration for new features. Use when starting a feature, exploring options, or generating ideas. Produces brainstorm.md with ideas, options, and initial direction.
+description: Guides ideation and exploration with incremental presentation and YAGNI discipline. Use when starting a feature, exploring options, or generating ideas.
 ---
 
 # Brainstorming Phase
@@ -49,7 +49,22 @@ State your recommendation and why.
 - Time constraints?
 - Dependencies?
 
-### 4. Capture Ideas
+### 4. Present Design Incrementally
+
+When presenting a design or direction:
+- Break into sections of 200-300 words
+- After each section: "Does this look right so far?"
+- Be ready to go back and clarify
+
+### 5. Apply YAGNI Ruthlessly
+
+Before finalizing:
+- Review each proposed feature
+- Ask: "Is this strictly necessary for the core goal?"
+- Remove anything that's "nice to have"
+- Simpler is better
+
+### 6. Capture Ideas
 
 As you discuss, note:
 - Key ideas
