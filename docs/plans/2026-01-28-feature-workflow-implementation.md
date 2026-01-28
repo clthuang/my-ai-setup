@@ -2043,6 +2043,330 @@ Check GitHub that all files are present.
 
 ---
 
+## Task 20: Phase Commands (brainstorm, spec, design, plan, tasks, implement, verify, retro)
+
+**Files:**
+- Create: `commands/brainstorm.md`
+- Create: `commands/spec.md`
+- Create: `commands/design.md`
+- Create: `commands/plan.md`
+- Create: `commands/tasks.md`
+- Create: `commands/implement.md`
+- Create: `commands/verify.md`
+- Create: `commands/retro.md`
+
+Each command is a thin wrapper that invokes the corresponding skill.
+
+**Step 1: Create all phase command files**
+
+```markdown
+# commands/brainstorm.md
+---
+description: Start brainstorming phase for current feature
+argument-hint: [topic]
+---
+
+Invoke the brainstorming skill for the current feature context.
+
+Read docs/features/ to find active feature, then follow brainstorming skill instructions.
+```
+
+```markdown
+# commands/spec.md
+---
+description: Create specification for current feature
+---
+
+Invoke the specification skill for the current feature context.
+
+Read docs/features/ to find active feature, then follow specification skill instructions.
+```
+
+```markdown
+# commands/design.md
+---
+description: Create architecture design for current feature
+---
+
+Invoke the design skill for the current feature context.
+
+Read docs/features/ to find active feature, then follow design skill instructions.
+```
+
+```markdown
+# commands/plan.md
+---
+description: Create implementation plan for current feature
+---
+
+Invoke the planning skill for the current feature context.
+
+Read docs/features/ to find active feature, then follow planning skill instructions.
+```
+
+```markdown
+# commands/tasks.md
+---
+description: Break down plan into actionable tasks
+---
+
+Invoke the task-breakdown skill for the current feature context.
+
+Read docs/features/ to find active feature, then follow task-breakdown skill instructions.
+```
+
+```markdown
+# commands/implement.md
+---
+description: Start or continue implementation of current feature
+---
+
+Invoke the implementing skill for the current feature context.
+
+Read docs/features/ to find active feature, then follow implementing skill instructions.
+```
+
+```markdown
+# commands/verify.md
+---
+description: Run verification for current phase
+---
+
+Invoke the verifying skill for the current feature context.
+
+Read docs/features/ to find active feature and determine phase, then follow verifying skill instructions.
+```
+
+```markdown
+# commands/retro.md
+---
+description: Run retrospective for current or completed feature
+argument-hint: [feature-id]
+---
+
+Invoke the retrospecting skill for the specified or current feature.
+
+Read docs/features/ to find feature, then follow retrospecting skill instructions.
+```
+
+**Step 2: Commit all commands**
+
+```bash
+git add commands/brainstorm.md commands/spec.md commands/design.md commands/plan.md commands/tasks.md commands/implement.md commands/verify.md commands/retro.md
+git commit -m "feat: add phase commands (brainstorm, spec, design, plan, tasks, implement, verify, retro)"
+```
+
+---
+
+## Task 21: Feature Metadata File
+
+**Files:**
+- Update: `commands/feature.md` to create `.meta.json`
+- Update: All phase skills to read `.meta.json`
+
+**Purpose:** Track feature mode (Hotfix/Quick/Standard/Full) persistently.
+
+**Step 1: Add metadata creation to /feature command**
+
+Add to `commands/feature.md` after folder creation:
+
+```markdown
+## Create Metadata File
+
+Write to `docs/features/{id}-{slug}/.meta.json`:
+
+```json
+{
+  "id": "{id}",
+  "name": "{slug}",
+  "mode": "{selected-mode}",
+  "created": "{ISO timestamp}",
+  "worktree": "{path or null}"
+}
+```
+```
+
+**Step 2: Update skills to read metadata**
+
+Add to each phase skill's Prerequisites section:
+
+```markdown
+## Read Feature Context
+
+1. Find active feature folder in `docs/features/`
+2. Read `.meta.json` for mode and context
+3. Adjust behavior based on mode:
+   - Hotfix: Skip to implementation guidance
+   - Quick: Streamlined process
+   - Standard: Full process with optional verification
+   - Full: Full process with required verification
+```
+
+**Step 3: Commit**
+
+```bash
+git add commands/feature.md skills/
+git commit -m "feat: add feature metadata tracking (.meta.json)"
+```
+
+---
+
+## Task 22: Vibe-Kanban Detection Helper
+
+**Files:**
+- Create: `skills/practices/kanban-detection/SKILL.md`
+
+**Step 1: Create detection skill**
+
+```markdown
+---
+name: kanban-detection
+description: Detects Vibe-Kanban availability and provides fallback to TodoWrite. Internal skill used by other workflow components.
+---
+
+# Kanban Detection
+
+## Check Availability
+
+1. Look for MCP tools matching pattern `vibe-kanban` or `mcp__vibe-kanban__*`
+2. If found: Vibe-Kanban is available
+3. If not found: Use TodoWrite as fallback
+
+## When Available
+
+Use Vibe-Kanban MCP tools:
+- Create cards for features/tasks
+- Update card status
+- Track progress visually
+
+## When Not Available
+
+Use TodoWrite tool:
+- Create todo items for tracking
+- Update status via TodoWrite
+- Workflow continues normally
+
+## Detection Code Pattern
+
+```
+Check: Are any tools available matching "vibe-kanban"?
+  Yes → Use Vibe-Kanban
+  No  → Use TodoWrite
+
+Never fail if Kanban unavailable. Graceful degradation.
+```
+```
+
+**Step 2: Commit**
+
+```bash
+git add skills/practices/kanban-detection/
+git commit -m "feat: add kanban-detection helper skill"
+```
+
+---
+
+## Task 23: Fix README Paths
+
+**Files:**
+- Update: README.md (from Task 0)
+
+**Step 1: Fix relative paths**
+
+Change:
+```markdown
+See [Component Authoring Guide](docs/guides/component-authoring.md).
+```
+
+To:
+```markdown
+See [Component Authoring Guide](./docs/guides/component-authoring.md).
+```
+
+And:
+```markdown
+- [Feature Workflow Design](docs/plans/2026-01-28-feature-workflow-design.md)
+- [Component Authoring Guide](docs/guides/component-authoring.md)
+```
+
+To:
+```markdown
+- [Feature Workflow Design](./docs/plans/2026-01-28-feature-workflow-design.md)
+- [Component Authoring Guide](./docs/guides/component-authoring.md)
+```
+
+**Step 2: Commit**
+
+```bash
+git add README.md
+git commit -m "fix: correct relative paths in README"
+```
+
+---
+
+## Task 24: Update validate.sh with Specific Changes
+
+**Files:**
+- Modify: `validate.sh`
+
+**Step 1: Update skill validation paths**
+
+Replace the skills validation section:
+
+```bash
+# Validate skills (support nested directories)
+echo "Validating Skills..."
+for skill_file in $(find ./skills -name "SKILL.md" -type f 2>/dev/null); do
+    log_info "Checking $skill_file"
+    validate_frontmatter "$skill_file" && log_success "Frontmatter valid"
+    validate_description "$skill_file"
+    validate_skill_size "$skill_file"
+done
+echo ""
+```
+
+**Step 2: Add agent validation**
+
+Add after skills validation:
+
+```bash
+# Validate agents
+echo "Validating Agents..."
+for agent_file in $(find ./agents -name "*.md" -type f 2>/dev/null); do
+    log_info "Checking $agent_file"
+    validate_frontmatter "$agent_file" && log_success "Frontmatter valid"
+done
+echo ""
+```
+
+**Step 3: Add commands validation**
+
+Add after agents validation:
+
+```bash
+# Validate commands
+echo "Validating Commands..."
+for cmd_file in $(find ./commands -name "*.md" -type f 2>/dev/null); do
+    log_info "Checking $cmd_file"
+    # Commands need description in frontmatter
+    if ! grep -q "^description:" "$cmd_file"; then
+        log_error "$cmd_file: Missing 'description' field in frontmatter"
+    else
+        log_success "Frontmatter valid"
+    fi
+done
+echo ""
+```
+
+**Step 4: Commit**
+
+```bash
+git add validate.sh
+git commit -m "fix: update validate.sh for nested skills, agents, and commands"
+```
+
+---
+
 ## Summary
 
 | Task | Component | Files |
@@ -2064,8 +2388,40 @@ Check GitHub that all files are present.
 | 14 | Generic worker agent | agents/workers/generic-worker.md |
 | 15 | Investigation agent | agents/workers/investigation-agent.md |
 | 16 | Quality reviewer agent | agents/specialists/quality-reviewer.md |
-| 17 | Update validate.sh | validate.sh |
+| 17 | Update validate.sh (initial) | validate.sh |
 | 18 | Validation and test | - |
-| 19 | Final push | - |
+| 19 | Final push (first batch) | - |
+| 20 | Phase commands | commands/brainstorm.md, spec.md, etc. |
+| 21 | Feature metadata | .meta.json support |
+| 22 | Kanban detection | skills/practices/kanban-detection/SKILL.md |
+| 23 | Fix README paths | README.md |
+| 24 | validate.sh specifics | validate.sh |
 
-Total: 20 tasks
+Total: 25 tasks
+
+---
+
+## Design Decisions Documented
+
+### Why Commands + Skills (Not Just Skills)
+
+Commands are user-invocable entry points. Skills contain the logic. This separation allows:
+- Commands can be simple wrappers
+- Skills can be reused by other skills
+- Clear distinction between "what user types" and "what Claude does"
+
+### Why .meta.json for Mode Tracking
+
+- JSON is easy to read/write
+- Keeps mode with feature (not global)
+- Hidden file (.) keeps feature folder clean
+- Can extend with more metadata later
+
+### Why No Specialist Agents in Initial Implementation
+
+Specialist agents (frontend-specialist, api-specialist, database-specialist) are mentioned in design but not implemented in Phase 1 because:
+- Generic worker handles most cases
+- Specialists can be added incrementally when patterns emerge
+- YAGNI: Don't build until needed
+
+Add specialist agents in a future iteration when specific domain patterns are identified through use.
