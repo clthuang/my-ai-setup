@@ -12,6 +12,13 @@ Execute the implementation plan.
 - If `tasks.md` exists: Read for task list
 - If not: "No tasks found. Run /tasks first, or describe what to implement."
 
+## Related Skills
+
+For complex implementations:
+- `subagent-driven-development` - Fresh subagent per task with two-stage review
+- `test-driven-development` - RED-GREEN-REFACTOR discipline
+- `verification-before-completion` - Evidence before claims
+
 ## Read Feature Context
 
 1. Find active feature folder in `docs/features/`
@@ -75,17 +82,13 @@ If all done: "All tasks complete. Run /verify for quality review, then /finish."
 
 ## Agent Delegation
 
-For complex tasks, consider delegation:
+For complex tasks, dispatch specialized agents:
 
-```
-All files in one domain?
-  Frontend (.tsx, .css) → frontend-specialist
-  API (routes, handlers) → api-specialist
-  Database (migrations) → database-specialist
-  Mixed → handle directly
+- `agents/implementer.md` - Task implementation with self-review
+- `agents/spec-reviewer.md` - Verify implementation matches spec
+- `agents/code-quality-reviewer.md` - Verify implementation quality
 
-Unsure? Ask user.
-```
+See `subagent-driven-development` skill for orchestration pattern.
 
 ## Error Handling
 
