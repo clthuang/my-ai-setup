@@ -188,6 +188,7 @@ Skills are instructions Claude follows for specific development practices.
 | `breaking-down-tasks` | Create actionable tasks |
 | `implementing` | Code execution with TDD |
 | `verifying` | Phase-appropriate verification |
+| `updating-docs` | Guide documentation updates |
 | `retrospecting` | Capture learnings |
 
 ### Advanced Disciplines
