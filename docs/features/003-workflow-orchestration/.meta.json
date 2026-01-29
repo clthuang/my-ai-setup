@@ -2,10 +2,11 @@
   "id": "003",
   "name": "workflow-orchestration",
   "mode": "standard",
-  "status": "active",
+  "status": "completed",
   "created": "2026-01-30T00:00:00Z",
-  "currentPhase": "implement",
-  "worktree": "../my-ai-setup-003-workflow-orchestration",
+  "completed": "2026-01-30T00:00:00Z",
+  "currentPhase": "finish",
+  "worktree": null,
   "phases": {
     "brainstorm": {
       "started": "2026-01-30T00:00:00Z",
