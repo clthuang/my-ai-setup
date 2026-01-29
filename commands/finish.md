@@ -28,10 +28,11 @@ Same logic as /show-status command.
 ```
 Feature {id}-{slug} ready to complete.
 
-How would you like to merge?
+How would you like to finish?
 1. Create PR (recommended for team projects)
 2. Merge to main locally
 3. Keep branch (don't merge yet)
+4. Discard/abandon feature
 ```
 
 ### Option 1: Create PR
@@ -42,6 +43,7 @@ gh pr create --title "Feature: {slug}" --body "..."
 ```
 
 Inform: "PR created: {url}"
+→ Update status to "completed"
 
 ### Option 2: Merge Locally
 
@@ -51,29 +53,69 @@ git merge feature/{id}-{slug}
 git push
 ```
 
+→ Update status to "completed"
+
 ### Option 3: Keep Branch
 
 Inform: "Branch kept. Run /finish again when ready to merge."
-Skip cleanup.
+Skip cleanup and status update.
 
-## Cleanup (for options 1 & 2)
+### Option 4: Discard/Abandon
 
-If worktree exists:
+Confirm: "This will mark the feature as abandoned. Are you sure? (y/n)"
+→ Update status to "abandoned"
+
+## Update Feature Status
+
+For options 1, 2, or 4, update `.meta.json`:
+
+**For completed (options 1, 2):**
+```json
+{
+  "status": "completed",
+  "completed": "{ISO timestamp}"
+}
+```
+
+**For abandoned (option 4):**
+```json
+{
+  "status": "abandoned",
+  "completed": "{ISO timestamp}"
+}
+```
+
+Note: `completed` and `abandoned` are terminal statuses. They cannot be changed. New work requires a new feature.
+
+## Review History Cleanup
+
+Delete `.review-history.md` from the feature folder:
+- History served its purpose during development
+- Git has the permanent record
+- Avoids clutter in completed features
+
+```bash
+rm docs/features/{id}-{slug}/.review-history.md
+```
+
+## Worktree Cleanup (for options 1, 2, 4)
+
+If worktree exists and status is terminal:
 ```bash
 cd {original-repo}
 git worktree remove ../{project}-{id}-{slug}
-git branch -d feature/{id}-{slug}  # after merge
+git branch -d feature/{id}-{slug}  # after merge, or -D for abandon
 ```
 
 ## Update State
 
 If Vibe-Kanban:
-- Move card to "Done"
+- Move card to "Done" (completed) or "Archived" (abandoned)
 
 ## Suggest Retrospective
 
 ```
-✓ Feature {id}-{slug} completed
+✓ Feature {id}-{slug} {completed|abandoned}
 
 Capture learnings? This helps improve future work.
 Run /retrospect to reflect on this feature.
