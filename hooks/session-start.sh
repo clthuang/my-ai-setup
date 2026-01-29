@@ -6,6 +6,26 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+# Detect project root: use PWD (where Claude is running), not PLUGIN_ROOT (cached plugin location)
+# This is critical because PLUGIN_ROOT points to ~/.claude/plugins/cache/... which has stale data
+detect_project_root() {
+    local dir="${PWD}"
+
+    # Walk up to find .git or docs/features (project markers)
+    while [[ "$dir" != "/" ]]; do
+        if [[ -d "${dir}/docs/features" ]] || [[ -d "${dir}/.git" ]]; then
+            echo "$dir"
+            return 0
+        fi
+        dir=$(dirname "$dir")
+    done
+
+    # Fallback to PWD if no markers found
+    echo "${PWD}"
+}
+
+PROJECT_ROOT="$(detect_project_root)"
+
 # Escape string for JSON output
 escape_json() {
     local input="$1"
@@ -27,7 +47,7 @@ escape_json() {
 
 # Find active feature (most recently modified .meta.json with status=active)
 find_active_feature() {
-    local features_dir="${PLUGIN_ROOT}/docs/features"
+    local features_dir="${PROJECT_ROOT}/docs/features"
 
     if [[ ! -d "$features_dir" ]]; then
         return 1
@@ -138,7 +158,7 @@ check_worktree_mismatch() {
 
     # Resolve worktree to absolute path
     local worktree_abs
-    worktree_abs=$(cd "${PLUGIN_ROOT}" && cd "${worktree}" 2>/dev/null && pwd) || return 1
+    worktree_abs=$(cd "${PROJECT_ROOT}" && cd "${worktree}" 2>/dev/null && pwd) || return 1
 
     # Compare with cwd
     if [[ "$cwd" != "$worktree_abs" ]]; then
