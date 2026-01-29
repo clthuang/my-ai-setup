@@ -80,23 +80,15 @@ has_test_files() {
 
 # Output: allow the action
 output_allow() {
-    local context="${1:-}"
-    if [[ -n "$context" ]]; then
-        local escaped
-        escaped=$(escape_json "$context")
-        cat <<EOF
+    local context="${1:-Allowed}"
+    local escaped
+    escaped=$(escape_json "$context")
+    cat <<EOF
 {
   "decision": "allow",
   "additionalContext": "${escaped}"
 }
 EOF
-    else
-        cat <<EOF
-{
-  "decision": "allow"
-}
-EOF
-    fi
 }
 
 # Output: block the action
