@@ -70,8 +70,11 @@ output_allow() {
     escaped=$(escape_json "$context")
     cat <<EOF
 {
-  "decision": "allow",
-  "additionalContext": "${escaped}"
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "allow",
+    "permissionDecisionReason": "${escaped}"
+  }
 }
 EOF
 }
@@ -83,8 +86,11 @@ output_block() {
     escaped=$(escape_json "$reason")
     cat <<EOF
 {
-  "decision": "block",
-  "reason": "${escaped}"
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "${escaped}"
+  }
 }
 EOF
 }

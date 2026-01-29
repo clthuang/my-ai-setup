@@ -167,7 +167,7 @@ test_pre_commit_guard_allows_non_commit() {
     local output
     output=$(echo '{"tool_name": "Bash", "tool_input": {"command": "git status"}}' | "${HOOKS_DIR}/pre-commit-guard.sh" 2>/dev/null)
 
-    if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('decision') == 'allow'" 2>/dev/null; then
+    if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('hookSpecificOutput', {}).get('permissionDecision') == 'allow'" 2>/dev/null; then
         log_pass
     else
         log_fail "Should allow git status"
@@ -182,7 +182,7 @@ test_pre_commit_guard_allows_non_git() {
     local output
     output=$(echo '{"tool_name": "Bash", "tool_input": {"command": "ls -la"}}' | "${HOOKS_DIR}/pre-commit-guard.sh" 2>/dev/null)
 
-    if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('decision') == 'allow'" 2>/dev/null; then
+    if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('hookSpecificOutput', {}).get('permissionDecision') == 'allow'" 2>/dev/null; then
         log_pass
     else
         log_fail "Should allow ls command"
@@ -203,7 +203,7 @@ test_pre_commit_guard_blocks_main() {
         local output exit_code
         output=$(echo '{"tool_name": "Bash", "tool_input": {"command": "git commit -m test"}}' | "${HOOKS_DIR}/pre-commit-guard.sh" 2>/dev/null) || exit_code=$?
 
-        if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('decision') == 'block'" 2>/dev/null; then
+        if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('hookSpecificOutput', {}).get('permissionDecision') == 'deny'" 2>/dev/null; then
             log_pass
         else
             log_fail "Should block commits on main"
@@ -221,7 +221,7 @@ test_pre_commit_guard_from_subdirectory() {
     local output
     output=$(echo '{"tool_name": "Bash", "tool_input": {"command": "git status"}}' | "${HOOKS_DIR}/pre-commit-guard.sh" 2>/dev/null)
 
-    if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('decision') == 'allow'" 2>/dev/null; then
+    if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('hookSpecificOutput', {}).get('permissionDecision') == 'allow'" 2>/dev/null; then
         log_pass
     else
         log_fail "Hook should work from subdirectory"

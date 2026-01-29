@@ -1,5 +1,6 @@
 ---
 description: Create implementation plan for current feature
+argument-hint: [--no-review]
 ---
 
 Invoke the planning skill for the current feature context.
@@ -54,35 +55,69 @@ Update `.meta.json`:
 
 ### 4. Execute with Reviewer Loop
 
-Get max iterations from mode (Hotfix=1, Quick=2, Standard=3, Full=5).
+Get max iterations from mode: Hotfix=1, Quick=2, Standard=3, Full=5.
 
-```
-iteration = 1
-WHILE iteration <= max_iterations:
+**If `--no-review` argument is present:** Skip to step 4e directly after producing artifact. Set `reviewSkipped: true` in `.meta.json`.
 
-  a. Execute planning skill → produce/revise plan.md
+**Otherwise, execute this loop:**
 
-  b. Spawn chain-reviewer agent with:
-     - Previous artifact: design.md
-     - Current artifact: plan.md
-     - Next phase expectations: "Tasks needs: Ordered steps with dependencies,
-       all design items covered, clear sequencing"
+a. **Produce artifact:** Follow the planning skill to create/revise plan.md
 
-  c. IF reviewer approves:
-     - Mark phase completed
-     - Present: "Plan complete ({iteration} iterations)"
-     - BREAK
+b. **Invoke reviewer:** Use the Task tool to spawn chain-reviewer:
+   ```
+   Task tool call:
+     description: "Review plan for chain sufficiency"
+     subagent_type: chain-reviewer
+     prompt: |
+       Review the following artifacts for chain sufficiency.
 
-  d. IF NOT approved AND iteration < max:
-     - Append to .review-history.md
-     - iteration++
-     - Revise based on feedback
-     - CONTINUE
+       ## Previous Artifact (design.md)
+       {content of design.md}
 
-  e. IF NOT approved AND iteration == max:
-     - Mark phase completed with reviewerNotes
-     - Present: "Plan complete. Reviewer concerns: [issues]"
-     - BREAK
+       ## Current Artifact (plan.md)
+       {content of plan.md}
+
+       ## Next Phase Expectations
+       Tasks needs: Ordered steps with dependencies,
+       all design items covered, clear sequencing.
+
+       Return your assessment as JSON:
+       {
+         "approved": true/false,
+         "issues": [...],
+         "summary": "..."
+       }
+   ```
+
+c. **Parse response:** Extract the `approved` field from reviewer's JSON response.
+   - If response is not valid JSON, ask reviewer to retry with correct format.
+
+d. **Branch on result:**
+   - If `approved: true` → Proceed to step 4e
+   - If `approved: false` AND iteration < max:
+     - Append iteration to `.review-history.md` using format below
+     - Increment iteration counter
+     - Address the issues by revising plan.md
+     - Return to step 4b
+   - If `approved: false` AND iteration == max:
+     - Note concerns in `.meta.json` reviewerNotes
+     - Proceed to step 4e
+
+e. **Complete phase:** Update state and show completion message.
+
+**Review History Entry Format** (append to `.review-history.md`):
+```markdown
+## Iteration {n} - {ISO timestamp}
+
+**Decision:** {Approved / Needs Revision}
+
+**Issues:**
+- [{severity}] {description} (at: {location})
+
+**Changes Made:**
+{Summary of revisions made to address issues}
+
+---
 ```
 
 ### 5. Update State on Completion

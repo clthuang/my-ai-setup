@@ -66,9 +66,11 @@ At end of brainstorming session, ask:
 2. Generate feature ID: Find highest number in `docs/features/` and add 1
 3. Create folder: `docs/features/{id}-{slug}/`
 4. Handle worktree based on mode:
-   - Hotfix: No worktree
-   - Quick: Ask "Create worktree? (y/n)"
-   - Standard/Full: Create worktree `git worktree add ../{project}-{id}-{slug} -b feature/{id}-{slug}`
+   - **Hotfix:** Skip worktree creation entirely, set `"worktree": null`
+   - **Quick:** Ask user: "Create isolated worktree for this feature? (y/n)"
+     - If user declines: Set `"worktree": null`
+     - If user confirms: Execute worktree creation steps below
+   - **Standard/Full:** Automatically create worktree (no user prompt), execute steps below
 5. Move scratch file to feature folder as `brainstorm.md`
 6. Create `.meta.json`:
    ```json
@@ -83,6 +85,32 @@ At end of brainstorming session, ask:
    ```
 7. Inform user: "Feature {id}-{slug} created. Continuing to /specify..."
 8. Auto-invoke `/specify`
+
+**Worktree Creation Steps:**
+
+Execute these commands when creating a worktree:
+
+```bash
+# 1. Verify we're in a git repository
+git rev-parse --git-dir
+
+# 2. Get project name from current directory
+project_name=$(basename $(pwd))
+
+# 3. Create worktree with new branch
+git worktree add "../${project_name}-${feature_id}-${slug}" -b "feature/${feature_id}-${slug}"
+
+# 4. Verify creation succeeded
+ls -la "../${project_name}-${feature_id}-${slug}"
+```
+
+**After successful creation:**
+- Store path in `.meta.json`: `"worktree": "../{project}-{id}-{slug}"`
+- Inform user: "Worktree created at ../{path}. Consider: cd ../{path}"
+
+**If creation fails:**
+- Set `.meta.json`: `"worktree": null`
+- Warn user: "Failed to create worktree: {error}. Continuing without isolation."
 
 **If no:**
 - Inform: "Saved to docs/brainstorms/{filename}. You can revisit later."
