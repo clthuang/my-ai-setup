@@ -23,6 +23,13 @@ Same logic as /show-status command.
    - "Run quality review before completing? (y/n)"
    - If yes: Spawn quality-reviewer agent
 
+4. **Offer documentation review**
+   - Detect doc files (README.md, CHANGELOG.md, HISTORY.md, API.md, docs/*.md)
+   - If any docs exist: "Documentation review? (y/n)"
+   - If yes: Invoke `/update-docs` skill
+   - If no: Continue to completion options
+   - If no docs detected: Skip silently
+
 ## Completion Options
 
 ```

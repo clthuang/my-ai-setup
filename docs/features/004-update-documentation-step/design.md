@@ -44,6 +44,8 @@ A lightweight addition to the `/finish` workflow that prompts for documentation 
 Detected files:
 - README.md (exists: true, path: /README.md)
 - CHANGELOG.md (exists: false)
+- HISTORY.md (exists: false)
+- API.md (exists: false)
 - docs/*.md (exists: true, count: 3)
 ```
 
@@ -95,10 +97,12 @@ Detected files:
 Input:  project_root (string)
 Output: {
   readme: { exists: boolean, path: string },
-  changelog: { exists: boolean, path: string },
-  docs: { exists: boolean, files: string[] }
+  changelog: { exists: boolean, path: string },  // CHANGELOG.md
+  history: { exists: boolean, path: string },    // HISTORY.md (alt changelog)
+  api: { exists: boolean, path: string },        // API.md
+  docs: { exists: boolean, files: string[] }     // docs/*.md (top-level only)
 }
-Errors: None (returns empty for missing files)
+Errors: None (returns empty/false for missing files)
 ```
 
 ### /update-docs Skill Interaction
@@ -119,11 +123,13 @@ Output: Interactive session:
 ```
 Input:  Feature context, doc detection result
 Output:
-  - If docs exist: "Documentation review? Run /update-docs (y/n/skip)"
+  - If docs exist: "Documentation review? Run /update-docs (y/n)"
   - If no docs: Skip silently
-  - User choice "n" or "skip": Continue to completion options
+  - User choice "n": Continue to completion options
   - User choice "y": Invoke /update-docs skill
 ```
+
+**Note:** Single y/n choice (KISS). No separate "skip" option—declining IS skipping.
 
 ## Technical Decisions
 
@@ -150,6 +156,30 @@ Output:
 - **Choice:** Read spec.md to determine if changes are user-visible
 - **Alternatives:** Analyze code changes, commit messages
 - **Rationale:** spec.md already captures user-visible changes. Code analysis would be complex and prone to false positives.
+
+#### User-Visible Changes Heuristics
+
+Extract from spec.md's **In Scope** section. A change is user-visible if it:
+
+| Indicator | Example | Doc Impact |
+|-----------|---------|------------|
+| Adds new command/skill | "Create `/update-docs` skill" | README (usage), CHANGELOG |
+| Changes existing command behavior | "Modify `/finish` to offer..." | README (if behavior documented), CHANGELOG |
+| Adds configuration option | "Add `--no-review` flag" | README (options), CHANGELOG |
+| Changes user-facing output | "Show documentation suggestions" | CHANGELOG |
+| Deprecates/removes feature | "Remove legacy mode" | README, CHANGELOG (breaking) |
+
+**NOT user-visible** (no doc update needed):
+- Internal refactoring ("Restructure helper functions")
+- Performance improvements (unless >2x change)
+- Code quality ("Add error handling", "Fix type errors")
+- Test additions ("Add unit tests for...")
+
+**Extraction algorithm:**
+1. Read spec.md "In Scope" section
+2. For each bullet, check against indicator table
+3. If ANY match → suggest README/CHANGELOG update
+4. If NONE match → report "No user-visible changes detected"
 
 ## Risks & Mitigations
 
