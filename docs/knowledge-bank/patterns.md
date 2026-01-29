@@ -47,6 +47,17 @@ Use PROJECT_ROOT for dynamic project state, PLUGIN_ROOT for static plugin assets
 - Key insight: Claude's PWD may be a subdirectory, so walk up to find `.git`
 - See: [Hook Development Guide](../guides/hook-development.md)
 
+### Pattern: Hook Schema Compliance
+Hook JSON output must use correct field names for each hook type.
+- Discovered in: Feature #005
+- Problem: PreToolUse used `decision`/`additionalContext` but should use `permissionDecision`/`permissionDecisionReason`
+- Key insight: Different hook types have different valid fields:
+  - SessionStart: `hookSpecificOutput.additionalContext`
+  - PreToolUse: `hookSpecificOutput.permissionDecision`, `permissionDecisionReason`
+  - PostToolUse: `hookSpecificOutput.additionalContext`
+- Validation: Use Context7 to look up Claude Code hook documentation for authoritative schema
+- Solution: Tests should validate output structure matches expected schema per hook type
+
 <!-- Example format:
 ### Pattern: Early Interface Definition
 Define interfaces before implementation. Enables parallel work.
