@@ -2,6 +2,9 @@
   "id": "002",
   "name": "change-workflow-ordering",
   "mode": "standard",
+  "status": "completed",
   "created": "2026-01-29T00:00:00Z",
-  "worktree": "../my-ai-setup-002-change-workflow-ordering"
+  "completed": "2026-01-30T00:00:00Z",
+  "currentPhase": "finish",
+  "worktree": null
 }
