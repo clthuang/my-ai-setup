@@ -215,6 +215,32 @@ if [ $cmd_count -eq 0 ]; then
 fi
 echo ""
 
+# Validate hooks
+echo "Validating Hooks..."
+if [ -f "hooks/hooks.json" ]; then
+    log_info "Checking hooks/hooks.json"
+    if python3 -c "import json; json.load(open('hooks/hooks.json'))" 2>/dev/null; then
+        log_success "hooks.json valid JSON"
+    else
+        log_error "hooks/hooks.json: Invalid JSON syntax"
+    fi
+
+    # Check shell scripts are executable
+    for hook_script in hooks/*.sh; do
+        if [ -f "$hook_script" ]; then
+            log_info "Checking $hook_script"
+            if [ -x "$hook_script" ]; then
+                log_success "$hook_script is executable"
+            else
+                log_error "$hook_script is not executable (run: chmod +x $hook_script)"
+            fi
+        fi
+    done
+else
+    log_info "No hooks/hooks.json found"
+fi
+echo ""
+
 # Validate plugin.json files
 echo "Validating Plugin Manifests..."
 for plugin_json in $(find . -path "*/.claude-plugin/plugin.json" -type f 2>/dev/null); do
