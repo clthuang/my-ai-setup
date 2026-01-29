@@ -26,9 +26,10 @@ except:
 " 2>/dev/null
 }
 
-# Get current git branch
-get_current_branch() {
-    git rev-parse --abbrev-ref HEAD 2>/dev/null || echo ""
+# Get git branch for the command's target directory
+get_branch_for_command() {
+    local command="$1"
+    run_git_in_command_context "$command" rev-parse --abbrev-ref HEAD || echo ""
 }
 
 # Check if on protected branch
@@ -106,9 +107,9 @@ main() {
         exit 0
     fi
 
-    # Check branch
+    # Check branch (worktree-aware)
     local branch
-    branch=$(get_current_branch)
+    branch=$(get_branch_for_command "$command")
 
     if is_protected_branch "$branch"; then
         output_block "Direct commits to ${branch} branch are blocked. Create a feature branch first:
