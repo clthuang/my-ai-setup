@@ -19,6 +19,13 @@ Breaking a single file modification into many small separate tasks.
 - Example: 4 tasks for one skill file (create structure, add sequence, add validation, add patterns)
 - Instead: One task per logical unit of work (one file = one task, or one component = one task)
 
+### Anti-Pattern: Relative Paths in Hooks
+Using `find .` or relative paths in hooks for project file discovery.
+- Observed in: Plugin cache staleness bug
+- Cost: Missed test files when Claude ran from subdirectories; stale feature metadata
+- Root cause: `find .` searches from PWD; `PLUGIN_ROOT` points to cached copy
+- Instead: Use `detect_project_root()` from shared library, search from `PROJECT_ROOT`
+
 <!-- Example format:
 ### Anti-Pattern: Premature Optimization
 Optimizing before measuring actual performance.

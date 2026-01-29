@@ -39,6 +39,14 @@ Each workflow phase output should be self-sufficient for the next phase.
 - Question: "Can next phase complete its work using ONLY this artifact?"
 - Enables: Expectations table defining what each phase needs from previous
 
+### Pattern: PROJECT_ROOT vs PLUGIN_ROOT in Hooks
+Use PROJECT_ROOT for dynamic project state, PLUGIN_ROOT for static plugin assets.
+- Discovered in: Plugin cache staleness bug fix
+- Benefit: Prevents reading stale cached data when plugin files are copied
+- Implementation: Shared `detect_project_root()` function in `hooks/lib/common.sh`
+- Key insight: Claude's PWD may be a subdirectory, so walk up to find `.git`
+- See: [Hook Development Guide](../guides/hook-development.md)
+
 <!-- Example format:
 ### Pattern: Early Interface Definition
 Define interfaces before implementation. Enables parallel work.

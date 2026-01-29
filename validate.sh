@@ -236,6 +236,21 @@ if [ -f "hooks/hooks.json" ]; then
             fi
         fi
     done
+
+    # Run hook integration tests if available
+    if [ -f "hooks/tests/test-hooks.sh" ]; then
+        log_info "Running hook integration tests..."
+        if [ -x "hooks/tests/test-hooks.sh" ]; then
+            if ./hooks/tests/test-hooks.sh > /tmp/hook-tests-output.txt 2>&1; then
+                log_success "Hook integration tests passed"
+            else
+                log_error "Hook integration tests failed"
+                cat /tmp/hook-tests-output.txt
+            fi
+        else
+            log_error "hooks/tests/test-hooks.sh is not executable"
+        fi
+    fi
 else
     log_info "No hooks/hooks.json found"
 fi

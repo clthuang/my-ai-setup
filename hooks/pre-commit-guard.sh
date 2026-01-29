@@ -3,24 +3,9 @@
 
 set -euo pipefail
 
-# Escape string for JSON output
-escape_json() {
-    local input="$1"
-    local output=""
-    local i char
-    for (( i=0; i<${#input}; i++ )); do
-        char="${input:$i:1}"
-        case "$char" in
-            '\') output+='\\';;
-            '"') output+='\"';;
-            $'\n') output+='\n';;
-            $'\r') output+='\r';;
-            $'\t') output+='\t';;
-            *) output+="$char";;
-        esac
-    done
-    printf '%s' "$output"
-}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+source "${SCRIPT_DIR}/lib/common.sh"
+PROJECT_ROOT="$(detect_project_root)"
 
 # Read tool input from stdin
 read_tool_input() {
@@ -70,7 +55,7 @@ has_test_files() {
     )
 
     for pattern in "${patterns[@]}"; do
-        if find . -name "$pattern" -type f 2>/dev/null | head -1 | grep -q .; then
+        if find "${PROJECT_ROOT}" -name "$pattern" -type f 2>/dev/null | head -1 | grep -q .; then
             return 0
         fi
     done
