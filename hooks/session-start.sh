@@ -115,10 +115,10 @@ build_context() {
     fi
 
     # Always include workflow overview
-    context+="Available commands: /create-feature | /brainstorm → /specify → /design → /create-tasks → /implement → /verify → /finish"
+    context+="Available commands: /brainstorm → /specify → /design → /create-plan → /create-tasks → /implement → /verify → /finish (/create-feature as alternative)"
 
     if [[ -z "$meta_file" ]]; then
-        context+="\n\nNo active feature. Use /create-feature to start a structured workflow, or work freely—skills are available on demand."
+        context+="\n\nNo active feature. Use /brainstorm to start exploring ideas, or /create-feature to skip brainstorming."
     fi
 
     echo "$context"

@@ -11,9 +11,12 @@ Guide divergent thinking to explore the problem space.
 
 Check for feature context:
 - Look for feature folder in `docs/features/`
-- If not found: "No active feature. Run /create-feature first, or describe what you want to explore."
+- If found: Ask "Add to existing feature's brainstorm, or start a new brainstorm?"
+  - Add to existing: Proceed to "Read Feature Context" below
+  - Start new: Proceed to "Standalone Mode" below
+- If not found: Proceed to "Standalone Mode" below
 
-## Read Feature Context
+## Read Feature Context (With Active Feature)
 
 1. Find active feature folder in `docs/features/`
 2. Read `.meta.json` for mode and context
@@ -22,6 +25,68 @@ Check for feature context:
    - Quick: Streamlined process
    - Standard: Full process with optional verification
    - Full: Full process with required verification
+4. Write output to `docs/features/{id}-{slug}/brainstorm.md`
+
+## Standalone Mode (No Active Feature)
+
+When no feature context exists or user chooses new brainstorm:
+
+### 1. Create Scratch File
+
+- Get topic from user argument or ask: "What would you like to brainstorm?"
+- Generate timestamp: `YYYYMMDD-HHMMSS` format (e.g., `20260129-143052`)
+- Generate slug from topic:
+  - Lowercase
+  - Replace spaces/special chars with hyphens
+  - Max 30 characters
+  - Trim trailing hyphens
+  - If empty, use "untitled"
+- Create file: `docs/brainstorms/{timestamp}-{slug}.md`
+
+### 2. Run Exploration
+
+Follow the standard Process (below) for brainstorming.
+Write content to the scratch file as you go.
+
+### 3. Promotion Flow
+
+At end of brainstorming session, ask:
+
+"Turn this into a feature? (y/n)"
+
+**If yes:**
+1. Ask for workflow mode:
+   ```
+   Modes:
+   1. Hotfix — implement only, no worktree
+   2. Quick — spec → tasks → implement, optional worktree
+   3. Standard — all phases, recommended worktree
+   4. Full — all phases, required worktree, required verification
+   ```
+2. Generate feature ID: Find highest number in `docs/features/` and add 1
+3. Create folder: `docs/features/{id}-{slug}/`
+4. Handle worktree based on mode:
+   - Hotfix: No worktree
+   - Quick: Ask "Create worktree? (y/n)"
+   - Standard/Full: Create worktree `git worktree add ../{project}-{id}-{slug} -b feature/{id}-{slug}`
+5. Move scratch file to feature folder as `brainstorm.md`
+6. Create `.meta.json`:
+   ```json
+   {
+     "id": "{id}",
+     "name": "{slug}",
+     "mode": "{selected-mode}",
+     "created": "{ISO timestamp}",
+     "worktree": "{path or null}",
+     "brainstorm_source": "{original scratch file path}"
+   }
+   ```
+7. Inform user: "Feature {id}-{slug} created. Continuing to /specify..."
+8. Auto-invoke `/specify`
+
+**If no:**
+- Inform: "Saved to docs/brainstorms/{filename}. You can revisit later."
+- End session
 
 ## Process
 
@@ -73,7 +138,7 @@ As you discuss, note:
 
 ## Output: brainstorm.md
 
-Write to `docs/features/{id}-{slug}/brainstorm.md`:
+Write to scratch file (standalone) or `docs/features/{id}-{slug}/brainstorm.md` (with feature):
 
 ```markdown
 # Brainstorm: {Feature Name}
@@ -110,7 +175,10 @@ Ready for /specify to define requirements.
 
 ## Completion
 
-"Brainstorm complete. Saved to brainstorm.md."
+**With active feature:**
+- "Brainstorm complete. Saved to brainstorm.md."
+- For Standard/Full mode: "Run /verify to check, or /specify to continue."
+- For Quick mode: "Run /specify to continue."
 
-For Standard/Full mode: "Run /verify to check, or /specify to continue."
-For Quick mode: "Run /specify to continue."
+**Standalone mode:**
+- Follow "Promotion Flow" above to decide next steps.

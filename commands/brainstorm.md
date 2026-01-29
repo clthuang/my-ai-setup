@@ -1,8 +1,12 @@
 ---
-description: Start brainstorming phase for current feature
-argument-hint: [topic]
+description: Start brainstorming - works with or without active feature
+argument-hint: [topic or idea to explore]
 ---
 
-Invoke the brainstorming skill for the current feature context.
+Invoke the brainstorming skill.
 
-Read docs/features/ to find active feature, then follow brainstorming skill instructions.
+Check docs/features/ for active feature:
+- If found: Ask whether to add to existing feature or start new brainstorm
+- If not found: Start standalone brainstorm (creates scratch file in docs/brainstorms/)
+
+Follow brainstorming skill instructions for exploration and optional promotion to feature.

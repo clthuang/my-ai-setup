@@ -69,7 +69,7 @@ Claude will:
 /brainstorm      # Ideation, options exploration
 /specify         # Requirements, acceptance criteria
 /design          # Architecture, interfaces
-/plan            # Implementation approach
+/create-plan     # Implementation approach
 /create-tasks    # Break into actionable items
 /implement       # Execute the work
 ```
@@ -163,7 +163,7 @@ project/
 | `/brainstorm` | Ideation phase | brainstorm.md |
 | `/specify` | Specification | spec.md |
 | `/design` | Architecture | design.md |
-| `/plan` | Planning | plan.md |
+| `/create-plan` | Planning | plan.md |
 | `/create-tasks` | Task breakdown | tasks.md |
 | `/implement` | Execute work | Code changes |
 | `/verify` | Quality check | Issue report |

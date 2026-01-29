@@ -118,4 +118,4 @@ Errors: {error cases}
 ## Completion
 
 "Design complete. Saved to design.md."
-"Run /verify to check, or /plan to continue."
+"Run /verify to check, or /create-plan to continue."

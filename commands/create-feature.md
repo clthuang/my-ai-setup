@@ -1,11 +1,14 @@
 ---
-description: Start a new feature with folder structure and optional worktree
+description: Alternative entry point - skip brainstorming and create feature directly
 argument-hint: <feature-description>
 ---
 
 # /create-feature Command
 
-Start a new feature development workflow.
+**Alternative entry point** for feature development. Use when you want to skip brainstorming.
+
+Recommended flow: `/brainstorm` → (promotion) → `/specify` → ...
+This command: `/create-feature` → `/specify` → ... (skips exploration)
 
 ## Gather Information
 
@@ -43,19 +46,21 @@ Choose mode [1-4] or press Enter for {suggested}:
 ### For Hotfix Mode
 - Create folder: `docs/features/{id}-{slug}/`
 - No worktree
-- Inform: "Hotfix mode. Run /implement when ready."
+- Inform: "Hotfix mode. Skipped brainstorming. Run /implement when ready."
 
 ### For Quick Mode
 - Create folder: `docs/features/{id}-{slug}/`
 - Ask: "Create worktree? (y/n)"
 - If yes: `git worktree add ../{project}-{id}-{slug} -b feature/{id}-{slug}`
-- Inform: "Quick mode. Run /specify to start."
+- Inform: "Quick mode. Skipped brainstorming. Continuing to /specify..."
+- Auto-invoke `/specify`
 
 ### For Standard/Full Mode
 - Create folder: `docs/features/{id}-{slug}/`
 - Create worktree: `git worktree add ../{project}-{id}-{slug} -b feature/{id}-{slug}`
 - Inform: "Created worktree at ../{project}-{id}-{slug}"
-- Inform: "Standard mode. Run /brainstorm to start."
+- Inform: "Skipped brainstorming. Continuing to /specify..."
+- Auto-invoke `/specify`
 
 ## Create Metadata File
 
@@ -88,5 +93,9 @@ Otherwise:
   Folder: docs/features/{id}-{slug}/
   Worktree: ../{project}-{id}-{slug} (if created)
 
-  Next: Run /{next-phase} to begin
+  Note: Skipped brainstorming. Proceeding to /specify.
 ```
+
+## Auto-Continue
+
+After creation (except Hotfix), automatically invoke `/specify` skill.

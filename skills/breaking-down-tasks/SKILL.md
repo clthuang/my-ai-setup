@@ -10,7 +10,7 @@ Create small, actionable, testable tasks.
 ## Prerequisites
 
 - If `plan.md` exists: Read for implementation order
-- If not: "No plan found. Run /plan first."
+- If not: "No plan found. Run /create-plan first."
 
 ## Read Feature Context
 

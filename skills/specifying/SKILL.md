@@ -9,9 +9,14 @@ Create precise, testable requirements.
 
 ## Prerequisites
 
-Check for feature context and prior work:
-- If `brainstorm.md` exists: Read for context
-- If not: Gather requirements directly from user
+Check for feature context:
+- Look for feature folder in `docs/features/`
+- If not found:
+  - "No active feature. Would you like to /brainstorm first to explore ideas?"
+  - Do NOT proceed without user confirmation
+- If found:
+  - If `brainstorm.md` exists: Read for context
+  - If not: Gather requirements directly from user
 
 ## Read Feature Context
 
