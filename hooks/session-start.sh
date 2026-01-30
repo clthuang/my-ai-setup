@@ -62,26 +62,14 @@ parse_feature_meta() {
     fi
 
     # Extract fields using python (more reliable than bash JSON parsing)
-    # Supports both new 'branch' field and legacy 'worktree' field for backward compatibility
     python3 -c "
 import json
-import os
 with open('$meta_file') as f:
     meta = json.load(f)
     print(meta.get('id', 'unknown'))
     print(meta.get('name', 'unknown'))
     print(meta.get('mode', 'Standard'))
-    # Prefer 'branch' field, fallback to extracting from 'worktree' for backward compatibility
-    branch = meta.get('branch', '')
-    if not branch and meta.get('worktree'):
-        # Extract branch name from worktree path (e.g., '../project-003-slug' -> 'feature/003-slug')
-        wt = os.path.basename(meta.get('worktree', ''))
-        parts = wt.split('-', 1)
-        if len(parts) > 1:
-            # Try to extract feature id and slug
-            rest = parts[1]
-            branch = f'feature/{rest}'
-    print(branch)
+    print(meta.get('branch', ''))
 " 2>/dev/null
 }
 

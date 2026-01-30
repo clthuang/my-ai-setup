@@ -4,25 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-Meta-repository for developing and documenting Claude Code configuration patterns—skills, subagents, plugins, commands, and hooks. Contains design documents and validation tooling; actual plugin implementations are created per the patterns documented here.
+Claude Code plugin providing a structured feature development workflow—skills, commands, agents, and hooks that guide methodical development from ideation to implementation.
 
-## Current State
+## Key Principles
 
-This is a **documentation and design repository**—no plugin components exist yet:
-
-- `docs/prds/claude_code_special_force_design.md` - Architecture design (three-tier config hierarchy)
-- `docs/guides/component-authoring.md` - Component specifications (skills, agents, plugins, hooks)
-- `for_windsurf/rules/global_rules.md` - Engineering principles template
-- `validate.sh` - Validation script (ready for when components are added)
+- **No backward compatibility** - This is private tooling with no external users. Delete old code, don't maintain compatibility shims.
+- **Branches for all modes** - All workflow modes (Hotfix, Quick, Standard, Full) create feature branches. Branches are lightweight.
+- **Retro before cleanup** - Retrospective runs BEFORE branch deletion so context is still available.
 
 ## Commands
 
 ```bash
-# Validate components (run after adding skills/agents/plugins/commands)
+# Validate components
 ./validate.sh
 ```
-
-Note: Currently validates nothing since no `skills/`, `agents/`, `commands/`, or `.claude-plugin/` directories exist.
 
 ## Key References
 
