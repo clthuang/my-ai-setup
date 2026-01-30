@@ -34,3 +34,5 @@ Claude Code plugin providing a structured feature development workflow—skills,
 - Plugins: noun (`datascience-team`)
 
 **Token budget:** SKILL.md <500 lines, <5,000 tokens
+
+**Backlog:** Capture ad-hoc ideas with `/add-to-backlog <description>`. Review at [docs/backlog.md](docs/backlog.md).
