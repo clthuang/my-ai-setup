@@ -1,36 +1,9 @@
 {
   "id": "004",
-  "name": "update-documentation-step",
+  "slug": "update-documentation-step",
+  "status": "completed",
   "mode": "standard",
-  "status": "active",
   "created": "2026-01-30T00:00:00Z",
-  "currentPhase": "implement",
-  "worktree": "/Users/terry/projects/my-ai-setup-004-update-documentation-step",
-  "phases": {
-    "design": {
-      "started": "2026-01-29T19:41:24Z",
-      "completed": "2026-01-29T19:46:21Z",
-      "iterations": 2,
-      "reviewerNotes": [
-        "Minor: traceability gap linking to spec open questions",
-        "Note: HISTORY.md added as design expansion"
-      ]
-    },
-    "create-plan": {
-      "started": "2026-01-30T00:00:00Z",
-      "completed": "2026-01-30T00:01:00Z",
-      "iterations": 1,
-      "reviewerNotes": []
-    },
-    "create-tasks": {
-      "started": "2026-01-30T00:02:00Z",
-      "completed": "2026-01-30T00:03:00Z",
-      "iterations": 1,
-      "reviewerNotes": []
-    },
-    "implement": {
-      "started": "2026-01-30T00:04:00Z",
-      "completed": "2026-01-30T00:05:00Z"
-    }
-  }
+  "completed": "2026-01-30T00:05:00Z",
+  "branch": "feature/004-update-documentation-step"
 }

@@ -1,9 +1,9 @@
 {
   "id": "005",
-  "name": "make-specs-executable",
-  "mode": "standard",
+  "slug": "make-specs-executable",
   "status": "completed",
+  "mode": "standard",
   "created": "2026-01-30T00:00:00Z",
-  "currentPhase": "completed",
-  "worktree": null
+  "completed": "2026-01-30T00:00:00Z",
+  "branch": "feature/005-make-specs-executable"
 }

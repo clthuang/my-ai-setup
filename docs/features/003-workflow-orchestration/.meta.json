@@ -1,48 +1,9 @@
 {
   "id": "003",
-  "name": "workflow-orchestration",
-  "mode": "standard",
+  "slug": "workflow-orchestration",
   "status": "completed",
+  "mode": "standard",
   "created": "2026-01-30T00:00:00Z",
   "completed": "2026-01-30T00:00:00Z",
-  "currentPhase": "finish",
-  "worktree": null,
-  "phases": {
-    "brainstorm": {
-      "started": "2026-01-30T00:00:00Z",
-      "completed": "2026-01-30T00:00:00Z",
-      "verified": true,
-      "iterations": 1
-    },
-    "specify": {
-      "started": "2026-01-30T00:00:00Z",
-      "completed": "2026-01-30T00:00:00Z",
-      "verified": true,
-      "iterations": 1
-    },
-    "design": {
-      "started": "2026-01-30T00:00:00Z",
-      "completed": "2026-01-30T00:00:00Z",
-      "verified": true,
-      "iterations": 1
-    },
-    "create-plan": {
-      "started": "2026-01-30T00:00:00Z",
-      "completed": "2026-01-30T00:00:00Z",
-      "verified": true,
-      "iterations": 1
-    },
-    "create-tasks": {
-      "started": "2026-01-30T00:00:00Z",
-      "completed": "2026-01-30T00:00:00Z",
-      "verified": true,
-      "iterations": 1
-    },
-    "implement": {
-      "started": "2026-01-30T00:00:00Z",
-      "completed": "2026-01-30T00:00:00Z",
-      "verified": false,
-      "iterations": 1
-    }
-  }
+  "branch": "feature/003-workflow-orchestration"
 }
