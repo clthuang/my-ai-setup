@@ -1,5 +1,5 @@
 ---
-description: Complete a feature - merge, cleanup worktree, suggest retro
+description: Complete a feature - merge, run retro, cleanup branch
 argument-hint: [feature-id]
 ---
 
@@ -50,7 +50,7 @@ gh pr create --title "Feature: {slug}" --body "..."
 ```
 
 Inform: "PR created: {url}"
-→ Update status to "completed"
+→ Continue to Retrospective
 
 ### Option 2: Merge Locally
 
@@ -60,17 +60,40 @@ git merge feature/{id}-{slug}
 git push
 ```
 
-→ Update status to "completed"
+→ Continue to Retrospective
 
 ### Option 3: Keep Branch
 
 Inform: "Branch kept. Run /finish again when ready to merge."
-Skip cleanup and status update.
+**Exit early** - no retrospective, no status update, no cleanup.
 
 ### Option 4: Discard/Abandon
 
 Confirm: "This will mark the feature as abandoned. Are you sure? (y/n)"
-→ Update status to "abandoned"
+→ Continue to Retrospective
+
+## Run Retrospective (Required)
+
+**For options 1, 2, and 4 only** (not option 3):
+
+Automatically invoke the retrospecting skill:
+- Gather data from feature folder
+- Ask user about learnings
+- User selects which learnings to keep
+- Save to `docs/features/{id}-{slug}/retro.md`
+
+This is **required**, not optional. The user controls what learnings to capture,
+but the retrospective step always runs for terminal actions.
+
+## Commit Retro Artifacts
+
+If still on feature branch (options 1, 4):
+```bash
+git add docs/features/{id}-{slug}/retro.md
+git commit -m "docs: add retrospective for feature {id}-{slug}"
+```
+
+For option 2 (already merged), retro.md goes directly to main.
 
 ## Update Feature Status
 
@@ -105,13 +128,19 @@ Delete `.review-history.md` from the feature folder:
 rm docs/features/{id}-{slug}/.review-history.md
 ```
 
-## Worktree Cleanup (for options 1, 2, 4)
+## Branch Cleanup (for options 1, 2, 4)
 
-If worktree exists and status is terminal:
+For terminal statuses, delete the feature branch:
+
 ```bash
-cd {original-repo}
-git worktree remove ../{project}-{id}-{slug}
-git branch -d feature/{id}-{slug}  # after merge, or -D for abandon
+# After merge (option 2)
+git branch -d feature/{id}-{slug}
+
+# After PR creation (option 1) - keep branch until PR merged
+# Branch will be deleted when PR is merged via GitHub
+
+# After abandon (option 4)
+git branch -D feature/{id}-{slug}
 ```
 
 ## Update State
@@ -119,11 +148,12 @@ git branch -d feature/{id}-{slug}  # after merge, or -D for abandon
 If Vibe-Kanban:
 - Move card to "Done" (completed) or "Archived" (abandoned)
 
-## Suggest Retrospective
+## Final Output
 
 ```
 ✓ Feature {id}-{slug} {completed|abandoned}
+✓ Retrospective saved to retro.md
+✓ Branch cleaned up
 
-Capture learnings? This helps improve future work.
-Run /retrospect to reflect on this feature.
+Learnings captured in knowledge bank.
 ```

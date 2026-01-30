@@ -17,18 +17,20 @@ Before executing, check prerequisites using workflow-state skill:
 - If blocked: Show error, stop
 - If warning (skipping phases like specify): Show warning, ask to proceed
 
-### 1b. Check Worktree Location
+### 1b. Check Branch
 
-If feature has a worktree defined in `.meta.json`:
-- Compare current working directory against worktree path
-- If mismatch and not already warned this session:
+If feature has a branch defined in `.meta.json`:
+- Get current branch: `git branch --show-current`
+- If current branch != expected branch:
   ```
-  ⚠️ You are not in the feature worktree.
-  Current: {cwd}
-  Worktree: {worktree}
-  Continue anyway? (y/n)
+  ⚠️ You're on branch '{current}', but feature uses '{expected}'.
+
+  Switch branches:
+    git checkout {expected}
+
+  Or continue on current branch? (y/n)
   ```
-- Skip this check if worktree is null (Hotfix mode)
+- Skip this check if branch is null (legacy feature)
 
 ### 2. Check for Partial Phase
 

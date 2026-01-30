@@ -9,7 +9,7 @@ Guide completion of development work with clear options.
 
 ## Core Principle
 
-Verify tests → Present options → Execute choice → Clean up.
+Verify tests → Present options → Execute choice → Clean up branch.
 
 ## The Process
 
@@ -49,18 +49,17 @@ git merge <feature-branch>
 # Verify tests on merged result
 git branch -d <feature-branch>
 ```
-Then: Cleanup worktree
 
 **Option 2: Push and Create PR**
 ```bash
 git push -u origin <feature-branch>
 gh pr create --title "<title>" --body "..."
 ```
-Then: Cleanup worktree
+Note: Branch will be deleted when PR is merged via GitHub.
 
 **Option 3: Keep As-Is**
-Report: "Keeping branch. Worktree preserved."
-Don't cleanup worktree.
+Report: "Keeping branch for later."
+Don't delete branch.
 
 **Option 4: Discard**
 Confirm first:
@@ -73,25 +72,15 @@ If confirmed:
 git checkout <base-branch>
 git branch -D <feature-branch>
 ```
-Then: Cleanup worktree
-
-### Step 4: Cleanup Worktree
-
-For Options 1, 2, 4:
-```bash
-git worktree remove <worktree-path>
-```
-
-For Option 3: Keep worktree.
 
 ## Quick Reference
 
-| Option | Merge | Push | Keep Worktree |
+| Option | Merge | Push | Delete Branch |
 |--------|-------|------|---------------|
-| 1. Merge locally | ✓ | - | - |
-| 2. Create PR | - | ✓ | - |
-| 3. Keep as-is | - | - | ✓ |
-| 4. Discard | - | - | - |
+| 1. Merge locally | ✓ | - | ✓ (after merge) |
+| 2. Create PR | - | ✓ | - (GitHub deletes) |
+| 3. Keep as-is | - | - | - |
+| 4. Discard | - | - | ✓ (force) |
 
 ## Red Flags - Never
 

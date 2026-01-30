@@ -62,15 +62,26 @@ parse_feature_meta() {
     fi
 
     # Extract fields using python (more reliable than bash JSON parsing)
+    # Supports both new 'branch' field and legacy 'worktree' field for backward compatibility
     python3 -c "
 import json
-import sys
+import os
 with open('$meta_file') as f:
     meta = json.load(f)
     print(meta.get('id', 'unknown'))
     print(meta.get('name', 'unknown'))
     print(meta.get('mode', 'Standard'))
-    print(meta.get('worktree', ''))
+    # Prefer 'branch' field, fallback to extracting from 'worktree' for backward compatibility
+    branch = meta.get('branch', '')
+    if not branch and meta.get('worktree'):
+        # Extract branch name from worktree path (e.g., '../project-003-slug' -> 'feature/003-slug')
+        wt = os.path.basename(meta.get('worktree', ''))
+        parts = wt.split('-', 1)
+        if len(parts) > 1:
+            # Try to extract feature id and slug
+            rest = parts[1]
+            branch = f'feature/{rest}'
+    print(branch)
 " 2>/dev/null
 }
 
@@ -109,22 +120,21 @@ get_next_command() {
     esac
 }
 
-# Check if cwd matches worktree
-check_worktree_mismatch() {
-    local worktree="$1"
-    local cwd="$2"
+# Check if current branch matches expected feature branch
+check_branch_mismatch() {
+    local expected_branch="$1"
 
-    # Skip check if no worktree defined
-    if [[ -z "$worktree" ]]; then
+    # Skip check if no branch defined
+    if [[ -z "$expected_branch" ]]; then
         return 1
     fi
 
-    # Resolve worktree to absolute path
-    local worktree_abs
-    worktree_abs=$(cd "${PROJECT_ROOT}" && cd "${worktree}" 2>/dev/null && pwd) || return 1
+    # Get current branch
+    local current_branch
+    current_branch=$(git branch --show-current 2>/dev/null) || return 1
 
-    # Compare with cwd
-    if [[ "$cwd" != "$worktree_abs" ]]; then
+    # Compare branches
+    if [[ "$current_branch" != "$expected_branch" ]]; then
         return 0  # Mismatch
     fi
 
@@ -149,25 +159,26 @@ build_context() {
         meta_output=$(parse_feature_meta "$meta_file")
 
         if [[ -n "$meta_output" ]]; then
-            local id name mode worktree phase next_cmd
+            local id name mode branch phase next_cmd current_branch
             id=$(echo "$meta_output" | sed -n '1p')
             name=$(echo "$meta_output" | sed -n '2p')
             mode=$(echo "$meta_output" | sed -n '3p')
-            worktree=$(echo "$meta_output" | sed -n '4p')
+            branch=$(echo "$meta_output" | sed -n '4p')
             phase=$(detect_phase "$feature_dir")
             next_cmd=$(get_next_command "$phase")
 
             context="You're working on feature ${id}-${name} (${mode} mode).\n"
             context+="Current phase: ${phase}\n"
 
-            # Check worktree mismatch and add warning
-            if [[ -n "$worktree" ]]; then
-                context+="Worktree: ${worktree}\n"
-                if check_worktree_mismatch "$worktree" "$cwd"; then
-                    context+="\n⚠️  WARNING: You are not in the feature worktree.\n"
-                    context+="   Current directory: ${cwd}\n"
-                    context+="   Feature worktree: ${worktree}\n"
-                    context+="   Consider: cd ${worktree}\n"
+            # Check branch mismatch and add warning
+            if [[ -n "$branch" ]]; then
+                context+="Branch: ${branch}\n"
+                if check_branch_mismatch "$branch"; then
+                    current_branch=$(git branch --show-current 2>/dev/null || echo "unknown")
+                    context+="\n⚠️  WARNING: You are not on the feature branch.\n"
+                    context+="   Current branch: ${current_branch}\n"
+                    context+="   Feature branch: ${branch}\n"
+                    context+="   Consider: git checkout ${branch}\n"
                 fi
             fi
 

@@ -95,7 +95,7 @@ The `.meta.json` file in each feature folder:
   "status": "active",
   "created": "2026-01-30T00:00:00Z",
   "completed": null,
-  "worktree": "../project-003-feature-slug",
+  "branch": "feature/003-feature-slug",
   "currentPhase": "design",
   "phases": {
     "brainstorm": {

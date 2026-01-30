@@ -61,7 +61,7 @@ claude /plugin install ~/repos/my-ai-setup
 Claude will:
 - Suggest a workflow mode (Hotfix/Quick/Standard/Full)
 - Create feature folder at `docs/features/{id}-{name}/`
-- Create git worktree (for Standard/Full modes)
+- Create feature branch `feature/{id}-{name}`
 
 ### 2. Work Through Phases
 
@@ -102,8 +102,8 @@ Verifiers check with fresh perspective:
 ### 5. Complete Feature
 
 ```bash
-/finish          # Merge, cleanup worktree, suggest retro
-/retrospect      # Capture learnings (optional)
+/finish          # Merge, run retro, cleanup branch
+/retrospect      # Capture learnings (can also run standalone)
 ```
 
 ---
@@ -159,7 +159,7 @@ project/
 
 | Command | Purpose | Output |
 |---------|---------|--------|
-| `/create-feature` | Start new feature | Folder, worktree, mode selection |
+| `/create-feature` | Start new feature | Folder, branch, mode selection |
 | `/brainstorm` | Ideation phase | brainstorm.md |
 | `/specify` | Specification | spec.md |
 | `/design` | Architecture | design.md |
@@ -169,7 +169,7 @@ project/
 | `/verify` | Quality check | Issue report |
 | `/show-status` | Current state | Status summary |
 | `/list-features` | List all features | Feature list |
-| `/finish` | Complete feature | Merge, cleanup |
+| `/finish` | Complete feature | Merge, retro, cleanup |
 | `/retrospect` | Capture learnings | retro.md, knowledge-bank updates |
 
 ---
@@ -203,7 +203,6 @@ Skills are instructions Claude follows for specific development practices.
 ### Infrastructure
 | Skill | Purpose |
 |-------|---------|
-| `using-git-worktrees` | Isolated workspace creation |
 | `finishing-branch` | Branch completion options |
 | `writing-skills` | TDD for skill authoring |
 

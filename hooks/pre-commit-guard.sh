@@ -107,7 +107,7 @@ main() {
         exit 0
     fi
 
-    # Check branch (worktree-aware)
+    # Check branch for the command's target directory
     local branch
     branch=$(get_branch_for_command "$command")
 

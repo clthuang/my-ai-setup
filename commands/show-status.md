@@ -10,7 +10,7 @@ Display the current state of a feature.
 ## Determine Feature
 
 1. If argument provided: Use that feature ID
-2. If in worktree: Extract feature ID from branch name
+2. If on feature branch: Extract feature ID from branch name pattern `feature/{id}-{slug}`
 3. Otherwise: List recent features and ask
 
 ## Gather State
