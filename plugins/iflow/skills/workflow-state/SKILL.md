@@ -103,7 +103,7 @@ The `.meta.json` file in each feature folder uses a minimal schema:
 |-------|------|-------------|
 | id | string | Zero-padded feature number (e.g., "006") |
 | slug | string | Hyphenated feature name |
-| mode | string | One of: hotfix, quick, standard, full |
+| mode | string | One of: standard, full |
 | status | string | One of: active, completed, abandoned |
 | created | ISO8601 | Feature creation timestamp |
 | completed | ISO8601/null | Completion timestamp (null if active) |

@@ -22,9 +22,7 @@ Based on described scope, suggest a mode:
 
 | Scope | Suggested Mode |
 |-------|----------------|
-| "fix typo", "quick fix", single file | Hotfix |
-| "add button", "small feature", clear scope | Quick |
-| Most features | Standard |
+| Most features, clear scope | Standard |
 | "rewrite", "refactor system", "breaking change" | Full |
 
 Present to user:
@@ -33,12 +31,10 @@ Feature: {id}-{slug}
 Suggested mode: {mode}
 
 Modes:
-1. Hotfix — implement only
-2. Quick — spec → tasks → implement
-3. Standard — all phases
-4. Full — all phases, required verification
+1. Standard — all phases (default)
+2. Full — all phases, required verification
 
-Choose mode [1-4] or press Enter for {suggested}:
+Choose mode [1-2] or press Enter for {suggested}:
 ```
 
 ## Create Feature
@@ -54,17 +50,9 @@ Choose mode [1-4] or press Enter for {suggested}:
 
 ### Mode-Specific Behavior
 
-**Hotfix:**
-- Inform: "Hotfix mode. Skipped brainstorming. Run /implement when ready."
-- Do NOT auto-continue
-
-**Quick:**
-- Inform: "Quick mode. Skipped brainstorming. Continuing to /specify..."
-- Auto-invoke `/specify`
-
 **Standard/Full:**
 - Inform: "Created branch feature/{id}-{slug}."
-- Inform: "Skipped brainstorming. Continuing to /specify..."
+- Inform: "Continuing to /specify..."
 - Auto-invoke `/specify`
 
 ## Create Metadata File
@@ -104,4 +92,4 @@ Otherwise:
 
 ## Auto-Continue
 
-After creation (except Hotfix), automatically invoke `/specify` skill.
+After creation, automatically invoke `/specify` skill.

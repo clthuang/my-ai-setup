@@ -62,7 +62,7 @@ claude /plugin install ~/repos/my-ai-setup
 ```
 
 Claude will:
-- Suggest a workflow mode (Hotfix/Quick/Standard/Full)
+- Suggest a workflow mode (Standard/Full)
 - Create feature folder at `docs/features/{id}-{name}/`
 - Create feature branch `feature/{id}-{name}`
 
@@ -115,9 +115,7 @@ Verifiers check with fresh perspective:
 
 | Mode | Phases | Verification | Use When |
 |------|--------|--------------|----------|
-| **Hotfix** | implement only | None | Single file fix |
-| **Quick** | specify → create-tasks → implement | After implement | Small feature |
-| **Standard** | All phases | Suggested | Normal feature |
+| **Standard** | All phases | Suggested | Normal feature (default) |
 | **Full** | All phases | Required | Large/risky change |
 
 ---

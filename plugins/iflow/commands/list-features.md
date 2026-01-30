@@ -29,7 +29,7 @@ ID   Name              Phase        Branch                          Last Activit
 ───  ────              ─────        ──────                          ─────────────
 42   user-auth         design       feature/42-user-auth            2 hours ago
 41   search-feature    implement    feature/41-search-feature       30 min ago
-40   hotfix-login      complete     feature/40-hotfix-login         1 day ago
+40   fix-login         complete     feature/40-fix-login            1 day ago
 
 Commands:
   /show-status {id}        View feature details
