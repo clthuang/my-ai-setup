@@ -1,7 +1,8 @@
 {
   "id": "007",
   "slug": "add-to-backlog-command",
-  "status": "active",
+  "status": "completed",
+  "completed": "2026-01-30T15:20:00Z",
   "mode": "full",
   "created": "2026-01-30T14:30:00Z",
   "branch": "feature/007-add-to-backlog-command",
