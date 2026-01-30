@@ -1,163 +1,316 @@
-# Specification: Workflow Improvements - Retro & Worktree Switching
+# Specification: Branch-Based Development & Retro Before Cleanup
 
 ## Problem Statement
 
-Two related workflow issues:
+Two related workflow issues require addressing:
 
-1. **Retrospective timing**: The `/finish` command suggests running retrospective AFTER worktree cleanup, when context is lost. By then, you can't easily diff against main or examine decisions made during the feature.
+1. **Worktree friction with Claude Code**: Git worktrees were chosen for feature isolation, but they cause significant friction:
+   - Claude Code's cwd doesn't persist after `cd` commands
+   - Feature docs must be synced between main repo and worktree
+   - Directory switching loses Claude session context
+   - Cognitive overhead tracking which directory contains what
 
-2. **Worktree switching friction**: When working with git worktrees, switching between them requires exiting Claude, changing directory, and restarting. The session-start hook warns about being in the wrong worktree but doesn't help fix it.
+2. **Retrospective timing**: The `/finish` command suggests running retrospective AFTER branch deletion, when context is lost and diffs against main are harder to review.
 
 ## Goals
 
-1. Move retrospective to happen before worktree cleanup (while context exists)
-2. Make retrospective required for completed features (user controls what to keep)
-3. Add `/switch-worktree` command for easy worktree navigation
-4. Integrate worktree switching prompts into existing workflows
+1. Remove worktree support entirely - use branches for feature isolation
+2. Move retrospective to happen before branch cleanup (while context exists)
+3. Make retrospective required for completed features
+4. Simplify the overall workflow
 
 ## Non-Goals
 
-- Auto-switching worktrees without user consent
-- Managing worktrees for other projects
-- Bare repository workflow migration
+- Supporting parallel worktrees as an optional mode
+- Automatic migration of existing worktrees
+- Changing the branch naming convention
 
 ## Requirements
 
-### R1: Retrospective Before Cleanup
+### Part 1: Branch-Based Development
 
-The `/finish` command MUST run retrospective before worktree cleanup:
+#### R1: Remove Worktree Creation
+
+The `/create-feature` command MUST NOT create worktrees. Instead:
+
+```
+/create-feature "description"
+├── Determine feature ID (highest in docs/features/ + 1)
+├── Create slug from description
+├── Create folder: docs/features/{id}-{slug}/
+├── Create branch: git checkout -b feature/{id}-{slug}
+├── Create .meta.json with branch reference
+└── Continue to /specify
+```
+
+#### R2: Updated .meta.json Schema
+
+The `worktree` field MUST be replaced with `branch`:
+
+**Before:**
+```json
+{
+  "id": "006",
+  "name": "retro-before-cleanup",
+  "mode": "full",
+  "worktree": "../my-ai-setup-006-retro-before-cleanup"
+}
+```
+
+**After:**
+```json
+{
+  "id": "006",
+  "name": "retro-before-cleanup",
+  "mode": "full",
+  "branch": "feature/006-retro-before-cleanup"
+}
+```
+
+#### R3: Branch Check Instead of Worktree Check
+
+All commands that currently check worktree location MUST instead check branch:
+
+**Current pattern (remove):**
+```
+If feature has a worktree defined in .meta.json:
+- Compare current working directory against worktree path
+- If mismatch: warn user
+```
+
+**New pattern:**
+```
+If feature has a branch defined in .meta.json:
+- Get current branch: git branch --show-current
+- If current branch != expected branch:
+  "You're on '{current}', feature uses '{expected}'.
+   Run: git checkout {expected}"
+```
+
+Commands requiring this update:
+- `/verify`
+- `/implement`
+- `/specify`
+- `/design`
+- `/create-plan`
+- `/create-tasks`
+
+#### R4: Session Start Hook Branch Check
+
+The session-start hook MUST check branch instead of worktree:
+
+```bash
+# Get expected branch from .meta.json
+expected_branch=$(jq -r '.branch // empty' "$meta_file")
+
+# Get current branch
+current_branch=$(git branch --show-current)
+
+# Compare
+if [[ -n "$expected_branch" && "$current_branch" != "$expected_branch" ]]; then
+  # Warn user
+  echo "You're on '$current_branch', feature uses '$expected_branch'."
+  echo "Run: git checkout $expected_branch"
+fi
+```
+
+#### R5: Show Status Branch Detection
+
+`/show-status` MUST detect feature from branch name:
+
+**Current:** "If in worktree: Extract feature ID from branch name"
+**New:** "If on feature branch: Extract feature ID from branch name pattern `feature/{id}-{slug}`"
+
+#### R6: List Features Without Worktree Column
+
+`/list-features` MUST show branch info instead of worktree paths:
+
+```
+Active Features:
+
+ID   Name              Phase        Branch                           Last Activity
+───  ────              ─────        ──────                           ─────────────
+006  retro-cleanup     design       feature/006-retro-cleanup        30 min ago
+005  make-specs-exec   implement    feature/005-make-specs-exec      2 hours ago
+
+Commands:
+  /show-status {id}        View feature details
+  /create-feature          Start new feature
+  git checkout {branch}    Switch to feature
+```
+
+#### R7: Delete Worktree Skill
+
+The file `skills/using-git-worktrees/SKILL.md` MUST be deleted.
+
+#### R8: Update Brainstorming Skill Promotion Flow
+
+The promotion flow in `skills/brainstorming/SKILL.md` MUST create branches instead of worktrees:
+
+**Remove:** All worktree creation logic and mode-based worktree decisions
+**Add:** Simple branch creation for all modes:
+
+```bash
+git checkout -b feature/{id}-{slug}
+```
+
+Store in `.meta.json`: `"branch": "feature/{id}-{slug}"`
+
+Mode no longer affects isolation strategy (all modes use branches).
+
+#### R9: Update Finishing Branch Skill
+
+`skills/finishing-branch/SKILL.md` MUST remove worktree cleanup:
+
+**Remove:**
+```bash
+git worktree remove <worktree-path>
+```
+
+**Keep:**
+```bash
+git branch -d <feature-branch>  # after merge
+git branch -D <feature-branch>  # for discard
+```
+
+### Part 2: Retrospective Before Cleanup
+
+#### R10: Reorder /finish Command
+
+The `/finish` command MUST run retrospective BEFORE branch deletion:
 
 ```
 /finish
 ├── Pre-completion checks
+│   ├── Check for uncommitted changes
+│   ├── Check tasks completion
+│   ├── Suggest quality review (Standard/Full)
+│   └── Offer documentation review
+│
 ├── Completion choice: PR / Merge / Keep / Discard
 │
-├── If "Keep": exit early (no changes)
+├── If "Keep": exit early (no changes, no retro)
 │
-├── Execute choice (merge/PR/abandon)
-├── RETROSPECTIVE (required)
-│   └── Invoke retrospecting skill
-│   └── User selects which learnings to keep
-├── Commit retro artifacts to feature branch
+├── Execute choice
+│   ├── Option 1 (PR): git push, gh pr create
+│   ├── Option 2 (Merge): git checkout main, git merge, git push
+│   └── Option 4 (Discard): confirm, mark abandoned
+│
+├── RETROSPECTIVE (required for options 1, 2, 4)
+│   ├── Invoke retrospecting skill
+│   ├── User selects which learnings to keep
+│   └── Save to docs/features/{id}-{slug}/retro.md
+│
+├── Commit retro artifacts (if on feature branch still)
+│
 ├── Update .meta.json status
-└── Worktree cleanup (remove worktree, delete branch)
+│   ├── completed: timestamp (for options 1, 2)
+│   └── abandoned: timestamp (for option 4)
+│
+├── Delete .review-history.md
+│
+└── Branch cleanup
+    ├── git branch -d feature/{id}-{slug}  # after merge
+    └── git branch -D feature/{id}-{slug}  # for discard
 ```
 
-### R2: Retrospective is Required
+#### R11: Retrospective is Required
 
 - Retrospective MUST run automatically for terminal actions (PR, Merge, Discard)
-- User MUST NOT be asked "want to run retro?" - it just happens
-- User controls which learnings to keep (interactive selection)
-- Retro artifacts saved to `docs/features/{id}-{slug}/retro.md`
+- No "want to run retro?" prompt - it just happens
+- User controls which learnings to keep during the retrospective
+- Retro artifacts saved before branch deletion
 
-### R3: Keep Branch Skips Retro
+#### R12: Keep Branch Skips Everything
 
-- "Keep branch" option exits early
-- No retrospective (feature not complete)
+The "Keep branch" option MUST exit early:
+- No retrospective
 - No status update
-- No cleanup
+- No branch deletion
 - User runs `/finish` again when ready
 
-### R4: Switch Worktree Command
+### Part 3: Documentation Updates
 
-New command `/switch-worktree`:
+#### R13: Update README.md
 
-```
-/switch-worktree [target]
-```
+All worktree references MUST be updated:
+- Line ~64: "Create git worktree" → "Create feature branch"
+- Line ~105: "cleanup worktree" → "cleanup branch"
+- Line ~162: "Folder, worktree, mode selection" → "Folder, branch, mode selection"
+- Line ~206: Remove or update `using-git-worktrees` skill reference
 
-**Targets:**
-- Feature ID: `/switch-worktree 006` → switches to feature 006's worktree
-- Feature slug: `/switch-worktree retro-before-cleanup` → same
-- `main`: `/switch-worktree main` → switches to main repository
-- No argument: list available worktrees and prompt for selection
+#### R14: Update Workflow State Skill
 
-**Behavior:**
-1. Resolve target to directory path
-2. Execute `cd {path}` via bash
-3. Verify with `pwd`
-4. Display updated context (feature, phase, next command)
-
-**Error handling:**
-- Target not found: "No worktree found for '{target}'. Available: ..."
-- Directory doesn't exist: "Worktree directory missing. Run `git worktree list` to diagnose."
-
-### R5: Create Feature Offers Switch
-
-After `/create-feature` creates a worktree:
-
-```
-✓ Feature {id}-{slug} created
-  Worktree: ../{project}-{id}-{slug}
-
-Switch to worktree now?
-1. Yes (recommended)
-2. No, stay here
-```
-
-- If yes: invoke `/switch-worktree {id}`
-- If no: continue in current directory
-
-### R6: Session Start Hook Offers Switch
-
-When session-start hook detects worktree mismatch:
-
-**Current behavior:**
-```
-⚠️  WARNING: You are not in the feature worktree.
-   Current directory: /path/to/main
-   Feature worktree: ../my-ai-setup-006-retro
-   Consider: cd ../my-ai-setup-006-retro
-```
-
-**New behavior:**
-```
-⚠️  You're not in the feature worktree.
-   Current: /path/to/main
-   Feature: ../my-ai-setup-006-retro
-
-   Run /switch-worktree 006 to switch, or continue here.
-```
-
-- Hook does NOT auto-switch
-- Hook suggests the command to run
-- User decides whether to switch
-
-### R7: List Worktrees
-
-`/switch-worktree` with no argument lists available targets:
-
-```
-Available worktrees:
-
-  main     /Users/terry/projects/my-ai-setup (current)
-  001      ../my-ai-setup-001-kanban-task-visualisation
-  006      ../my-ai-setup-006-retro-before-cleanup
-
-Switch to: [id/main]
-```
+`skills/workflow-state/SKILL.md` schema example MUST use `branch` instead of `worktree`.
 
 ## Acceptance Criteria
 
-- [ ] `/finish` runs retrospective before cleanup for PR/Merge/Discard
-- [ ] Retrospective runs automatically (no "want to run?" prompt)
+### Branch Migration
+- [ ] `/create-feature` creates branch, not worktree
+- [ ] `.meta.json` uses `"branch"` field, not `"worktree"`
+- [ ] Session-start hook checks branch, suggests `git checkout`
+- [ ] All phase commands check branch instead of worktree
+- [ ] `/list-features` shows branch column, not worktree
+- [ ] `/show-status` detects feature from branch name
+- [ ] `skills/using-git-worktrees/SKILL.md` deleted
+- [ ] `skills/brainstorming/SKILL.md` creates branch in promotion
+- [ ] `skills/finishing-branch/SKILL.md` has no worktree cleanup
+
+### Retro Ordering
+- [ ] `/finish` runs retrospective before branch deletion
+- [ ] Retrospective is automatic (no "want to run?" prompt)
 - [ ] "Keep branch" exits without retro or cleanup
-- [ ] Retro artifacts committed before worktree removal
-- [ ] `/switch-worktree 006` changes cwd to feature 006 worktree
-- [ ] `/switch-worktree main` changes cwd to main repo
-- [ ] `/switch-worktree` (no arg) lists worktrees and prompts
-- [ ] Context displayed after switch (feature, phase, next command)
-- [ ] `/create-feature` asks to switch after worktree creation
-- [ ] Session-start hook suggests `/switch-worktree` instead of `cd`
+- [ ] Retro artifacts committed before branch deletion
+- [ ] `.meta.json` status updated after retro
+
+### Documentation
+- [ ] README.md updated with branch-based workflow
+- [ ] No remaining worktree references in commands/skills
 
 ## Files to Modify
 
 | Action | File | Description |
 |--------|------|-------------|
-| Modify | `commands/finish.md` | Reorder: retro before cleanup, make required |
-| Create | `commands/switch-worktree.md` | New worktree switching command |
-| Modify | `commands/create-feature.md` | Add switch prompt after creation |
-| Modify | `hooks/session-start.sh` | Suggest switch command instead of cd |
+| DELETE | `skills/using-git-worktrees/SKILL.md` | No longer needed |
+| REWRITE | `commands/create-feature.md` | Branch creation, remove worktree |
+| REWRITE | `commands/finish.md` | Retro before cleanup, branch deletion |
+| REWRITE | `skills/brainstorming/SKILL.md` | Branch in promotion flow |
+| REWRITE | `hooks/session-start.sh` | Branch check instead of worktree |
+| UPDATE | `commands/show-status.md` | Branch detection |
+| UPDATE | `commands/list-features.md` | Branch column |
+| UPDATE | `commands/verify.md` | Branch check |
+| UPDATE | `commands/implement.md` | Branch check |
+| UPDATE | `commands/specify.md` | Branch check |
+| UPDATE | `commands/design.md` | Branch check |
+| UPDATE | `commands/create-plan.md` | Branch check |
+| UPDATE | `commands/create-tasks.md` | Branch check |
+| UPDATE | `skills/finishing-branch/SKILL.md` | Remove worktree cleanup |
+| UPDATE | `skills/workflow-state/SKILL.md` | Schema change |
+| UPDATE | `README.md` | Documentation |
+| CHECK | `hooks/pre-commit-guard.sh` | Verify no worktree-specific logic |
+
+## Migration Notes
+
+For users with existing worktrees:
+
+```bash
+# 1. List existing worktrees
+git worktree list
+
+# 2. For each feature worktree, ensure changes are committed
+cd ../my-ai-setup-{id}-{slug}
+git status
+git add -A && git commit -m "WIP: migration to branch-based workflow"
+
+# 3. Return to main repo
+cd ../my-ai-setup
+
+# 4. Remove worktrees (keeps branches)
+git worktree remove ../my-ai-setup-{id}-{slug}
+
+# 5. Update .meta.json files
+# Change "worktree": "..." to "branch": "feature/{id}-{slug}"
+```
 
 ## Open Questions
 

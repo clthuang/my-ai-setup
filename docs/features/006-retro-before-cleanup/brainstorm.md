@@ -1,50 +1,97 @@
-# Brainstorm: Workflow Improvements - Retro & Worktree Switching
+# Brainstorm: Workflow Improvements - Branch-Based Development & Retro Ordering
 
 **Date:** 2026-01-30
-**Topic:** Improve /finish ordering and add worktree switching capabilities
+**Topic:** Migrate from worktree-based to branch-based development + fix retro ordering
 
 ---
 
-## Part 1: Retrospective Before Cleanup
+## Part 1: Migrate from Worktrees to Branches
+
+### Problem
+
+Git worktrees were chosen for feature isolation, but they cause friction with Claude Code:
+- **cwd doesn't persist** - `cd` to worktree resets after each command
+- **Docs sync issues** - feature docs need to exist in both main and worktree
+- **Context loss** - switching directories loses Claude session context
+- **Cognitive overhead** - tracking which directory has what
+
+Research findings (2025-2026 best practices):
+- Worktrees are for **parallel work** (multiple things simultaneously)
+- Branches are for **sequential work** (one thing at a time)
+- The plugin workflow is sequential: brainstorm → specify → ... → finish
+- Parallel AI agent work requires separate terminals anyway
+
+### Solution
+
+Remove worktree support entirely. Use git branches for feature isolation.
+
+**Benefits:**
+- Single directory - Claude Code just works
+- No cwd switching issues
+- Simpler mental model
+- All tools work in same cwd
+- Less disk space
+
+**Trade-offs accepted:**
+- Can't run parallel tests/builds in different features (rare need)
+- Must commit/stash to switch features (acceptable)
+
+### Decisions
+
+1. **Complete removal vs optional?** → Complete removal. Simplicity wins.
+2. **Migration path for existing worktrees?** → Document manual cleanup steps.
+3. **Branch naming convention?** → Keep `feature/{id}-{slug}` pattern.
+
+---
+
+## Part 2: Retrospective Before Cleanup
 
 ### Problem
 
 Current `/finish` command suggests retrospective AFTER:
 - Merging/PR creation
-- Worktree cleanup
 - Branch deletion
 
 By then, you've lost:
 - Easy access to diff against main
-- Isolated context for reflection
-- Ability to re-examine decisions made during feature
+- Context for reflection
 
 ### Solution
 
-Move retrospective to happen BEFORE cleanup, and make it required (not suggested).
+Move retrospective to happen BEFORE cleanup, and make it required.
 
-### Decisions Made
+### Decisions
 
-**1. Required vs Offered?**
-- **Decision: Required, automatic**
-- User chooses which learnings to keep
-- Ensures learning capture happens
-- Low friction since user controls output
+1. **Required vs Offered?** → Required, automatic. User chooses what learnings to keep.
+2. **Before or After Merge?** → After merge decision, before branch deletion.
+3. **"Keep Branch" Option?** → Keep it, no retro (feature not done yet).
 
-**2. Before or After Merge Decision?**
-- **Decision: After**
-- Execute the merge/PR/abandon first
-- Then retrospect on what was committed
-- Then commit retro artifacts
-- Then cleanup
+---
 
-**3. "Keep Branch" Option?**
-- **Decision: Keep option, no retro for it**
-- "Keep branch" = "not done yet"
-- Retro only happens on terminal actions (PR, Merge, Discard)
+## Combined Flow
 
-### Refined /finish Flow
+### Feature Creation
+```
+/create-feature "description"
+├── Create docs/features/{id}-{slug}/
+├── git checkout -b feature/{id}-{slug}
+├── Store in .meta.json: "branch": "feature/{id}-{slug}"
+└── Continue to /specify
+```
 
+### Session Start Hook
+```
+SessionStart
+├── Detect active feature from docs/features/
+├── Get expected branch from .meta.json
+├── Check: git branch --show-current
+├── If mismatch:
+│   "You're on '{current}', feature uses '{expected}'.
+│    Run: git checkout {expected}"
+└── Show phase and next command
+```
+
+### Feature Completion
 ```
 /finish
 ├── Pre-completion checks
@@ -56,75 +103,42 @@ Move retrospective to happen BEFORE cleanup, and make it required (not suggested
 ├── RETROSPECTIVE (required, automatic)
 │   └── User selects which learnings to keep
 ├── Commit retro artifacts
-├── Update .meta.json
-└── Worktree cleanup
+├── Update .meta.json status
+└── git branch -d feature/{id}-{slug}
 ```
 
 ---
 
-## Part 2: Worktree Switching
+## Files to Change
 
-### Problem
+### DELETE
+- `skills/using-git-worktrees/SKILL.md`
 
-Currently, switching worktrees is manual and tedious:
-- Exit Claude → cd to worktree → restart Claude
-- Or use absolute paths (verbose, git context wrong)
-- Hook warns about mismatch but doesn't help fix it
+### MAJOR REWRITE
+- `commands/create-feature.md` - branch creation instead of worktree
+- `commands/finish.md` - retro before cleanup, branch deletion
+- `skills/brainstorming/SKILL.md` - branch creation in promotion
+- `hooks/session-start.sh` - branch check instead of worktree check
 
-### Solution
+### MODERATE UPDATES
+- `commands/show-status.md` - branch detection
+- `commands/list-features.md` - branch info instead of worktree
+- `commands/verify.md` - branch check
+- `commands/implement.md` - branch check
+- `commands/specify.md` - branch check
+- `commands/design.md` - branch check
+- `commands/create-plan.md` - branch check
+- `commands/create-tasks.md` - branch check
+- `skills/finishing-branch/SKILL.md` - remove worktree cleanup
+- `skills/workflow-state/SKILL.md` - schema change
 
-Add `/switch-worktree` command and integrate switching into existing workflows.
-
-### Components
-
-**1. New `/switch-worktree` command**
-```
-/switch-worktree [target]
-
-Targets:
-- Feature ID: /switch-worktree 006
-- "main": /switch-worktree main
-- No arg: list available and prompt
-```
-
-Implementation approach:
-- Claude Code allows changing cwd via bash `cd`
-- Command changes directory and confirms new context
-- Re-runs session-start hook logic to show updated context
-
-**2. Update `/create-feature` command**
-- After worktree creation, ask: "Switch to worktree now? (y/n)"
-- If yes: invoke `/switch-worktree {id}`
-- If no: remind user how to switch later
-
-**3. Update session-start hook**
-- Current: warns about mismatch, suggests `cd`
-- New: offer to switch via prompt
-- "You're not in the feature worktree. Switch now? (y/n)"
-- If yes: provide command to run or auto-switch
-
-### Decisions
-
-**How should switching work technically?**
-- **Decision: Use bash cd** - working directory persists between commands
-- Verify with `pwd` after switch
-- Re-display context after switch
-
-**Hook: Auto-switch or ask?**
-- **Decision: Ask** - don't auto-switch, respect user's current location
-- Some users may intentionally be in main repo
+### MINOR UPDATES
+- `README.md` - update documentation
+- `hooks/pre-commit-guard.sh` - verify/update if needed
 
 ---
-
-## Files to Modify
-
-| File | Change |
-|------|--------|
-| `commands/finish.md` | Reorder: retro before cleanup, make required |
-| `commands/switch-worktree.md` | **NEW** - worktree switching command |
-| `commands/create-feature.md` | Add switch prompt after worktree creation |
-| `hooks/session-start.sh` | Change warning to offer switch |
 
 ## Scope
 
-Medium - 1 modified file, 1 new file, 2 updated files
+Large - 1 deletion, 4 major rewrites, 10 moderate updates, 2+ minor updates.
+This is a foundational change that simplifies the entire workflow.
