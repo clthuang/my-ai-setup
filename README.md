@@ -23,7 +23,9 @@
 
 ### 0. Installation
 
-This repository is a Claude Code plugin. Components are auto-discovered from the project root.
+This repository uses a plugin marketplace architecture:
+- `.claude-plugin/marketplace.json` lists local plugins
+- `plugins/iflow/` contains the workflow plugin
 
 ```bash
 git clone https://github.com/clthuang/my-ai-setup.git
@@ -31,10 +33,11 @@ cd my-ai-setup
 claude .
 ```
 
-Claude Code recognizes this as a plugin via `.claude-plugin/plugin.json` and discovers:
+Claude Code discovers from `plugins/iflow/`:
 - Skills from `skills/{name}/SKILL.md`
 - Agents from `agents/{name}.md`
 - Commands from `commands/{name}.md`
+- Hooks from `hooks/hooks.json`
 
 #### Using Components in Other Projects
 
@@ -122,35 +125,37 @@ Verifiers check with fresh perspective:
 ## File Structure
 
 ```
-project/
+my-ai-setup/
+├── .claude-plugin/
+│   └── marketplace.json          # Local plugins registry
+├── plugins/
+│   └── iflow/                    # Feature workflow plugin
+│       ├── .claude-plugin/
+│       │   └── plugin.json
+│       ├── skills/
+│       │   └── {skill-name}/
+│       │       └── SKILL.md
+│       ├── agents/
+│       │   └── {agent-name}.md
+│       ├── commands/
+│       │   └── {command-name}.md
+│       └── hooks/
+│           ├── hooks.json
+│           └── *.sh
 ├── docs/
 │   ├── features/
 │   │   └── {id}-{name}/
-│   │       ├── brainstorm.md    # Ideas, options
-│   │       ├── spec.md          # Requirements
-│   │       ├── design.md        # Architecture
-│   │       ├── plan.md          # Approach
-│   │       ├── tasks.md         # Task list
-│   │       └── retro.md         # Learnings
+│   │       ├── brainstorm.md
+│   │       ├── spec.md
+│   │       ├── design.md
+│   │       ├── plan.md
+│   │       ├── tasks.md
+│   │       └── retro.md
+│   ├── backlog.md                # Ad-hoc ideas
 │   ├── guides/
-│   │   └── component-authoring.md
 │   ├── knowledge-bank/
-│   │   ├── constitution.md      # Core principles
-│   │   ├── patterns.md          # What works
-│   │   ├── anti-patterns.md     # What to avoid
-│   │   └── heuristics.md        # Decision guides
 │   └── plans/
-│       └── {date}-{topic}-{type}.md
-├── skills/
-│   └── {skill-name}/
-│       ├── SKILL.md
-│       ├── references/
-│       ├── scripts/
-│       └── templates/
-├── agents/
-│   └── {agent-name}.md
-└── commands/
-    └── {command-name}.md
+└── validate.sh
 ```
 
 ---
@@ -171,6 +176,8 @@ project/
 | `/list-features` | List all features | Feature list |
 | `/finish` | Complete feature | Merge, retro, cleanup |
 | `/retrospect` | Capture learnings | retro.md, knowledge-bank updates |
+| `/add-to-backlog` | Capture ad-hoc ideas | backlog.md entry |
+| `/cleanup-brainstorms` | Archive expired brainstorms | Deleted files |
 
 ---
 
@@ -205,6 +212,8 @@ Skills are instructions Claude follows for specific development practices.
 |-------|---------|
 | `finishing-branch` | Branch completion options |
 | `writing-skills` | TDD for skill authoring |
+| `workflow-state` | Phase sequence and state management |
+| `detecting-kanban` | Kanban availability with TodoWrite fallback |
 
 ---
 
@@ -221,6 +230,23 @@ Skills are instructions Claude follows for specific development practices.
 
 **Research:**
 - `investigation-agent` — Read-only context gathering
+
+**Review:**
+- `final-reviewer` — Validates implementation matches original spec
+- `chain-reviewer` — Validates artifact quality and phase handoffs
+
+---
+
+## Hooks
+
+Hooks execute automatically at lifecycle points.
+
+| Hook | Trigger | Purpose |
+|------|---------|---------|
+| `session-start` | Session start/resume/clear/compact | Inject active feature context |
+| `pre-commit-guard` | Before git commit commands | Workflow enforcement |
+
+Defined in `plugins/iflow/hooks/hooks.json`.
 
 ---
 
@@ -255,9 +281,10 @@ When something fails:
 
 See [Component Authoring Guide](./docs/guides/component-authoring.md).
 
-**Skills:** `skills/{name}/SKILL.md` — Instructions Claude follows
-**Agents:** `agents/{name}.md` — Isolated workers with specific focus
-**Commands:** `commands/{name}.md` — User-invocable entry points
+**Skills:** `plugins/iflow/skills/{name}/SKILL.md` — Instructions Claude follows
+**Agents:** `plugins/iflow/agents/{name}.md` — Isolated workers with specific focus
+**Commands:** `plugins/iflow/commands/{name}.md` — User-invocable entry points
+**Hooks:** `plugins/iflow/hooks/` — Lifecycle automation scripts
 
 ### Validation
 
