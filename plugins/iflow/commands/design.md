@@ -57,7 +57,7 @@ Update `.meta.json`:
 
 ### 4. Execute with Reviewer Loop
 
-Get max iterations from mode: Hotfix=1, Quick=2, Standard=3, Full=5.
+Get max iterations from mode: Standard=1, Full=3.
 
 **If `--no-review` argument is present:** Skip to step 4e directly after producing artifact. Set `reviewSkipped: true` in `.meta.json`.
 

@@ -9,7 +9,7 @@ Claude Code plugin providing a structured feature development workflow—skills,
 ## Key Principles
 
 - **No backward compatibility** - This is private tooling with no external users. Delete old code, don't maintain compatibility shims.
-- **Branches for all modes** - All workflow modes (Hotfix, Quick, Standard, Full) create feature branches. Branches are lightweight.
+- **Branches for all modes** - All workflow modes (Standard, Full) create feature branches. Branches are lightweight.
 - **Retro before cleanup** - Retrospective runs BEFORE branch deletion so context is still available.
 
 ## Commands

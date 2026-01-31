@@ -21,8 +21,6 @@ Check for feature context:
 1. Find active feature folder in `docs/features/`
 2. Read `.meta.json` for mode and context
 3. Adjust behavior based on mode:
-   - Hotfix: Skip to implementation guidance
-   - Quick: Streamlined process
    - Standard: Full process with optional verification
    - Full: Full process with required verification
 4. Write output to `docs/features/{id}-{slug}/brainstorm.md`
@@ -58,10 +56,8 @@ At end of brainstorming session, ask:
 1. Ask for workflow mode:
    ```
    Modes:
-   1. Hotfix — implement only
-   2. Quick — spec → tasks → implement
-   3. Standard — all phases
-   4. Full — all phases, required verification
+   1. Standard — all phases (default)
+   2. Full — all phases, required verification
    ```
 2. Generate feature ID: Find highest number in `docs/features/` and add 1
 3. Create folder: `docs/features/{id}-{slug}/`
@@ -177,8 +173,7 @@ Ready for /specify to define requirements.
 
 **With active feature:**
 - "Brainstorm complete. Saved to brainstorm.md."
-- For Standard/Full mode: "Run /verify to check, or /specify to continue."
-- For Quick mode: "Run /specify to continue."
+- "Run /verify to check, or /specify to continue."
 
 **Standalone mode:**
 - Follow "Promotion Flow" above to decide next steps.
