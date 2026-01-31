@@ -66,9 +66,28 @@ Write to `docs/features/{id}-{slug}/.meta.json`:
   "mode": "{selected-mode}",
   "status": "active",
   "created": "{ISO timestamp}",
-  "branch": "feature/{id}-{slug}"
+  "branch": "feature/{id}-{slug}",
+  "brainstorm_source": "{path-to-brainstorm-if-promoted}"
 }
 ```
+
+Note: `brainstorm_source` is only included when feature is promoted from a brainstorm.
+
+## Handle Backlog Source
+
+If feature was promoted from a brainstorm that originated from a backlog item:
+
+1. **Read brainstorm content** from `brainstorm_source` path in context
+2. **Parse for backlog source** using pattern `\*Source: Backlog #(\d{5})\*`
+3. **If found:**
+   - Add `"backlog_source": "{id}"` to `.meta.json`
+   - Read `docs/backlog.md`
+   - Find row matching `| {id} |`
+   - Remove that row
+   - Write updated backlog
+   - Display: `Linked from backlog item #{id} (removed from backlog)`
+4. **If pattern not found:** No action, continue normally
+5. **If ID found but row missing:** Display warning `⚠️ Backlog item #{id} not found in docs/backlog.md`, continue with feature creation
 
 ## State Tracking
 
@@ -86,6 +105,7 @@ Otherwise:
   Mode: {mode}
   Folder: docs/features/{id}-{slug}/
   Branch: feature/{id}-{slug}
+  Linked from: Backlog #{backlog_id} (removed)  ← only if backlog source found
 
   Note: Skipped brainstorming. Proceeding to /iflow:specify.
 ```
