@@ -4,28 +4,15 @@
 
 **What this is:** Skills, commands, and agents that guide Claude through methodical feature development—from ideation to implementation—with verification gates and knowledge accumulation.
 
----
+**Inspired by:** [spec-kit](https://github.com/github/spec-kit), [superpowers](https://github.com/obra/superpowers), [Vibe-Kanban](https://github.com/kobrinartem/vibe-kanban)
 
-## Design Principles
-
-| Principle | Meaning |
-|-----------|---------|
-| **Everything is prompts** | Skills and agents are just instructions Claude follows |
-| **Files are truth** | Artifacts persist in files; any session can resume |
-| **Humans unblock** | When stuck, Claude asks—never spins endlessly |
-| **Use > Test** | Real usage is the only test; refine through use |
-| **Composable > Rigid** | Phases work independently; combine as needed |
-| **Suggest > Enforce** | Verification suggested, human decides |
+Nothing here is new—these are borrowed ideas from industry experts, tuned to my workflow.
 
 ---
 
 ## Quick Start
 
-### 0. Installation
-
-This repository uses a plugin marketplace architecture:
-- `.claude-plugin/marketplace.json` lists local plugins
-- `plugins/iflow/` contains the workflow plugin
+### Installation
 
 ```bash
 git clone https://github.com/clthuang/my-ai-setup.git
@@ -33,90 +20,46 @@ cd my-ai-setup
 claude .
 ```
 
-Claude Code discovers from `plugins/iflow/`:
-- Skills from `skills/{name}/SKILL.md`
-- Agents from `agents/{name}.md`
-- Commands from `commands/{name}.md`
-- Hooks from `hooks/hooks.json`
+### Two Ways to Start
 
-#### Using Components in Other Projects
-
-To use these components in another project, install this plugin:
-
+**Option A: Explore first**
 ```bash
-cd your-other-project
-
-# Install as a project plugin (recommended)
-claude /plugin install ~/repos/my-ai-setup --project .
-
-# Or install globally (available in all projects)
-claude /plugin install ~/repos/my-ai-setup
+/brainstorm "your idea here"
 ```
+Brainstorms are scratch files in `docs/brainstorms/`. They don't have to become features—use them to explore any idea.
 
-> **Note:** Global installation makes all components available everywhere. Project-level components override global ones if names conflict.
-
-### 1. Start a Feature
-
+**Option B: Build something**
 ```bash
 /create-feature "add user authentication"
 ```
+Creates feature folder + branch, then guides you through the build phases.
 
-Claude will:
-- Suggest a workflow mode (Standard/Full)
-- Create feature folder at `docs/features/{id}-{name}/`
-- Create feature branch `feature/{id}-{name}`
+### Build Phases
 
-### 2. Work Through Phases
+After `/create-feature`, work through these phases:
 
-```bash
-/brainstorm      # Ideation, options exploration
-/specify         # Requirements, acceptance criteria
-/design          # Architecture, interfaces
-/create-plan     # Implementation approach
-/create-tasks    # Break into actionable items
-/implement       # Execute the work
+```
+/specify → /design → /create-plan → /create-tasks → /implement → /finish
 ```
 
-**Each phase:**
-- Produces an artifact (brainstorm.md, spec.md, etc.)
-- Suggests verification (`/verify`)
-- Suggests next phase
+Each phase produces an artifact (spec.md, design.md, etc.). Use `--no-review` to skip reviewer loops.
 
-**Loop back anytime:** Phases are composable, not rigid.
-
-### 3. Verify Work
+### Check Progress
 
 ```bash
-/verify        # Run phase-appropriate verification
-```
-
-Verifiers check with fresh perspective:
-- Red circle: Blockers must be fixed
-- Yellow circle: Warnings should be addressed
-- Green circle: Notes are suggestions
-
-### 4. Check Status
-
-```bash
-/show-status     # Current feature state
-/list-features   # All active features
-```
-
-### 5. Complete Feature
-
-```bash
-/finish          # Merge, run retro, cleanup branch
-/retrospect      # Capture learnings (can also run standalone)
+/show-status       # Current feature state
+/verify            # Quality check any phase
+/list-features     # See all active features
 ```
 
 ---
 
 ## Workflow Modes
 
-| Mode | Phases | Verification | Use When |
-|------|--------|--------------|----------|
-| **Standard** | All phases | Suggested | Normal feature (default) |
-| **Full** | All phases | Required | Large/risky change |
+| Mode | Reviewer Loops | Use When |
+|------|----------------|----------|
+| **Standard** | 1 iteration | Normal features (default) |
+| **Full** | Up to 3 iterations | Refactors, risky changes |
 
 ---
 
@@ -124,58 +67,67 @@ Verifiers check with fresh perspective:
 
 ```
 my-ai-setup/
-├── .claude-plugin/
-│   └── marketplace.json          # Local plugins registry
-├── plugins/
-│   └── iflow/                    # Feature workflow plugin
-│       ├── .claude-plugin/
-│       │   └── plugin.json
-│       ├── skills/
-│       │   └── {skill-name}/
-│       │       └── SKILL.md
-│       ├── agents/
-│       │   └── {agent-name}.md
-│       ├── commands/
-│       │   └── {command-name}.md
-│       └── hooks/
-│           ├── hooks.json
-│           └── *.sh
+├── plugins/iflow/              # Workflow plugin
+│   ├── skills/                 # Instructions Claude follows
+│   ├── agents/                 # Specialized workers
+│   ├── commands/               # User-invocable entry points
+│   └── hooks/                  # Lifecycle automation
 ├── docs/
-│   ├── features/
+│   ├── brainstorms/            # Scratch files from /brainstorm
+│   │   └── {timestamp}-{topic}.md
+│   ├── features/               # Created by /create-feature
 │   │   └── {id}-{name}/
-│   │       ├── brainstorm.md
+│   │       ├── .meta.json      # Phase tracking
 │   │       ├── spec.md
 │   │       ├── design.md
 │   │       ├── plan.md
 │   │       ├── tasks.md
 │   │       └── retro.md
-│   ├── backlog.md                # Ad-hoc ideas
-│   ├── guides/
-│   ├── knowledge-bank/
-│   └── plans/
+│   ├── backlog.md              # Ad-hoc ideas
+│   └── knowledge-bank/         # Accumulated learnings
 └── validate.sh
 ```
 
 ---
 
-## Commands Reference
+## Commands
 
-| Command | Purpose | Output |
-|---------|---------|--------|
-| `/create-feature` | Start new feature | Folder, branch, mode selection |
-| `/brainstorm` | Ideation phase | brainstorm.md |
-| `/specify` | Specification | spec.md |
-| `/design` | Architecture | design.md |
-| `/create-plan` | Planning | plan.md |
-| `/create-tasks` | Task breakdown | tasks.md |
-| `/implement` | Execute work | Code changes |
-| `/verify` | Quality check | Issue report |
-| `/show-status` | Current state | Status summary |
-| `/list-features` | List all features | Feature list |
-| `/finish` | Complete feature | Merge, retro, cleanup |
-| `/retrospect` | Capture learnings | retro.md, knowledge-bank updates |
-| `/add-to-backlog` | Capture ad-hoc ideas | backlog.md entry |
-| `/cleanup-brainstorms` | Archive expired brainstorms | Deleted files |
+**Start:**
+| Command | What it does |
+|---------|--------------|
+| `/brainstorm [topic]` | Explore ideas (scratch files, no commitment) |
+| `/create-feature <desc>` | Start building (creates folder + branch) |
+
+**Build phases** (run in order):
+| Command | Output |
+|---------|--------|
+| `/specify` | spec.md - requirements |
+| `/design` | design.md - architecture |
+| `/create-plan` | plan.md - implementation approach |
+| `/create-tasks` | tasks.md - actionable items |
+| `/implement` | Code changes |
+| `/finish` | Doc review, merge, retrospective, cleanup |
+
+**Anytime:**
+| Command | Purpose |
+|---------|---------|
+| `/verify` | Quality check current phase |
+| `/show-status` | See where you are |
+| `/list-features` | See all active features |
+| `/retrospect` | Capture learnings (standalone) |
+| `/add-to-backlog <idea>` | Capture ideas for later |
+| `/cleanup-brainstorms` | Delete old scratch files |
+
+All phase commands support `--no-review` to skip reviewer loops.
+
+### What /finish Does
+
+1. Checks for uncommitted changes and incomplete tasks
+2. Offers quality review (spawns quality-reviewer agent)
+3. Offers documentation review (detects README, CHANGELOG, docs/*.md)
+4. Lets you choose: Create PR, Merge locally, Keep branch, or Discard
+5. Runs mandatory retrospective (you control what to capture)
+6. Cleans up branch
 
 ---
 
@@ -221,17 +173,15 @@ Skills are instructions Claude follows for specific development practices.
 - `implementer` — Task implementation with self-review, TDD
 - `generic-worker` — General-purpose implementation
 
-**Review:**
+**Quality Review:**
 - `spec-reviewer` — Verify implementation matches specification
 - `code-quality-reviewer` — Code quality assessment
 - `quality-reviewer` — Post-implementation quality check
+- `final-reviewer` — Validates implementation matches original spec
+- `chain-reviewer` — Validates artifact quality and phase handoffs
 
 **Research:**
 - `investigation-agent` — Read-only context gathering
-
-**Review:**
-- `final-reviewer` — Validates implementation matches original spec
-- `chain-reviewer` — Validates artifact quality and phase handoffs
 
 ---
 
@@ -275,6 +225,15 @@ When something fails:
 
 ## For Developers
 
+### Design Principles
+
+| Principle | Meaning |
+|-----------|---------|
+| **Everything is prompts** | Skills and agents are just instructions Claude follows |
+| **Files are truth** | Artifacts persist in files; any session can resume |
+| **Humans unblock** | When stuck, Claude asks—never spins endlessly |
+| **Composable > Rigid** | Phases work independently; combine as needed |
+
 ### Creating Components
 
 See [Component Authoring Guide](./docs/guides/component-authoring.md).
@@ -315,7 +274,3 @@ No routing layer. No orchestration. Just well-written prompts.
 ## References
 
 - [Component Authoring Guide](./docs/guides/component-authoring.md)
-- [Feature Workflow Design](./docs/plans/2026-01-28-feature-workflow-design.md)
-- [Superpowers Patterns](./docs/plans/2026-01-28-superpowers-patterns-design.md)
-- [Superpowers Repository](https://github.com/obra/superpowers)
-- [Spec-kit](https://github.com/github/spec-kit)
