@@ -88,3 +88,133 @@ To install the released version:
 | `scripts/release.sh` | Release automation script |
 | `.claude-plugin/marketplace.json` | Marketplace configuration |
 | `plugins/iflow/.claude-plugin/plugin.json` | Plugin manifest with version |
+
+---
+
+## Architecture
+
+```
+User → /command → Claude reads skill → Follows instructions
+                                    → Spawns agents if needed
+                                    → Updates files
+                                    → Uses Vibe-Kanban/TodoWrite for tracking
+```
+
+No routing layer. No orchestration. Just well-written prompts.
+
+## Design Principles
+
+| Principle | Meaning |
+|-----------|---------|
+| **Everything is prompts** | Skills and agents are just instructions Claude follows |
+| **Files are truth** | Artifacts persist in files; any session can resume |
+| **Humans unblock** | When stuck, Claude asks—never spins endlessly |
+| **Composable > Rigid** | Phases work independently; combine as needed |
+
+## Skills
+
+Skills are instructions Claude follows for specific development practices.
+
+### Feature Workflow
+| Skill | Purpose |
+|-------|---------|
+| `brainstorming` | Ideation with YAGNI discipline |
+| `specifying` | Requirements and acceptance criteria |
+| `designing` | Architecture and interfaces |
+| `planning` | Implementation approach |
+| `breaking-down-tasks` | Create actionable tasks |
+| `implementing` | Code execution with TDD |
+| `verifying` | Phase-appropriate verification |
+| `updating-docs` | Guide documentation updates |
+| `retrospecting` | Capture learnings |
+
+### Advanced Disciplines
+| Skill | Purpose |
+|-------|---------|
+| `implementing-with-tdd` | RED-GREEN-REFACTOR enforcement |
+| `systematic-debugging` | Root cause investigation |
+| `verifying-before-completion` | Evidence before claims |
+| `subagent-driven-development` | Three-agent workflow per task |
+| `dispatching-parallel-agents` | Concurrent investigation |
+
+### Infrastructure
+| Skill | Purpose |
+|-------|---------|
+| `finishing-branch` | Branch completion options |
+| `writing-skills` | TDD for skill authoring |
+| `workflow-state` | Phase sequence and state management |
+| `detecting-kanban` | Kanban availability with TodoWrite fallback |
+
+## Agents
+
+**Implementation:**
+- `implementer` — Task implementation with self-review, TDD
+- `generic-worker` — General-purpose implementation
+
+**Quality Review:**
+- `spec-reviewer` — Verify implementation matches specification
+- `code-quality-reviewer` — Code quality assessment
+- `quality-reviewer` — Post-implementation quality check
+- `final-reviewer` — Validates implementation matches original spec
+- `chain-reviewer` — Validates artifact quality and phase handoffs
+
+**Research:**
+- `investigation-agent` — Read-only context gathering
+
+## Hooks
+
+Hooks execute automatically at lifecycle points.
+
+| Hook | Trigger | Purpose |
+|------|---------|---------|
+| `session-start` | Session start/resume/clear/compact | Inject active feature context |
+| `pre-commit-guard` | Before git commit commands | Warns when committing to main/master; prompts to confirm or use feature branch |
+
+Defined in `plugins/iflow/hooks/hooks.json`.
+
+## Knowledge Bank
+
+Learnings accumulate in `docs/knowledge-bank/`:
+
+- **constitution.md** — Core principles (KISS, YAGNI, etc.)
+- **patterns.md** — Approaches that worked
+- **anti-patterns.md** — Things to avoid
+- **heuristics.md** — Decision guides
+
+Updated via `/iflow:retrospect` after feature completion.
+
+## Creating Components
+
+See [Component Authoring Guide](./docs/guides/component-authoring.md).
+
+**Skills:** `plugins/iflow/skills/{name}/SKILL.md` — Instructions Claude follows
+**Agents:** `plugins/iflow/agents/{name}.md` — Isolated workers with specific focus
+**Commands:** `plugins/iflow/commands/{name}.md` — User-invocable entry points
+**Hooks:** `plugins/iflow/hooks/` — Lifecycle automation scripts
+
+## Validation
+
+```bash
+./validate.sh    # Check all components
+```
+
+## Error Recovery
+
+When something fails:
+
+1. **Auto-retry** for transient issues
+2. **Fresh approach** if retry fails
+3. **Ask human** with clear options
+
+**Principle:** Never spin endlessly. Never fail silently. Ask.
+
+## Contributing
+
+1. Fork the repository
+2. Create feature branch
+3. Run `./validate.sh`
+4. Submit PR
+
+## References
+
+- [Component Authoring Guide](./docs/guides/component-authoring.md)
