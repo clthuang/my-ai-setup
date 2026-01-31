@@ -4,7 +4,7 @@
 
 **What this is:** Skills, commands, and agents that guide Claude through methodical feature development—from ideation to implementation—with verification gates and knowledge accumulation.
 
-**Inspired by:** [spec-kit](https://github.com/github/spec-kit), [superpowers](https://github.com/obra/superpowers), [Vibe-Kanban](https://github.com/kobrinartem/vibe-kanban)
+**Inspired by:** [spec-kit](https://github.com/github/spec-kit), [superpowers](https://github.com/obra/superpowers), [Vibe-Kanban](https://github.com/BloopAI/vibe-kanban)
 
 Nothing here is new—these are borrowed ideas from industry experts, tuned to my workflow.
 
