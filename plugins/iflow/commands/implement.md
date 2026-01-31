@@ -30,25 +30,36 @@ Stop execution. Do not proceed.
 
 If feature has a branch defined in `.meta.json`:
 - Get current branch: `git branch --show-current`
-- If current branch != expected branch:
+- If current branch != expected branch, use AskUserQuestion:
   ```
-  ⚠️ You're on branch '{current}', but feature uses '{expected}'.
-
-  Switch branches:
-    git checkout {expected}
-
-  Or continue on current branch? (y/n)
+  AskUserQuestion:
+    questions: [{
+      "question": "You're on '{current}', but feature uses '{expected}'. Switch branches?",
+      "header": "Branch",
+      "options": [
+        {"label": "Switch", "description": "Run: git checkout {expected}"},
+        {"label": "Continue", "description": "Stay on {current}"}
+      ],
+      "multiSelect": false
+    }]
   ```
 - Skip this check if branch is null (legacy feature)
 
 ### 2. Check for Partial Phase
 
-If `phases.implement.started` exists but `phases.implement.completed` is null:
+If `phases.implement.started` exists but `phases.implement.completed` is null, use AskUserQuestion:
 ```
-Detected partial implementation work.
-1. Continue from where you left off
-2. Start fresh
-3. Review progress before deciding
+AskUserQuestion:
+  questions: [{
+    "question": "Detected partial implementation work. How to proceed?",
+    "header": "Recovery",
+    "options": [
+      {"label": "Continue", "description": "Resume from where you left off"},
+      {"label": "Start Fresh", "description": "Discard and begin new"},
+      {"label": "Review First", "description": "View progress before deciding"}
+    ],
+    "multiSelect": false
+  }]
 ```
 
 ### 3. Mark Phase Started

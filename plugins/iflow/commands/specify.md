@@ -23,25 +23,36 @@ Before executing, check prerequisites using workflow-state skill:
 
 If feature has a branch defined in `.meta.json`:
 - Get current branch: `git branch --show-current`
-- If current branch != expected branch:
+- If current branch != expected branch, use AskUserQuestion:
   ```
-  ⚠️ You're on branch '{current}', but feature uses '{expected}'.
-
-  Switch branches:
-    git checkout {expected}
-
-  Or continue on current branch? (y/n)
+  AskUserQuestion:
+    questions: [{
+      "question": "You're on '{current}', but feature uses '{expected}'. Switch branches?",
+      "header": "Branch",
+      "options": [
+        {"label": "Switch", "description": "Run: git checkout {expected}"},
+        {"label": "Continue", "description": "Stay on {current}"}
+      ],
+      "multiSelect": false
+    }]
   ```
 - Skip this check if branch is null (legacy feature)
 
 ### 2. Check for Partial Phase
 
-If `phases.specify.started` exists but `phases.specify.completed` is null:
+If `phases.specify.started` exists but `phases.specify.completed` is null, use AskUserQuestion:
 ```
-Detected partial specification work.
-1. Continue from existing draft
-2. Start fresh
-3. Review existing before deciding
+AskUserQuestion:
+  questions: [{
+    "question": "Detected partial specification work. How to proceed?",
+    "header": "Recovery",
+    "options": [
+      {"label": "Continue", "description": "Resume from draft"},
+      {"label": "Start Fresh", "description": "Discard and begin new"},
+      {"label": "Review First", "description": "View existing before deciding"}
+    ],
+    "multiSelect": false
+  }]
 ```
 
 ### 3. Mark Phase Started

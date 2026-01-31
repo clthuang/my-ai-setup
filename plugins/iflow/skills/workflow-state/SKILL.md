@@ -43,11 +43,19 @@ If blocked: Show error message, do not proceed.
 
 ### Soft Prerequisites (Warn)
 
-All other out-of-order transitions produce a **warning** but allow proceeding:
+All other out-of-order transitions produce a **warning** but allow proceeding via AskUserQuestion:
 
 ```
-⚠️ Skipping {skipped phases}. This may reduce artifact quality.
-Continue anyway? (y/n)
+AskUserQuestion:
+  questions: [{
+    "question": "Skipping {skipped phases}. This may reduce artifact quality. Continue anyway?",
+    "header": "Skip",
+    "options": [
+      {"label": "Continue", "description": "Proceed despite skipping phases"},
+      {"label": "Stop", "description": "Return to complete skipped phases"}
+    ],
+    "multiSelect": false
+  }]
 ```
 
 Examples:

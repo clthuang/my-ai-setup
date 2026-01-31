@@ -37,12 +37,18 @@ Enter numbers to delete (comma-separated), 'all' to delete all, or 'q' to quit:
 
 ### 3. Confirm Deletion
 
-Show selected files:
+Show selected files and confirm via AskUserQuestion:
 ```
-Will delete:
-- 20260115-220000-old-idea.md
-
-Confirm? (y/n)
+AskUserQuestion:
+  questions: [{
+    "question": "Will delete: {list of selected files}. Confirm?",
+    "header": "Delete",
+    "options": [
+      {"label": "Yes, Delete", "description": "Remove selected files permanently"},
+      {"label": "Cancel", "description": "Keep all files"}
+    ],
+    "multiSelect": false
+  }]
 ```
 
 ### 4. Delete Files

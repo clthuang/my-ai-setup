@@ -49,7 +49,7 @@ Categorize findings:
 
 ## Propose Updates
 
-For each learning, propose where it goes:
+For each learning, propose where it goes and confirm via AskUserQuestion:
 
 ```
 Learning: "Defining interfaces first enabled parallel work"
@@ -61,8 +61,19 @@ Proposed update:
   Define interfaces before implementation to enable parallel work.
   - Observed in: Feature #{id}
   - Benefit: Reduced integration issues
+```
 
-Add this? (y/n)
+```
+AskUserQuestion:
+  questions: [{
+    "question": "Add this learning to patterns.md?",
+    "header": "Learning",
+    "options": [
+      {"label": "Add", "description": "Save to knowledge bank"},
+      {"label": "Skip", "description": "Don't save this learning"}
+    ],
+    "multiSelect": false
+  }]
 ```
 
 ## Write Updates

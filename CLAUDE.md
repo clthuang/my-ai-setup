@@ -12,6 +12,31 @@ Claude Code plugin providing a structured feature development workflow—skills,
 - **Branches for all modes** - All workflow modes (Standard, Full) create feature branches. Branches are lightweight.
 - **Retro before cleanup** - Retrospective runs BEFORE branch deletion so context is still available.
 
+## User Input Standards
+
+**All interactive choices MUST use AskUserQuestion tool:**
+- Required for yes/no prompts (not `(y/n)` text patterns)
+- Required for numbered menus (not ASCII `1. Option` blocks)
+- Required for any user selection
+
+**AskUserQuestion format:**
+```
+AskUserQuestion:
+  questions: [{
+    "question": "Your question",
+    "header": "Category",
+    "options": [
+      {"label": "Option", "description": "What this does"}
+    ],
+    "multiSelect": false
+  }]
+```
+
+**Exceptions (plain text OK):**
+- Informational messages with no choice ("Run /verify to check")
+- Error messages with instructions
+- Status output
+
 ## Commands
 
 ```bash

@@ -25,17 +25,21 @@ Based on described scope, suggest a mode:
 | Most features, clear scope | Standard |
 | "rewrite", "refactor system", "breaking change" | Full |
 
-Present to user:
+Present mode selection via AskUserQuestion:
 ```
-Feature: {id}-{slug}
-Suggested mode: {mode}
-
-Modes:
-1. Standard — all phases (default)
-2. Full — all phases, required verification
-
-Choose mode [1-2] or press Enter for {suggested}:
+AskUserQuestion:
+  questions: [{
+    "question": "Feature: {id}-{slug}. Select workflow mode:",
+    "header": "Mode",
+    "options": [
+      {"label": "Standard (Recommended)", "description": "All phases with optional verification"},
+      {"label": "Full", "description": "All phases with required verification"}
+    ],
+    "multiSelect": false
+  }]
 ```
+
+Note: If "Full" indicators are detected in the description, swap the recommended label to Full.
 
 ## Create Feature
 

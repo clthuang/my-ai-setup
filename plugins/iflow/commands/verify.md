@@ -14,25 +14,36 @@ Before executing, check state using workflow-state skill:
 - Read current `.meta.json` state
 - Determine which phase to verify (most recent completed phase)
 
-**WARNING:** If verifying a phase that isn't marked completed:
+**WARNING:** If verifying a phase that isn't marked completed, use AskUserQuestion:
 ```
-⚠️ Phase {phase} is not marked complete.
-Verifying incomplete work may give misleading results.
-Continue anyway? (y/n)
+AskUserQuestion:
+  questions: [{
+    "question": "Phase {phase} is not marked complete. Verifying incomplete work may give misleading results. Continue anyway?",
+    "header": "Verify",
+    "options": [
+      {"label": "Continue", "description": "Proceed with verification"},
+      {"label": "Stop", "description": "Cancel verification"}
+    ],
+    "multiSelect": false
+  }]
 ```
 
 ### 1b. Check Branch
 
 If feature has a branch defined in `.meta.json`:
 - Get current branch: `git branch --show-current`
-- If current branch != expected branch:
+- If current branch != expected branch, use AskUserQuestion:
   ```
-  ⚠️ You're on branch '{current}', but feature uses '{expected}'.
-
-  Switch branches:
-    git checkout {expected}
-
-  Or continue on current branch? (y/n)
+  AskUserQuestion:
+    questions: [{
+      "question": "You're on '{current}', but feature uses '{expected}'. Switch branches?",
+      "header": "Branch",
+      "options": [
+        {"label": "Switch", "description": "Run: git checkout {expected}"},
+        {"label": "Continue", "description": "Stay on {current}"}
+      ],
+      "multiSelect": false
+    }]
   ```
 - Skip this check if branch is null (legacy feature)
 

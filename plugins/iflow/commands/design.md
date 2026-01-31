@@ -21,25 +21,36 @@ Before executing, check prerequisites using workflow-state skill:
 
 If feature has a branch defined in `.meta.json`:
 - Get current branch: `git branch --show-current`
-- If current branch != expected branch:
+- If current branch != expected branch, use AskUserQuestion:
   ```
-  ⚠️ You're on branch '{current}', but feature uses '{expected}'.
-
-  Switch branches:
-    git checkout {expected}
-
-  Or continue on current branch? (y/n)
+  AskUserQuestion:
+    questions: [{
+      "question": "You're on '{current}', but feature uses '{expected}'. Switch branches?",
+      "header": "Branch",
+      "options": [
+        {"label": "Switch", "description": "Run: git checkout {expected}"},
+        {"label": "Continue", "description": "Stay on {current}"}
+      ],
+      "multiSelect": false
+    }]
   ```
 - Skip this check if branch is null (legacy feature)
 
 ### 2. Check for Partial Phase
 
-If `phases.design.started` exists but `phases.design.completed` is null:
+If `phases.design.started` exists but `phases.design.completed` is null, use AskUserQuestion:
 ```
-Detected partial design work.
-1. Continue from existing draft
-2. Start fresh
-3. Review existing before deciding
+AskUserQuestion:
+  questions: [{
+    "question": "Detected partial design work. How to proceed?",
+    "header": "Recovery",
+    "options": [
+      {"label": "Continue", "description": "Resume from draft"},
+      {"label": "Start Fresh", "description": "Discard and begin new"},
+      {"label": "Review First", "description": "View existing before deciding"}
+    ],
+    "multiSelect": false
+  }]
 ```
 
 ### 3. Mark Phase Started
@@ -142,24 +153,19 @@ Update `.meta.json`:
 
 "Design complete. Saved to design.md."
 
-Present planning options:
+Present planning options via AskUserQuestion:
 
 ```
-How would you like to create your implementation plan?
-
-1. Claude Code Plan Mode
-   - Read-only analysis mode with approval workflow
-   - Enter: Press Shift+Tab until showing "⏸ plan mode on"
-   - Prompt: "Create implementation plan for docs/features/{id}-{slug}/design.md, output to plan.md"
-   - Edit plan: Press Ctrl+G to open in editor
-   - Execute: Say "proceed with the plan"
-
-2. iflow /iflow:create-plan (Recommended for workflow tracking)
-   - Creates plan.md with dependency graphs
-   - Includes chain-reviewer verification loop
-   - Updates .meta.json phase tracking
-
-Choose [1-2] or press Enter for 2:
+AskUserQuestion:
+  questions: [{
+    "question": "How would you like to create your implementation plan?",
+    "header": "Planning",
+    "options": [
+      {"label": "iflow create-plan (Recommended)", "description": "Creates plan.md with dependency graphs and workflow tracking"},
+      {"label": "Claude Code Plan Mode", "description": "Read-only analysis mode with approval workflow (Shift+Tab)"}
+    ],
+    "multiSelect": false
+  }]
 ```
 
 **If Option 1 (Claude Code Plan Mode):**

@@ -81,12 +81,18 @@ docs/guide.md
 Would you like to update any of these? (select)
 ```
 
-If no user-visible changes detected:
+If no user-visible changes detected, use AskUserQuestion:
 ```
-No user-visible changes detected in spec.
-Documentation updates are optional for this feature.
-
-Still want to review documentation? (y/n)
+AskUserQuestion:
+  questions: [{
+    "question": "No user-visible changes detected. Documentation updates are optional. Still want to review?",
+    "header": "Docs",
+    "options": [
+      {"label": "Review Anyway", "description": "Open documentation for review"},
+      {"label": "Skip", "description": "Continue without doc review"}
+    ],
+    "multiSelect": false
+  }]
 ```
 
 ### Step 4: Assist with Updates
@@ -107,14 +113,26 @@ For each doc the user selects:
 
 ## Output
 
-After all selected docs reviewed:
+After all selected docs reviewed, use AskUserQuestion:
 
+```
+AskUserQuestion:
+  questions: [{
+    "question": "Documentation review complete. Continue with /iflow:finish?",
+    "header": "Next",
+    "options": [
+      {"label": "Continue", "description": "Proceed to /iflow:finish"},
+      {"label": "Stay", "description": "Remain in current context"}
+    ],
+    "multiSelect": false
+  }]
+```
+
+Show summary before the question:
 ```
 Documentation review complete.
 - README.md: Updated
 - CHANGELOG.md: Skipped
-
-Continue with /iflow:finish? (y/n)
 ```
 
 ## Advisory, Not Blocking
