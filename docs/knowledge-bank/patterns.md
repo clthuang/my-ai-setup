@@ -58,6 +58,13 @@ Hook JSON output must use correct field names for each hook type.
 - Validation: Use Context7 to look up Claude Code hook documentation for authoritative schema
 - Solution: Tests should validate output structure matches expected schema per hook type
 
+### Pattern: Retroactive Feature Creation as Recovery
+When work is done outside the workflow, recover by creating feature artifacts after the fact.
+- Used in: Feature #008
+- Steps: Create folder + .meta.json, write brainstorm.md/spec.md, create branch, commit, run /iflow:finish
+- Benefit: Preserves audit trail without discarding completed work
+- Trade-off: Artifacts are reconstructed, not organic; less detailed than if created during work
+
 <!-- Example format:
 ### Pattern: Early Interface Definition
 Define interfaces before implementation. Enables parallel work.

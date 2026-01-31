@@ -26,6 +26,13 @@ Using `find .` or relative paths in hooks for project file discovery.
 - Root cause: `find .` searches from PWD; `PLUGIN_ROOT` points to cached copy
 - Instead: Use `detect_project_root()` from shared library, search from `PROJECT_ROOT`
 
+### Anti-Pattern: Skipping Workflow for "Simple" Tasks
+Rationalizing that a task is "just mechanical" to justify skipping workflow phases.
+- Observed in: Feature #008
+- Cost: Had to retroactively create feature; missed the brainstorm → feature promotion checkpoint
+- Root cause: Task felt simple (search-and-replace), so jumped from option selection to implementation
+- Instead: Brainstorm phase ends with "Turn this into a feature?" - always ask, let user decide to skip
+
 <!-- Example format:
 ### Anti-Pattern: Premature Optimization
 Optimizing before measuring actual performance.
