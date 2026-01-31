@@ -143,7 +143,7 @@ main() {
     branch=$(get_branch_for_command "$command")
 
     if is_protected_branch "$branch"; then
-        output_ask "Commit and push to ${branch}, or create a new feature branch and create a PR for review?"
+        output_ask "You're committing directly to '${branch}'. Proceed with direct commit?"
         exit 0
     fi
 
