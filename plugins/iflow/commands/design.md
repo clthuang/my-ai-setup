@@ -140,4 +140,41 @@ Update `.meta.json`:
 
 ### 6. Completion Message
 
-"Design complete. Run /verify to check, or /create-plan to continue."
+"Design complete. Saved to design.md."
+
+Present planning options:
+
+```
+How would you like to create your implementation plan?
+
+1. Claude Code Plan Mode
+   - Read-only analysis mode with approval workflow
+   - Enter: Press Shift+Tab until showing "⏸ plan mode on"
+   - Prompt: "Create implementation plan for docs/features/{id}-{slug}/design.md, output to plan.md"
+   - Edit plan: Press Ctrl+G to open in editor
+   - Execute: Say "proceed with the plan"
+
+2. iflow /create-plan (Recommended for workflow tracking)
+   - Creates plan.md with dependency graphs
+   - Includes chain-reviewer verification loop
+   - Updates .meta.json phase tracking
+
+Choose [1-2] or press Enter for 2:
+```
+
+**If Option 1 (Claude Code Plan Mode):**
+- Inform: "To enter plan mode:"
+- Show instructions:
+  ```
+  1. Press Shift+Tab until you see "⏸ plan mode on" indicator
+  2. Provide: "Create implementation plan based on docs/features/{id}-{slug}/design.md. Output to docs/features/{id}-{slug}/plan.md"
+  3. Refine the plan interactively
+  4. Press Ctrl+G to edit plan in your editor
+  5. Say "proceed with the plan" when ready
+  ```
+- Note: "Phase tracking won't be updated until you run /create-tasks"
+- Do NOT auto-continue (user switches modes manually)
+
+**If Option 2 (iflow /create-plan):**
+- Inform: "Continuing with /create-plan..."
+- Auto-invoke `/create-plan`
