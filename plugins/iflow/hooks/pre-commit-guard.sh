@@ -7,10 +7,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 PROJECT_ROOT="$(detect_project_root)"
 
-# Read tool input from stdin
+# Read tool input from stdin (with timeout to prevent indefinite blocking)
+# Uses gtimeout (macOS with coreutils) or timeout (Linux), falls back to cat
 read_tool_input() {
-    local input
-    input=$(cat)
+    local input timeout_cmd=""
+
+    # Find available timeout command
+    if command -v gtimeout &>/dev/null; then
+        timeout_cmd="gtimeout 5"
+    elif command -v timeout &>/dev/null; then
+        timeout_cmd="timeout 5"
+    fi
+
+    if [[ -n "$timeout_cmd" ]]; then
+        input=$($timeout_cmd cat || echo '{}')
+    else
+        # Fallback: read without timeout (stdin from Claude should close promptly)
+        input=$(cat)
+    fi
 
     # Extract command from JSON input
     # Input format: {"tool_name": "Bash", "tool_input": {"command": "..."}}
@@ -96,6 +110,22 @@ output_block() {
 EOF
 }
 
+# Output: ask user to confirm
+output_ask() {
+    local reason="$1"
+    local escaped
+    escaped=$(escape_json "$reason")
+    cat <<EOF
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "ask",
+    "permissionDecisionReason": "${escaped}"
+  }
+}
+EOF
+}
+
 # Main
 main() {
     local command
@@ -112,11 +142,8 @@ main() {
     branch=$(get_branch_for_command "$command")
 
     if is_protected_branch "$branch"; then
-        output_block "Direct commits to ${branch} branch are blocked. Create a feature branch first:
-  git checkout -b feature/your-feature-name
-
-Or use /create-feature for the full workflow."
-        exit 2
+        output_ask "Commit and push to ${branch}, or create a new feature branch and create a PR for review?"
+        exit 0
     fi
 
     # Check for test files and remind

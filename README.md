@@ -196,7 +196,7 @@ Hooks execute automatically at lifecycle points.
 | Hook | Trigger | Purpose |
 |------|---------|---------|
 | `session-start` | Session start/resume/clear/compact | Inject active feature context |
-| `pre-commit-guard` | Before git commit commands | Workflow enforcement |
+| `pre-commit-guard` | Before git commit commands | Warns when committing to main/master; prompts to confirm or use feature branch |
 
 Defined in `plugins/iflow/hooks/hooks.json`.
 
