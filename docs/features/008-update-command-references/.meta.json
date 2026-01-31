@@ -1,0 +1,20 @@
+{
+  "id": "008",
+  "slug": "update-command-references",
+  "status": "active",
+  "mode": "standard",
+  "created": "2026-01-31T10:30:00Z",
+  "branch": "feature/008-update-command-references",
+  "phases": {
+    "brainstorm": {
+      "started": "2026-01-31T10:30:00Z",
+      "completed": "2026-01-31T10:35:00Z"
+    },
+    "implement": {
+      "started": "2026-01-31T10:35:00Z",
+      "completed": "2026-01-31T10:45:00Z"
+    }
+  },
+  "currentPhase": "implement",
+  "notes": "Retroactively created to track work done in session"
+}

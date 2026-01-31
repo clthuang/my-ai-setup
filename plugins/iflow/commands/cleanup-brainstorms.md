@@ -2,7 +2,7 @@
 description: List and delete old brainstorm scratch files
 ---
 
-# /cleanup-brainstorms Command
+# /iflow:cleanup-brainstorms Command
 
 Manage brainstorm scratch files in `docs/brainstorms/`.
 

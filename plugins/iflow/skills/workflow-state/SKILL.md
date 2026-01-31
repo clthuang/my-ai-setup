@@ -36,8 +36,8 @@ These transitions are **blocked** if prerequisites are missing:
 
 | Target Phase | Required Artifact | Error Message |
 |--------------|-------------------|---------------|
-| /implement | spec.md | "spec.md required before implementation. Run /specify first." |
-| /create-tasks | plan.md | "plan.md required before task creation. Run /create-plan first." |
+| /iflow:implement | spec.md | "spec.md required before implementation. Run /iflow:specify first." |
+| /iflow:create-tasks | plan.md | "plan.md required before task creation. Run /iflow:create-plan first." |
 
 If blocked: Show error message, do not proceed.
 
@@ -121,7 +121,7 @@ Terminal statuses cannot be changed. New work requires a new feature.
 
 ### Status Updates
 
-The `/finish` command updates status to terminal values:
+The `/iflow:finish` command updates status to terminal values:
 
 ```json
 // For completed features
@@ -134,4 +134,4 @@ The `/finish` command updates status to terminal values:
 ## Review History
 
 During development, `.review-history.md` tracks iteration feedback.
-On `/finish`, this file is deleted (git has the permanent record).
+On `/iflow:finish`, this file is deleted (git has the permanent record).

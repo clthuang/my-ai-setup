@@ -154,7 +154,7 @@ How would you like to create your implementation plan?
    - Edit plan: Press Ctrl+G to open in editor
    - Execute: Say "proceed with the plan"
 
-2. iflow /create-plan (Recommended for workflow tracking)
+2. iflow /iflow:create-plan (Recommended for workflow tracking)
    - Creates plan.md with dependency graphs
    - Includes chain-reviewer verification loop
    - Updates .meta.json phase tracking
@@ -172,9 +172,9 @@ Choose [1-2] or press Enter for 2:
   4. Press Ctrl+G to edit plan in your editor
   5. Say "proceed with the plan" when ready
   ```
-- Note: "Phase tracking won't be updated until you run /create-tasks"
+- Note: "Phase tracking won't be updated until you run /iflow:create-tasks"
 - Do NOT auto-continue (user switches modes manually)
 
-**If Option 2 (iflow /create-plan):**
-- Inform: "Continuing with /create-plan..."
-- Auto-invoke `/create-plan`
+**If Option 2 (iflow /iflow:create-plan):**
+- Inform: "Continuing with /iflow:create-plan..."
+- Auto-invoke `/iflow:create-plan`

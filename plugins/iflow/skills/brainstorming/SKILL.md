@@ -77,8 +77,8 @@ At end of brainstorming session, ask:
      "brainstorm_source": "{original scratch file path}"
    }
    ```
-7. Inform user: "Feature {id}-{slug} created on branch feature/{id}-{slug}. Continuing to /specify..."
-8. Auto-invoke `/specify`
+7. Inform user: "Feature {id}-{slug} created on branch feature/{id}-{slug}. Continuing to /iflow:specify..."
+8. Auto-invoke `/iflow:specify`
 
 **If no:**
 - Inform: "Saved to docs/brainstorms/{filename}. You can revisit later."
@@ -166,14 +166,14 @@ Write to scratch file (standalone) or `docs/features/{id}-{slug}/brainstorm.md` 
 - {Question 2}
 
 ## Next Steps
-Ready for /specify to define requirements.
+Ready for /iflow:specify to define requirements.
 ```
 
 ## Completion
 
 **With active feature:**
 - "Brainstorm complete. Saved to brainstorm.md."
-- "Run /verify to check, or /specify to continue."
+- "Run /iflow:verify to check, or /iflow:specify to continue."
 
 **Standalone mode:**
 - Follow "Promotion Flow" above to decide next steps.

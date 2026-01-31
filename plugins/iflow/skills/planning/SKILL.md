@@ -10,7 +10,7 @@ Create an ordered implementation plan.
 ## Prerequisites
 
 - If `design.md` exists: Read for architecture
-- If not: "No design found. Run /design first, or describe architecture now."
+- If not: "No design found. Run /iflow:design first, or describe architecture now."
 
 ## Read Feature Context
 
@@ -109,4 +109,4 @@ Items depending on Phase 2.
 ## Completion
 
 "Plan complete. Saved to plan.md."
-"Run /verify to check, or /create-tasks to break into actionable items."
+"Run /iflow:verify to check, or /iflow:create-tasks to break into actionable items."

@@ -18,28 +18,32 @@ Nothing here is new—these are borrowed ideas from industry experts, tuned to m
 git clone https://github.com/clthuang/my-ai-setup.git
 cd my-ai-setup
 claude .
+
+# In Claude Code session:
+/plugin marketplace add .
+/plugin install iflow@my-local-plugins
 ```
 
 ### Two Ways to Start
 
 **Option A: Explore first**
 ```bash
-/brainstorm "your idea here"
+/iflow:brainstorm "your idea here"
 ```
 Brainstorms are scratch files in `docs/brainstorms/`. They don't have to become features—use them to explore any idea.
 
 **Option B: Build something**
 ```bash
-/create-feature "add user authentication"
+/iflow:create-feature "add user authentication"
 ```
 Creates feature folder + branch, then guides you through the build phases.
 
 ### Build Phases
 
-After `/create-feature`, work through these phases:
+After `/iflow:create-feature`, work through these phases:
 
 ```
-/specify → /design → /create-plan → /create-tasks → /implement → /finish
+/iflow:specify → /iflow:design → /iflow:create-plan → /iflow:create-tasks → /iflow:implement → /iflow:finish
 ```
 
 Each phase produces an artifact (spec.md, design.md, etc.). Use `--no-review` to skip reviewer loops.
@@ -47,9 +51,9 @@ Each phase produces an artifact (spec.md, design.md, etc.). Use `--no-review` to
 ### Check Progress
 
 ```bash
-/show-status       # Current feature state
-/verify            # Quality check any phase
-/list-features     # See all active features
+/iflow:show-status       # Current feature state
+/iflow:verify            # Quality check any phase
+/iflow:list-features     # See all active features
 ```
 
 ---
@@ -73,9 +77,9 @@ my-ai-setup/
 │   ├── commands/               # User-invocable entry points
 │   └── hooks/                  # Lifecycle automation
 ├── docs/
-│   ├── brainstorms/            # Scratch files from /brainstorm
+│   ├── brainstorms/            # Scratch files from /iflow:brainstorm
 │   │   └── {timestamp}-{topic}.md
-│   ├── features/               # Created by /create-feature
+│   ├── features/               # Created by /iflow:create-feature
 │   │   └── {id}-{name}/
 │   │       ├── .meta.json      # Phase tracking
 │   │       ├── spec.md
@@ -95,32 +99,32 @@ my-ai-setup/
 **Start:**
 | Command | What it does |
 |---------|--------------|
-| `/brainstorm [topic]` | Explore ideas (scratch files, no commitment) |
-| `/create-feature <desc>` | Start building (creates folder + branch) |
+| `/iflow:brainstorm [topic]` | Explore ideas (scratch files, no commitment) |
+| `/iflow:create-feature <desc>` | Start building (creates folder + branch) |
 
 **Build phases** (run in order):
 | Command | Output |
 |---------|--------|
-| `/specify` | spec.md - requirements |
-| `/design` | design.md - architecture |
-| `/create-plan` | plan.md - implementation approach |
-| `/create-tasks` | tasks.md - actionable items |
-| `/implement` | Code changes |
-| `/finish` | Doc review, merge, retrospective, cleanup |
+| `/iflow:specify` | spec.md - requirements |
+| `/iflow:design` | design.md - architecture |
+| `/iflow:create-plan` | plan.md - implementation approach |
+| `/iflow:create-tasks` | tasks.md - actionable items |
+| `/iflow:implement` | Code changes |
+| `/iflow:finish` | Doc review, merge, retrospective, cleanup |
 
 **Anytime:**
 | Command | Purpose |
 |---------|---------|
-| `/verify` | Quality check current phase |
-| `/show-status` | See where you are |
-| `/list-features` | See all active features |
-| `/retrospect` | Capture learnings (standalone) |
-| `/add-to-backlog <idea>` | Capture ideas for later |
-| `/cleanup-brainstorms` | Delete old scratch files |
+| `/iflow:verify` | Quality check current phase |
+| `/iflow:show-status` | See where you are |
+| `/iflow:list-features` | See all active features |
+| `/iflow:retrospect` | Capture learnings (standalone) |
+| `/iflow:add-to-backlog <idea>` | Capture ideas for later |
+| `/iflow:cleanup-brainstorms` | Delete old scratch files |
 
 All phase commands support `--no-review` to skip reviewer loops.
 
-### What /finish Does
+### What /iflow:finish Does
 
 1. Checks for uncommitted changes and incomplete tasks
 2. Offers quality review (spawns quality-reviewer agent)
@@ -207,7 +211,7 @@ Learnings accumulate in `docs/knowledge-bank/`:
 - **anti-patterns.md** — Things to avoid
 - **heuristics.md** — Decision guides
 
-Updated via `/retrospect` after feature completion.
+Updated via `/iflow:retrospect` after feature completion.
 
 ---
 

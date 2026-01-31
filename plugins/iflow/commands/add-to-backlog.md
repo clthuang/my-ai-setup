@@ -9,7 +9,7 @@ Add an item to the centralized backlog at `docs/backlog.md`.
 
 1. **Validate input:** If no description was provided in the arguments, output:
    ```
-   Usage: /add-to-backlog <description>
+   Usage: /iflow:add-to-backlog <description>
    ```
    Then stop.
 
@@ -40,7 +40,7 @@ Add an item to the centralized backlog at `docs/backlog.md`.
 
 ## Example
 
-User runs: `/add-to-backlog Fix the login timeout bug`
+User runs: `/iflow:add-to-backlog Fix the login timeout bug`
 
 Output:
 ```

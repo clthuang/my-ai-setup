@@ -10,7 +10,7 @@ Create small, actionable, testable tasks.
 ## Prerequisites
 
 - If `plan.md` exists: Read for implementation order
-- If not: "No plan found. Run /create-plan first."
+- If not: "No plan found. Run /iflow:create-plan first."
 
 ## Read Feature Context
 
@@ -96,4 +96,4 @@ If TodoWrite:
 ## Completion
 
 "Tasks created. {n} tasks across {m} phases."
-"Run /verify to check, or /implement to start building."
+"Run /iflow:verify to check, or /iflow:implement to start building."

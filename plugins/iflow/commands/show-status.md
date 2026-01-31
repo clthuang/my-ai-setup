@@ -3,7 +3,7 @@ description: Show current feature state and progress
 argument-hint: [feature-id]
 ---
 
-# /show-status Command
+# /iflow:show-status Command
 
 Display the current state of a feature.
 
@@ -52,7 +52,7 @@ Artifacts:
 
 Progress: {completed}/{total} tasks (if in implement phase)
 
-Next: Run /design to continue
+Next: Run /iflow:design to continue
 ```
 
 ## If No Feature Active
@@ -64,6 +64,6 @@ Recent features:
   42-user-auth (design phase)
   41-search (complete)
 
-Run /create-feature to start a new feature
-or /show-status {id} to check a specific feature
+Run /iflow:create-feature to start a new feature
+or /iflow:show-status {id} to check a specific feature
 ```
