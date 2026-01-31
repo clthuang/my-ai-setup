@@ -231,6 +231,44 @@ test_pre_commit_guard_from_subdirectory() {
     cd "${PROJECT_ROOT}"
 }
 
+# Test 12: sync-cache.sh produces valid JSON
+test_sync_cache_json() {
+    log_test "sync-cache.sh produces valid JSON"
+
+    cd "${PROJECT_ROOT}"
+    local output
+    output=$("${HOOKS_DIR}/sync-cache.sh" 2>/dev/null)
+
+    if echo "$output" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
+        log_pass
+    else
+        log_fail "Invalid JSON output"
+    fi
+}
+
+# Test 13: sync-cache.sh handles missing source gracefully
+test_sync_cache_missing_source() {
+    log_test "sync-cache.sh handles missing source gracefully"
+
+    # Run from a temp directory where no source plugin exists
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    cd "$tmpdir"
+
+    local output exit_code=0
+    output=$("${HOOKS_DIR}/sync-cache.sh" 2>/dev/null) || exit_code=$?
+
+    # Should still produce valid JSON and exit 0
+    if [[ $exit_code -eq 0 ]] && echo "$output" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
+        log_pass
+    else
+        log_fail "Should handle missing source gracefully (exit=$exit_code)"
+    fi
+
+    cd "${PROJECT_ROOT}"
+    rm -rf "$tmpdir"
+}
+
 # Run all tests
 main() {
     echo "=========================================="
@@ -249,6 +287,8 @@ main() {
     test_pre_commit_guard_allows_non_git
     test_pre_commit_guard_warns_main
     test_pre_commit_guard_from_subdirectory
+    test_sync_cache_json
+    test_sync_cache_missing_source
 
     echo ""
     echo "=========================================="
