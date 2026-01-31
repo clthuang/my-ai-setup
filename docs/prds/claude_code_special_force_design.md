@@ -1,4 +1,4 @@
-# Centralized Claude Code Configuration Guide
+# Centralized Claude Code Configuration Guide - Obsolete
 
 A comprehensive setup for managing Claude Code agents, skills, commands, and plugins across multiple projects and domains.
 

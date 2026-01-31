@@ -17,10 +17,10 @@ Nothing here is new—these are borrowed ideas from industry experts, tuned to m
 ```bash
 git clone https://github.com/clthuang/my-ai-setup.git
 cd my-ai-setup
-claude .
+claude
 
 # In Claude Code session:
-/plugin marketplace add .
+/plugin marketplace add [path to marketplace.json file, usually in .claude-plugin/marketplace.json]
 /plugin install iflow@my-local-plugins
 ```
 

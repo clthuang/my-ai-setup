@@ -4,6 +4,51 @@ Reference specifications for creating skills, subagents, plugins, commands, and 
 
 ---
 
+## Marketplace Architecture
+
+This repository uses a two-level plugin system:
+
+**Level 1: Marketplace Registry**
+- **Location:** `.claude-plugin/marketplace.json` at project root
+- **Purpose:** Registers available plugins and their sources
+
+```json
+{
+  "name": "my-local-plugins",
+  "description": "Personal local plugins marketplace",
+  "owner": { "name": "username" },
+  "plugins": [
+    {
+      "name": "plugin-name",
+      "source": "./plugins/plugin-name",
+      "description": "What this plugin provides",
+      "version": "1.0.0"
+    }
+  ]
+}
+```
+
+**Level 2: Plugin Manifest**
+- **Location:** `plugins/{name}/.claude-plugin/plugin.json`
+- **Purpose:** Defines plugin metadata and configuration
+
+```json
+{
+  "name": "plugin-name",
+  "version": "1.0.0",
+  "description": "What this plugin provides",
+  "author": { "name": "..." },
+  "license": "MIT",
+  "keywords": ["relevant", "keywords"]
+}
+```
+
+**Installation Flow:**
+1. Add marketplace to project: `/plugin marketplace add .`
+2. Install plugin from marketplace: `/plugin install plugin-name@marketplace-name`
+
+---
+
 ## Skills
 
 **Location:** `skills/{skill-name}/SKILL.md`
@@ -40,6 +85,15 @@ skills/{skill-name}/
 ├── references/           # Supporting docs (loaded on-demand)
 └── templates/            # Output templates
 ```
+
+**Subdirectory Usage:**
+
+| Directory | Use For |
+|-----------|---------|
+| `references/` | On-demand context docs (loaded when Claude needs them) |
+| `templates/` | Prompt templates and output formats |
+| `scripts/` | Executable scripts and utilities |
+| `examples/` | Usage examples and sample outputs |
 
 ---
 
@@ -135,6 +189,49 @@ allowed-tools: [Optional tool restrictions]
 | Notification | On notifications | No |
 | PreCompact | Before context compaction | No |
 | SessionStart | On session start/resume | No |
+
+**hooks.json Schema:**
+
+Hooks are configured in `hooks/hooks.json` within the plugin:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/script-name.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/guard-script.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Schema Elements:**
+
+| Element | Description |
+|---------|-------------|
+| `hooks` | Root object containing event arrays |
+| Event key | One of: `SessionStart`, `PreToolUse`, `PostToolUse`, etc. |
+| `matcher` | Regex pattern to match against (tool name, event type, etc.) |
+| `type` | Hook type: `command` for shell scripts |
+| `command` | Path to executable; use `${CLAUDE_PLUGIN_ROOT}` for plugin-relative paths |
 
 ---
 

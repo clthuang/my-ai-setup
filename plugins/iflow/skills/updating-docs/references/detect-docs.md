@@ -10,7 +10,7 @@ Specification for detecting documentation files in a project.
 | `CHANGELOG.md` | changelog | Version history |
 | `HISTORY.md` | history | Alternative changelog |
 | `API.md` | api | API documentation |
-| `docs/*.md` | docs | Documentation folder (top-level only) |
+| `docs/**/*.md` | docs | Documentation folder all levels |
 
 ## Return Structure
 
@@ -32,13 +32,13 @@ For each single-file target (readme, changelog, history, api):
 3. Return `{ exists: false, path: "" }` if not found
 
 For docs folder:
-1. Use Glob with pattern `docs/*.md` (top-level only)
+1. Use Glob with pattern `docs/**/*.md` (all levels)
 2. Return `{ exists: true, files: [...] }` if any files found
 3. Return `{ exists: false, files: [] }` if none found
 
 ## Important Constraints
 
-- **No recursion:** Only scan `docs/*.md`, NOT subdirectories
+- **Scan all:** Scan all `docs/**/*.md`, including subdirectories
 - **No errors:** Return false/empty for missing files, never error
 - **Case sensitive:** Match exact filenames (README.md, not readme.md)
 
