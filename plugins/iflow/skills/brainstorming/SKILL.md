@@ -46,44 +46,6 @@ When no feature context exists or user chooses new brainstorm:
 Follow the standard Process (below) for brainstorming.
 Write content to the scratch file as you go.
 
-### 3. Promotion Flow
-
-At end of brainstorming session, ask:
-
-"Turn this into a feature? (y/n)"
-
-**If yes:**
-1. Ask for workflow mode:
-   ```
-   Modes:
-   1. Standard — all phases (default)
-   2. Full — all phases, required verification
-   ```
-2. Generate feature ID: Find highest number in `docs/features/` and add 1
-3. Create folder: `docs/features/{id}-{slug}/`
-4. Create feature branch:
-   ```bash
-   git checkout -b feature/{id}-{slug}
-   ```
-5. Move scratch file to feature folder as `brainstorm.md`
-6. Create `.meta.json`:
-   ```json
-   {
-     "id": "{id}",
-     "name": "{slug}",
-     "mode": "{selected-mode}",
-     "created": "{ISO timestamp}",
-     "branch": "feature/{id}-{slug}",
-     "brainstorm_source": "{original scratch file path}"
-   }
-   ```
-7. Inform user: "Feature {id}-{slug} created on branch feature/{id}-{slug}. Continuing to /iflow:specify..."
-8. Auto-invoke `/iflow:specify`
-
-**If no:**
-- Inform: "Saved to docs/brainstorms/{filename}. You can revisit later."
-- End session
-
 ## Process
 
 ### 1. Understand the Goal
@@ -132,6 +94,82 @@ As you discuss, note:
 - Decisions made
 - Open questions
 
+### 7. Verification (REQUIRED)
+
+Before the promotion question, you MUST verify the brainstorm:
+
+1. Invoke reviewer via Task tool:
+   ```
+   Task:
+     description: "Review brainstorm for promotion"
+     subagent_type: "iflow:brainstorm-reviewer"
+     prompt: |
+       Review this brainstorm file for readiness to become a feature:
+       File: {absolute path to brainstorm file}
+
+       Checklist:
+       - Problem clearly stated?
+       - Goals defined?
+       - Options explored?
+       - Direction chosen?
+       - Rationale documented?
+
+       Return JSON: { "approved": bool, "issues": [...], "summary": "..." }
+   ```
+
+2. Parse response and check for blockers (severity: "blocker")
+
+3. If blockers found:
+   - Show: "Review found blockers:\n🔴 {description} (at: {location})"
+   - Ask user to address issues
+   - Re-verify when user says "ready"
+   - If user says "skip verification" → proceed with warning
+
+4. If no blockers → Proceed to Promotion Flow
+
+5. If reviewer unavailable → Show warning, proceed to Promotion Flow
+
+### 8. Promotion Flow (REQUIRED)
+
+After verification passes, you MUST use AskUserQuestion:
+
+1. Call AskUserQuestion tool with EXACTLY:
+   ```
+   AskUserQuestion:
+     questions: [{
+       "question": "Turn this into a feature?",
+       "header": "Promote",
+       "options": [
+         {"label": "Yes", "description": "Create feature and continue workflow"},
+         {"label": "No", "description": "End session, brainstorm already saved"}
+       ],
+       "multiSelect": false
+     }]
+   ```
+
+2. Handle response:
+
+   **If "Yes":**
+   a. Ask for mode:
+      ```
+      AskUserQuestion:
+        questions: [{
+          "question": "Which workflow mode?",
+          "header": "Mode",
+          "options": [
+            {"label": "Standard", "description": "All phases, optional verification"},
+            {"label": "Full", "description": "All phases, required verification"}
+          ],
+          "multiSelect": false
+        }]
+      ```
+   b. Invoke `/iflow:create-feature` with brainstorm content
+   c. STOP (create-feature handles the rest)
+
+   **If "No":**
+   a. Output: "Brainstorm saved to {filepath}."
+   b. STOP — Do NOT continue with any other action
+
 ## Output: brainstorm.md
 
 Write to scratch file (standalone) or `docs/features/{id}-{slug}/brainstorm.md` (with feature):
@@ -171,9 +209,21 @@ Ready for /iflow:specify to define requirements.
 
 ## Completion
 
-**With active feature:**
-- "Brainstorm complete. Saved to brainstorm.md."
-- "Run /iflow:verify to check, or /iflow:specify to continue."
+**Both standalone and with-feature modes** use the same closing sequence:
+1. Run verification (### 7)
+2. Run promotion flow (### 8)
 
-**Standalone mode:**
-- Follow "Promotion Flow" above to decide next steps.
+The only difference is where the file is saved:
+- Standalone: `docs/brainstorms/{timestamp}-{slug}.md`
+- With feature: `docs/features/{id}-{slug}/brainstorm.md`
+
+## PROHIBITED Actions
+
+When executing the brainstorming skill, you MUST NOT:
+
+- Proceed to /iflow:specify, /iflow:design, /iflow:create-plan, or /iflow:implement
+- Write any implementation code
+- Create feature folders directly (use /iflow:create-feature)
+- Continue with any action after user says "No" to promotion
+- Skip the verification step
+- Skip the AskUserQuestion promotion gate
