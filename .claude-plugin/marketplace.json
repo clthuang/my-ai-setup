@@ -1,15 +1,15 @@
 {
   "name": "my-local-plugins",
-  "description": "Personal local plugins marketplace",
+  "description": "Personal local plugins marketplace (development)",
   "owner": {
     "name": "clthuang"
   },
   "plugins": [
     {
-      "name": "iflow",
+      "name": "iflow-dev",
       "source": "./plugins/iflow",
       "description": "Structured feature development workflow with skills, agents, and commands for methodical development from ideation to implementation",
-      "version": "1.0.0"
+      "version": "0.0.0-dev"
     }
   ]
 }

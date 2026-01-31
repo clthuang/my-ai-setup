@@ -7,6 +7,12 @@ description: Guides branch completion with structured options for merge, PR, kee
 
 Guide completion of development work with clear options.
 
+## Base Branch
+
+The default base branch is `develop`. Feature branches merge to `develop`, not `main`.
+
+Releases from `develop` to `main` are handled by `scripts/release.sh`.
+
 ## Core Principle
 
 Verify tests → Present options → Execute choice → Clean up branch.
@@ -31,7 +37,7 @@ Present exactly these 4 options:
 ```
 Implementation complete. What would you like to do?
 
-1. Merge back to <base-branch> locally
+1. Merge back to develop locally
 2. Push and create a Pull Request
 3. Keep the branch as-is (I'll handle it later)
 4. Discard this work
@@ -43,17 +49,17 @@ Which option?
 
 **Option 1: Merge Locally**
 ```bash
-git checkout <base-branch>
+git checkout develop
 git pull
-git merge <feature-branch>
+git merge {feature-branch}
 # Verify tests on merged result
-git branch -d <feature-branch>
+git branch -d {feature-branch}
 ```
 
 **Option 2: Push and Create PR**
 ```bash
-git push -u origin <feature-branch>
-gh pr create --title "<title>" --body "..."
+git push -u origin {feature-branch}
+gh pr create --title "{title}" --body "..."
 ```
 Note: Branch will be deleted when PR is merged via GitHub.
 
@@ -69,8 +75,8 @@ Type 'discard' to confirm.
 ```
 If confirmed:
 ```bash
-git checkout <base-branch>
-git branch -D <feature-branch>
+git checkout develop
+git branch -D {feature-branch}
 ```
 
 ## Quick Reference
