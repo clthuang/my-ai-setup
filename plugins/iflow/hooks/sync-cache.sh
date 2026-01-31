@@ -10,7 +10,8 @@ source "${SCRIPT_DIR}/lib/common.sh"
 # Find the source project root
 SOURCE_ROOT="$(detect_project_root)"
 SOURCE_PLUGIN="${SOURCE_ROOT}/plugins/iflow"
-CACHE_PLUGIN="$HOME/.claude/plugins/cache/my-local-plugins/iflow/1.0.0"
+# Plugin name is iflow-dev on develop branch (local development)
+CACHE_PLUGIN="$HOME/.claude/plugins/cache/my-local-plugins/iflow-dev/0.0.0-dev"
 
 # Only sync if source exists and this is the my-ai-setup project
 if [[ -d "${SOURCE_PLUGIN}" && -f "${SOURCE_PLUGIN}/.claude-plugin/plugin.json" ]]; then

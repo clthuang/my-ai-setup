@@ -47,9 +47,10 @@ get_branch_for_command() {
 }
 
 # Check if on protected branch
+# Protected: main (releases), master (legacy), develop (integration)
 is_protected_branch() {
     local branch="$1"
-    [[ "$branch" == "main" || "$branch" == "master" ]]
+    [[ "$branch" == "main" || "$branch" == "master" || "$branch" == "develop" ]]
 }
 
 # Check if test files exist in the project
