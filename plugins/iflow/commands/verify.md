@@ -69,7 +69,7 @@ Ready for next phase: {suggested next command}
 **If NEEDS FIXES:**
 ```
 Verification found issues for {phase}.
-Fix the issues and re-run /verify, or proceed anyway.
+Fix the issues and re-run /iflow:verify, or proceed anyway.
 ```
 
 Note: Verify is the review itself - no reviewer loop needed. The verifying skill performs the quality check.

@@ -6,7 +6,7 @@ argument-hint: [--no-review]
 Invoke the specifying skill for the current feature context.
 
 First, check docs/features/ for active feature:
-- If not found: "No active feature found. Would you like to /brainstorm to explore ideas first?"
+- If not found: "No active feature found. Would you like to /iflow:brainstorm to explore ideas first?"
 - If found: Read feature context and follow the workflow below.
 
 ## Workflow Integration
@@ -142,4 +142,4 @@ Update `.meta.json`:
 
 ### 6. Completion Message
 
-"Specification complete. Run /verify to check, or /design to continue."
+"Specification complete. Run /iflow:verify to check, or /iflow:design to continue."

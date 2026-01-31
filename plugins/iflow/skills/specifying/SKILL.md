@@ -12,7 +12,7 @@ Create precise, testable requirements.
 Check for feature context:
 - Look for feature folder in `docs/features/`
 - If not found:
-  - "No active feature. Would you like to /brainstorm first to explore ideas?"
+  - "No active feature. Would you like to /iflow:brainstorm first to explore ideas?"
   - Do NOT proceed without user confirmation
 - If found:
   - If `brainstorm.md` exists: Read for context
@@ -111,4 +111,4 @@ If any check fails, revise before saving.
 ## Completion
 
 "Spec complete. Saved to spec.md."
-"Run /verify to check, or /design to continue."
+"Run /iflow:verify to check, or /iflow:design to continue."

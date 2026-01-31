@@ -2,7 +2,7 @@
 description: List all active features and their branches
 ---
 
-# /list-features Command
+# /iflow:list-features Command
 
 List all active features.
 
@@ -32,8 +32,8 @@ ID   Name              Phase        Branch                          Last Activit
 40   fix-login         complete     feature/40-fix-login            1 day ago
 
 Commands:
-  /show-status {id}        View feature details
-  /create-feature          Start new feature
+  /iflow:show-status {id}  View feature details
+  /iflow:create-feature    Start new feature
   git checkout {branch}    Switch to feature
 ```
 
@@ -42,5 +42,5 @@ Commands:
 ```
 No active features.
 
-Run /create-feature "description" to start a new feature.
+Run /iflow:create-feature "description" to start a new feature.
 ```

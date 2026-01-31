@@ -10,7 +10,7 @@ Design the technical architecture.
 ## Prerequisites
 
 - If `spec.md` exists: Read for requirements
-- If not: "No spec found. Run /specify first, or describe requirements now."
+- If not: "No spec found. Run /iflow:specify first, or describe requirements now."
 
 ## Read Feature Context
 
@@ -116,4 +116,4 @@ Errors: {error cases}
 ## Completion
 
 "Design complete. Saved to design.md."
-"Run /verify to check, or /create-plan to continue."
+"Run /iflow:verify to check, or /iflow:create-plan to continue."

@@ -140,4 +140,4 @@ Update `.meta.json`:
 
 ### 6. Completion Message
 
-"Plan complete. Run /verify to check, or /create-tasks to continue."
+"Plan complete. Run /iflow:verify to check, or /iflow:create-tasks to continue."

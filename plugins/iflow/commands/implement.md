@@ -20,7 +20,7 @@ Before executing, check prerequisites using workflow-state skill:
 ❌ BLOCKED: spec.md required before implementation.
 
 Implementation requires a specification to implement against.
-Run /specify first to create the specification.
+Run /iflow:specify first to create the specification.
 ```
 Stop execution. Do not proceed.
 
@@ -169,4 +169,4 @@ Update `.meta.json`:
 
 ### 7. Completion Message
 
-"Implementation complete. Run /verify for quality review, then /finish when ready."
+"Implementation complete. Run /iflow:verify for quality review, then /iflow:finish when ready."

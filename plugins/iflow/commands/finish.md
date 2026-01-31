@@ -3,13 +3,13 @@ description: Complete a feature - merge, run retro, cleanup branch
 argument-hint: [feature-id]
 ---
 
-# /finish Command
+# /iflow:finish Command
 
 Complete a feature and clean up.
 
 ## Determine Feature
 
-Same logic as /show-status command.
+Same logic as /iflow:show-status command.
 
 ## Pre-Completion Checks
 
@@ -26,7 +26,7 @@ Same logic as /show-status command.
 4. **Offer documentation review**
    - Detect doc files (README.md, CHANGELOG.md, HISTORY.md, API.md, docs/*.md)
    - If any docs exist: "Documentation review? (y/n)"
-   - If yes: Invoke `/update-docs` skill
+   - If yes: Invoke `/iflow:update-docs` skill
    - If no: Continue to completion options
    - If no docs detected: Skip silently
 
@@ -64,7 +64,7 @@ git push
 
 ### Option 3: Keep Branch
 
-Inform: "Branch kept. Run /finish again when ready to merge."
+Inform: "Branch kept. Run /iflow:finish again when ready to merge."
 **Exit early** - no retrospective, no status update, no cleanup.
 
 ### Option 4: Discard/Abandon

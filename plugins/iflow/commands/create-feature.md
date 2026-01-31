@@ -3,12 +3,12 @@ description: Alternative entry point - skip brainstorming and create feature dir
 argument-hint: <feature-description>
 ---
 
-# /create-feature Command
+# /iflow:create-feature Command
 
 **Alternative entry point** for feature development. Use when you want to skip brainstorming.
 
-Recommended flow: `/brainstorm` → (promotion) → `/specify` → ...
-This command: `/create-feature` → `/specify` → ... (skips exploration)
+Recommended flow: `/iflow:brainstorm` → (promotion) → `/iflow:specify` → ...
+This command: `/iflow:create-feature` → `/iflow:specify` → ... (skips exploration)
 
 ## Gather Information
 
@@ -52,8 +52,8 @@ Choose mode [1-2] or press Enter for {suggested}:
 
 **Standard/Full:**
 - Inform: "Created branch feature/{id}-{slug}."
-- Inform: "Continuing to /specify..."
-- Auto-invoke `/specify`
+- Inform: "Continuing to /iflow:specify..."
+- Auto-invoke `/iflow:specify`
 
 ## Create Metadata File
 
@@ -87,9 +87,9 @@ Otherwise:
   Folder: docs/features/{id}-{slug}/
   Branch: feature/{id}-{slug}
 
-  Note: Skipped brainstorming. Proceeding to /specify.
+  Note: Skipped brainstorming. Proceeding to /iflow:specify.
 ```
 
 ## Auto-Continue
 
-After creation, automatically invoke `/specify` skill.
+After creation, automatically invoke `/iflow:specify` skill.
