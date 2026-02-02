@@ -1,11 +1,11 @@
 ---
 name: brainstorming
-description: Guides ideation and exploration with incremental presentation and YAGNI discipline. Use when starting a feature, exploring options, or generating ideas.
+description: Guides ideation and exploration through a 6-stage process producing evidence-backed PRDs. Use when starting a feature, exploring options, or generating ideas.
 ---
 
 # Brainstorming Phase
 
-Guide divergent thinking to explore the problem space.
+Guide divergent thinking through a structured 6-stage process that produces a PRD.
 
 ## Prerequisites
 
@@ -23,7 +23,7 @@ Check for feature context:
 3. Adjust behavior based on mode:
    - Standard: Full process with optional verification
    - Full: Full process with required verification
-4. Write output to `docs/features/{id}-{slug}/brainstorm.md`
+4. Write output to `docs/features/{id}-{slug}/brainstorm.prd.md`
 
 ## Standalone Mode (No Active Feature)
 
@@ -39,183 +39,336 @@ When no feature context exists or user chooses new brainstorm:
   - Max 30 characters
   - Trim trailing hyphens
   - If empty, use "untitled"
-- Create file: `docs/brainstorms/{timestamp}-{slug}.md`
+- Create file: `docs/brainstorms/{timestamp}-{slug}.prd.md`
 
-### 2. Run Exploration
+### 2. Run 6-Stage Process
 
-Follow the standard Process (below) for brainstorming.
-Write content to the scratch file as you go.
+Follow the Process below, writing content to the PRD file as you go.
 
 ## Process
 
-### 1. Understand the Goal
+The brainstorm follows 6 stages in sequence:
 
-Ask ONE question at a time:
+```
+Stage 1: CLARIFY → Stage 2: RESEARCH → Stage 3: DRAFT PRD
+                                              ↓
+Stage 6: USER DECISION ← Stage 5: AUTO-CORRECT ← Stage 4: CRITICAL REVIEW
+```
+
+---
+
+### Stage 1: CLARIFY
+
+Resolve ambiguities through interactive Q&A before research.
+
+**Ask ONE question at a time.** Prefer multiple choice when possible.
+
+Questions to cover:
 - "What problem are you trying to solve?"
 - "Who is this for?"
 - "What does success look like?"
+- "What constraints exist?"
+- "What approaches have you considered?"
 
-Prefer multiple choice when possible.
-
-### 2. Explore Options
-
-Generate 2-3 different approaches:
-- Approach A: [description] — Pros, Cons
-- Approach B: [description] — Pros, Cons
-- Approach C: [description] — Pros, Cons
-
-State your recommendation and why.
-
-### 3. Identify Constraints
-
-- Technical constraints?
-- Time constraints?
-- Dependencies?
-
-### 4. Present Design Incrementally
-
-When presenting a design or direction:
-- Break into sections of 200-300 words
-- After each section: "Does this look right so far?"
-- Be ready to go back and clarify
-
-### 5. Apply YAGNI Ruthlessly
-
-Before finalizing:
+**Apply YAGNI Ruthlessly:**
 - Review each proposed feature
 - Ask: "Is this strictly necessary for the core goal?"
 - Remove anything that's "nice to have"
 - Simpler is better
 
-### 6. Capture Ideas
+**Completion marker:** User confirms understanding is correct, or you have enough context to proceed.
 
-As you discuss, note:
-- Key ideas
-- Decisions made
-- Open questions
+---
 
-### 7. Verification (REQUIRED)
+### Stage 2: RESEARCH
 
-Before the promotion question, you MUST verify the brainstorm:
+Deploy research subagents in parallel to gather evidence.
 
-1. Invoke reviewer via Task tool:
-   ```
-   Task:
-     description: "Review brainstorm for promotion"
-     subagent_type: "iflow:brainstorm-reviewer"
-     prompt: |
-       Review this brainstorm file for readiness to become a feature:
-       File: {absolute path to brainstorm file}
+**Invoke all 3 research agents simultaneously** using multiple Task tool calls in a single response:
 
-       Checklist:
-       - Problem clearly stated?
-       - Goals defined?
-       - Options explored?
-       - Direction chosen?
-       - Rationale documented?
+```
+Task tool call 1:
+  description: "Research internet for {topic}"
+  subagent_type: "iflow-dev:internet-researcher"
+  prompt: |
+    query: "{topic/question}"
+    context: "{what we're building}"
 
-       Return JSON: { "approved": bool, "issues": [...], "summary": "..." }
-   ```
+Task tool call 2:
+  description: "Explore codebase for {topic}"
+  subagent_type: "iflow-dev:codebase-explorer"
+  prompt: |
+    query: "{topic/question}"
+    context: "{what we're building}"
 
-2. Parse response and check for blockers (severity: "blocker")
+Task tool call 3:
+  description: "Search skills for {topic}"
+  subagent_type: "iflow-dev:skill-searcher"
+  prompt: |
+    query: "{topic/question}"
+    context: "{what we're building}"
+```
 
-3. If blockers found:
-   - Show: "Review found blockers:\n🔴 {description} (at: {location})"
-   - Ask user to address issues
-   - Re-verify when user says "ready"
-   - If user says "skip verification" → proceed with warning
+**Collect findings** from all three agents. Each returns:
+```json
+{
+  "findings": [{"finding": "...", "source": "...", "relevance": "high|medium|low"}],
+  "no_findings_reason": "..." // if empty
+}
+```
 
-4. If no blockers → Proceed to Promotion Flow
+**Error handling:**
+- If an agent fails or is unavailable → Note warning, proceed with other findings
+- If all agents return empty → Proceed with "Assumption: needs verification" labels
 
-5. If reviewer unavailable → Show warning, proceed to Promotion Flow
+---
 
-### 8. Promotion Flow (REQUIRED)
+### Stage 3: DRAFT PRD
 
-After verification passes, you MUST use AskUserQuestion:
+Generate the PRD using the template, incorporating research findings.
 
-1. Call AskUserQuestion tool with EXACTLY:
+**Evidence citation format:** Every claim must cite its source:
+- `{claim} — Evidence: {source URL}`
+- `{claim} — Evidence: {file:line}`
+- `{claim} — Evidence: User input`
+- `{claim} — Assumption: needs verification`
+
+Write the PRD to the scratch file using the PRD Output Format below.
+
+---
+
+### Stage 4: CRITICAL REVIEW
+
+Invoke the PRD reviewer agent to challenge the draft.
+
+```
+Task tool call:
+  description: "Critical review of PRD"
+  subagent_type: "iflow-dev:prd-reviewer"
+  prompt: |
+    Review this PRD for quality and completeness:
+
+    {full PRD content}
+
+    Return JSON: { "approved": bool, "issues": [...], "summary": "..." }
+```
+
+**Parse response** and collect issues array.
+
+**Error handling:**
+- If reviewer unavailable → Show warning, proceed to Stage 5 with empty issues
+
+---
+
+### Stage 5: AUTO-CORRECT
+
+Apply actionable improvements from the review.
+
+**For each issue in the issues array:**
+
+1. If `severity: "blocker"` or `severity: "warning"`:
+   - Determine if fix is actionable (has `suggested_fix`)
+   - Apply the fix to the PRD content
+   - Record: `Changed: {what} — Reason: {issue description}`
+
+2. If `severity: "suggestion"`:
+   - Consider but don't require action
+   - Record if applied
+
+**Update the PRD file** with all corrections.
+
+**Add to Review History section:**
+```markdown
+### Review 1 ({date})
+**Findings:**
+- [{severity}] {description} (at: {location})
+
+**Corrections Applied:**
+- {what changed} — Reason: {reference to finding}
+```
+
+---
+
+### Stage 6: USER DECISION
+
+Present the corrected PRD and ask user for next steps.
+
+**Use AskUserQuestion with EXACTLY:**
+```
+AskUserQuestion:
+  questions: [{
+    "question": "PRD complete. What would you like to do?",
+    "header": "Decision",
+    "options": [
+      {"label": "Promote to Feature", "description": "Create feature and continue workflow"},
+      {"label": "Refine Further", "description": "Loop back to clarify and improve"},
+      {"label": "Save and Exit", "description": "Keep PRD, end session"}
+    ],
+    "multiSelect": false
+  }]
+```
+
+**Handle response:**
+
+**If "Promote to Feature":**
+1. Ask for mode:
    ```
    AskUserQuestion:
      questions: [{
-       "question": "Turn this into a feature?",
-       "header": "Promote",
+       "question": "Which workflow mode?",
+       "header": "Mode",
        "options": [
-         {"label": "Yes", "description": "Create feature and continue workflow"},
-         {"label": "No", "description": "End session, brainstorm already saved"}
+         {"label": "Standard", "description": "All phases, optional verification"},
+         {"label": "Full", "description": "All phases, required verification"}
        ],
        "multiSelect": false
      }]
    ```
+2. Invoke `/iflow:create-feature` with PRD content
+3. STOP (create-feature handles the rest)
 
-2. Handle response:
+**If "Refine Further":**
+1. Ask what needs refinement
+2. Loop back to Stage 1 with new context
+3. Research and review again
 
-   **If "Yes":**
-   a. Ask for mode:
-      ```
-      AskUserQuestion:
-        questions: [{
-          "question": "Which workflow mode?",
-          "header": "Mode",
-          "options": [
-            {"label": "Standard", "description": "All phases, optional verification"},
-            {"label": "Full", "description": "All phases, required verification"}
-          ],
-          "multiSelect": false
-        }]
-      ```
-   b. Invoke `/iflow:create-feature` with brainstorm content
-   c. STOP (create-feature handles the rest)
+**If "Save and Exit":**
+1. Output: "PRD saved to {filepath}."
+2. STOP — Do NOT continue with any other action
 
-   **If "No":**
-   a. Output: "Brainstorm saved to {filepath}."
-   b. STOP — Do NOT continue with any other action
+---
 
-## Output: brainstorm.md
+## PRD Output Format
 
-Write to scratch file (standalone) or `docs/features/{id}-{slug}/brainstorm.md` (with feature):
+Write to scratch file (standalone) or `docs/features/{id}-{slug}/brainstorm.prd.md` (with feature):
 
 ```markdown
-# Brainstorm: {Feature Name}
+# PRD: {Feature Name}
+
+## Status
+- Created: {date}
+- Last updated: {date}
+- Status: Draft
 
 ## Problem Statement
-{What we're solving}
+{What problem are we solving? Why does it matter?}
+
+### Evidence
+- {Source}: {Finding that supports this problem exists}
 
 ## Goals
-- {Goal 1}
-- {Goal 2}
+1. {Goal 1}
+2. {Goal 2}
 
-## Approaches Considered
+## Success Criteria
+- [ ] {Measurable criterion 1}
+- [ ] {Measurable criterion 2}
 
-### Approach A: {Name}
-{Description}
-- Pros: ...
-- Cons: ...
+## User Stories
 
-### Approach B: {Name}
-{Description}
-- Pros: ...
-- Cons: ...
+### Story 1: {Title}
+**As a** {role}
+**I want** {capability}
+**So that** {benefit}
 
-## Chosen Direction
-{Which approach and why}
+**Acceptance criteria:**
+- {criterion}
+
+## Use Cases
+
+### UC-1: {Title}
+**Actors:** {who}
+**Preconditions:** {what must be true}
+**Flow:**
+1. {step}
+2. {step}
+**Postconditions:** {what is true after}
+**Edge cases:**
+- {edge case with handling}
+
+## Edge Cases & Error Handling
+| Scenario | Expected Behavior | Rationale |
+|----------|-------------------|-----------|
+| {case}   | {behavior}        | {why}     |
+
+## Constraints
+
+### Behavioral Constraints (Must NOT do)
+- {Behavior to avoid} — Rationale: {why this would be harmful}
+
+### Technical Constraints
+- {Technical limitation} — Evidence: {source}
+
+## Requirements
+
+### Functional
+- FR-1: {requirement}
+
+### Non-Functional
+- NFR-1: {requirement}
+
+## Non-Goals
+Strategic decisions about what this feature will NOT aim to achieve.
+
+- {Non-goal} — Rationale: {why we're explicitly not pursuing this}
+
+## Out of Scope (This Release)
+Items excluded from current scope but may be considered later.
+
+- {Item} — Future consideration: {when/why it might be added}
+
+## Research Summary
+
+### Internet Research
+- {Finding} — Source: {URL/reference}
+
+### Codebase Analysis
+- {Pattern/constraint found} — Location: {file:line}
+
+### Existing Capabilities
+- {Relevant skill/feature} — How it relates: {explanation}
+
+## Review History
+{Added by Stage 5 auto-correct}
 
 ## Open Questions
-- {Question 1}
-- {Question 2}
+- {Question that needs resolution}
 
 ## Next Steps
-Ready for /iflow:specify to define requirements.
+Ready for /iflow:create-feature to begin implementation.
 ```
+
+---
+
+## Error Handling
+
+### WebSearch Unavailable
+- Skip internet research with warning: "WebSearch unavailable, skipping internet research"
+- Proceed with codebase and skills research only
+
+### Agent Unavailable
+- Show warning: "{agent} unavailable, proceeding without"
+- Continue with available agents
+
+### All Research Fails
+- Proceed with user input only
+- Mark all claims as: "Assumption: needs verification"
+
+### PRD Reviewer Unavailable
+- Show warning: "PRD reviewer unavailable, skipping critical review"
+- Proceed directly to Stage 6
+
+---
 
 ## Completion
 
-**Both standalone and with-feature modes** use the same closing sequence:
-1. Run verification (### 7)
-2. Run promotion flow (### 8)
+**Both standalone and with-feature modes** use the same 6-stage process.
 
 The only difference is where the file is saved:
-- Standalone: `docs/brainstorms/{timestamp}-{slug}.md`
-- With feature: `docs/features/{id}-{slug}/brainstorm.md`
+- Standalone: `docs/brainstorms/{timestamp}-{slug}.prd.md`
+- With feature: `docs/features/{id}-{slug}/brainstorm.prd.md`
+
+---
 
 ## PROHIBITED Actions
 
@@ -224,6 +377,7 @@ When executing the brainstorming skill, you MUST NOT:
 - Proceed to /iflow:specify, /iflow:design, /iflow:create-plan, or /iflow:implement
 - Write any implementation code
 - Create feature folders directly (use /iflow:create-feature)
-- Continue with any action after user says "No" to promotion
-- Skip the verification step
-- Skip the AskUserQuestion promotion gate
+- Continue with any action after user says "Save and Exit"
+- Skip the research stage (Stage 2)
+- Skip the review stage (Stage 4)
+- Skip the AskUserQuestion decision gate (Stage 6)
