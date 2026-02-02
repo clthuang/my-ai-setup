@@ -47,10 +47,10 @@ get_branch_for_command() {
 }
 
 # Check if on protected branch
-# Protected: main (releases), master (legacy), develop (integration)
+# Protected: main (releases), master (legacy)
 is_protected_branch() {
     local branch="$1"
-    [[ "$branch" == "main" || "$branch" == "master" || "$branch" == "develop" ]]
+    [[ "$branch" == "main" || "$branch" == "master" ]]
 }
 
 # Check if commit touches protected iflow plugin directory
@@ -173,7 +173,7 @@ main() {
     branch=$(get_branch_for_command "$command")
 
     if is_protected_branch "$branch"; then
-        output_ask "You're committing directly to '${branch}'. Proceed with direct commit?"
+        output_allow "Reminder: Committing directly to '${branch}'. Consider using a feature branch for larger changes."
         exit 0
     fi
 
