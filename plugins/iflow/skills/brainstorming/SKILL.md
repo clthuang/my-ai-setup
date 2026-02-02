@@ -1,168 +1,136 @@
 ---
 name: brainstorming
-description: Guides ideation and exploration through a 6-stage process producing evidence-backed PRDs. Use when starting a feature, exploring options, or generating ideas.
+description: Guides ideation and exploration through a 7-stage process producing evidence-backed PRDs. Use when starting a feature, exploring options, or generating ideas.
 ---
 
 # Brainstorming Phase
 
-Guide divergent thinking through a structured 6-stage process that produces a PRD.
+Guide divergent thinking through a structured 7-stage process that produces a PRD.
 
-## Prerequisites
-
-Check for feature context:
-- Look for feature folder in `docs/features/`
-- If found: Ask "Add to existing feature's brainstorm, or start a new brainstorm?"
-  - Add to existing: Proceed to "Read Feature Context" below
-  - Start new: Proceed to "Standalone Mode" below
-- If not found: Proceed to "Standalone Mode" below
-
-## Read Feature Context (With Active Feature)
-
-1. Find active feature folder in `docs/features/`
-2. Read `.meta.json` for mode and context
-3. Adjust behavior based on mode:
-   - Standard: Full process with optional verification
-   - Full: Full process with required verification
-4. Write output to `docs/features/{id}-{slug}/brainstorm.prd.md`
-
-## Standalone Mode (No Active Feature)
-
-When no feature context exists or user chooses new brainstorm:
+## Getting Started
 
 ### 1. Create Scratch File
 
 - Get topic from user argument or ask: "What would you like to brainstorm?"
-- Generate timestamp: `YYYYMMDD-HHMMSS` format (e.g., `20260129-143052`)
 - Generate slug from topic:
   - Lowercase
   - Replace spaces/special chars with hyphens
   - Max 30 characters
   - Trim trailing hyphens
   - If empty, use "untitled"
-- Create file: `docs/brainstorms/{timestamp}-{slug}.prd.md`
+- Create file: `docs/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`
+  - Example: `docs/brainstorms/20260129-143052-api-caching.prd.md`
 
-### 2. Run 6-Stage Process
+### 2. Run 7-Stage Process
 
 Follow the Process below, writing content to the PRD file as you go.
 
 ## Process
 
-The brainstorm follows 6 stages in sequence:
+The brainstorm follows 7 stages in sequence:
 
 ```
 Stage 1: CLARIFY → Stage 2: RESEARCH → Stage 3: DRAFT PRD
-                                              ↓
-Stage 6: USER DECISION ← Stage 5: AUTO-CORRECT ← Stage 4: CRITICAL REVIEW
+                                                    ↓
+                                        Stage 4: CRITICAL REVIEW (prd-reviewer)
+                                                    ↓
+                                        Stage 5: AUTO-CORRECT
+                                                    ↓
+                                        Stage 6: READINESS CHECK (brainstorm-reviewer)
+                                                    ↓
+                                        Stage 7: USER DECISION
 ```
 
 ---
 
 ### Stage 1: CLARIFY
 
-Resolve ambiguities through interactive Q&A before research.
+**Goal:** Resolve ambiguities through Q&A before research begins.
 
-**Ask ONE question at a time.** Prefer multiple choice when possible.
+**Rules:**
+- Ask ONE question at a time
+- Use AskUserQuestion with multiple choice options when possible
+- Apply YAGNI: challenge "nice to have" features
 
-Questions to cover:
-- "What problem are you trying to solve?"
-- "Who is this for?"
-- "What does success look like?"
-- "What constraints exist?"
-- "What approaches have you considered?"
+**Required information to gather:**
+1. Problem being solved
+2. Target user/audience
+3. Success criteria
+4. Known constraints
+5. Approaches already considered
 
-**Apply YAGNI Ruthlessly:**
-- Review each proposed feature
-- Ask: "Is this strictly necessary for the core goal?"
-- Remove anything that's "nice to have"
-- Simpler is better
-
-**Completion marker:** User confirms understanding is correct, or you have enough context to proceed.
+**Exit condition:** User confirms understanding is correct, OR you have answers to all 5 required items.
 
 ---
 
 ### Stage 2: RESEARCH
 
-Deploy research subagents in parallel to gather evidence.
+**Goal:** Gather evidence from 3 sources in parallel.
 
-**Invoke all 3 research agents simultaneously** using multiple Task tool calls in a single response:
+**Action:** Dispatch 3 Task tool calls in a single response:
 
-```
-Task tool call 1:
-  description: "Research internet for {topic}"
-  subagent_type: "iflow-dev:internet-researcher"
-  prompt: |
-    query: "{topic/question}"
-    context: "{what we're building}"
+1. **Internet research:**
+   - Tool: `Task`
+   - subagent_type: `iflow-dev:internet-researcher`
+   - prompt: Query about the topic with context
 
-Task tool call 2:
-  description: "Explore codebase for {topic}"
-  subagent_type: "iflow-dev:codebase-explorer"
-  prompt: |
-    query: "{topic/question}"
-    context: "{what we're building}"
+2. **Codebase exploration:**
+   - Tool: `Task`
+   - subagent_type: `iflow-dev:codebase-explorer`
+   - prompt: Query about existing patterns/constraints
 
-Task tool call 3:
-  description: "Search skills for {topic}"
-  subagent_type: "iflow-dev:skill-searcher"
-  prompt: |
-    query: "{topic/question}"
-    context: "{what we're building}"
-```
+3. **Skills search:**
+   - Tool: `Task`
+   - subagent_type: `iflow-dev:skill-searcher`
+   - prompt: Query about related capabilities
 
-**Collect findings** from all three agents. Each returns:
-```json
-{
-  "findings": [{"finding": "...", "source": "...", "relevance": "high|medium|low"}],
-  "no_findings_reason": "..." // if empty
-}
-```
+**Collect results:** Each agent returns JSON with `findings` array and `source` references.
 
-**Error handling:**
-- If an agent fails or is unavailable → Note warning, proceed with other findings
-- If all agents return empty → Proceed with "Assumption: needs verification" labels
+**Fallback:** If an agent fails, note warning and proceed with available results.
+
+**Exit condition:** All 3 agents have returned (success or failure).
 
 ---
 
 ### Stage 3: DRAFT PRD
 
-Generate the PRD using the template, incorporating research findings.
+**Goal:** Generate a complete PRD document with evidence citations.
 
-**Evidence citation format:** Every claim must cite its source:
-- `{claim} — Evidence: {source URL}`
-- `{claim} — Evidence: {file:line}`
-- `{claim} — Evidence: User input`
-- `{claim} — Assumption: needs verification`
+**Action:** Write PRD to file using the PRD Output Format section below.
 
-Write the PRD to the scratch file using the PRD Output Format below.
+**Citation requirements:** Every claim must have one of:
+- `— Evidence: {URL}` (from internet research)
+- `— Evidence: {file:line}` (from codebase)
+- `— Evidence: User input` (from Stage 1)
+- `— Assumption: needs verification` (unverified)
+
+**Exit condition:** PRD file written with all sections populated.
 
 ---
 
 ### Stage 4: CRITICAL REVIEW
 
-Invoke the PRD reviewer agent to challenge the draft.
+**Goal:** Challenge PRD quality using prd-reviewer agent.
 
-```
-Task tool call:
-  description: "Critical review of PRD"
-  subagent_type: "iflow-dev:prd-reviewer"
-  prompt: |
-    Review this PRD for quality and completeness:
+**Action:** Dispatch Task tool:
+- Tool: `Task`
+- subagent_type: `iflow-dev:prd-reviewer`
+- prompt: Full PRD content + request for JSON response
 
-    {full PRD content}
-
-    Return JSON: { "approved": bool, "issues": [...], "summary": "..." }
+**Expected response:**
+```json
+{ "approved": true/false, "issues": [...], "summary": "..." }
 ```
 
-**Parse response** and collect issues array.
+**Fallback:** If reviewer unavailable, show warning and proceed to Stage 5 with empty issues array.
 
-**Error handling:**
-- If reviewer unavailable → Show warning, proceed to Stage 5 with empty issues
+**Exit condition:** Reviewer response received and parsed.
 
 ---
 
 ### Stage 5: AUTO-CORRECT
 
-Apply actionable improvements from the review.
+**Goal:** Apply actionable improvements from the review.
 
 **For each issue in the issues array:**
 
@@ -187,13 +155,46 @@ Apply actionable improvements from the review.
 - {what changed} — Reason: {reference to finding}
 ```
 
+**Exit condition:** All actionable issues addressed and PRD file updated.
+
 ---
 
-### Stage 6: USER DECISION
+### Stage 6: READINESS CHECK
 
-Present the corrected PRD and ask user for next steps.
+**Goal:** Validate brainstorm is ready for feature promotion (first quality gate).
 
-**Use AskUserQuestion with EXACTLY:**
+**Action:** Dispatch Task tool:
+- Tool: `Task`
+- subagent_type: `iflow-dev:brainstorm-reviewer`
+- prompt: PRD file path + request for JSON response
+
+**Expected response:**
+```json
+{ "approved": true/false, "issues": [...], "summary": "..." }
+```
+
+**Store result:** Keep `approved` status and `issues` for Stage 7.
+
+**Fallback:** If reviewer unavailable, show warning and proceed with `approved: unknown`.
+
+**Exit condition:** Readiness status determined.
+
+---
+
+### Stage 7: USER DECISION
+
+**Goal:** Present readiness status and let user decide next action.
+
+**Step 1: Display readiness status**
+
+- If `approved: true` with no blockers: Output "Readiness check: PASSED"
+- If `approved: true` with warnings: Output "Readiness check: PASSED ({n} warnings)" + list warnings
+- If `approved: false`: Output "Readiness check: BLOCKED ({n} issues)" + list all issues
+- If `approved: unknown`: Output "Readiness check: SKIPPED (reviewer unavailable)"
+
+**Step 2: Present options based on status**
+
+If PASSED or SKIPPED:
 ```
 AskUserQuestion:
   questions: [{
@@ -208,39 +209,48 @@ AskUserQuestion:
   }]
 ```
 
-**Handle response:**
+If BLOCKED:
+```
+AskUserQuestion:
+  questions: [{
+    "question": "PRD has blockers. What would you like to do?",
+    "header": "Decision",
+    "options": [
+      {"label": "Address Issues", "description": "Loop back to clarify and fix blockers"},
+      {"label": "Promote Anyway", "description": "Create feature despite blockers"},
+      {"label": "Save and Exit", "description": "Keep PRD, end session"}
+    ],
+    "multiSelect": false
+  }]
+```
 
-**If "Promote to Feature":**
-1. Ask for mode:
-   ```
-   AskUserQuestion:
-     questions: [{
-       "question": "Which workflow mode?",
-       "header": "Mode",
-       "options": [
-         {"label": "Standard", "description": "All phases, optional verification"},
-         {"label": "Full", "description": "All phases, required verification"}
-       ],
-       "multiSelect": false
-     }]
-   ```
-2. Invoke `/iflow:create-feature` with PRD content
-3. STOP (create-feature handles the rest)
+**Step 3: Handle response**
 
-**If "Refine Further":**
-1. Ask what needs refinement
-2. Loop back to Stage 1 with new context
-3. Research and review again
+| Response | Action |
+|----------|--------|
+| Promote to Feature / Promote Anyway | Ask for mode → Invoke `/iflow-dev:create-feature --prd={current-prd-path}` → STOP |
+| Refine Further / Address Issues | Loop back to Stage 1 with issue context |
+| Save and Exit | Output "PRD saved to {filepath}." → STOP |
 
-**If "Save and Exit":**
-1. Output: "PRD saved to {filepath}."
-2. STOP — Do NOT continue with any other action
+**Mode selection (when promoting):**
+```
+AskUserQuestion:
+  questions: [{
+    "question": "Which workflow mode?",
+    "header": "Mode",
+    "options": [
+      {"label": "Standard", "description": "All phases, optional verification"},
+      {"label": "Full", "description": "All phases, required verification"}
+    ],
+    "multiSelect": false
+  }]
+```
 
 ---
 
 ## PRD Output Format
 
-Write to scratch file (standalone) or `docs/features/{id}-{slug}/brainstorm.prd.md` (with feature):
+Write to `docs/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`:
 
 ```markdown
 # PRD: {Feature Name}
@@ -335,7 +345,7 @@ Items excluded from current scope but may be considered later.
 - {Question that needs resolution}
 
 ## Next Steps
-Ready for /iflow:create-feature to begin implementation.
+Ready for /iflow-dev:create-feature to begin implementation.
 ```
 
 ---
@@ -356,17 +366,21 @@ Ready for /iflow:create-feature to begin implementation.
 
 ### PRD Reviewer Unavailable
 - Show warning: "PRD reviewer unavailable, skipping critical review"
-- Proceed directly to Stage 6
+- Proceed directly to Stage 5
+
+### Brainstorm Reviewer Unavailable
+- Show warning: "Brainstorm reviewer unavailable, skipping readiness check"
+- Proceed directly to Stage 7 with `approved: unknown`
 
 ---
 
 ## Completion
 
-**Both standalone and with-feature modes** use the same 6-stage process.
+After Stage 7, if user chooses "Promote to Feature":
+1. Ask for workflow mode (Standard/Full)
+2. Invoke `/iflow-dev:create-feature --prd={prd-file-path}` with the PRD path
 
-The only difference is where the file is saved:
-- Standalone: `docs/brainstorms/{timestamp}-{slug}.prd.md`
-- With feature: `docs/features/{id}-{slug}/brainstorm.prd.md`
+PRD location: `docs/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`
 
 ---
 
@@ -374,10 +388,11 @@ The only difference is where the file is saved:
 
 When executing the brainstorming skill, you MUST NOT:
 
-- Proceed to /iflow:specify, /iflow:design, /iflow:create-plan, or /iflow:implement
+- Proceed to /iflow-dev:specify, /iflow-dev:design, /iflow-dev:create-plan, or /iflow-dev:implement
 - Write any implementation code
-- Create feature folders directly (use /iflow:create-feature)
+- Create feature folders directly (use /iflow-dev:create-feature)
 - Continue with any action after user says "Save and Exit"
 - Skip the research stage (Stage 2)
-- Skip the review stage (Stage 4)
-- Skip the AskUserQuestion decision gate (Stage 6)
+- Skip the critical review stage (Stage 4)
+- Skip the readiness check stage (Stage 6)
+- Skip the AskUserQuestion decision gate (Stage 7)

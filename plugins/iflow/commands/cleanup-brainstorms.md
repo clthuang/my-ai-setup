@@ -2,7 +2,7 @@
 description: List and delete old brainstorm scratch files
 ---
 
-# /iflow:cleanup-brainstorms Command
+# /iflow-dev:cleanup-brainstorms Command
 
 Manage brainstorm scratch files in `docs/brainstorms/`.
 
@@ -15,9 +15,9 @@ List all files in `docs/brainstorms/` (exclude `.gitkeep`):
 ```
 Brainstorm scratch files:
 
-1. 20260129-143052-api-caching.md (today)
-2. 20260128-091530-auth-rework.md (yesterday)
-3. 20260115-220000-old-idea.md (14 days ago)
+1. 20260129-143052-api-caching.prd.md (today)
+2. 20260128-091530-auth-rework.prd.md (yesterday)
+3. 20260115-220000-old-idea.prd.md (14 days ago)
 
 Total: 3 files
 ```
@@ -30,10 +30,22 @@ Calculate relative dates:
 
 ### 2. Select Files to Delete
 
-Ask user:
+Use AskUserQuestion with multiSelect:
 ```
-Enter numbers to delete (comma-separated), 'all' to delete all, or 'q' to quit:
+AskUserQuestion:
+  questions: [{
+    "question": "Select files to delete:",
+    "header": "Delete",
+    "options": [
+      {"label": "{filename1}", "description": "{relative date}"},
+      {"label": "{filename2}", "description": "{relative date}"},
+      ...dynamically generated from file list...
+    ],
+    "multiSelect": true
+  }]
 ```
+
+Note: User can always select "Other" to specify custom input if needed.
 
 ### 3. Confirm Deletion
 
@@ -63,5 +75,5 @@ If cancelled:
 ## Edge Cases
 
 - No files found: "No brainstorm scratch files found."
-- Invalid selection: "Invalid selection. Please enter valid numbers."
+- Invalid selection: AskUserQuestion handles selection validation automatically
 - File already deleted: Skip gracefully
