@@ -10,14 +10,20 @@ This repo uses a git-flow branching model with automated releases via convention
 | `develop` | Integration branch (default for development) |
 | `feature/*` | Feature branches (created by iflow workflow) |
 
-## Plugin Names
+## Two-Plugin Model
 
-The plugin has different names depending on the context:
+Two plugins coexist in this repository:
 
-| Context | Plugin Name | Commands | Branch |
-|---------|-------------|----------|--------|
-| Development | `iflow-dev` | `/iflow-dev:*` | develop |
-| Public | `iflow` | `/iflow:*` | main |
+| Plugin | Purpose | Directory | Version Format |
+|--------|---------|-----------|----------------|
+| `iflow-dev` | Development work | `plugins/iflow-dev/` | X.Y.Z-dev |
+| `iflow` | Stable releases | `plugins/iflow/` | X.Y.Z |
+
+**Key points:**
+- All development happens in `plugins/iflow-dev/`
+- `plugins/iflow/` is **read-only** - updated only via release script
+- The pre-commit hook blocks direct commits to `plugins/iflow/`
+- Use `IFLOW_RELEASE=1` to bypass protection (release script only)
 
 ## Development Workflow
 
@@ -50,11 +56,12 @@ git checkout develop
 The script will:
 1. Validate preconditions (on develop, clean tree, has origin)
 2. Calculate version from conventional commits since last tag
-3. Update version in `plugins/iflow/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`
-4. Convert marketplace to public format (`iflow` instead of `iflow-dev`)
-5. Commit, push develop, merge to main
-6. Create and push git tag
-7. Restore dev format on develop branch
+3. Copy `plugins/iflow-dev/` to `plugins/iflow/`
+4. Update plugin.json: change name to `iflow`, set release version
+5. Update marketplace.json with both versions
+6. Bump iflow-dev to next dev version (e.g., 1.2.0-dev)
+7. Commit with `IFLOW_RELEASE=1` bypass, push develop, merge to main
+8. Create and push git tag
 
 ## Local Development Setup
 
@@ -168,9 +175,22 @@ Hooks execute automatically at lifecycle points.
 | Hook | Trigger | Purpose |
 |------|---------|---------|
 | `session-start` | Session start/resume/clear/compact | Inject active feature context |
-| `pre-commit-guard` | Before git commit commands | Warns when committing to main/master; prompts to confirm or use feature branch |
+| `sync-cache` | Session start | Syncs plugin source to Claude cache |
+| `pre-commit-guard` | Before git commit | Branch protection and iflow directory protection |
 
-Defined in `plugins/iflow/hooks/hooks.json`.
+Defined in `plugins/iflow-dev/hooks/hooks.json`.
+
+### Hook Protection
+
+The `pre-commit-guard` hook enforces two protections:
+
+1. **Protected branches**: Prompts for confirmation when committing to main/master/develop
+2. **Production plugin protection**: Blocks commits that touch `plugins/iflow/`
+
+To bypass protection (release script only):
+```bash
+IFLOW_RELEASE=1 git commit -m "chore(release): v1.2.0"
+```
 
 ## Knowledge Bank
 
@@ -187,10 +207,12 @@ Updated via `/iflow:retrospect` after feature completion.
 
 See [Component Authoring Guide](./docs/guides/component-authoring.md).
 
-**Skills:** `plugins/iflow/skills/{name}/SKILL.md` — Instructions Claude follows
-**Agents:** `plugins/iflow/agents/{name}.md` — Isolated workers with specific focus
-**Commands:** `plugins/iflow/commands/{name}.md` — User-invocable entry points
-**Hooks:** `plugins/iflow/hooks/` — Lifecycle automation scripts
+All components are created in the `plugins/iflow-dev/` directory:
+
+**Skills:** `plugins/iflow-dev/skills/{name}/SKILL.md` — Instructions Claude follows
+**Agents:** `plugins/iflow-dev/agents/{name}.md` — Isolated workers with specific focus
+**Commands:** `plugins/iflow-dev/commands/{name}.md` — User-invocable entry points
+**Hooks:** `plugins/iflow-dev/hooks/` — Lifecycle automation scripts
 
 ## Validation
 
