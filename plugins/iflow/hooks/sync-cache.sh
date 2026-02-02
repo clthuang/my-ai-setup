@@ -9,24 +9,36 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 # Find the source project root
 SOURCE_ROOT="$(detect_project_root)"
-SOURCE_PLUGIN="${SOURCE_ROOT}/plugins/iflow"
+SOURCE_PLUGIN_DEV="${SOURCE_ROOT}/plugins/iflow-dev"
+SOURCE_PLUGIN_PROD="${SOURCE_ROOT}/plugins/iflow"
 
-# Detect installed plugin path dynamically from installed_plugins.json
+# Detect installed plugin paths dynamically from installed_plugins.json
 INSTALLED_PLUGINS="$HOME/.claude/plugins/installed_plugins.json"
-CACHE_PLUGIN=""
+CACHE_PLUGIN_DEV=""
+CACHE_PLUGIN_PROD=""
+
 if [[ -f "$INSTALLED_PLUGINS" ]]; then
     # Extract installPath for iflow-dev@my-local-plugins
-    CACHE_PLUGIN=$(grep -o '"installPath": *"[^"]*iflow-dev[^"]*"' "$INSTALLED_PLUGINS" | head -1 | sed 's/"installPath": *"\([^"]*\)"/\1/')
+    CACHE_PLUGIN_DEV=$(grep -o '"installPath": *"[^"]*iflow-dev[^"]*"' "$INSTALLED_PLUGINS" 2>/dev/null | head -1 | sed 's/"installPath": *"\([^"]*\)"/\1/' || true)
+    # Extract installPath for iflow@my-local-plugins (may not be installed)
+    CACHE_PLUGIN_PROD=$(grep -o '"installPath": *"[^"]*my-local-plugins/iflow/[^"]*"' "$INSTALLED_PLUGINS" 2>/dev/null | head -1 | sed 's/"installPath": *"\([^"]*\)"/\1/' || true)
 fi
 
 # Fallback to dev path if not installed
-if [[ -z "$CACHE_PLUGIN" ]]; then
-    CACHE_PLUGIN="$HOME/.claude/plugins/cache/my-local-plugins/iflow-dev/0.0.0-dev"
+if [[ -z "$CACHE_PLUGIN_DEV" ]]; then
+    CACHE_PLUGIN_DEV="$HOME/.claude/plugins/cache/my-local-plugins/iflow-dev/1.2.0-dev"
 fi
 
-# Only sync if source exists and this is the my-ai-setup project
-if [[ -d "${SOURCE_PLUGIN}" && -f "${SOURCE_PLUGIN}/.claude-plugin/plugin.json" ]]; then
-    rsync -a --delete "${SOURCE_PLUGIN}/" "${CACHE_PLUGIN}/"
+# Sync iflow-dev (primary development plugin)
+if [[ -d "${SOURCE_PLUGIN_DEV}" && -f "${SOURCE_PLUGIN_DEV}/.claude-plugin/plugin.json" ]]; then
+    rsync -a --delete "${SOURCE_PLUGIN_DEV}/" "${CACHE_PLUGIN_DEV}/"
+fi
+
+# Sync iflow (production plugin) if installed in cache
+if [[ -n "$CACHE_PLUGIN_PROD" && -d "$CACHE_PLUGIN_PROD" ]]; then
+    if [[ -d "${SOURCE_PLUGIN_PROD}" && -f "${SOURCE_PLUGIN_PROD}/.claude-plugin/plugin.json" ]]; then
+        rsync -a --delete "${SOURCE_PLUGIN_PROD}/" "${CACHE_PLUGIN_PROD}/"
+    fi
 fi
 
 # Also sync marketplace.json to marketplace cache
