@@ -65,6 +65,18 @@ When work is done outside the workflow, recover by creating feature artifacts af
 - Benefit: Preserves audit trail without discarding completed work
 - Trade-off: Artifacts are reconstructed, not organic; less detailed than if created during work
 
+### Pattern: Two-Plugin Coexistence
+Maintain separate dev (iflow-dev/) and production (iflow/) plugin directories.
+- Used in: Feature #012
+- Benefit: Clean releases via copy, no branch-based transformations
+- Protection: Pre-commit hook blocks direct commits to production plugin
+
+### Pattern: Environment Variable Bypass for Automation
+Use env var (e.g., IFLOW_RELEASE=1) to bypass protective hooks during scripted operations.
+- Used in: Feature #012
+- Benefit: Hooks protect interactive use while allowing automation
+- Key: Check early in hook, output allow with reason, exit cleanly
+
 <!-- Example format:
 ### Pattern: Early Interface Definition
 Define interfaces before implementation. Enables parallel work.
