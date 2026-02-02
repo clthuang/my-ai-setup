@@ -7,7 +7,7 @@ Structured feature development workflow with skills, agents, and commands for me
 | Type | Count |
 |------|-------|
 | Skills | 18 |
-| Agents | 8 |
+| Agents | 13 |
 | Commands | 14 |
 | Hooks | 2 |
 
@@ -16,7 +16,7 @@ Structured feature development workflow with skills, agents, and commands for me
 **Start:**
 | Command | Description |
 |---------|-------------|
-| `/iflow:brainstorm [topic]` | Explore ideas (scratch files) |
+| `/iflow:brainstorm [topic]` | 6-stage PRD creation with research subagents |
 | `/iflow:create-feature <desc>` | Start building (creates folder + branch) |
 
 **Build phases** (run in order):

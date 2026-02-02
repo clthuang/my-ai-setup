@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-02-03
+
+### Added
+- Enhanced brainstorm-to-PRD workflow with 6-stage process (clarify, research, draft, review, correct, decide)
+- 4 new research/review agents: `internet-researcher`, `codebase-explorer`, `skill-searcher`, `prd-reviewer`
+- PRD output format with evidence citations and quality criteria checklist
+- Parallel subagent invocation for research stage
+- Auto-correction of PRD issues from critical review
+
+### Changed
+- `/iflow:brainstorm` now produces `.prd.md` files instead of `.md` files
+- Brainstorming skill rewritten for structured PRD generation with research support
+
 ## [1.2.0] - 2026-02-02
 
 ### Added

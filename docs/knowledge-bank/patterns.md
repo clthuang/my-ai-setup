@@ -77,6 +77,20 @@ Use env var (e.g., IFLOW_RELEASE=1) to bypass protective hooks during scripted o
 - Benefit: Hooks protect interactive use while allowing automation
 - Key: Check early in hook, output allow with reason, exit cleanly
 
+### Pattern: Parallel Subagent Delegation for Independent Research
+Deploy multiple subagents in parallel when researching independent domains.
+- Used in: Feature #013
+- Benefit: Faster research, no dependencies between internet/codebase/skills searches
+- Implementation: Multiple Task tool calls in single response for simultaneous invocation
+- Key: Each agent has clear domain boundary and returns structured findings
+
+### Pattern: Evidence-Backed Claims in Documentation
+Require citations for technical claims in PRDs and design documents.
+- Used in: Feature #013
+- Benefit: Improves intellectual honesty, surfaces assumptions vs verified facts
+- Format: `{claim} — Evidence: {source}` or `{claim} — Assumption: needs verification`
+- Quality gate: Reviewer challenges uncited claims and false certainty
+
 <!-- Example format:
 ### Pattern: Early Interface Definition
 Define interfaces before implementation. Enables parallel work.
