@@ -122,6 +122,24 @@ validate_plugin_json() {
         return 1
     fi
 
+    # Validate version format based on plugin name
+    local version=$(jq -r '.version // empty' "$file")
+    if [ -n "$version" ]; then
+        if [ "$name" = "iflow-dev" ]; then
+            # iflow-dev must have X.Y.Z-dev format
+            if ! echo "$version" | grep -qE "^[0-9]+\.[0-9]+\.[0-9]+-dev$"; then
+                log_error "$file: iflow-dev version '$version' must be in X.Y.Z-dev format"
+                return 1
+            fi
+        elif [ "$name" = "iflow" ]; then
+            # iflow must have X.Y.Z format (no -dev suffix)
+            if ! echo "$version" | grep -qE "^[0-9]+\.[0-9]+\.[0-9]+$"; then
+                log_error "$file: iflow version '$version' must be in X.Y.Z format (no -dev suffix)"
+                return 1
+            fi
+        fi
+    fi
+
     return 0
 }
 
