@@ -1,6 +1,5 @@
 ---
 description: Create implementation plan for current feature
-argument-hint: [--no-review]
 ---
 
 Invoke the planning skill for the current feature context.
@@ -66,61 +65,81 @@ Update `.meta.json`:
 }
 ```
 
-### 4. Execute with Reviewer Loop
+### 4. Execute with Two-Stage Reviewer Loop
 
 Get max iterations from mode: Standard=1, Full=3.
 
-**If `--no-review` argument is present:** Skip to step 4e directly after producing artifact. Set `reviewSkipped: true` in `.meta.json`.
-
-**Otherwise, execute this loop:**
+#### Stage 1: Plan-Reviewer Cycle (Skeptical Review)
 
 a. **Produce artifact:** Follow the planning skill to create/revise plan.md
 
-b. **Invoke reviewer:** Use the Task tool to spawn chain-reviewer:
+b. **Invoke plan-reviewer:** Use Task tool:
    ```
    Task tool call:
-     description: "Review plan for chain sufficiency"
-     subagent_type: chain-reviewer
+     description: "Skeptical review of plan for failure modes"
+     subagent_type: iflow:plan-reviewer
      prompt: |
-       Review the following artifacts for chain sufficiency.
+       Review this plan for failure modes, untested assumptions,
+       dependency accuracy, and TDD order compliance.
 
-       ## Previous Artifact (design.md)
+       ## Design Artifact
        {content of design.md}
 
-       ## Current Artifact (plan.md)
+       ## Plan Artifact
+       {content of plan.md}
+
+       Return JSON: {"approved": bool, "issues": [...], "summary": "..."}
+   ```
+
+c. **Parse response:** Extract `approved` field.
+
+d. **Branch on result:**
+   - `approved: true` → Proceed to Stage 2
+   - `approved: false` AND iteration < max:
+     - Append to `.review-history.md` with "Stage 1: Plan Review" marker
+     - Address issues, return to 4b
+   - `approved: false` AND iteration == max:
+     - Note concerns in `.meta.json` reviewerNotes
+     - Proceed to Stage 2 with warning
+
+#### Stage 2: Chain-Reviewer Validation (Execution Readiness)
+
+e. **Invoke chain-reviewer:** Use Task tool:
+   ```
+   Task tool call:
+     description: "Validate plan ready for task breakdown"
+     subagent_type: iflow:chain-reviewer
+     prompt: |
+       Validate this plan is ready for an experienced engineer
+       to break into executable tasks.
+
+       ## Design Artifact
+       {content of design.md}
+
+       ## Plan Artifact
        {content of plan.md}
 
        ## Next Phase Expectations
        Tasks needs: Ordered steps with dependencies,
        all design items covered, clear sequencing.
 
-       Return your assessment as JSON:
-       {
-         "approved": true/false,
-         "issues": [...],
-         "summary": "..."
-       }
+       Return JSON: {"approved": bool, "issues": [...], "summary": "..."}
    ```
 
-c. **Parse response:** Extract the `approved` field from reviewer's JSON response.
-   - If response is not valid JSON, ask reviewer to retry with correct format.
+f. **Parse response:** Extract `approved` field.
 
-d. **Branch on result:**
-   - If `approved: true` → Proceed to step 4e
-   - If `approved: false` AND iteration < max:
-     - Append iteration to `.review-history.md` using format below
-     - Increment iteration counter
-     - Address the issues by revising plan.md
-     - Return to step 4b
-   - If `approved: false` AND iteration == max:
-     - Note concerns in `.meta.json` reviewerNotes
-     - Proceed to step 4e
+g. **Branch on result:**
+   - `approved: true` → Proceed to step 4h
+   - `approved: false`:
+     - Append to `.review-history.md` with "Stage 2: Chain Review" marker
+     - If iteration < max: Address issues, return to 4e (chain-reviewer)
+     - If iteration == max: Note concerns, proceed to 4h
 
-e. **Complete phase:** Update state and show completion message.
+h. **Complete phase:** Update state.
 
 **Review History Entry Format** (append to `.review-history.md`):
 ```markdown
-## Iteration {n} - {ISO timestamp}
+## {Stage 1: Plan Review | Stage 2: Chain Review} - Iteration {n} - {ISO timestamp}
 
 **Decision:** {Approved / Needs Revision}
 
@@ -149,6 +168,23 @@ Update `.meta.json`:
 }
 ```
 
-### 6. Completion Message
+### 6. User Prompt for Next Step
 
-"Plan complete. Run /iflow:verify to check, or /iflow:create-tasks to continue."
+After chain-reviewer approval, ask user:
+
+```
+AskUserQuestion:
+  questions: [{
+    "question": "Plan approved by reviewers. Run /iflow:create-tasks?",
+    "header": "Next Step",
+    "options": [
+      {"label": "Yes", "description": "Break plan into actionable tasks"},
+      {"label": "No", "description": "Review plan.md manually first"}
+    ],
+    "multiSelect": false
+  }]
+```
+
+Based on selection:
+- "Yes" → Invoke /iflow:create-tasks
+- "No" → Show: "Plan at {path}/plan.md. Run /iflow:create-tasks when ready."
