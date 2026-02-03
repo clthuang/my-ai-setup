@@ -163,8 +163,6 @@ Skills are instructions Claude follows for specific development practices.
 | `implementing-with-tdd` | RED-GREEN-REFACTOR enforcement |
 | `systematic-debugging` | Root cause investigation |
 | `verifying-before-completion` | Evidence before claims |
-| `subagent-driven-development` | Three-agent workflow per task |
-| `dispatching-parallel-agents` | Concurrent investigation |
 
 ### Infrastructure
 | Skill | Purpose |
@@ -203,6 +201,10 @@ Skills are instructions Claude follows for specific development practices.
 - `codebase-explorer` — Analyzes codebase for patterns and constraints
 - `internet-researcher` — Web research for best practices
 - `skill-searcher` — Finds relevant existing skills
+
+**Documentation:**
+- `documentation-researcher` — Researches current documentation state
+- `documentation-writer` — Writes and updates documentation
 
 ## Hooks
 
