@@ -7,7 +7,7 @@ Structured feature development workflow with skills, agents, and commands for me
 | Type | Count |
 |------|-------|
 | Skills | 19 |
-| Agents | 14 |
+| Agents | 15 |
 | Commands | 15 |
 | Hooks | 4 |
 
@@ -63,6 +63,31 @@ Stage 4: HANDOFF REVIEW → chain-reviewer ensures plan phase readiness
 
 The design-reviewer challenges the design quality. The chain-reviewer ensures the artifact is sufficient for the next phase.
 
+## Create Plan Phase Workflow
+
+The `/iflow-dev:create-plan` command uses a 2-stage review workflow:
+
+```
+Stage 1: PLAN-REVIEWER (Skeptical Review)
+    │   • Failure modes - What could go wrong?
+    │   • Untested assumptions - What's assumed but not validated?
+    │   • Dependency accuracy - Are dependencies correct and complete?
+    │   • TDD order - Interface → Tests → Implementation sequence?
+    ↓
+Stage 2: CHAIN-REVIEWER (Execution Readiness)
+    │   • Can an engineer break this into tasks?
+    │   • Are all design items covered?
+    ↓
+[User Prompt: Run /create-tasks?]
+```
+
+### Reviewer Roles
+
+| Reviewer | Role | Question |
+|----------|------|----------|
+| plan-reviewer | Skeptic | "Will this plan actually work when implemented?" |
+| chain-reviewer | Gatekeeper | "Can the next phase complete its work using ONLY this artifact?" |
+
 ## Agents
 
 | Agent | Purpose |
@@ -76,6 +101,7 @@ The design-reviewer challenges the design quality. The chain-reviewer ensures th
 | generic-worker | General-purpose implementation agent |
 | implementer | Task implementation with self-review |
 | internet-researcher | Searches web for best practices and standards |
+| plan-reviewer | Skeptical plan reviewer for failure modes and TDD compliance |
 | investigation-agent | Read-only research before implementation |
 | prd-reviewer | Critical review of PRD drafts |
 | quality-reviewer | Verifies code quality and finds dead code |
