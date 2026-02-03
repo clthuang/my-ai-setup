@@ -49,12 +49,25 @@ Then follow the phases:
 | `/iflow:specify` | Write requirements → spec.md |
 | `/iflow:design` | Define architecture → design.md |
 | `/iflow:create-plan` | Plan implementation → plan.md |
-| `/iflow:create-tasks` | Break into tasks → tasks.md |
+| `/iflow:create-tasks` | Break into tasks → tasks.md (two-stage review) |
 | `/iflow:implement` | Write code |
 | `/iflow:finish` | Review, merge, retrospective, cleanup |
 | `/iflow:verify` | Quality check current phase |
 | `/iflow:show-status` | See current progress |
 | `/iflow:list-features` | List active features |
+
+## Task Output Format
+
+Tasks are organized for parallel execution:
+
+- **Dependency Graph**: Mermaid diagram showing task relationships
+- **Execution Strategy**: Groups tasks by parallel executability
+- **Task Details**: Each task includes:
+  - Dependencies and blocking relationships
+  - Exact file paths and step-by-step instructions
+  - Test commands or verification steps
+  - Binary "done when" criteria
+  - Time estimates (5-15 min each)
 
 ## File Structure
 
