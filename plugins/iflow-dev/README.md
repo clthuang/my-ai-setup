@@ -7,7 +7,7 @@ Structured feature development workflow with skills, agents, and commands for me
 | Type | Count |
 |------|-------|
 | Skills | 19 |
-| Agents | 15 |
+| Agents | 20 |
 | Commands | 15 |
 | Hooks | 4 |
 
@@ -92,21 +92,26 @@ Stage 2: CHAIN-REVIEWER (Execution Readiness)
 
 | Agent | Purpose |
 |-------|---------|
-| brainstorm-reviewer | Reviews PRD drafts for completeness before promotion |
+| brainstorm-reviewer | Reviews brainstorm artifacts for completeness before promotion |
 | chain-reviewer | Validates artifacts have what next phase needs (gatekeeper) |
-| codebase-explorer | Analyzes codebase for patterns and constraints |
 | code-quality-reviewer | Reviews implementation quality by severity |
+| code-simplifier | Identifies unnecessary complexity and suggests simplifications |
+| codebase-explorer | Analyzes codebase for patterns and constraints |
 | design-reviewer | Challenges design assumptions and finds gaps (skeptic) |
-| final-reviewer | Validates implementation matches spec |
+| documentation-researcher | Researches documentation state and identifies update needs |
+| documentation-writer | Writes and updates documentation |
+| final-reviewer | Validates implementation delivers PRD outcomes |
 | generic-worker | General-purpose implementation agent |
-| implementer | Task implementation with self-review |
+| implementation-behavior-reviewer | Validates behavior against requirements chain |
+| implementer | Task implementation with TDD and self-review |
 | internet-researcher | Searches web for best practices and standards |
-| plan-reviewer | Skeptical plan reviewer for failure modes and TDD compliance |
 | investigation-agent | Read-only research before implementation |
+| plan-reviewer | Skeptical plan reviewer for failure modes and TDD compliance |
 | prd-reviewer | Critical review of PRD drafts |
-| quality-reviewer | Verifies code quality and finds dead code |
+| security-reviewer | Reviews implementation for security vulnerabilities |
 | skill-searcher | Finds relevant existing skills |
 | spec-reviewer | Verifies implementation matches spec |
+| task-breakdown-reviewer | Validates task breakdown quality |
 
 ## Installation
 

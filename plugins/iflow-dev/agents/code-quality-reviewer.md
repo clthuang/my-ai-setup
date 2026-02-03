@@ -1,7 +1,8 @@
 ---
 name: code-quality-reviewer
-description: Reviews implementation quality and categorizes issues by severity. Use when checking code quality after spec compliance passes.
+description: Reviews code quality and categorizes issues by severity. Triggers: (1) after spec-reviewer passes, (2) user says 'review code quality', (3) user says 'check implementation quality'.
 tools: [Read, Glob, Grep]
+color: magenta
 ---
 
 # Code Quality Reviewer Agent

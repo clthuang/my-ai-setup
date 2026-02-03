@@ -1,7 +1,8 @@
 ---
 name: final-reviewer
-description: Validates implementation delivers PRD outcomes. Use when verifying final implementation. Compares final code against original PRD deliverables to catch missing requirements, extra work, and misunderstandings. Read-only.
+description: Validates implementation delivers PRD outcomes. Triggers: (1) after all other reviews pass, (2) user says 'final review', (3) user says 'verify against PRD', (4) user says 'check deliverables'. Read-only.
 tools: [Read, Glob, Grep]
+color: magenta
 ---
 
 # Final Reviewer Agent

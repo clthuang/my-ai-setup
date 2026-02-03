@@ -1,6 +1,6 @@
 ---
 name: verifying-before-completion
-description: Requires verification evidence before any completion claims. Use when about to claim work is complete, fixed, or passing.
+description: This skill should be used before claiming any work is complete, fixed, or passing. Requires verification evidence before completion claims.
 ---
 
 # Verification Before Completion

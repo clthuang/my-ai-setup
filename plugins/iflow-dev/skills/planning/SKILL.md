@@ -1,6 +1,6 @@
 ---
 name: planning
-description: Creates implementation plans with dependencies and sequencing. Use when ready to plan build order. Produces plan.md with ordered steps.
+description: This skill should be used when the user says 'create a plan', 'plan the implementation', 'sequence the work', or 'determine build order'. Produces plan.md with dependencies and ordering.
 ---
 
 # Planning Phase

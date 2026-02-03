@@ -1,5 +1,5 @@
 ---
-description: Sync plugin source files to cache. Use when you've made changes to plugin files and want to apply them immediately.
+description: Sync plugin source files to cache
 ---
 
 # /iflow-dev:sync-cache Command

@@ -1,6 +1,6 @@
 ---
 name: writing-skills
-description: Applies TDD approach to skill documentation with pressure testing. Use when creating new skills, editing existing skills, or verifying skills work.
+description: This skill should be used when the user says 'create a skill', 'write skill docs', 'test this skill', or 'edit skill'. Applies TDD approach to skill documentation.
 ---
 
 # Writing Skills

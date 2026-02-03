@@ -1,6 +1,6 @@
 ---
 name: workflow-state
-description: Central workflow state management. Defines phase sequence, validates transitions, and provides state update patterns. Use when checking phase prerequisites.
+description: This skill should be used internally when checking phase prerequisites or managing workflow state. Defines phase sequence and validates transitions.
 ---
 
 # Workflow State Management

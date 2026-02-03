@@ -1,7 +1,8 @@
 ---
 name: generic-worker
-description: General-purpose implementation agent. Use for mixed-domain tasks or when no specialist fits.
+description: General-purpose implementation agent. Triggers: (1) mixed-domain tasks, (2) no specialist fits, (3) user says 'just do the task', (4) fallback when specific agent unavailable.
 tools: [Read, Write, Edit, Bash, Glob, Grep]
+color: green
 ---
 
 # Generic Worker Agent

@@ -91,6 +91,26 @@ Require citations for technical claims in PRDs and design documents.
 - Format: `{claim} — Evidence: {source}` or `{claim} — Assumption: needs verification`
 - Quality gate: Reviewer challenges uncited claims and false certainty
 
+### Pattern: Trigger Phrase Descriptions for Skills and Agents
+Use explicit trigger phrases in descriptions to enable intent matching.
+- Source: [Anthropic plugin-dev](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/plugin-dev)
+- Format: `This skill should be used when the user says 'X', 'Y', or 'Z'. [Capability description].`
+- Benefit: AI can match user intent to components via quoted phrases
+- Key: Use third-person language, not second-person; include 3-4 trigger phrases
+- Applied: 2026-02-04 quality improvements
+
+### Pattern: Semantic Color Coding for Agents
+Assign colors to agents based on functional category for visual distinction.
+- Used in: 2026-02-04 quality improvements
+- Categories:
+  - `cyan` = Research (exploration, investigation)
+  - `green` = Implementation (writing code/docs)
+  - `blue` = Planning/validation (chain, design, plan review)
+  - `yellow` = Early-stage review (brainstorm, PRD)
+  - `magenta` = Quality/compliance review (spec, security, final)
+  - `red` = Simplification
+- Benefit: Terminal output distinguishes agent types at a glance
+
 <!-- Example format:
 ### Pattern: Early Interface Definition
 Define interfaces before implementation. Enables parallel work.

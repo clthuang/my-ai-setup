@@ -1,6 +1,6 @@
 ---
 name: verifying
-description: Runs phase-appropriate verification with fresh perspective. Use when checking phase quality. Reports issues by severity with fix suggestions.
+description: This skill should be used when the user says 'verify this phase', 'check quality', 'review the work', or 'validate artifacts'. Runs phase-appropriate verification.
 ---
 
 # Verification
