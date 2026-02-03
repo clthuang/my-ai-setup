@@ -1,11 +1,11 @@
 ---
 name: finishing-branch
-description: Guides branch completion with structured options for merge, PR, keep, or discard. Use when implementation is complete and ready to integrate.
+description: Guides branch completion with PR or merge+release options. Use when implementation is complete and ready to integrate.
 ---
 
 # Finishing a Development Branch
 
-Guide completion of development work with clear options.
+Guide completion of development work with streamlined options.
 
 ## Base Branch
 
@@ -15,82 +15,75 @@ Releases from `develop` to `main` are handled by `scripts/release.sh`.
 
 ## Core Principle
 
-Verify tests → Present options → Execute choice → Clean up branch.
+Commit changes → Present options → Execute choice → Clean up branch.
 
 ## The Process
 
-### Step 1: Verify Tests
+### Step 1: Verify Clean State
 
+Ensure all changes are committed:
 ```bash
-# Run project's test suite
-npm test / cargo test / pytest / go test ./...
+git status --short
 ```
 
-**If tests fail:** Stop. Cannot proceed until tests pass.
-
-**If tests pass:** Continue to Step 2.
+If uncommitted changes exist, commit them first:
+```bash
+git add -A && git commit -m "wip: uncommitted changes before finish"
+git push
+```
 
 ### Step 2: Present Options
 
-Present exactly these 4 options:
+Present exactly 2 options via AskUserQuestion:
 
 ```
-Implementation complete. What would you like to do?
-
-1. Merge back to develop locally
-2. Push and create a Pull Request
-3. Keep the branch as-is (I'll handle it later)
-4. Discard this work
-
-Which option?
+AskUserQuestion:
+  questions: [{
+    "question": "Implementation complete. How would you like to proceed?",
+    "header": "Finish",
+    "options": [
+      {"label": "Create PR", "description": "Open pull request for team review"},
+      {"label": "Merge & Release", "description": "Merge to develop and run release script"}
+    ],
+    "multiSelect": false
+  }]
 ```
 
 ### Step 3: Execute Choice
 
-**Option 1: Merge Locally**
-```bash
-git checkout develop
-git pull
-git merge {feature-branch}
-# Verify tests on merged result
-git branch -d {feature-branch}
-```
-
-**Option 2: Push and Create PR**
+**Option 1: Create PR**
 ```bash
 git push -u origin {feature-branch}
 gh pr create --title "{title}" --body "..."
 ```
+Output: "PR created: {url}"
 Note: Branch will be deleted when PR is merged via GitHub.
 
-**Option 3: Keep As-Is**
-Report: "Keeping branch for later."
-Don't delete branch.
-
-**Option 4: Discard**
-Confirm first:
-```
-This will permanently delete branch and all commits.
-Type 'discard' to confirm.
-```
-If confirmed:
+**Option 2: Merge & Release**
 ```bash
+# Merge to develop
 git checkout develop
-git branch -D {feature-branch}
+git pull origin develop
+git merge {feature-branch}
+git push
+
+# Run release script
+./scripts/release.sh
+
+# Delete feature branch
+git branch -d {feature-branch}
 ```
+Output: "Merged to develop. Released v{version}"
 
 ## Quick Reference
 
-| Option | Merge | Push | Delete Branch |
-|--------|-------|------|---------------|
-| 1. Merge locally | ✓ | - | ✓ (after merge) |
-| 2. Create PR | - | ✓ | - (GitHub deletes) |
-| 3. Keep as-is | - | - | - |
-| 4. Discard | - | - | ✓ (force) |
+| Option | Merge | Push | Release | Delete Branch |
+|--------|-------|------|---------|---------------|
+| Create PR | - | Yes | - | GitHub deletes on merge |
+| Merge & Release | Yes | Yes | Yes | Yes (local) |
 
 ## Red Flags - Never
 
-- Proceed with failing tests
-- Merge without verifying tests on result
-- Delete work without confirmation
 - Force-push without explicit request
+- Delete work without confirmation
+- Skip the release script on Merge & Release option

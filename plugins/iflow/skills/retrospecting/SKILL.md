@@ -1,111 +1,118 @@
 ---
 name: retrospecting
-description: Captures learnings from completed features into knowledge bank. Use when reflecting on completed work. Updates constitution.md, patterns.md, etc.
+description: Automatically captures learnings from completed features into knowledge bank using subagents. Use when reflecting on completed work.
 ---
 
 # Retrospective
 
-Capture and codify learnings.
+Automatic learning capture using investigation-agent.
 
 ## Read Feature Context
 
 1. Find active feature folder in `docs/features/`
 2. Read `.meta.json` for mode and context
-3. Adjust behavior based on mode:
-   - Standard: Full process with optional verification
-   - Full: Full process with required verification
 
-## Gather Data
+## Process
 
-Read feature folder:
-- What verification issues occurred?
-- What blockers were encountered?
-- What surprises came up?
-- What went well?
+### Step 1: Gather Context via Subagent
 
-Ask user:
-- "What would you do differently?"
-- "What worked well?"
-- "Any patterns worth documenting?"
-
-## Identify Learnings
-
-Categorize findings:
-
-### Patterns (What worked)
-- Approach that solved a problem well
-- Technique worth reusing
-
-### Anti-Patterns (What to avoid)
-- Approach that caused problems
-- Mistake not to repeat
-
-### Heuristics (Decision guides)
-- Rule of thumb discovered
-- When to use which approach
-
-### Principles (If fundamental enough)
-- Core principle reinforced or discovered
-
-## Propose Updates
-
-For each learning, propose where it goes and confirm via AskUserQuestion:
+Dispatch investigation-agent to gather retrospective data:
 
 ```
-Learning: "Defining interfaces first enabled parallel work"
+Task tool call:
+  description: "Gather feature learnings"
+  subagent_type: iflow:investigation-agent
+  prompt: |
+    Gather retrospective data for feature {id}-{slug}.
 
-Proposed update:
-- File: docs/knowledge-bank/patterns.md
-- Add:
-  ### Pattern: Early Interface Definition
-  Define interfaces before implementation to enable parallel work.
-  - Observed in: Feature #{id}
-  - Benefit: Reduced integration issues
+    Read:
+    - Feature folder contents (docs/features/{id}-{slug}/)
+    - Git log for this branch
+    - .review-history.md if exists
+    - Any blockers/issues encountered
+
+    Identify:
+    - What went well
+    - What could improve
+    - Patterns worth documenting
+    - Anti-patterns to avoid
+
+    Return structured findings as JSON:
+    {
+      "what_went_well": [...],
+      "what_could_improve": [...],
+      "patterns": [...],
+      "anti_patterns": [...],
+      "heuristics": [...]
+    }
 ```
 
-```
-AskUserQuestion:
-  questions: [{
-    "question": "Add this learning to patterns.md?",
-    "header": "Learning",
-    "options": [
-      {"label": "Add", "description": "Save to knowledge bank"},
-      {"label": "Skip", "description": "Don't save this learning"}
-    ],
-    "multiSelect": false
-  }]
-```
+### Step 2: Process Findings
 
-## Write Updates
+Based on investigation-agent output, categorize learnings:
 
-For approved updates:
-1. Read current file
-2. Add new entry
-3. Save file
+| Category | Description | Target File |
+|----------|-------------|-------------|
+| Patterns | Approaches that worked well | docs/knowledge-bank/patterns.md |
+| Anti-Patterns | Approaches to avoid | docs/knowledge-bank/anti-patterns.md |
+| Heuristics | Decision guides discovered | docs/knowledge-bank/heuristics.md |
+| Principles | Core principles reinforced | docs/knowledge-bank/principles.md |
 
-## Output: retro.md
+### Step 3: Write Retrospective
 
-Write to `docs/features/{id}-{slug}/retro.md`:
+Write `docs/features/{id}-{slug}/retro.md`:
 
 ```markdown
 # Retrospective: {Feature Name}
 
 ## What Went Well
-- {Positive observation}
+- {From investigation findings}
 
 ## What Could Improve
-- {Improvement area}
+- {From investigation findings}
 
 ## Learnings Captured
-- Added to patterns.md: {pattern name}
-- Added to anti-patterns.md: {anti-pattern name}
+- {Patterns/anti-patterns identified}
 
-## Action Items
-- {Any follow-up actions}
+## Knowledge Bank Updates
+- {If any patterns added to knowledge-bank/}
 ```
 
-## Completion
+### Step 4: Update Knowledge Bank
 
-"Retrospective complete."
-"Updated: {list of knowledge-bank files updated}"
-"Saved to retro.md."
+For significant learnings (patterns, anti-patterns, heuristics):
+
+1. Read current knowledge bank file
+2. Add new entry with reference to feature
+3. Save file
+
+Example entry:
+```markdown
+### Pattern: {Name}
+{Description}
+- Observed in: Feature {id}-{slug}
+- Benefit: {Why it worked}
+```
+
+### Step 5: Commit
+
+```bash
+git add docs/features/{id}-{slug}/retro.md docs/features/{id}-{slug}/.meta.json docs/knowledge-bank/
+git commit -m "docs: add retrospective for feature {id}-{slug}"
+git push
+```
+
+## Output
+
+```
+Retrospective complete.
+Updated: {list of knowledge-bank files updated}
+Saved to retro.md.
+```
+
+## Automatic Execution
+
+This skill runs automatically during `/iflow:finish`:
+- No permission prompt required
+- Findings drive knowledge bank updates
+- User sees summary of learnings captured

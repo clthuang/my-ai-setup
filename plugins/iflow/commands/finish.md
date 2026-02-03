@@ -13,95 +13,242 @@ Same logic as /iflow:show-status command.
 
 ---
 
-## Phase 1: Auto-Commit Uncommitted Work
+## Phase 1: Auto-Commit (with Branch/Phase Checks)
 
-1. **Check for uncommitted changes** via `git status --short`
-2. **If uncommitted changes found:**
-   - Auto-commit: `git add -A && git commit -m "wip: uncommitted changes before finish"`
-   - Push to feature branch: `git push`
+### Step 1a: Check Branch
+
+1. Get current branch via `git branch --show-current`
+2. Read `.meta.json` for expected branch
+3. If mismatch, use AskUserQuestion:
+
+```
+AskUserQuestion:
+  questions: [{
+    "question": "You're on '{current}', but feature uses '{expected}'. Switch branches?",
+    "header": "Branch",
+    "options": [
+      {"label": "Switch", "description": "Run: git checkout {expected}"},
+      {"label": "Continue", "description": "Stay on {current}"}
+    ],
+    "multiSelect": false
+  }]
+```
+
+If "Switch": Execute `git checkout {expected}` and continue.
+If "Continue": Proceed on current branch.
+
+### Step 1b: Check for Partial Phase
+
+If `phases.finish.started` exists but `phases.finish.completed` does not:
+
+```
+AskUserQuestion:
+  questions: [{
+    "question": "Detected partial finish. How to proceed?",
+    "header": "Recovery",
+    "options": [
+      {"label": "Continue", "description": "Resume from where you left off"},
+      {"label": "Start Fresh", "description": "Begin finish process anew"}
+    ],
+    "multiSelect": false
+  }]
+```
+
+If "Start Fresh": Clear `phases.finish` from `.meta.json`.
+
+### Step 1c: Mark Phase Started
+
+Update `.meta.json`:
+```json
+{
+  "phases": {
+    "finish": {
+      "started": "{ISO timestamp}"
+    }
+  }
+}
+```
+
+### Step 1d: Commit and Push
+
+1. Check for uncommitted changes via `git status --short`
+2. If uncommitted changes found:
+   - `git add -A && git commit -m "wip: uncommitted changes before finish"`
+   - `git push`
    - On push failure: Show error and STOP - user must resolve manually
-3. **If no uncommitted changes:** Continue to Phase 2
+3. If no uncommitted changes: Continue
 
 ---
 
 ## Phase 2: Pre-Completion Reviews
 
-1. **Check tasks completion** (if tasks.md exists)
-   - If incomplete tasks found, use AskUserQuestion:
-     ```
-     AskUserQuestion:
-       questions: [{
-         "question": "{n} tasks still incomplete. Continue anyway?",
-         "header": "Tasks",
-         "options": [
-           {"label": "Continue", "description": "Proceed despite incomplete tasks"},
-           {"label": "Stop", "description": "Return to complete tasks first"}
-         ],
-         "multiSelect": false
-       }]
-     ```
+### Step 2a: Check Tasks Completion
 
-2. **Offer quality review** (for Standard/Full modes)
-   - Use AskUserQuestion:
-     ```
-     AskUserQuestion:
-       questions: [{
-         "question": "Run quality review before completing?",
-         "header": "Quality",
-         "options": [
-           {"label": "Yes", "description": "Spawn quality-reviewer agent"},
-           {"label": "Skip", "description": "Continue without review"}
-         ],
-         "multiSelect": false
-       }]
-     ```
-   - If yes: Spawn quality-reviewer agent
+If `tasks.md` exists, check for incomplete tasks (unchecked `- [ ]` items).
 
-3. **Offer documentation review** (if docs detected)
-   - Detect: README.md, CHANGELOG.md, HISTORY.md, API.md, docs/*.md
-   - If any docs exist, use AskUserQuestion:
-     ```
-     AskUserQuestion:
-       questions: [{
-         "question": "Review documentation before completing?",
-         "header": "Docs",
-         "options": [
-           {"label": "Yes", "description": "Invoke /iflow:update-docs skill"},
-           {"label": "Skip", "description": "Continue without doc review"}
-         ],
-         "multiSelect": false
-       }]
-     ```
-   - If yes: Invoke `/iflow:update-docs` skill
-   - If no docs detected: Skip silently
+If incomplete tasks found:
+
+```
+AskUserQuestion:
+  questions: [{
+    "question": "{n} tasks still incomplete. How to proceed?",
+    "header": "Tasks",
+    "options": [
+      {"label": "Continue anyway", "description": "Proceed despite incomplete tasks"},
+      {"label": "Run /implement", "description": "Execute implementation once more"},
+      {"label": "Run /implement until done", "description": "Loop until all tasks complete"}
+    ],
+    "multiSelect": false
+  }]
+```
+
+If "Run /implement": Execute `/iflow:implement`, then return to Phase 2.
+If "Run /implement until done": Loop `/iflow:implement` until no incomplete tasks, then continue.
+
+### Step 2b: Documentation Update (Automatic)
+
+Run documentation update automatically using agents:
+
+1. **Dispatch documentation-researcher agent:**
+
+```
+Task tool call:
+  description: "Research documentation context"
+  subagent_type: iflow:documentation-researcher
+  prompt: |
+    Research current documentation state for feature {id}-{slug}.
+
+    Feature context:
+    - spec.md: {content summary}
+    - Files changed: {list from git diff}
+
+    Find:
+    - Existing docs that may need updates
+    - What user-visible changes were made
+    - What documentation patterns exist in project
+
+    Return findings as structured JSON.
+```
+
+2. **Evaluate researcher findings:**
+
+If `no_updates_needed: true`:
+
+```
+AskUserQuestion:
+  questions: [{
+    "question": "No user-visible changes detected. Skip documentation?",
+    "header": "Docs",
+    "options": [
+      {"label": "Skip", "description": "No documentation updates needed"},
+      {"label": "Write anyway", "description": "Force documentation update"}
+    ],
+    "multiSelect": false
+  }]
+```
+
+If "Skip": Continue to Phase 3.
+
+3. **Dispatch documentation-writer agent:**
+
+```
+Task tool call:
+  description: "Update documentation"
+  subagent_type: iflow:documentation-writer
+  prompt: |
+    Update documentation based on research findings.
+
+    Feature: {id}-{slug}
+    Research findings: {JSON from researcher agent}
+
+    Write necessary documentation updates.
+    Return summary of changes made.
+```
+
+4. **Commit documentation changes:**
+```bash
+git add -A
+git commit -m "docs: update documentation for feature {id}-{slug}"
+git push
+```
 
 ---
 
-## Phase 3: Retrospective (Required)
+## Phase 3: Retrospective (Automatic)
 
-Run retrospective BEFORE the merge decision:
+Run retrospective automatically without asking permission.
 
-1. **Invoke retrospecting skill:**
-   - Gather data from feature folder
-   - Ask user about learnings via AskUserQuestion
-   - User selects which learnings to keep
-   - Save to `docs/features/{id}-{slug}/retro.md`
+### Step 3a: Gather Context via Subagent
 
-2. **Commit retrospective artifacts:**
-   ```bash
-   git add docs/features/{id}-{slug}/retro.md docs/features/{id}-{slug}/.meta.json
-   git commit -m "docs: add retrospective for feature {id}-{slug}"
-   git push
-   ```
+Dispatch investigation-agent:
 
-This is **required**, not optional. The user controls what learnings to capture,
-but the retrospective step always runs before the merge decision.
+```
+Task tool call:
+  description: "Gather feature learnings"
+  subagent_type: iflow:investigation-agent
+  prompt: |
+    Gather retrospective data for feature {id}-{slug}.
+
+    Read:
+    - Feature folder contents (docs/features/{id}-{slug}/)
+    - Git log for this branch
+    - .review-history.md if exists
+    - Any blockers/issues encountered
+
+    Identify:
+    - What went well
+    - What could improve
+    - Patterns worth documenting
+    - Anti-patterns to avoid
+
+    Return structured findings as JSON:
+    {
+      "what_went_well": [...],
+      "what_could_improve": [...],
+      "patterns": [...],
+      "anti_patterns": [...],
+      "heuristics": [...]
+    }
+```
+
+### Step 3b: Generate Retrospective
+
+Based on gathered context:
+
+1. Identify learnings (patterns, anti-patterns, heuristics)
+2. Write `docs/features/{id}-{slug}/retro.md`:
+
+```markdown
+# Retrospective: {Feature Name}
+
+## What Went Well
+- {From investigation findings}
+
+## What Could Improve
+- {From investigation findings}
+
+## Learnings Captured
+- {Patterns/anti-patterns identified}
+
+## Knowledge Bank Updates
+- {If any patterns added to knowledge-bank/}
+```
+
+3. Update knowledge bank files if appropriate patterns identified
+
+### Step 3c: Commit Retrospective
+
+```bash
+git add docs/features/{id}-{slug}/retro.md docs/features/{id}-{slug}/.meta.json docs/knowledge-bank/
+git commit -m "docs: add retrospective for feature {id}-{slug}"
+git push
+```
 
 ---
 
 ## Phase 4: Completion Decision
 
-After all artifacts are committed, present completion options via AskUserQuestion:
+Present only two options:
 
 ```
 AskUserQuestion:
@@ -109,10 +256,8 @@ AskUserQuestion:
     "question": "Feature {id}-{slug} ready. How would you like to complete?",
     "header": "Finish",
     "options": [
-      {"label": "Create PR", "description": "Open pull request (recommended for teams)"},
-      {"label": "Merge Locally", "description": "Merge to main and push directly"},
-      {"label": "Keep Branch", "description": "Exit without merging (finish later)"},
-      {"label": "Discard", "description": "Mark as abandoned and delete branch"}
+      {"label": "Create PR", "description": "Open pull request for team review"},
+      {"label": "Merge & Release", "description": "Merge to develop and run release script"}
     ],
     "multiSelect": false
   }]
@@ -123,90 +268,76 @@ AskUserQuestion:
 ## Phase 5: Execute Selected Option
 
 ### If "Create PR":
+
 ```bash
 git push -u origin feature/{id}-{slug}
-gh pr create --title "Feature: {slug}" --body "..."
-```
-Inform: "PR created: {url}"
-→ Continue to Cleanup
+gh pr create --title "Feature: {slug}" --body "## Summary
+{Brief description from spec.md}
 
-### If "Merge Locally":
+## Changes
+{List of key changes}
+
+## Testing
+{Test instructions or 'See tasks.md'}"
+```
+
+Output: "PR created: {url}"
+→ Continue to Phase 6
+
+### If "Merge & Release":
+
 ```bash
-git checkout main
+# Merge to develop
+git checkout develop
+git pull origin develop
 git merge feature/{id}-{slug}
 git push
-```
-→ Continue to Cleanup
 
-### If "Keep Branch":
-Inform: "Branch kept. Run /iflow:finish again when ready to merge."
-**Exit early** - no cleanup.
+# Run release script
+./scripts/release.sh
+```
 
-### If "Discard":
-Confirm via AskUserQuestion:
-```
-AskUserQuestion:
-  questions: [{
-    "question": "This will mark the feature as abandoned. Are you sure?",
-    "header": "Confirm",
-    "options": [
-      {"label": "Yes, Discard", "description": "Mark abandoned and delete branch"},
-      {"label": "Cancel", "description": "Return to options"}
-    ],
-    "multiSelect": false
-  }]
-```
-→ If confirmed, continue to Cleanup with abandoned status
+Output: "Merged to develop. Release: v{version}"
+→ Continue to Phase 6
 
 ---
 
-## Phase 6: Cleanup (for terminal options only)
+## Phase 6: Cleanup (Automatic)
 
-For "Create PR", "Merge Locally", or "Discard":
+Run automatically after Phase 5 completes.
 
-1. **Update .meta.json:**
+### Step 6a: Update .meta.json
 
-   **For completed (Create PR, Merge Locally):**
-   ```json
-   {
-     "status": "completed",
-     "completed": "{ISO timestamp}"
-   }
-   ```
+```json
+{
+  "status": "completed",
+  "completed": "{ISO timestamp}",
+  "phases": {
+    "finish": {
+      "completed": "{ISO timestamp}"
+    }
+  }
+}
+```
 
-   **For abandoned (Discard):**
-   ```json
-   {
-     "status": "abandoned",
-     "completed": "{ISO timestamp}"
-   }
-   ```
+### Step 6b: Delete .review-history.md
 
-2. **Delete .review-history.md:**
-   ```bash
-   rm docs/features/{id}-{slug}/.review-history.md
-   ```
+```bash
+rm docs/features/{id}-{slug}/.review-history.md 2>/dev/null || true
+```
 
-3. **Delete branch:**
-   - After merge: `git branch -d feature/{id}-{slug}`
-   - After PR: Branch deleted when PR merged via GitHub
-   - After discard: `git branch -D feature/{id}-{slug}`
+### Step 6c: Delete Feature Branch
 
----
+- After PR: Branch will be deleted when PR merged via GitHub
+- After Merge & Release: `git branch -d feature/{id}-{slug}`
 
-## Update State
-
-If Vibe-Kanban:
-- Move card to "Done" (completed) or "Archived" (abandoned)
-
----
-
-## Final Output
+### Step 6d: Final Output
 
 ```
-✓ Feature {id}-{slug} {completed|abandoned}
-✓ Retrospective saved to retro.md
-✓ Branch cleaned up
+Feature {id}-{slug} completed
+Retrospective saved to retro.md
+Branch cleaned up
+{PR created: {url} | Released v{version}}
 
 Learnings captured in knowledge bank.
 ```
