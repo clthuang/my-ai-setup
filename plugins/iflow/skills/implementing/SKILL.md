@@ -1,11 +1,11 @@
 ---
 name: implementing
-description: Guides code implementation with TDD approach. Use when ready to write code. Works through tasks.md items systematically.
+description: Guides code implementation with phased TDD approach. Use when ready to write code. Works through tasks.md items systematically with Interface -> RED-GREEN -> REFACTOR phases.
 ---
 
 # Implementation Phase
 
-Execute the implementation plan.
+Execute the implementation plan with a structured phased approach.
 
 ## Prerequisites
 
@@ -15,7 +15,6 @@ Execute the implementation plan.
 ## Related Skills
 
 For complex implementations:
-- `subagent-driven-development` - Fresh subagent per task with two-stage review
 - `implementing-with-tdd` - RED-GREEN-REFACTOR discipline
 - `verifying-before-completion` - Evidence before claims
 
@@ -29,64 +28,87 @@ For complex implementations:
 
 ## Process
 
-### 1. Select Next Task
+### Phase 1: Deploy Implementation Subagents
+
+Select and dispatch relevant implementer agents based on:
+- Task domain (UI, API, DB, etc.)
+- Technology stack
+- Complexity level
+
+Use `Task` tool with appropriate `subagent_type`:
+- `implementer` for general implementation with TDD
+- `generic-worker` for mixed-domain tasks
+
+### Phase 2: Interface Phase (Scaffold)
+
+Before writing implementation:
+
+1. **Define type definitions / interfaces**
+   - Create types for all data structures
+   - Define function signatures with documentation
+
+2. **Set up module structure**
+   - Create file/folder organization
+   - Establish imports/exports
+
+3. **Establish contracts between components**
+   - Define how modules interact
+   - Document expected inputs/outputs
+
+This creates the "skeleton" that tests can target.
+
+### Phase 3: RED-GREEN Loop
+
+For each piece of functionality:
+
+**RED Phase:**
+1. Write ONE failing test
+2. Test must fail for the expected reason
+3. Test targets the interface defined in Phase 2
+4. Run test - confirm it FAILS
+
+**GREEN Phase:**
+1. Write MINIMAL code to pass the test
+2. No more than necessary
+3. Run test - confirm it PASSES
+
+**Loop:** Continue RED-GREEN until functionality complete.
+
+### Phase 4: REFACTOR Phase
+
+After all tests pass:
+
+1. Remove duplication
+2. Improve naming
+3. Extract helpers if needed
+4. Keep all tests green throughout
+
+### Phase 5: Return to Main Agent
+
+Report back with:
+- What was implemented
+- Test results
+- Files changed
+- Any concerns or blockers
+
+## Task Selection
 
 From tasks.md, find first incomplete task:
 - Check Vibe-Kanban/TodoWrite for status
 - Or ask user which task to work on
-
-### 2. Understand the Task
 
 Read task details:
 - What files are involved?
 - What's the expected outcome?
 - What tests verify completion?
 
-### 3. Implement with TDD
+## Commit Pattern
 
-For each task:
-
-**Step A: Write the test first**
-```
-Create test that describes expected behavior.
-Run test - should FAIL (red).
-```
-
-**Step B: Write minimal implementation**
-```
-Write just enough code to pass the test.
-Run test - should PASS (green).
-```
-
-**Step C: Refactor if needed**
-```
-Clean up code while keeping tests green.
-```
-
-**Step D: Commit**
+After completing each task:
 ```
 git add {files}
 git commit -m "feat: {brief description}"
 ```
-
-### 4. Mark Complete
-
-Update Vibe-Kanban/TodoWrite status.
-
-### 5. Next Task or Done
-
-If more tasks: "Task complete. Continue to next task?"
-If all done: "All tasks complete. Run /iflow:verify for quality review, then /iflow:finish."
-
-## Agent Delegation
-
-For complex tasks, dispatch specialized agents:
-
-- `agents/implementer.md` - Task implementation with self-review
-- `agents/spec-reviewer.md` - Verify implementation matches spec
-- `agents/code-quality-reviewer.md` - Verify implementation quality
-
-See `subagent-driven-development` skill for orchestration pattern.
 
 ## Error Handling
 
@@ -101,5 +123,4 @@ Never spin endlessly. Ask when stuck.
 
 After all tasks:
 "Implementation complete. {n} tasks done."
-"Run /iflow:verify for quality review."
-"Run /iflow:finish when ready to complete the feature."
+"Proceeding to code simplification and review phases."
