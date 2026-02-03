@@ -4,24 +4,10 @@
 
 ## Installation
 
-**For users** (stable releases):
 ```bash
 /plugin marketplace add clthuang/my-ai-setup
 /plugin install iflow@my-local-plugins
 ```
-
-**For contributors** (development version):
-```bash
-git clone https://github.com/clthuang/my-ai-setup.git
-cd my-ai-setup
-claude
-
-# In Claude Code session:
-/plugin marketplace add [path to marketplace.json]
-/plugin install iflow-dev@my-local-plugins
-```
-
-The `iflow` plugin contains stable releases. The `iflow-dev` plugin tracks development and may have unreleased changes.
 
 ## Quick Start
 
