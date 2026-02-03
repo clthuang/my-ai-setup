@@ -68,7 +68,7 @@ validate_dev_references() {
 }
 
 #############################################
-# Version calculation from conventional commits
+# Version calculation from code change percentage
 #############################################
 
 get_last_tag() {
@@ -77,35 +77,48 @@ get_last_tag() {
 
 calculate_bump_type() {
     local last_tag=$1
-    local commits
 
+    # Get lines changed since last tag (additions + deletions)
+    local lines_changed diff_output
     if [[ -z "$last_tag" ]]; then
-        commits=$(git log --pretty=format:"%s%n%b" 2>/dev/null)
+        # Compare against empty tree for initial release
+        diff_output=$(git diff --stat --stat-count=999999 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD 2>/dev/null | tail -1)
     else
-        commits=$(git log "${last_tag}..HEAD" --pretty=format:"%s%n%b" 2>/dev/null)
+        diff_output=$(git diff --stat --stat-count=999999 "${last_tag}..HEAD" 2>/dev/null | tail -1)
     fi
 
-    if [[ -z "$commits" ]]; then
+    # Extract insertions and deletions, sum them
+    local insertions deletions
+    insertions=$(echo "$diff_output" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo 0)
+    deletions=$(echo "$diff_output" | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' || echo 0)
+    lines_changed=$((${insertions:-0} + ${deletions:-0}))
+
+    # Handle no changes
+    if [[ -z "$lines_changed" ]] || [[ "$lines_changed" -eq 0 ]]; then
         echo ""
         return
     fi
 
-    if echo "$commits" | grep -qE "^BREAKING CHANGE:|!:"; then
+    # Get total lines in codebase (tracked files only)
+    local total_lines
+    total_lines=$(git ls-files | xargs wc -l 2>/dev/null | tail -1 | awk '{print $1}')
+
+    # Calculate percentage
+    local percentage
+    percentage=$(echo "scale=2; $lines_changed * 100 / $total_lines" | bc)
+
+    # Export for display in main()
+    export CHANGE_STATS="$lines_changed lines changed / $total_lines total = ${percentage}%"
+
+    # Determine bump type based on thresholds:
+    # >10% = major, 3-10% = minor, ≤3% = patch
+    if (( $(echo "$percentage > 10" | bc -l) )); then
         echo "major"
-        return
-    fi
-
-    if echo "$commits" | grep -qE "^feat(\(.+\))?:"; then
+    elif (( $(echo "$percentage > 3" | bc -l) )); then
         echo "minor"
-        return
-    fi
-
-    if echo "$commits" | grep -qE "^fix(\(.+\))?:"; then
+    else
         echo "patch"
-        return
     fi
-
-    echo ""
 }
 
 get_dev_version() {
@@ -253,9 +266,10 @@ main() {
     local bump_type
     bump_type=$(calculate_bump_type "$last_tag")
     if [[ -z "$bump_type" ]]; then
-        error "No releasable commits found. Use feat:, fix:, or BREAKING CHANGE: prefixes."
+        error "No code changes found since last tag."
     fi
-    echo "Bump type: $bump_type"
+    echo "Code changes: $CHANGE_STATS"
+    echo "Bump type: $bump_type (≤3% → patch, 3-10% → minor, >10% → major)"
 
     # Get current dev version (strip -dev suffix) and calculate new version
     local dev_version new_version next_dev_version
