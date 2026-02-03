@@ -32,44 +32,65 @@ Two plugins coexist in this repository:
 3. Merge to `develop` via `/iflow:finish` or PR
 4. Release when ready using the release script
 
-## Conventional Commits
+## Version Bump Logic
 
-Commit prefixes determine version bumps:
+Version bumps are calculated automatically based on code change volume:
 
-| Prefix | Version Bump | Example |
-|--------|--------------|---------|
-| `feat:` | Minor (1.0.0 → 1.1.0) | `feat: add new command` |
-| `fix:` | Patch (1.0.0 → 1.0.1) | `fix: correct typo in output` |
-| `BREAKING CHANGE:` | Major (1.0.0 → 2.0.0) | `BREAKING CHANGE: rename API` |
+| Change % | Bump | Example |
+|----------|------|---------|
+| ≤3% | Patch | 1.0.0 → 1.0.1 |
+| 3-10% | Minor | 1.0.0 → 1.1.0 |
+| >10% | Major | 1.0.0 → 2.0.0 |
 
-Scope is optional: `feat(hooks):` works the same as `feat:`.
+The script calculates: `(lines added + lines deleted) / total codebase lines`
 
 ## Release Process
+
+### Option 1: GitHub Actions (Recommended)
+
+Trigger from GitHub Actions UI or CLI:
+
+```bash
+# Dry run - verify what would happen
+gh workflow run release.yml --ref develop -f dry_run=true
+
+# Real release
+gh workflow run release.yml --ref develop -f dry_run=false
+```
+
+### Option 2: Local Release
 
 From the develop branch with a clean working tree:
 
 ```bash
-git checkout develop
 ./scripts/release.sh
 ```
 
-The script will:
+### What the Release Script Does
+
 1. Validate preconditions (on develop, clean tree, has origin)
-2. Calculate version from conventional commits since last tag
+2. Calculate version from code change percentage since last tag
 3. Copy `plugins/iflow-dev/` to `plugins/iflow/`
-4. Update plugin.json: change name to `iflow`, set release version
-5. Update marketplace.json with both versions
-6. Bump iflow-dev to next dev version (e.g., 1.2.0-dev)
-7. Commit with `IFLOW_RELEASE=1` bypass, push develop, merge to main
-8. Create and push git tag
+4. Convert all `iflow-dev:` references to `iflow:`
+5. Update plugin.json files with appropriate versions
+6. Update marketplace.json with both versions
+7. Commit with `IFLOW_RELEASE=1` bypass, push develop
+8. Merge develop to main, create and push git tag
 
 ## Local Development Setup
 
-To use the development version of the plugin:
+Clone the repository and install the development plugin:
+
+```bash
+git clone https://github.com/clthuang/my-ai-setup.git
+cd my-ai-setup
+claude
+```
+
+In Claude Code:
 
 ```
-/plugin uninstall iflow@my-local-plugins
-/plugin marketplace update my-local-plugins
+/plugin marketplace add .claude-plugin/marketplace.json
 /plugin install iflow-dev@my-local-plugins
 ```
 
@@ -93,6 +114,7 @@ To install the released version:
 | File | Purpose |
 |------|---------|
 | `scripts/release.sh` | Release automation script |
+| `.github/workflows/release.yml` | CI release workflow |
 | `.claude-plugin/marketplace.json` | Marketplace configuration |
 | `plugins/iflow/.claude-plugin/plugin.json` | Plugin manifest with version |
 
