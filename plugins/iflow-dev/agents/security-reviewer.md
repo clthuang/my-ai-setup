@@ -1,7 +1,8 @@
 ---
 name: security-reviewer
-description: Reviews implementation for security vulnerabilities. Use when checking for security issues during implementation review.
+description: Reviews for security vulnerabilities. Triggers: (1) implement command review phase, (2) user says 'security review', (3) user says 'check for vulnerabilities', (4) user says 'audit security'.
 tools: [Read, Glob, Grep]
+color: magenta
 ---
 
 # Security Reviewer

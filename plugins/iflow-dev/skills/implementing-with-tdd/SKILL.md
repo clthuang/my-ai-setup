@@ -1,6 +1,6 @@
 ---
 name: implementing-with-tdd
-description: Enforces RED-GREEN-REFACTOR cycle with rationalization prevention. Use when implementing any feature or bugfix, before writing implementation code.
+description: This skill should be used when the user says 'use TDD', 'write tests first', 'red-green-refactor', or 'test-driven'. Enforces RED-GREEN-REFACTOR cycle with rationalization prevention.
 ---
 
 # Test-Driven Development (TDD)

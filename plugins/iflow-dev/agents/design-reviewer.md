@@ -1,7 +1,8 @@
 ---
 name: design-reviewer
-description: Validates design quality by challenging assumptions, finding gaps, and ensuring holistic completeness. Use when reviewing design artifacts before handoff.
+description: Challenges design assumptions and finds gaps. Triggers: (1) after design phase, (2) user says 'review the design', (3) user says 'validate architecture', (4) user says 'check design quality'.
 tools: [Read, Glob, Grep]
+color: blue
 ---
 
 # Design Reviewer Agent

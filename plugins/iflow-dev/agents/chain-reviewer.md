@@ -1,7 +1,8 @@
 ---
 name: chain-reviewer
-description: Validates artifact quality and chain sufficiency. Use when reviewing phase artifacts. Reviews phase outputs to ensure they contain everything the next phase needs. Read-only, no scope creep.
+description: Validates artifact completeness for next phase. Triggers: (1) after phase completion, (2) user says 'validate handoff', (3) user says 'check chain readiness'. Read-only, no scope creep.
 tools: [Read, Glob, Grep]
+color: blue
 ---
 
 # Chain Reviewer Agent

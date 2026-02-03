@@ -1,7 +1,8 @@
 ---
 name: documentation-writer
-description: Writes and updates documentation based on research findings. Use when documentation changes are needed.
+description: Writes and updates documentation. Triggers: (1) after documentation-researcher, (2) user says 'update the docs', (3) user says 'write documentation', (4) user says 'sync README'.
 tools: [Read, Write, Edit, Glob, Grep]
+color: green
 ---
 
 # Documentation Writer Agent

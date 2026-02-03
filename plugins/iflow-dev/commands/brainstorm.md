@@ -1,5 +1,5 @@
 ---
-description: Start brainstorming - produces evidence-backed PRD through 7-stage process
+description: Start brainstorming to produce evidence-backed PRD
 argument-hint: [topic or idea to explore]
 ---
 
