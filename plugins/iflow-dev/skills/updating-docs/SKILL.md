@@ -1,143 +1,109 @@
 ---
 name: updating-docs
-description: Guide user through documentation updates based on feature context. Use when completing a feature or when documentation might need updating.
+description: Automatically updates documentation using agents. Use when completing a feature or when documentation might need updating.
 ---
 
 # Updating Documentation
 
-Guide documentation updates based on feature changes.
+Automatic documentation updates using documentation-researcher and documentation-writer agents.
 
 ## Prerequisites
 
-Check for context:
-- Feature folder in `docs/features/` → Read spec.md for context
-- No feature folder → Still useful, just detect docs without change analysis
-
-This skill can be invoked:
-- Directly via `/iflow-dev:update-docs`
-- From `/iflow-dev:finish` when offered
+- Feature folder in `docs/features/` with spec.md for context
+- This skill is invoked automatically from `/iflow-dev:finish`
 
 ## Process
 
-### Step 1: Detect Documentation Files
-
-Use detection spec from `references/detect-docs.md`:
+### Step 1: Dispatch Documentation Researcher
 
 ```
-Check for:
-- README.md (project root)
-- CHANGELOG.md (project root)
-- HISTORY.md (project root)
-- API.md (project root)
-- docs/*.md (top-level only, no subdirectories)
+Task tool call:
+  description: "Research documentation context"
+  subagent_type: iflow-dev:documentation-researcher
+  prompt: |
+    Research current documentation state for feature {id}-{slug}.
+
+    Feature context:
+    - spec.md: {content summary}
+    - Files changed: {list from git diff}
+
+    Find:
+    - Existing docs that may need updates
+    - What user-visible changes were made
+    - What documentation patterns exist in project
+
+    Return findings as structured JSON.
 ```
 
-Present findings:
+### Step 2: Evaluate Findings
+
+Check researcher output:
+
+**If `no_updates_needed: true`:**
 
 ```
-Detected documentation files:
-- README.md ✓
-- CHANGELOG.md ✗
-- docs/guide.md ✓
-- docs/setup.md ✓
+AskUserQuestion:
+  questions: [{
+    "question": "No user-visible changes detected. Skip documentation?",
+    "header": "Docs",
+    "options": [
+      {"label": "Skip", "description": "No documentation updates needed"},
+      {"label": "Write anyway", "description": "Force documentation update"}
+    ],
+    "multiSelect": false
+  }]
 ```
 
-**If no docs found:** Report "No documentation files detected." and exit.
+If "Skip": Exit skill - no documentation updates.
 
-### Step 2: Analyze Feature Changes (if context available)
+### Step 3: Dispatch Documentation Writer
 
-If spec.md exists, read the **In Scope** section and check for user-visible changes:
+If updates needed:
 
-| Indicator | Example | Doc Impact |
-|-----------|---------|------------|
-| Adds new command/skill | "Create `/iflow-dev:update-docs` skill" | README, CHANGELOG |
-| Changes existing behavior | "Modify `/iflow-dev:finish` to offer..." | README (if documented), CHANGELOG |
-| Adds configuration option | "Add `--no-review` flag" | README, CHANGELOG |
-| Changes user-facing output | "Show documentation suggestions" | CHANGELOG |
-| Deprecates/removes feature | "Remove legacy mode" | README, CHANGELOG (breaking) |
+```
+Task tool call:
+  description: "Update documentation"
+  subagent_type: iflow-dev:documentation-writer
+  prompt: |
+    Update documentation based on research findings.
 
-**NOT user-visible** (no doc update suggested):
+    Feature: {id}-{slug}
+    Research findings: {JSON from researcher agent}
+
+    Write necessary documentation updates.
+    Return summary of changes made.
+```
+
+### Step 4: Report Results
+
+Show summary from documentation-writer:
+
+```
+Documentation updated:
+- README.md: Added /finish command to commands table
+- {Other updates...}
+```
+
+## What Gets Documented
+
+| Change Type | Documentation Impact |
+|-------------|---------------------|
+| New command/skill | README commands table, CHANGELOG |
+| Changed behavior | README (if documented), CHANGELOG |
+| New config option | README, CHANGELOG |
+| User-facing output change | CHANGELOG |
+| Deprecated/removed feature | README, CHANGELOG (breaking) |
+
+## What Does NOT Get Documented
+
 - Internal refactoring
 - Performance improvements (unless >2x)
 - Code quality improvements
 - Test additions
 
-### Step 3: Present Suggestions
-
-Based on detected docs and change analysis:
-
-```
-Based on feature spec, these docs might need updates:
-
-README.md
-  → New skill added (/iflow-dev:update-docs) - usage section may need update
-
-CHANGELOG.md
-  → Not present. Consider creating one for this new feature.
-
-docs/guide.md
-  → No user-visible changes affect this doc
-
-Would you like to update any of these? (select)
-```
-
-If no user-visible changes detected, use AskUserQuestion:
-```
-AskUserQuestion:
-  questions: [{
-    "question": "No user-visible changes detected. Documentation updates are optional. Still want to review?",
-    "header": "Docs",
-    "options": [
-      {"label": "Review Anyway", "description": "Open documentation for review"},
-      {"label": "Skip", "description": "Continue without doc review"}
-    ],
-    "multiSelect": false
-  }]
-```
-
-### Step 4: Assist with Updates
-
-For each doc the user selects:
-
-1. **Read current content**
-2. **Provide context** from the feature:
-   - What changed (from spec.md In Scope)
-   - Success criteria that might need documenting
-   - Any new commands/options/behaviors
-
-3. **Let user edit** - Do NOT auto-generate content
-   - User controls tone, detail level, audience
-   - Offer to help if asked, but don't write unprompted
-
-4. **Confirm save** before moving to next doc
-
-## Output
-
-After all selected docs reviewed, use AskUserQuestion:
-
-```
-AskUserQuestion:
-  questions: [{
-    "question": "Documentation review complete. Continue with /iflow-dev:finish?",
-    "header": "Next",
-    "options": [
-      {"label": "Continue", "description": "Proceed to /iflow-dev:finish"},
-      {"label": "Stay", "description": "Remain in current context"}
-    ],
-    "multiSelect": false
-  }]
-```
-
-Show summary before the question:
-```
-Documentation review complete.
-- README.md: Updated
-- CHANGELOG.md: Skipped
-```
-
 ## Advisory, Not Blocking
 
 This skill suggests but does not require updates:
-- User can skip any or all suggestions
-- User can update docs not suggested
+- User can skip if no user-visible changes
+- Agents determine what needs updating
 - No enforcement or blocking behavior

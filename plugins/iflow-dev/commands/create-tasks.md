@@ -1,6 +1,5 @@
 ---
 description: Break down plan into actionable tasks
-argument-hint: [--no-review]
 ---
 
 Invoke the breaking-down-tasks skill for the current feature context.
@@ -17,7 +16,7 @@ Before executing, check prerequisites using workflow-state skill:
 
 **HARD BLOCK:** If plan.md does not exist:
 ```
-❌ BLOCKED: plan.md required before task creation.
+BLOCKED: plan.md required before task creation.
 
 Task breakdown requires an implementation plan to work from.
 Run /iflow-dev:create-plan first to create the plan.
@@ -75,38 +74,39 @@ Update `.meta.json`:
 }
 ```
 
-### 4. Execute with Reviewer Loop
+### 4. Stage 1: Task Breakdown with Review Loop
 
 Get max iterations from mode: Standard=1, Full=3.
 
-**If `--no-review` argument is present:** Skip to step 4e directly after producing artifact. Set `reviewSkipped: true` in `.meta.json`.
-
-**Otherwise, execute this loop:**
+Execute this loop:
 
 a. **Produce artifact:** Follow the breaking-down-tasks skill to create/revise tasks.md
 
-b. **Invoke reviewer:** Use the Task tool to spawn chain-reviewer:
+b. **Invoke task-breakdown-reviewer:** Use the Task tool:
    ```
    Task tool call:
-     description: "Review tasks for chain sufficiency"
-     subagent_type: chain-reviewer
+     description: "Review task breakdown quality"
+     subagent_type: task-breakdown-reviewer
      prompt: |
-       Review the following artifacts for chain sufficiency.
+       Review the task breakdown for quality and executability.
 
-       ## Previous Artifact (plan.md)
+       ## Implementation Plan (plan.md)
        {content of plan.md}
 
-       ## Current Artifact (tasks.md)
+       ## Task Breakdown (tasks.md)
        {content of tasks.md}
 
-       ## Next Phase Expectations
-       Implement needs: Small actionable tasks (<15 min each),
-       clear acceptance criteria per task.
+       Validate:
+       1. Plan fidelity - every plan item has tasks
+       2. Task executability - any engineer can start immediately
+       3. Task size - 5-15 min each
+       4. Dependency accuracy - parallel groups correct
+       5. Testability - binary done criteria
 
        Return your assessment as JSON:
        {
          "approved": true/false,
-         "issues": [...],
+         "issues": [{"severity": "blocker|warning|note", "task": "...", "description": "...", "suggestion": "..."}],
          "summary": "..."
        }
    ```
@@ -115,26 +115,24 @@ c. **Parse response:** Extract the `approved` field from reviewer's JSON respons
    - If response is not valid JSON, ask reviewer to retry with correct format.
 
 d. **Branch on result:**
-   - If `approved: true` → Proceed to step 4e
+   - If `approved: true` → Proceed to Stage 2 (step 5)
    - If `approved: false` AND iteration < max:
      - Append iteration to `.review-history.md` using format below
      - Increment iteration counter
      - Address the issues by revising tasks.md
      - Return to step 4b
    - If `approved: false` AND iteration == max:
-     - Note concerns in `.meta.json` reviewerNotes
-     - Proceed to step 4e
-
-e. **Complete phase:** Update state and show completion message.
+     - Note concerns in `.meta.json` taskReview.concerns
+     - Proceed to Stage 2 (step 5)
 
 **Review History Entry Format** (append to `.review-history.md`):
 ```markdown
-## Iteration {n} - {ISO timestamp}
+## Task Review Iteration {n} - {ISO timestamp}
 
 **Decision:** {Approved / Needs Revision}
 
 **Issues:**
-- [{severity}] {description} (at: {location})
+- [{severity}] {task}: {description} → {suggestion}
 
 **Changes Made:**
 {Summary of revisions made to address issues}
@@ -142,7 +140,40 @@ e. **Complete phase:** Update state and show completion message.
 ---
 ```
 
-### 5. Update State on Completion
+### 5. Stage 2: Chain Validation
+
+After Stage 1 completes, invoke chain-reviewer for final validation:
+
+```
+Task tool call:
+  description: "Validate chain readiness for implementation"
+  subagent_type: chain-reviewer
+  prompt: |
+    Review the task breakdown for chain sufficiency.
+
+    ## Previous Artifact (plan.md)
+    {content of plan.md}
+
+    ## Current Artifact (tasks.md)
+    {content of tasks.md}
+
+    ## Next Phase Expectations
+    Implement needs: Small actionable tasks (<15 min each),
+    clear acceptance criteria per task, dependency graph for parallel execution.
+
+    Return your assessment as JSON:
+    {
+      "approved": true/false,
+      "issues": [...],
+      "summary": "..."
+    }
+```
+
+**Branch on result:**
+- If `approved: true` → Proceed to step 6
+- If `approved: false` → Note concerns in `.meta.json` chainReview.concerns, proceed to step 6
+
+### 6. Update State on Completion
 
 Update `.meta.json`:
 ```json
@@ -150,14 +181,36 @@ Update `.meta.json`:
   "phases": {
     "create-tasks": {
       "completed": "{ISO timestamp}",
-      "iterations": {count},
-      "reviewerNotes": ["any unresolved concerns"]
+      "taskReview": {
+        "iterations": {count},
+        "approved": true/false,
+        "concerns": []
+      },
+      "chainReview": {
+        "approved": true/false,
+        "concerns": []
+      }
     }
   },
   "currentPhase": "create-tasks"
 }
 ```
 
-### 6. Completion Message
+### 7. Completion Message and Next Step
 
-"Tasks created. Run /iflow-dev:verify to check, or /iflow-dev:implement to start building."
+Show completion message:
+"Tasks created. {n} tasks across {m} phases, {p} parallel groups."
+
+Then use AskUserQuestion:
+```
+AskUserQuestion:
+  questions: [{
+    "question": "Run /iflow-dev:implement next?",
+    "header": "Next",
+    "options": [
+      {"label": "Yes (Recommended)", "description": "Start implementation"},
+      {"label": "Review tasks first", "description": "Read tasks.md"}
+    ],
+    "multiSelect": false
+  }]
+```

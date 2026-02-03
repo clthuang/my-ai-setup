@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (skip actual release)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Run release script
+        if: ${{ !inputs.dry_run }}
+        env:
+          CI: "true"
+        run: ./scripts/release.sh --ci
+
+      - name: Dry run - show what would happen
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "=== DRY RUN ==="
+          echo "Would run: ./scripts/release.sh --ci"
+          echo "Current branch: $(git branch --show-current)"
+          echo "Last tag: $(git tag --sort=-v:refname | head -1)"
+          echo ""
+          echo "Changes since last tag:"
+          git diff --stat "$(git tag --sort=-v:refname | head -1)..HEAD" | tail -5

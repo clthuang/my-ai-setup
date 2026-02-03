@@ -11,6 +11,7 @@ Claude Code plugin providing a structured feature development workflow—skills,
 - **No backward compatibility** - This is private tooling with no external users. Delete old code, don't maintain compatibility shims.
 - **Branches for all modes** - All workflow modes (Standard, Full) create feature branches. Branches are lightweight.
 - **Retro before cleanup** - Retrospective runs BEFORE branch deletion so context is still available.
+- **Edit *-dev plugins only** - Never edit `plugins/iflow/` directly. Make changes in `plugins/iflow-dev/`, then run release script to sync.
 
 ## User Input Standards
 

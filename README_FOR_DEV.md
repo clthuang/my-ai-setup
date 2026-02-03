@@ -129,7 +129,7 @@ Skills are instructions Claude follows for specific development practices.
 | `specifying` | Requirements and acceptance criteria |
 | `designing` | Architecture and interfaces |
 | `planning` | Implementation approach |
-| `breaking-down-tasks` | Create actionable tasks |
+| `breaking-down-tasks` | Create actionable tasks with dependency tracking |
 | `implementing` | Code execution with TDD |
 | `verifying` | Phase-appropriate verification |
 | `updating-docs` | Guide documentation updates |
@@ -163,8 +163,14 @@ Skills are instructions Claude follows for specific development practices.
 - `spec-reviewer` — Verify implementation matches specification
 - `code-quality-reviewer` — Code quality assessment
 - `quality-reviewer` — Post-implementation quality check
-- `final-reviewer` — Validates implementation matches original spec
+- `final-reviewer` — Validates implementation delivers PRD outcomes
 - `chain-reviewer` — Validates artifact quality and phase handoffs
+- `task-breakdown-reviewer` — Validates task executability, size, dependencies, and plan fidelity
+
+**Implementation Review:**
+- `code-simplifier` — Identifies unnecessary complexity, dead code, over-engineering
+- `implementation-behavior-reviewer` — Validates behavior against tasks -> specs -> design -> PRD
+- `security-reviewer` — OWASP top 10, input validation, auth, data protection
 
 **Brainstorm & PRD:**
 - `brainstorm-reviewer` — Reviews brainstorm readiness for promotion
@@ -200,6 +206,38 @@ To bypass protection (release script only):
 ```bash
 IFLOW_RELEASE=1 git commit -m "chore(release): v1.2.0"
 ```
+
+## Workflow Details
+
+### Create-Tasks Workflow
+
+The `/create-tasks` command uses a two-stage review process:
+
+1. **Task Breakdown**: `breaking-down-tasks` skill produces `tasks.md` with:
+   - Mermaid dependency graph
+   - Parallel execution groups
+   - Detailed task specifications (files, steps, tests, done criteria)
+
+2. **Task Review**: `task-breakdown-reviewer` validates (up to 3 iterations):
+   - Plan fidelity (every plan item has tasks)
+   - Task executability (any engineer can start immediately)
+   - Task size (5-15 min each)
+   - Dependency accuracy (parallel groups correct)
+   - Testability (binary done criteria)
+
+3. **Chain Review**: `chain-reviewer` validates readiness for implementation phase
+
+4. **Completion**: Prompts user to start `/implement`
+
+### Implement Workflow
+
+The `/implement` command uses a multi-phase execution flow:
+
+1. **Implementation**: Subagents -> Interface scaffold -> RED-GREEN loop -> REFACTOR
+2. **Simplification**: `code-simplifier` removes unnecessary complexity
+3. **Review** (iterative): behavior -> quality -> security (up to 2-3 iterations)
+4. **Final Review**: `final-reviewer` validates against PRD deliverables
+5. **Completion**: Prompts user to run `/finish`
 
 ## Knowledge Bank
 
