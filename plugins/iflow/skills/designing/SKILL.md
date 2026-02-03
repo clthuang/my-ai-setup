@@ -20,6 +20,29 @@ Design the technical architecture.
    - Standard: Full process with optional verification
    - Full: Full process with required verification
 
+## Stage Parameter
+
+The design command may invoke this skill with a `stage` parameter to produce specific sections:
+
+| Stage | Sections Produced | Use Case |
+|-------|-------------------|----------|
+| `architecture` | Architecture Overview, Components, Technical Decisions, Risks | First pass - structure and decisions |
+| `interface` | Interfaces (detailed contracts) | Second pass - precise contracts |
+| (none/default) | All sections | Backward compatibility |
+
+When `stage=architecture`:
+- Focus on high-level structure and component boundaries
+- Define what each component does, not the precise API
+- Identify technical decisions and risks early
+
+When `stage=interface`:
+- Read existing design.md for component definitions
+- Add detailed interface contracts with exact formats
+- Define error cases and edge cases precisely
+
+When no stage specified:
+- Produce complete design in one pass (existing behavior)
+
 ## Process
 
 ### 1. Architecture Overview

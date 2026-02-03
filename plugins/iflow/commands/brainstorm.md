@@ -3,13 +3,13 @@ description: Start brainstorming - produces evidence-backed PRD through 7-stage 
 argument-hint: [topic or idea to explore]
 ---
 
-# /iflow-dev:brainstorm Command
+# /iflow:brainstorm Command
 
 ## Steps
 
 ### Step 1: Execute Brainstorming Skill
 
-Invoke `/iflow-dev:brainstorming` skill which runs 7 stages:
+Invoke `/iflow:brainstorming` skill which runs 7 stages:
 
 | Stage | Name | Action | Output |
 |-------|------|--------|--------|

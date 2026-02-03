@@ -1,42 +1,44 @@
 ---
 description: Create specification for current feature
-argument-hint: [--no-review]
+argument-hint: [--feature=<id-slug>]
 ---
 
 Invoke the specifying skill for the current feature context.
 
-First, check docs/features/ for active feature:
-- If not found: "No active feature found. Would you like to /iflow:brainstorm to explore ideas first?"
-- If found: Read feature context and follow the workflow below.
+## Determine Target Feature
+
+**If `--feature` argument provided:**
+- Use `docs/features/{feature}/` directly
+- If folder doesn't exist: Error "Feature {feature} not found"
+- If `.meta.json` missing: Error "Feature {feature} has no metadata"
+
+**If no argument:**
+1. Scan `docs/features/` for folders with `.meta.json` where `status="active"`
+2. If none found: "No active feature found. Would you like to /iflow:brainstorm to explore ideas first?"
+3. If one found: Use that feature
+4. If multiple found:
+   ```
+   AskUserQuestion:
+     questions: [{
+       "question": "Multiple active features found. Which one?",
+       "header": "Feature",
+       "options": [dynamically list each active feature as {id}-{slug}],
+       "multiSelect": false
+     }]
+   ```
+
+Once target feature is determined, read feature context and follow the workflow below.
 
 ## Workflow Integration
 
-### 1. Validate Transition
+### 1. Ensure Correct Branch
 
-Before executing, check prerequisites using workflow-state skill:
-- Read current `.meta.json` state
-- Apply validateTransition logic for target phase "specify"
-- If blocked: Show error, stop
-- If warning (skipping phases): Show warning, ask to proceed
+Read `.meta.json` for branch name.
+If current branch != expected:
+- Run: `git checkout {expected}`
+- Output: "Switched to branch {expected}."
 
-### 1b. Check Branch
-
-If feature has a branch defined in `.meta.json`:
-- Get current branch: `git branch --show-current`
-- If current branch != expected branch, use AskUserQuestion:
-  ```
-  AskUserQuestion:
-    questions: [{
-      "question": "You're on '{current}', but feature uses '{expected}'. Switch branches?",
-      "header": "Branch",
-      "options": [
-        {"label": "Switch", "description": "Run: git checkout {expected}"},
-        {"label": "Continue", "description": "Stay on {current}"}
-      ],
-      "multiSelect": false
-    }]
-  ```
-- Skip this check if branch is null (legacy feature)
+Skip this check if branch is null (legacy feature).
 
 ### 2. Check for Partial Phase
 
@@ -44,12 +46,11 @@ If `phases.specify.started` exists but `phases.specify.completed` is null, use A
 ```
 AskUserQuestion:
   questions: [{
-    "question": "Detected partial specification work. How to proceed?",
+    "question": "Found partial spec. How to proceed?",
     "header": "Recovery",
     "options": [
       {"label": "Continue", "description": "Resume from draft"},
-      {"label": "Start Fresh", "description": "Discard and begin new"},
-      {"label": "Review First", "description": "View existing before deciding"}
+      {"label": "Start Fresh", "description": "Delete draft and begin new"}
     ],
     "multiSelect": false
   }]
@@ -72,22 +73,18 @@ Update `.meta.json`:
 
 Get max iterations from mode: Standard=1, Full=3.
 
-**If `--no-review` argument is present:** Skip to step 4e directly after producing artifact. Set `reviewSkipped: true` in `.meta.json`.
-
-**Otherwise, execute this loop:**
-
 a. **Produce artifact:** Follow the specifying skill to create/revise spec.md
 
 b. **Invoke reviewer:** Use the Task tool to spawn chain-reviewer:
    ```
    Task tool call:
      description: "Review spec for chain sufficiency"
-     subagent_type: chain-reviewer
+     subagent_type: iflow:chain-reviewer
      prompt: |
        Review the following artifacts for chain sufficiency.
 
-       ## Previous Artifact (brainstorm.md)
-       {content of brainstorm.md, or "None - this is the first phase" if doesn't exist}
+       ## Previous Artifact (prd.md)
+       {content of prd.md, or "None - feature created without brainstorm"}
 
        ## Current Artifact (spec.md)
        {content of spec.md}
@@ -153,4 +150,20 @@ Update `.meta.json`:
 
 ### 6. Completion Message
 
-"Specification complete. Run /iflow:verify to check, or /iflow:design to continue."
+Output: "Specification complete."
+
+```
+AskUserQuestion:
+  questions: [{
+    "question": "Ready for the next phase?",
+    "header": "Next Step",
+    "options": [
+      {"label": "Continue to /design", "description": "Create architecture design"},
+      {"label": "Stop here", "description": "End session"}
+    ],
+    "multiSelect": false
+  }]
+```
+
+If "Continue to /design": Invoke `/iflow:design`
+If "Stop here": STOP
