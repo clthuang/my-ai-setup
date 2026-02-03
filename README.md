@@ -51,7 +51,7 @@ Then follow the phases:
 | `/iflow:create-plan` | Plan implementation → plan.md |
 | `/iflow:create-tasks` | Break into tasks → tasks.md (two-stage review) |
 | `/iflow:implement` | Write code (Interface -> TDD -> Simplify -> Review) |
-| `/iflow:finish` | Review, merge, retrospective, cleanup |
+| `/iflow:finish` | Complete feature (docs, retro, merge/PR) |
 | `/iflow:verify` | Quality check current phase |
 | `/iflow:show-status` | See current progress |
 | `/iflow:list-features` | List active features |
