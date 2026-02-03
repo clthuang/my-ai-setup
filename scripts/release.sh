@@ -123,14 +123,6 @@ calculate_bump_type() {
     echo "$lines_changed lines changed / $total_lines total = ${percentage}%"
 }
 
-get_dev_version() {
-    if [[ -f "$PLUGIN_DEV_JSON" ]]; then
-        grep -o '"version": *"[^"]*"' "$PLUGIN_DEV_JSON" | sed 's/"version": *"\([^"]*\)"/\1/' | sed 's/-dev$//'
-    else
-        echo "1.0.0"
-    fi
-}
-
 bump_version() {
     local current=$1
     local bump_type=$2
@@ -275,11 +267,11 @@ main() {
     echo "Code changes: $change_stats"
     echo "Bump type: $bump_type (≤3% → patch, 3-10% → minor, >10% → major)"
 
-    # Get current dev version (strip -dev suffix) and calculate new version
-    local dev_version new_version next_dev_version
-    dev_version=$(get_dev_version)
-    new_version="$dev_version"  # The dev version IS the target release version
-    next_dev_version=$(bump_version "$new_version" "minor")
+    # Calculate new version by bumping from last tag
+    local last_version new_version next_dev_version
+    last_version="${last_tag#v}"  # v1.6.0 → 1.6.0
+    new_version=$(bump_version "$last_version" "$bump_type")
+    next_dev_version="$new_version"
 
     echo "Release version: $new_version"
     echo "Next dev version: ${next_dev_version}-dev"
