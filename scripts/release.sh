@@ -72,7 +72,7 @@ validate_dev_references() {
 #############################################
 
 get_last_tag() {
-    git describe --tags --abbrev=0 2>/dev/null || echo ""
+    git tag --sort=-v:refname | head -1
 }
 
 calculate_bump_type() {
