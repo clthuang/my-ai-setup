@@ -107,18 +107,20 @@ calculate_bump_type() {
     local percentage
     percentage=$(echo "scale=2; $lines_changed * 100 / $total_lines" | bc)
 
-    # Export for display in main()
-    export CHANGE_STATS="$lines_changed lines changed / $total_lines total = ${percentage}%"
-
     # Determine bump type based on thresholds:
     # >10% = major, 3-10% = minor, ≤3% = patch
+    local bump_type
     if (( $(echo "$percentage > 10" | bc -l) )); then
-        echo "major"
+        bump_type="major"
     elif (( $(echo "$percentage > 3" | bc -l) )); then
-        echo "minor"
+        bump_type="minor"
     else
-        echo "patch"
+        bump_type="patch"
     fi
+
+    # Output bump type and stats (newline-separated for parsing)
+    echo "$bump_type"
+    echo "$lines_changed lines changed / $total_lines total = ${percentage}%"
 }
 
 get_dev_version() {
@@ -262,13 +264,15 @@ main() {
         echo "No previous tags found"
     fi
 
-    # Calculate bump type
-    local bump_type
-    bump_type=$(calculate_bump_type "$last_tag")
-    if [[ -z "$bump_type" ]]; then
+    # Calculate bump type and change stats
+    local bump_output bump_type change_stats
+    bump_output=$(calculate_bump_type "$last_tag")
+    if [[ -z "$bump_output" ]]; then
         error "No code changes found since last tag."
     fi
-    echo "Code changes: $CHANGE_STATS"
+    bump_type=$(echo "$bump_output" | head -1)
+    change_stats=$(echo "$bump_output" | tail -1)
+    echo "Code changes: $change_stats"
     echo "Bump type: $bump_type (≤3% → patch, 3-10% → minor, >10% → major)"
 
     # Get current dev version (strip -dev suffix) and calculate new version
