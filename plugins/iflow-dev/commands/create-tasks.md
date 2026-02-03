@@ -20,7 +20,7 @@ Before executing, check prerequisites using workflow-state skill:
 ❌ BLOCKED: plan.md required before task creation.
 
 Task breakdown requires an implementation plan to work from.
-Run /iflow:create-plan first to create the plan.
+Run /iflow-dev:create-plan first to create the plan.
 ```
 Stop execution. Do not proceed.
 
@@ -160,4 +160,4 @@ Update `.meta.json`:
 
 ### 6. Completion Message
 
-"Tasks created. Run /iflow:verify to check, or /iflow:implement to start building."
+"Tasks created. Run /iflow-dev:verify to check, or /iflow-dev:implement to start building."

@@ -56,8 +56,6 @@ Then follow the phases:
 | `/iflow:show-status` | See current progress |
 | `/iflow:list-features` | List active features |
 
-All phase commands support `--no-review` to skip reviewer loops.
-
 ## File Structure
 
 ```

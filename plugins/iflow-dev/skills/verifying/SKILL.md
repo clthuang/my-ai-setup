@@ -98,4 +98,4 @@ What would you like to do?
 ## Completion
 
 If PASS: "Verification passed. Ready for next phase."
-If NEEDS FIXES: "Issues found. Fix and re-run /iflow:verify, or proceed anyway."
+If NEEDS FIXES: "Issues found. Fix and re-run /iflow-dev:verify, or proceed anyway."

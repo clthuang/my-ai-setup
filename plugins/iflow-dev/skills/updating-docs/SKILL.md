@@ -14,8 +14,8 @@ Check for context:
 - No feature folder → Still useful, just detect docs without change analysis
 
 This skill can be invoked:
-- Directly via `/iflow:update-docs`
-- From `/iflow:finish` when offered
+- Directly via `/iflow-dev:update-docs`
+- From `/iflow-dev:finish` when offered
 
 ## Process
 
@@ -50,8 +50,8 @@ If spec.md exists, read the **In Scope** section and check for user-visible chan
 
 | Indicator | Example | Doc Impact |
 |-----------|---------|------------|
-| Adds new command/skill | "Create `/iflow:update-docs` skill" | README, CHANGELOG |
-| Changes existing behavior | "Modify `/iflow:finish` to offer..." | README (if documented), CHANGELOG |
+| Adds new command/skill | "Create `/iflow-dev:update-docs` skill" | README, CHANGELOG |
+| Changes existing behavior | "Modify `/iflow-dev:finish` to offer..." | README (if documented), CHANGELOG |
 | Adds configuration option | "Add `--no-review` flag" | README, CHANGELOG |
 | Changes user-facing output | "Show documentation suggestions" | CHANGELOG |
 | Deprecates/removes feature | "Remove legacy mode" | README, CHANGELOG (breaking) |
@@ -70,7 +70,7 @@ Based on detected docs and change analysis:
 Based on feature spec, these docs might need updates:
 
 README.md
-  → New skill added (/iflow:update-docs) - usage section may need update
+  → New skill added (/iflow-dev:update-docs) - usage section may need update
 
 CHANGELOG.md
   → Not present. Consider creating one for this new feature.
@@ -118,10 +118,10 @@ After all selected docs reviewed, use AskUserQuestion:
 ```
 AskUserQuestion:
   questions: [{
-    "question": "Documentation review complete. Continue with /iflow:finish?",
+    "question": "Documentation review complete. Continue with /iflow-dev:finish?",
     "header": "Next",
     "options": [
-      {"label": "Continue", "description": "Proceed to /iflow:finish"},
+      {"label": "Continue", "description": "Proceed to /iflow-dev:finish"},
       {"label": "Stay", "description": "Remain in current context"}
     ],
     "multiSelect": false

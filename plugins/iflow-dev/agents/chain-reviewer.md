@@ -51,12 +51,12 @@ Return structured feedback:
 
 ## Next Phase Expectations
 
-Use this table to assess what each artifact must contain:
+Use this table to assess what each artifact must contain. For PRD and spec reviews, apply the detailed criteria from the **reviewing-artifacts** skill.
 
 | Current Phase | Artifact | Next Phase Needs |
 |---------------|----------|------------------|
-| brainstorm | brainstorm.md | **Spec needs:** Clear problem statement, explored options, user intent captured |
-| specify | spec.md | **Design needs:** All requirements listed, acceptance criteria defined, scope boundaries clear |
+| brainstorm | prd.md | **Spec needs:** Apply PRD Quality Criteria from reviewing-artifacts skill |
+| specify | spec.md | **Design needs:** Apply Spec Quality Criteria from reviewing-artifacts skill |
 | design | design.md | **Plan needs:** Components defined, interfaces specified, dependencies identified, risks noted |
 | create-plan | plan.md | **Tasks needs:** Ordered steps with dependencies, all design items covered, clear sequencing |
 | create-tasks | tasks.md | **Implement needs:** Small actionable tasks (<15 min each), clear acceptance criteria per task |

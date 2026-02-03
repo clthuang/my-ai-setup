@@ -2,7 +2,7 @@
 description: Sync plugin source files to cache. Use when you've made changes to plugin files and want to apply them immediately.
 ---
 
-# /iflow:sync-cache Command
+# /iflow-dev:sync-cache Command
 
 Sync the iflow plugin source files to the Claude Code cache directory.
 

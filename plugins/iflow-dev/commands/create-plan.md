@@ -151,4 +151,4 @@ Update `.meta.json`:
 
 ### 6. Completion Message
 
-"Plan complete. Run /iflow:verify to check, or /iflow:create-tasks to continue."
+"Plan complete. Run /iflow-dev:verify to check, or /iflow-dev:create-tasks to continue."

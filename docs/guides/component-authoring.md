@@ -246,6 +246,23 @@ Hooks are configured in `hooks/hooks.json` within the plugin:
 
 ---
 
+## Plugin Self-References
+
+When referencing commands, skills, or agents within plugin files, use the plugin's own name as the prefix:
+
+| Plugin | Command Reference | Subagent Reference |
+|--------|-------------------|-------------------|
+| `iflow-dev` | `/iflow-dev:verify` | `iflow-dev:prd-reviewer` |
+| `iflow` | `/iflow:verify` | `iflow:prd-reviewer` |
+
+**Why this matters:** Using the wrong prefix causes cross-plugin invocation. For example, `/iflow:verify` in `iflow-dev` would invoke the production plugin instead of the dev plugin.
+
+**Build-time conversion:** The release script (`scripts/release.sh`) automatically converts `iflow-dev:` → `iflow:` when copying files from `iflow-dev` to `iflow`. This allows development to use the correct dev prefix while production uses the correct production prefix.
+
+**Validation:** The release script validates that no `/iflow:` references exist in `iflow-dev` before copying. This prevents accidental cross-plugin references.
+
+---
+
 ## Quality Standards
 
 ### Validation Checklist
