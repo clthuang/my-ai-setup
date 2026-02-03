@@ -53,6 +53,21 @@ check_preconditions() {
 }
 
 #############################################
+# Plugin reference validation
+#############################################
+
+validate_dev_references() {
+    # iflow-dev should ONLY have iflow-dev: references, not /iflow:
+    # This catches cases where someone accidentally used the wrong prefix
+    if grep -r "/iflow:" plugins/iflow-dev --include="*.md" >/dev/null 2>&1; then
+        error "Found /iflow: references in iflow-dev. Use /iflow-dev: instead."
+        echo "Run: grep -rn '/iflow:' plugins/iflow-dev --include='*.md'"
+        exit 1
+    fi
+    success "All references use correct iflow-dev: prefix"
+}
+
+#############################################
 # Version calculation from conventional commits
 #############################################
 
@@ -130,7 +145,13 @@ bump_version() {
 copy_dev_to_prod() {
     success "Copying iflow-dev to iflow..."
     cp -r plugins/iflow-dev/* plugins/iflow/
-    success "Copied plugin files"
+
+    # Convert plugin references from iflow-dev to iflow
+    # This handles both command refs (/iflow-dev:verify → /iflow:verify)
+    # and subagent refs (iflow-dev:prd-reviewer → iflow:prd-reviewer)
+    find plugins/iflow -name "*.md" -exec sed -i '' 's|iflow-dev:|iflow:|g' {} \;
+
+    success "Copied and converted plugin references"
 }
 
 update_plugin_files() {
@@ -253,6 +274,9 @@ main() {
         warn "Release cancelled"
         exit 0
     fi
+
+    # Validate plugin references before copying
+    validate_dev_references
 
     # Copy dev to prod
     copy_dev_to_prod

@@ -151,6 +151,7 @@ Skills are instructions Claude follows for specific development practices.
 | `writing-skills` | TDD for skill authoring |
 | `workflow-state` | Phase sequence and state management |
 | `detecting-kanban` | Kanban availability with TodoWrite fallback |
+| `reviewing-artifacts` | PRD and spec quality criteria for reviewers |
 
 ## Agents
 
@@ -165,8 +166,15 @@ Skills are instructions Claude follows for specific development practices.
 - `final-reviewer` — Validates implementation matches original spec
 - `chain-reviewer` — Validates artifact quality and phase handoffs
 
+**Brainstorm & PRD:**
+- `brainstorm-reviewer` — Reviews brainstorm readiness for promotion
+- `prd-reviewer` — Critical review of PRD quality
+
 **Research:**
 - `investigation-agent` — Read-only context gathering
+- `codebase-explorer` — Analyzes codebase for patterns and constraints
+- `internet-researcher` — Web research for best practices
+- `skill-searcher` — Finds relevant existing skills
 
 ## Hooks
 
@@ -176,6 +184,7 @@ Hooks execute automatically at lifecycle points.
 |------|---------|---------|
 | `session-start` | Session start/resume/clear/compact | Inject active feature context |
 | `sync-cache` | Session start | Syncs plugin source to Claude cache |
+| `cleanup-locks` | Session start | Removes stale lock files |
 | `pre-commit-guard` | Before git commit | Branch protection and iflow directory protection |
 
 Defined in `plugins/iflow-dev/hooks/hooks.json`.

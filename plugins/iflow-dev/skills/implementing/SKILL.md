@@ -10,7 +10,7 @@ Execute the implementation plan.
 ## Prerequisites
 
 - If `tasks.md` exists: Read for task list
-- If not: "No tasks found. Run /iflow:create-tasks first, or describe what to implement."
+- If not: "No tasks found. Run /iflow-dev:create-tasks first, or describe what to implement."
 
 ## Related Skills
 
@@ -76,7 +76,7 @@ Update Vibe-Kanban/TodoWrite status.
 ### 5. Next Task or Done
 
 If more tasks: "Task complete. Continue to next task?"
-If all done: "All tasks complete. Run /iflow:verify for quality review, then /iflow:finish."
+If all done: "All tasks complete. Run /iflow-dev:verify for quality review, then /iflow-dev:finish."
 
 ## Agent Delegation
 
@@ -101,5 +101,5 @@ Never spin endlessly. Ask when stuck.
 
 After all tasks:
 "Implementation complete. {n} tasks done."
-"Run /iflow:verify for quality review."
-"Run /iflow:finish when ready to complete the feature."
+"Run /iflow-dev:verify for quality review."
+"Run /iflow-dev:finish when ready to complete the feature."

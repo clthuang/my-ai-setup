@@ -1,6 +1,6 @@
 ---
 description: Alternative entry point - skip brainstorming and create feature directly
-argument-hint: <feature-description>
+argument-hint: <feature-description> [--prd=<path>]
 ---
 
 # /iflow:create-feature Command
@@ -9,6 +9,27 @@ argument-hint: <feature-description>
 
 Recommended flow: `/iflow:brainstorm` → (promotion) → `/iflow:specify` → ...
 This command: `/iflow:create-feature` → `/iflow:specify` → ... (skips exploration)
+
+## Check for Active Feature
+
+Before creating, check if a feature is already active:
+
+1. Look in `docs/features/` for folders with `.meta.json` where `status: "active"`
+2. If found:
+   ```
+   AskUserQuestion:
+     questions: [{
+       "question": "Feature {id}-{slug} is already active. What would you like to do?",
+       "header": "Active Feature",
+       "options": [
+         {"label": "Continue with existing", "description": "Show status and stop"},
+         {"label": "Create new anyway", "description": "Proceed with new feature creation"}
+       ],
+       "multiSelect": false
+     }]
+   ```
+3. If "Continue with existing": Invoke `/iflow:show-status` → STOP
+4. If "Create new anyway": Proceed with creation below
 
 ## Gather Information
 
@@ -71,11 +92,29 @@ Write to `docs/features/{id}-{slug}/.meta.json`:
   "status": "active",
   "created": "{ISO timestamp}",
   "branch": "feature/{id}-{slug}",
-  "brainstorm_source": "{path-to-brainstorm-if-promoted}"
+  "brainstorm_source": "{path-to-brainstorm-if-promoted}",
+  "currentPhase": null,
+  "phases": {}
 }
 ```
 
-Note: `brainstorm_source` is only included when feature is promoted from a brainstorm.
+Notes:
+- `brainstorm_source` is only included when feature is promoted from a brainstorm
+- `phases` is initialized empty; phase commands populate it as they execute
+- `currentPhase` tracks the last completed phase (null until first phase completes)
+
+## Handle PRD Source
+
+If `--prd` argument provided (promotion from brainstorm):
+
+1. Copy the PRD file: `{prd-path}` → `docs/features/{id}-{slug}/prd.md`
+2. **Verify copy succeeded:** Confirm destination file exists and is non-empty
+3. If verification fails: Output error and STOP
+4. Add to `.meta.json`: `"brainstorm_source": "{prd-path}"`
+
+If `--prd` NOT provided (direct creation):
+- No PRD file is created
+- `brainstorm_source` is not set in `.meta.json`
 
 ## Handle Backlog Source
 
@@ -95,15 +134,26 @@ If feature was promoted from a brainstorm that originated from a backlog item:
 
 ## State Tracking
 
-If Vibe-Kanban available:
-- Create card with feature name
-- Set status to "New"
-
-Otherwise:
-- Use TodoWrite to track feature
+Apply the detecting-kanban skill:
+1. If Vibe-Kanban available:
+   - Create card with feature name
+   - Set status to "New"
+2. Otherwise:
+   - Use TodoWrite to track feature
 
 ## Output
 
+**If `--prd` provided (promotion from brainstorm):**
+```
+✓ Feature {id}-{slug} created
+  Mode: {mode}
+  Folder: docs/features/{id}-{slug}/
+  Branch: feature/{id}-{slug}
+  PRD: Copied from brainstorm
+  Linked from: Backlog #{backlog_id} (removed)  ← only if backlog source found
+```
+
+**If `--prd` NOT provided (direct creation):**
 ```
 ✓ Feature {id}-{slug} created
   Mode: {mode}
@@ -111,9 +161,9 @@ Otherwise:
   Branch: feature/{id}-{slug}
   Linked from: Backlog #{backlog_id} (removed)  ← only if backlog source found
 
-  Note: Skipped brainstorming. Proceeding to /iflow:specify.
+  Note: No PRD. /specify will gather requirements.
 ```
 
 ## Auto-Continue
 
-After creation, automatically invoke `/iflow:specify` skill.
+After creation, automatically invoke `/iflow:specify --feature={id}-{slug}`.

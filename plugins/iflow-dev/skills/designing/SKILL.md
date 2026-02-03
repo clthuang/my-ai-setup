@@ -10,7 +10,7 @@ Design the technical architecture.
 ## Prerequisites
 
 - If `spec.md` exists: Read for requirements
-- If not: "No spec found. Run /iflow:specify first, or describe requirements now."
+- If not: "No spec found. Run /iflow-dev:specify first, or describe requirements now."
 
 ## Read Feature Context
 
@@ -19,6 +19,29 @@ Design the technical architecture.
 3. Adjust behavior based on mode:
    - Standard: Full process with optional verification
    - Full: Full process with required verification
+
+## Stage Parameter
+
+The design command may invoke this skill with a `stage` parameter to produce specific sections:
+
+| Stage | Sections Produced | Use Case |
+|-------|-------------------|----------|
+| `architecture` | Architecture Overview, Components, Technical Decisions, Risks | First pass - structure and decisions |
+| `interface` | Interfaces (detailed contracts) | Second pass - precise contracts |
+| (none/default) | All sections | Backward compatibility |
+
+When `stage=architecture`:
+- Focus on high-level structure and component boundaries
+- Define what each component does, not the precise API
+- Identify technical decisions and risks early
+
+When `stage=interface`:
+- Read existing design.md for component definitions
+- Add detailed interface contracts with exact formats
+- Define error cases and edge cases precisely
+
+When no stage specified:
+- Produce complete design in one pass (existing behavior)
 
 ## Process
 
@@ -116,4 +139,4 @@ Errors: {error cases}
 ## Completion
 
 "Design complete. Saved to design.md."
-"Run /iflow:verify to check, or /iflow:create-plan to continue."
+"Run /iflow-dev:verify to check, or /iflow-dev:create-plan to continue."
