@@ -1,6 +1,5 @@
 ---
 description: Start or continue implementation of current feature
-argument-hint: [--no-review]
 ---
 
 Invoke the implementing skill for the current feature context.
@@ -75,67 +74,139 @@ Update `.meta.json`:
 }
 ```
 
-### 4. Execute with Reviewer Loop
+### 4. Implementation Phase
 
-Get max iterations from mode: Standard=1, Full=3.
+Execute the implementing skill with phased approach:
 
-**If `--no-review` argument is present:** Skip to step 5 directly after producing implementation. Set `reviewSkipped: true` in `.meta.json`.
+a. **Deploy subagents** - Select relevant implementer agents based on task domain
 
-**Otherwise, execute this loop:**
+b. **Interface Phase** - Build type definitions, function signatures, module structure
 
-a. **Produce artifact:** Follow the implementing skill to produce/revise code
+c. **RED-GREEN Loop** - For each piece of functionality:
+   - RED: Write failing test
+   - GREEN: Write minimal code to pass
+   - Loop until all functionality covered
 
-b. **Invoke reviewer:** Use the Task tool to spawn chain-reviewer:
-   ```
-   Task tool call:
-     description: "Review implementation for chain sufficiency"
-     subagent_type: chain-reviewer
-     prompt: |
-       Review the following artifacts for chain sufficiency.
+d. **REFACTOR Phase** - Clean up while keeping tests green
 
-       ## Previous Artifact (tasks.md)
-       {content of tasks.md, or spec.md if no tasks}
+e. **Return to main agent** with implementation report
 
-       ## Current Artifact (implementation summary)
-       Files changed:
-       {list of files created/modified}
+### 5. Code Simplification Phase
 
-       Tests:
-       {test results summary}
+Dispatch code-simplifier agent:
+```
+Task tool call:
+  description: "Simplify implementation"
+  subagent_type: iflow-dev:code-simplifier
+  prompt: |
+    Review the implementation for unnecessary complexity.
 
-       ## Next Phase Expectations
-       Verify needs: All tasks addressed, tests exist/pass,
-       no obvious issues.
+    Feature: {feature name}
+    Files changed: {list of files created/modified}
 
-       Return your assessment as JSON:
-       {
-         "approved": true/false,
-         "issues": [...],
-         "summary": "..."
-       }
-   ```
+    Look for:
+    - Unnecessary abstractions
+    - Dead code
+    - Over-engineering
+    - Verbose patterns
 
-c. **Parse response:** Extract the `approved` field from reviewer's JSON response.
-   - If response is not valid JSON, ask reviewer to retry with correct format.
+    Return your assessment as JSON with simplifications array.
+```
 
-d. **Branch on result:**
-   - If `approved: true` → Continue to step 5 (final validation)
-   - If `approved: false` AND iteration < max:
-     - Append iteration to `.review-history.md` using format below
-     - Increment iteration counter
-     - Address the issues by revising implementation
-     - Return to step 4b
-   - If `approved: false` AND iteration == max:
-     - Continue to step 5 with concerns noted in reviewerNotes
+If simplifications found:
+- Apply approved simplifications
+- Verify tests still pass
+- Return to main agent
+
+### 6. Review Phase (Iterative Loop)
+
+Get max iterations from mode: Standard=2, Full=3.
+
+Execute review cycle:
+
+**6a. Behavior Review:**
+```
+Task tool call:
+  description: "Review implementation behavior"
+  subagent_type: iflow-dev:implementation-behavior-reviewer
+  prompt: |
+    Validate implementation behavior against requirements chain.
+
+    ## tasks.md
+    {content of tasks.md}
+
+    ## spec.md
+    {content of spec.md}
+
+    ## design.md
+    {content of design.md}
+
+    ## PRD source
+    {content of prd.md or brainstorm file}
+
+    ## Implementation files
+    {list of files with summaries}
+
+    Return JSON with approval status and issues by level.
+```
+
+**6b. Code Quality Review:**
+```
+Task tool call:
+  description: "Review code quality"
+  subagent_type: iflow-dev:code-quality-reviewer
+  prompt: |
+    Review implementation quality.
+
+    Files changed: {list of files}
+
+    Check:
+    - Readability
+    - KISS principle
+    - YAGNI principle
+    - Formatting
+    - Holistic flow
+
+    Return assessment with approval status.
+```
+
+**6c. Security Review:**
+```
+Task tool call:
+  description: "Review security"
+  subagent_type: iflow-dev:security-reviewer
+  prompt: |
+    Review implementation for security vulnerabilities.
+
+    Files changed: {list of files}
+
+    Check:
+    - Input validation
+    - Authentication/authorization
+    - Data protection
+    - OWASP top 10
+
+    Return JSON with approval status and vulnerabilities.
+```
+
+**6d. Branch on results:**
+- All three approved → Proceed to Final Review (step 7)
+- Any issues found AND iteration < max:
+  - Append iteration to `.review-history.md`
+  - Address the issues by revising implementation
+  - Return to step 6a
+- Max iterations hit → Note concerns in reviewerNotes, proceed to step 7
 
 **Review History Entry Format** (append to `.review-history.md`):
 ```markdown
 ## Iteration {n} - {ISO timestamp}
 
-**Decision:** {Approved / Needs Revision}
+**Behavior Review:** {Approved / Issues found}
+**Quality Review:** {Approved / Issues found}
+**Security Review:** {Approved / Issues found}
 
 **Issues:**
-- [{severity}] {description} (at: {location})
+- [{severity}] {reviewer}: {description} (at: {location})
 
 **Changes Made:**
 {Summary of revisions made to address issues}
@@ -143,26 +214,49 @@ d. **Branch on result:**
 ---
 ```
 
-### 5. Final Validation (Spec Compliance)
+### 7. Final Review
 
-After chain review passes (or max iterations):
-
+Dispatch final-reviewer against PRD deliverables:
 ```
-Spawn final-reviewer agent with:
-- spec.md: Original specification
-- Implementation files: All files created/modified
+Task tool call:
+  description: "Final review against PRD"
+  subagent_type: iflow-dev:final-reviewer
+  prompt: |
+    Verify implementation delivers PRD outcomes.
+
+    ## PRD Source
+    {content of prd.md or brainstorm file - the original requirements}
+
+    ## Implementation Summary
+    Files: {list of files created/modified}
+    Tests: {test results summary}
+
+    Does this deliver what was originally requested?
+    Return JSON with approval status, issues, and evidence.
+```
 
 IF final-reviewer finds issues:
-  - Present issues to user
-  - Ask: "Address these concerns or proceed anyway?"
-  - If address: Loop back to implementation
-  - If proceed: Note in reviewerNotes
+- Present issues to user
+- Use AskUserQuestion:
+  ```
+  AskUserQuestion:
+    questions: [{
+      "question": "Final review found issues. How to proceed?",
+      "header": "Final Review",
+      "options": [
+        {"label": "Address issues", "description": "Fix and re-review"},
+        {"label": "Proceed anyway", "description": "Note concerns and continue"}
+      ],
+      "multiSelect": false
+    }]
+  ```
+- If address: Loop back to implementation
+- If proceed: Note in reviewerNotes
 
 IF final-reviewer approves:
-  - Mark phase completed
-```
+- Mark phase completed
 
-### 6. Update State on Completion
+### 8. Update State on Completion
 
 Update `.meta.json`:
 ```json
@@ -171,13 +265,25 @@ Update `.meta.json`:
     "implement": {
       "completed": "{ISO timestamp}",
       "iterations": {count},
-      "reviewerNotes": ["any unresolved concerns from chain or final review"]
+      "reviewerNotes": ["any unresolved concerns from reviews"]
     }
   },
   "currentPhase": "implement"
 }
 ```
 
-### 7. Completion Message
+### 9. Completion Message
 
-"Implementation complete. Run /iflow-dev:verify for quality review, then /iflow-dev:finish when ready."
+Use AskUserQuestion:
+```
+AskUserQuestion:
+  questions: [{
+    "question": "Implementation complete. Run /iflow-dev:finish next?",
+    "header": "Next",
+    "options": [
+      {"label": "Yes (Recommended)", "description": "Complete the feature"},
+      {"label": "Review implementation first", "description": "Inspect the code before finishing"}
+    ],
+    "multiSelect": false
+  }]
+```

@@ -163,9 +163,14 @@ Skills are instructions Claude follows for specific development practices.
 - `spec-reviewer` — Verify implementation matches specification
 - `code-quality-reviewer` — Code quality assessment
 - `quality-reviewer` — Post-implementation quality check
-- `final-reviewer` — Validates implementation matches original spec
+- `final-reviewer` — Validates implementation delivers PRD outcomes
 - `chain-reviewer` — Validates artifact quality and phase handoffs
 - `task-breakdown-reviewer` — Validates task executability, size, dependencies, and plan fidelity
+
+**Implementation Review:**
+- `code-simplifier` — Identifies unnecessary complexity, dead code, over-engineering
+- `implementation-behavior-reviewer` — Validates behavior against tasks -> specs -> design -> PRD
+- `security-reviewer` — OWASP top 10, input validation, auth, data protection
 
 **Brainstorm & PRD:**
 - `brainstorm-reviewer` — Reviews brainstorm readiness for promotion
@@ -223,6 +228,16 @@ The `/create-tasks` command uses a two-stage review process:
 3. **Chain Review**: `chain-reviewer` validates readiness for implementation phase
 
 4. **Completion**: Prompts user to start `/implement`
+
+### Implement Workflow
+
+The `/implement` command uses a multi-phase execution flow:
+
+1. **Implementation**: Subagents -> Interface scaffold -> RED-GREEN loop -> REFACTOR
+2. **Simplification**: `code-simplifier` removes unnecessary complexity
+3. **Review** (iterative): behavior -> quality -> security (up to 2-3 iterations)
+4. **Final Review**: `final-reviewer` validates against PRD deliverables
+5. **Completion**: Prompts user to run `/finish`
 
 ## Knowledge Bank
 
