@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/iflow:secretary` command for manual invocation
 - `inject-secretary-context.sh` hook for aware mode activation
 - Activation modes: manual (explicit command) and aware (automatic via `.claude/secretary.local.md`)
+- `write-control` PreToolUse hook for Write/Edit path restrictions on agent subprocesses
+- `agent_sandbox/` directory for agent scratch work and investigation output
+- `write-policies.json` configuration for protected/warned/safe path policies
 
 ## [1.3.0] - 2026-02-03
 
