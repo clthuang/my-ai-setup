@@ -12,7 +12,7 @@ Manage feature workflow state and validate phase transitions.
 The canonical workflow order:
 
 ```
-brainstorm → specify → design → create-plan → create-tasks → implement → verify → finish
+brainstorm → specify → design → create-plan → create-tasks → implement → finish
 ```
 
 | Phase | Produces | Required Before |
@@ -22,8 +22,7 @@ brainstorm → specify → design → create-plan → create-tasks → implement
 | design | design.md | create-plan |
 | create-plan | plan.md | create-tasks |
 | create-tasks | tasks.md | implement |
-| implement | code changes | verify |
-| verify | verification | finish |
+| implement | code changes | finish |
 | finish | (terminal) | — |
 
 ## Transition Validation
@@ -36,8 +35,8 @@ These transitions are **blocked** if prerequisites are missing:
 
 | Target Phase | Required Artifact | Error Message |
 |--------------|-------------------|---------------|
-| /iflow-dev:implement | spec.md | "spec.md required before implementation. Run /iflow-dev:specify first." |
-| /iflow-dev:create-tasks | plan.md | "plan.md required before task creation. Run /iflow-dev:create-plan first." |
+| /iflow:implement | spec.md | "spec.md required before implementation. Run /iflow:specify first." |
+| /iflow:create-tasks | plan.md | "plan.md required before task creation. Run /iflow:create-plan first." |
 
 If blocked: Show error message, do not proceed.
 
@@ -61,7 +60,7 @@ AskUserQuestion:
 Examples:
 - brainstorm → design (skips specify) → warn
 - specify → create-tasks (skips design, create-plan) → warn
-- Any phase → verify (out of order) → warn
+- Any phase → finish (out of order) → warn
 
 ### Normal Transitions (Proceed)
 
@@ -80,7 +79,7 @@ function validateTransition(currentPhase, targetPhase, artifacts):
     return { allowed: false, type: "blocked", message: "plan.md required..." }
 
   # Phase sequence for ordering
-  sequence = [brainstorm, specify, design, create-plan, create-tasks, implement, verify, finish]
+  sequence = [brainstorm, specify, design, create-plan, create-tasks, implement, finish]
   currentIndex = sequence.indexOf(currentPhase) or -1
   targetIndex = sequence.indexOf(targetPhase)
 
@@ -176,8 +175,8 @@ function validateArtifact(path, type):
 
 **Usage in Commands:**
 Commands with hard prerequisites should call validateArtifact instead of just checking existence:
-- `/iflow-dev:implement` validates spec.md
-- `/iflow-dev:create-tasks` validates plan.md
+- `/iflow:implement` validates spec.md
+- `/iflow:create-tasks` validates plan.md
 
 ---
 
@@ -313,7 +312,7 @@ The design phase uses a 4-stage workflow with detailed tracking:
 | architecture | High-level structure, components, decisions, risks | None (validated in designReview) |
 | interface | Precise contracts between components | None (validated in designReview) |
 | designReview | Challenge assumptions, find gaps, ensure robustness | design-reviewer (skeptic) |
-| handoffReview | Ensure plan phase has everything it needs | chain-reviewer (gatekeeper) |
+| handoffReview | Ensure plan phase has everything it needs | phase-reviewer (gatekeeper) |
 
 ### Stage Object Fields
 
@@ -336,8 +335,8 @@ The design phase uses a 4-stage workflow with detailed tracking:
 |-------|------|-------------|
 | started | ISO8601 | When stage began |
 | completed | ISO8601/null | When stage completed |
-| approved | boolean | Whether chain-reviewer approved |
-| reviewerNotes | array | Concerns noted by chain-reviewer |
+| approved | boolean | Whether phase-reviewer approved |
+| reviewerNotes | array | Concerns noted by phase-reviewer |
 
 ### Recovery from Partial Design Phase
 
@@ -359,7 +358,7 @@ Terminal statuses cannot be changed. New work requires a new feature.
 
 ### Status Updates
 
-The `/iflow-dev:finish` command updates status to terminal values:
+The `/iflow:finish` command updates status to terminal values:
 
 ```json
 // For completed features
@@ -372,4 +371,4 @@ The `/iflow-dev:finish` command updates status to terminal values:
 ## Review History
 
 During development, `.review-history.md` tracks iteration feedback.
-On `/iflow-dev:finish`, this file is deleted (git has the permanent record).
+On `/iflow:finish`, this file is deleted (git has the permanent record).

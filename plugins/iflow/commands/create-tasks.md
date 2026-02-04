@@ -18,10 +18,10 @@ Before executing, check prerequisites using workflow-state skill:
 ```
 ❌ BLOCKED: Valid plan.md required before task creation.
 
-{Level 1}: plan.md not found. Run /iflow-dev:create-plan first.
-{Level 2}: plan.md appears empty or stub. Run /iflow-dev:create-plan to complete it.
-{Level 3}: plan.md missing markdown structure. Run /iflow-dev:create-plan to fix.
-{Level 4}: plan.md missing required sections (Implementation Order or Phase). Run /iflow-dev:create-plan to add them.
+{Level 1}: plan.md not found. Run /iflow:create-plan first.
+{Level 2}: plan.md appears empty or stub. Run /iflow:create-plan to complete it.
+{Level 3}: plan.md missing markdown structure. Run /iflow:create-plan to fix.
+{Level 4}: plan.md missing required sections (Implementation Order or Phase). Run /iflow:create-plan to add them.
 ```
 Stop execution. Do not proceed.
 
@@ -112,18 +112,24 @@ Execute this loop:
 
 a. **Produce artifact:** Follow the breaking-down-tasks skill to create/revise tasks.md
 
-b. **Invoke task-breakdown-reviewer:** Use the Task tool:
+b. **Invoke task-reviewer:** Use the Task tool:
    ```
    Task tool call:
      description: "Review task breakdown quality"
-     subagent_type: task-breakdown-reviewer
+     subagent_type: iflow:task-reviewer
      prompt: |
        Review the task breakdown for quality and executability.
 
-       ## Implementation Plan (plan.md)
+       ## Spec (requirements)
+       {content of spec.md}
+
+       ## Design (architecture)
+       {content of design.md}
+
+       ## Plan (what tasks should cover)
        {content of plan.md}
 
-       ## Task Breakdown (tasks.md)
+       ## Tasks (what you're reviewing)
        {content of tasks.md}
 
        Validate:
@@ -136,7 +142,7 @@ b. **Invoke task-breakdown-reviewer:** Use the Task tool:
        Return your assessment as JSON:
        {
          "approved": true/false,
-         "issues": [{"severity": "blocker|warning|note", "task": "...", "description": "...", "suggestion": "..."}],
+         "issues": [{"severity": "blocker|warning|suggestion", "task": "...", "description": "...", "suggestion": "..."}],
          "summary": "..."
        }
    ```
@@ -172,19 +178,25 @@ d. **Branch on result:**
 
 ### 5. Stage 2: Chain Validation
 
-After Stage 1 completes, invoke chain-reviewer for final validation:
+After Stage 1 completes, invoke phase-reviewer for final validation:
 
 ```
 Task tool call:
-  description: "Validate chain readiness for implementation"
-  subagent_type: chain-reviewer
+  description: "Validate tasks ready for implementation"
+  subagent_type: iflow:phase-reviewer
   prompt: |
-    Review the task breakdown for chain sufficiency.
+    Validate this task breakdown is ready for implementation.
 
-    ## Previous Artifact (plan.md)
+    ## Spec (requirements)
+    {content of spec.md}
+
+    ## Design (architecture)
+    {content of design.md}
+
+    ## Plan (what tasks should cover)
     {content of plan.md}
 
-    ## Current Artifact (tasks.md)
+    ## Tasks (what you're reviewing)
     {content of tasks.md}
 
     ## Next Phase Expectations
@@ -194,7 +206,7 @@ Task tool call:
     Return your assessment as JSON:
     {
       "approved": true/false,
-      "issues": [...],
+      "issues": [{"severity": "blocker|warning|suggestion", "description": "...", "location": "...", "suggestion": "..."}],
       "summary": "..."
     }
 ```
@@ -235,7 +247,7 @@ Then use AskUserQuestion:
 ```
 AskUserQuestion:
   questions: [{
-    "question": "Run /iflow-dev:implement next?",
+    "question": "Run /iflow:implement next?",
     "header": "Next",
     "options": [
       {"label": "Yes (Recommended)", "description": "Start implementation"},

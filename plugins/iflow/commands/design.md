@@ -109,7 +109,7 @@ Stage 2: INTERFACE DESIGN
     ↓
 Stage 3: DESIGN REVIEW LOOP (design-reviewer, 1-3 iterations)
     ↓
-Stage 4: HANDOFF REVIEW (chain-reviewer)
+Stage 4: HANDOFF REVIEW (phase-reviewer)
 ```
 
 ---
@@ -184,9 +184,12 @@ b. **Invoke design-reviewer:** Use the Task tool to spawn design-reviewer (the s
    ```
    Task tool call:
      description: "Review design quality"
-     subagent_type: iflow-dev:design-reviewer
+     subagent_type: iflow:design-reviewer
      prompt: |
        Review this design for robustness and completeness.
+
+       ## PRD (original requirements)
+       {content of prd.md, or "None - feature created without brainstorm"}
 
        ## Spec (what we must satisfy)
        {content of spec.md}
@@ -204,11 +207,11 @@ b. **Invoke design-reviewer:** Use the Task tool to spawn design-reviewer (the s
        {
          "approved": true/false,
          "issues": [{
-           "severity": "blocker|warning|note",
+           "severity": "blocker|warning|suggestion",
            "category": "completeness|consistency|feasibility|assumptions|complexity",
            "description": "...",
            "location": "...",
-           "challenge": "..."
+           "suggestion": "..."
          }],
          "summary": "..."
        }
@@ -265,18 +268,21 @@ a. **Mark stage started:**
    }
    ```
 
-b. **Invoke chain-reviewer:** Use the Task tool to spawn chain-reviewer (the gatekeeper):
+b. **Invoke phase-reviewer:** Use the Task tool to spawn phase-reviewer (the gatekeeper):
    ```
    Task tool call:
-     description: "Review design for chain sufficiency"
-     subagent_type: iflow-dev:chain-reviewer
+     description: "Review design for phase sufficiency"
+     subagent_type: iflow:phase-reviewer
      prompt: |
-       Review the following artifacts for chain sufficiency.
+       Validate this design is ready for implementation planning.
 
-       ## Previous Artifact (spec.md)
+       ## PRD (original requirements)
+       {content of prd.md, or "None - feature created without brainstorm"}
+
+       ## Spec (requirements)
        {content of spec.md}
 
-       ## Current Artifact (design.md)
+       ## Design (what you're reviewing)
        {content of design.md}
 
        ## Next Phase Expectations
@@ -286,7 +292,7 @@ b. **Invoke chain-reviewer:** Use the Task tool to spawn chain-reviewer (the gat
        Return your assessment as JSON:
        {
          "approved": true/false,
-         "issues": [...],
+         "issues": [{"severity": "blocker|warning|suggestion", "description": "...", "location": "...", "suggestion": "..."}],
          "summary": "..."
        }
    ```
@@ -308,7 +314,7 @@ f. **Append to review history:**
    ```markdown
    ## Handoff Review - {ISO timestamp}
 
-   **Reviewer:** chain-reviewer (gatekeeper)
+   **Reviewer:** phase-reviewer (gatekeeper)
    **Decision:** {Approved / Concerns Noted}
 
    **Issues:**
@@ -369,9 +375,9 @@ AskUserQuestion:
   4. Press Ctrl+G to edit plan in your editor
   5. Say "proceed with the plan" when ready
   ```
-- Note: "Phase tracking won't be updated until you run /iflow-dev:create-tasks"
+- Note: "Phase tracking won't be updated until you run /iflow:create-tasks"
 - Do NOT auto-continue (user switches modes manually)
 
-**If Option 2 (iflow /iflow-dev:create-plan):**
-- Inform: "Continuing with /iflow-dev:create-plan..."
-- Auto-invoke `/iflow-dev:create-plan`
+**If Option 2 (iflow /iflow:create-plan):**
+- Inform: "Continuing with /iflow:create-plan..."
+- Auto-invoke `/iflow:create-plan`

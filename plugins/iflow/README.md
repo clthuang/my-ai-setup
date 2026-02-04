@@ -6,9 +6,9 @@ Structured feature development workflow with skills, agents, and commands for me
 
 | Type | Count |
 |------|-------|
-| Skills | 20 |
-| Agents | 22 |
-| Commands | 17 |
+| Skills | 18 |
+| Agents | 19 |
+| Commands | 16 |
 | Hooks | 5 |
 
 ## Commands
@@ -32,7 +32,6 @@ Structured feature development workflow with skills, agents, and commands for me
 **Anytime:**
 | Command | Purpose |
 |---------|---------|
-| `/iflow:verify` | Quality check current phase |
 | `/iflow:show-status` | See current feature state |
 | `/iflow:list-features` | See all active features |
 | `/iflow:retrospect` | Capture learnings |
@@ -42,7 +41,26 @@ Structured feature development workflow with skills, agents, and commands for me
 | `/iflow:secretary` | Intelligent task routing to commands/agents |
 | `/iflow:root-cause-analysis` | Investigate bugs and failures to find all root causes |
 
-## Design Phase Workflow
+## Review System
+
+The iflow workflow uses a two-tier review pattern for quality assurance:
+
+### Two-Tier Review Pattern
+
+| Component | Role | Question |
+|-----------|------|----------|
+| **Phase Skeptic** | Challenges artifact quality | "Is this artifact robust?" |
+| **Phase Reviewer** | Validates handoff completeness | "Can the next phase proceed?" |
+
+### Specify Phase Workflow
+
+```
+spec-skeptic (Skeptic) → "Is spec testable and bounded?"
+    ↓
+phase-reviewer (Gatekeeper) → "Has what design needs?"
+```
+
+### Design Phase Workflow
 
 The `/iflow:design` command uses a 4-stage workflow for robust design artifacts:
 
@@ -53,19 +71,10 @@ Stage 2: INTERFACE DESIGN → Precise contracts between components
     ↓
 Stage 3: DESIGN REVIEW LOOP → design-reviewer challenges assumptions (1-3 iterations)
     ↓
-Stage 4: HANDOFF REVIEW → chain-reviewer ensures plan phase readiness
+Stage 4: HANDOFF REVIEW → phase-reviewer ensures plan phase readiness
 ```
 
-### Reviewer Roles
-
-| Reviewer | Role | Question |
-|----------|------|----------|
-| design-reviewer | Skeptic | "Is this design robust, complete, and will it actually work?" |
-| chain-reviewer | Gatekeeper | "Can the next phase complete its work using ONLY this artifact?" |
-
-The design-reviewer challenges the design quality. The chain-reviewer ensures the artifact is sufficient for the next phase.
-
-## Create Plan Phase Workflow
+### Create Plan Phase Workflow
 
 The `/iflow:create-plan` command uses a 2-stage review workflow:
 
@@ -76,46 +85,48 @@ Stage 1: PLAN-REVIEWER (Skeptical Review)
     │   • Dependency accuracy - Are dependencies correct and complete?
     │   • TDD order - Interface → Tests → Implementation sequence?
     ↓
-Stage 2: CHAIN-REVIEWER (Execution Readiness)
+Stage 2: PHASE-REVIEWER (Execution Readiness)
     │   • Can an engineer break this into tasks?
     │   • Are all design items covered?
     ↓
 [User Prompt: Run /create-tasks?]
 ```
 
-### Reviewer Roles
+### Implementation Review
 
-| Reviewer | Role | Question |
-|----------|------|----------|
-| plan-reviewer | Skeptic | "Will this plan actually work when implemented?" |
-| chain-reviewer | Gatekeeper | "Can the next phase complete its work using ONLY this artifact?" |
+The `/iflow:implement` command uses three reviewers:
+
+| Reviewer | Focus | Validation |
+|----------|-------|------------|
+| implementation-reviewer | Requirements compliance | 4-level: Tasks→Spec→Design→PRD |
+| code-quality-reviewer | Maintainability | SOLID, readability, testing |
+| security-reviewer | Vulnerabilities | OWASP Top 10, injection, auth |
 
 ## Agents
 
 | Agent | Purpose |
 |-------|---------|
 | brainstorm-reviewer | Reviews brainstorm artifacts for completeness before promotion |
-| chain-reviewer | Validates artifacts have what next phase needs (gatekeeper) |
 | code-quality-reviewer | Reviews implementation quality by severity |
 | code-simplifier | Identifies unnecessary complexity and suggests simplifications |
 | codebase-explorer | Analyzes codebase for patterns and constraints |
 | design-reviewer | Challenges design assumptions and finds gaps (skeptic) |
 | documentation-researcher | Researches documentation state and identifies update needs |
 | documentation-writer | Writes and updates documentation |
-| final-reviewer | Validates implementation delivers PRD outcomes |
 | generic-worker | General-purpose implementation agent |
-| implementation-behavior-reviewer | Validates behavior against requirements chain |
+| implementation-reviewer | Validates implementation against full requirements chain (4-level) |
 | implementer | Task implementation with TDD and self-review |
 | internet-researcher | Searches web for best practices and standards |
 | investigation-agent | Read-only research before implementation |
+| phase-reviewer | Validates artifacts have what next phase needs (gatekeeper) |
 | plan-reviewer | Skeptical plan reviewer for failure modes and TDD compliance |
 | prd-reviewer | Critical review of PRD drafts |
-| security-reviewer | Reviews implementation for security vulnerabilities |
-| skill-searcher | Finds relevant existing skills |
-| spec-reviewer | Verifies implementation matches spec |
-| task-breakdown-reviewer | Validates task breakdown quality |
 | rca-investigator | Finds all root causes through 6-phase systematic investigation |
 | secretary | Intelligent task routing with discovery, interpretation, and delegation |
+| security-reviewer | Reviews implementation for security vulnerabilities |
+| skill-searcher | Finds relevant existing skills |
+| spec-skeptic | Skeptically reviews spec.md for testability and assumptions |
+| task-reviewer | Validates task breakdown quality and executability |
 
 ## Installation
 

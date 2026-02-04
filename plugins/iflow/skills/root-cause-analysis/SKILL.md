@@ -113,4 +113,3 @@ Report must include:
 ## Related Resources
 
 - [systematic-debugging](../systematic-debugging/SKILL.md) - Iron Law ("NO FIXES WITHOUT ROOT CAUSE INVESTIGATION FIRST"), 3-fix rule
-- [verifying-before-completion](../verifying-before-completion/SKILL.md) - Evidence requirements for claims

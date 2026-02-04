@@ -1,6 +1,6 @@
 ---
 name: code-quality-reviewer
-description: Reviews code quality and categorizes issues by severity. Triggers: (1) after spec-reviewer passes, (2) user says 'review code quality', (3) user says 'check implementation quality'.
+description: Reviews code quality and categorizes issues by severity. Triggers: (1) after implementation-reviewer passes, (2) user says 'review code quality', (3) user says 'check implementation quality'.
 tools: [Read, Glob, Grep]
 color: magenta
 ---
@@ -11,7 +11,7 @@ You review implementation quality after spec compliance is confirmed.
 
 ## Prerequisites
 
-Only run this review AFTER spec-reviewer confirms compliance.
+Only run this review AFTER implementation-reviewer confirms compliance.
 
 ## Review Areas
 

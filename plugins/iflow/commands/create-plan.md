@@ -105,18 +105,24 @@ b. **Invoke plan-reviewer:** Use Task tool:
    ```
    Task tool call:
      description: "Skeptical review of plan for failure modes"
-     subagent_type: iflow-dev:plan-reviewer
+     subagent_type: iflow:plan-reviewer
      prompt: |
        Review this plan for failure modes, untested assumptions,
        dependency accuracy, and TDD order compliance.
 
-       ## Design Artifact
+       ## PRD (original requirements)
+       {content of prd.md, or "None - feature created without brainstorm"}
+
+       ## Spec (requirements)
+       {content of spec.md}
+
+       ## Design (architecture)
        {content of design.md}
 
-       ## Plan Artifact
+       ## Plan (what you're reviewing)
        {content of plan.md}
 
-       Return JSON: {"approved": bool, "issues": [...], "summary": "..."}
+       Return JSON: {"approved": bool, "issues": [{"severity": "blocker|warning|suggestion", "description": "...", "location": "...", "suggestion": "..."}], "summary": "..."}
    ```
 
 c. **Parse response:** Extract `approved` field.
@@ -132,26 +138,32 @@ d. **Branch on result:**
 
 #### Stage 2: Chain-Reviewer Validation (Execution Readiness)
 
-e. **Invoke chain-reviewer:** Use Task tool:
+e. **Invoke phase-reviewer:** Use Task tool:
    ```
    Task tool call:
      description: "Validate plan ready for task breakdown"
-     subagent_type: iflow-dev:chain-reviewer
+     subagent_type: iflow:phase-reviewer
      prompt: |
        Validate this plan is ready for an experienced engineer
        to break into executable tasks.
 
-       ## Design Artifact
+       ## PRD (original requirements)
+       {content of prd.md, or "None - feature created without brainstorm"}
+
+       ## Spec (requirements)
+       {content of spec.md}
+
+       ## Design (architecture)
        {content of design.md}
 
-       ## Plan Artifact
+       ## Plan (what you're reviewing)
        {content of plan.md}
 
        ## Next Phase Expectations
        Tasks needs: Ordered steps with dependencies,
        all design items covered, clear sequencing.
 
-       Return JSON: {"approved": bool, "issues": [...], "summary": "..."}
+       Return JSON: {"approved": bool, "issues": [{"severity": "blocker|warning|suggestion", "description": "...", "location": "...", "suggestion": "..."}], "summary": "..."}
    ```
 
 f. **Parse response:** Extract `approved` field.
@@ -160,7 +172,7 @@ g. **Branch on result:**
    - `approved: true` → Proceed to step 4h
    - `approved: false`:
      - Append to `.review-history.md` with "Stage 2: Chain Review" marker
-     - If iteration < max: Address issues, return to 4e (chain-reviewer)
+     - If iteration < max: Address issues, return to 4e (phase-reviewer)
      - If iteration == max: Note concerns, proceed to 4h
 
 h. **Complete phase:** Update state.
@@ -198,12 +210,12 @@ Update `.meta.json`:
 
 ### 6. User Prompt for Next Step
 
-After chain-reviewer approval, ask user:
+After phase-reviewer approval, ask user:
 
 ```
 AskUserQuestion:
   questions: [{
-    "question": "Plan approved by reviewers. Run /iflow-dev:create-tasks?",
+    "question": "Plan approved by reviewers. Run /iflow:create-tasks?",
     "header": "Next Step",
     "options": [
       {"label": "Yes", "description": "Break plan into actionable tasks"},
@@ -214,5 +226,5 @@ AskUserQuestion:
 ```
 
 Based on selection:
-- "Yes" → Invoke /iflow-dev:create-tasks
-- "No" → Show: "Plan at {path}/plan.md. Run /iflow-dev:create-tasks when ready."
+- "Yes" → Invoke /iflow:create-tasks
+- "No" → Show: "Plan at {path}/plan.md. Run /iflow:create-tasks when ready."
