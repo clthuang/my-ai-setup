@@ -41,6 +41,7 @@ Then follow the phases:
 | `/iflow:verify` | Quality check current phase |
 | `/iflow:show-status` | See current progress |
 | `/iflow:list-features` | List active features |
+| `/iflow:secretary` | Intelligent task routing to commands/agents |
 
 ## Task Output Format
 

@@ -1,0 +1,3 @@
+---
+activation_mode: manual
+---
