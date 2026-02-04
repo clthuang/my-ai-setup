@@ -1,7 +1,8 @@
 ---
 name: implementer
-description: Task implementation agent with self-review. Use when executing plan tasks. Asks questions before starting, implements with TDD, self-reviews before reporting.
+description: Implements tasks with TDD and self-review. Triggers: (1) implement command dispatches, (2) user says 'implement this task', (3) user says 'execute task N', (4) user says 'code this feature'.
 tools: [Read, Write, Edit, Bash, Glob, Grep]
+color: green
 ---
 
 # Implementer Agent

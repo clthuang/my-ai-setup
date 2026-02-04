@@ -1,7 +1,8 @@
 ---
 name: prd-reviewer
-description: Critical review of PRD drafts challenging assumptions, identifying gaps, and flagging false certainty. Use when PRD draft is complete and needs quality review.
+description: Critically reviews PRD drafts. Triggers: (1) brainstorming Stage 4, (2) user says 'review the PRD', (3) user says 'challenge the requirements', (4) user says 'find PRD gaps'.
 tools: [Read]
+color: yellow
 ---
 
 # PRD Reviewer Agent

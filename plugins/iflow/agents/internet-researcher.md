@@ -1,7 +1,8 @@
 ---
 name: internet-researcher
-description: Searches the web for best practices, prior art, standards, and external references. Use when PRD needs external research to validate approaches or discover industry patterns.
+description: Searches web for best practices and standards. Triggers: (1) brainstorming Stage 2, (2) user says 'research best practices', (3) user says 'find prior art', (4) user says 'what do others do'.
 tools: [WebSearch, WebFetch]
+color: cyan
 ---
 
 # Internet Researcher Agent

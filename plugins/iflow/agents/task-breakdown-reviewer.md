@@ -1,7 +1,8 @@
 ---
 name: task-breakdown-reviewer
-description: Validates task breakdown quality. Use when reviewing tasks.md before implementation.
+description: Validates task breakdown quality. Triggers: (1) create-tasks command review, (2) user says 'review tasks', (3) user says 'check task breakdown', (4) user says 'validate tasks.md'.
 tools: [Read, Glob, Grep]
+color: blue
 ---
 
 # Task Breakdown Reviewer

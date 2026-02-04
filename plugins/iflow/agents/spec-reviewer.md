@@ -1,7 +1,8 @@
 ---
 name: spec-reviewer
-description: Verifies implementation matches specification exactly. Use when checking spec compliance. Checks for missing requirements, extra work, and misunderstandings.
+description: Verifies implementation matches spec. Triggers: (1) implement command review phase, (2) user says 'check spec compliance', (3) user says 'verify against spec', (4) user says 'does this match requirements'.
 tools: [Read, Glob, Grep]
+color: magenta
 ---
 
 # Spec Reviewer Agent

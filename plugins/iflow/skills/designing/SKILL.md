@@ -1,6 +1,6 @@
 ---
 name: designing
-description: Creates architecture and interface definitions. Use when designing technical approach. Produces design.md with architecture, interfaces, and contracts.
+description: This skill should be used when the user says 'design the architecture', 'create technical design', 'define interfaces', or 'plan the structure'. Creates design.md with architecture and contracts.
 ---
 
 # Design Phase

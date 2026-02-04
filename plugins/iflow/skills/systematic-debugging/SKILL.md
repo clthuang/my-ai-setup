@@ -1,6 +1,6 @@
 ---
 name: systematic-debugging
-description: Guides root cause investigation through four phases before fixes. Use when encountering any bug, test failure, or unexpected behavior.
+description: This skill should be used when the user says 'debug this', 'find root cause', 'investigate failure', or 'why is this broken'. Guides four-phase root cause investigation.
 ---
 
 # Systematic Debugging

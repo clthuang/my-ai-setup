@@ -1,6 +1,6 @@
 ---
 name: detecting-kanban
-description: Detects Vibe-Kanban availability and provides fallback to TodoWrite. Use when checking Kanban availability. Internal skill used by other workflow components.
+description: This skill should be used internally when other workflow components need to check Kanban availability. Detects Vibe-Kanban and provides TodoWrite fallback.
 ---
 
 # Kanban Detection

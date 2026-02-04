@@ -1,7 +1,8 @@
 ---
 name: investigation-agent
-description: Read-only research agent. Use when gathering context before implementation without making changes.
+description: Read-only research agent for context gathering. Triggers: (1) retrospecting skill Step 1, (2) user says 'investigate this', (3) user says 'gather context', (4) user says 'research before coding'.
 tools: [Read, Glob, Grep, WebFetch, WebSearch]
+color: cyan
 ---
 
 # Investigation Agent
