@@ -118,13 +118,30 @@ If simplifications found:
 - Verify tests still pass
 - Return to main agent
 
-### 6. Review Phase (Iterative Loop)
+### 6. Review Phase (Automated Iteration Loop)
 
-Get max iterations from mode: Standard=2, Full=3.
+No iteration limit. Loop continues until ALL reviewers approve.
 
-Execute review cycle:
+Execute review cycle with all four reviewers:
 
-**6a. Behavior Review:**
+**6a. Spec Compliance Review:**
+```
+Task tool call:
+  description: "Review spec compliance"
+  subagent_type: iflow-dev:spec-reviewer
+  prompt: |
+    Verify implementation matches specification.
+
+    ## spec.md
+    {content of spec.md}
+
+    ## Implementation files
+    {list of files with code}
+
+    Return verification with COMPLIANT or ISSUES FOUND status.
+```
+
+**6b. Behavior Review:**
 ```
 Task tool call:
   description: "Review implementation behavior"
@@ -150,7 +167,7 @@ Task tool call:
     Return JSON with approval status and issues by level.
 ```
 
-**6b. Code Quality Review:**
+**6c. Code Quality Review:**
 ```
 Task tool call:
   description: "Review code quality"
@@ -170,7 +187,7 @@ Task tool call:
     Return assessment with approval status.
 ```
 
-**6c. Security Review:**
+**6d. Security Review:**
 ```
 Task tool call:
   description: "Review security"
@@ -189,21 +206,39 @@ Task tool call:
     Return JSON with approval status and vulnerabilities.
 ```
 
-**6d. Branch on results:**
-- All three approved → Proceed to Final Review (step 7)
-- Any issues found AND iteration < max:
-  - Append iteration to `.review-history.md`
-  - Address the issues by revising implementation
-  - Return to step 6a
-- Max iterations hit → Note concerns in reviewerNotes, proceed to step 7
+**6e. Automated Iteration Logic:**
+
+Collect results from all four reviewers (spec, behavior, quality, security).
+
+IF all four approved:
+  → Proceed to Final Review (step 7)
+
+ELSE (any issues found):
+  → Append iteration to `.review-history.md`
+  → Dispatch implementer agent to fix issues:
+    ```
+    Task tool call:
+      description: "Fix review issues iteration {n}"
+      subagent_type: iflow-dev:implementer
+      prompt: |
+        Fix the following review issues:
+
+        {consolidated issue list from all reviewers}
+
+        After fixing, return summary of changes made.
+    ```
+  → Increment iteration counter
+  → Loop back to step 6a (repeat until all four approve)
 
 **Review History Entry Format** (append to `.review-history.md`):
 ```markdown
 ## Iteration {n} - {ISO timestamp}
 
+**Spec Review:** {Compliant / Issues found}
 **Behavior Review:** {Approved / Issues found}
 **Quality Review:** {Approved / Issues found}
 **Security Review:** {Approved / Issues found}
+**Final Review:** {Approved / Issues found / Not run yet}
 
 **Issues:**
 - [{severity}] {reviewer}: {description} (at: {location})
@@ -214,7 +249,7 @@ Task tool call:
 ---
 ```
 
-### 7. Final Review
+### 7. Final Review (Automated)
 
 Dispatch final-reviewer against PRD deliverables:
 ```
@@ -235,26 +270,28 @@ Task tool call:
     Return JSON with approval status, issues, and evidence.
 ```
 
-IF final-reviewer finds issues:
-- Present issues to user
-- Use AskUserQuestion:
-  ```
-  AskUserQuestion:
-    questions: [{
-      "question": "Final review found issues. How to proceed?",
-      "header": "Final Review",
-      "options": [
-        {"label": "Address issues", "description": "Fix and re-review"},
-        {"label": "Proceed anyway", "description": "Note concerns and continue"}
-      ],
-      "multiSelect": false
-    }]
-  ```
-- If address: Loop back to implementation
-- If proceed: Note in reviewerNotes
+**Automated iteration on final review issues:**
 
 IF final-reviewer approves:
-- Mark phase completed
+  → Mark phase completed
+  → Proceed to step 8
+
+ELSE (issues found):
+  → Append to `.review-history.md` under "Final Review" section
+  → Dispatch implementer to fix:
+    ```
+    Task tool call:
+      description: "Fix final review issues"
+      subagent_type: iflow-dev:implementer
+      prompt: |
+        The final reviewer found issues with PRD delivery:
+
+        {issues from final-reviewer}
+
+        Fix these issues to ensure PRD outcomes are met.
+    ```
+  → Increment iteration counter
+  → Loop back to step 6a (full review cycle, repeat until final-reviewer approves)
 
 ### 8. Update State on Completion
 
