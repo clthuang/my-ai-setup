@@ -14,7 +14,7 @@ Invoke the specifying skill for the current feature context.
 
 **If no argument:**
 1. Scan `docs/features/` for folders with `.meta.json` where `status="active"`
-2. If none found: "No active feature found. Would you like to /iflow:brainstorm to explore ideas first?"
+2. If none found: "No active feature found. Would you like to /iflow-dev:brainstorm to explore ideas first?"
 3. If one found: Use that feature
 4. If multiple found:
    ```
@@ -31,7 +31,28 @@ Once target feature is determined, read feature context and follow the workflow 
 
 ## Workflow Integration
 
-### 1. Ensure Correct Branch
+### 1. Validate Transition
+
+Before executing, check prerequisites using workflow-state skill:
+- Read current `.meta.json` state
+- Apply validateTransition logic for target phase "specify"
+- If blocked: Show error, stop
+- If backward (re-running completed phase): Use AskUserQuestion:
+  ```
+  AskUserQuestion:
+    questions: [{
+      "question": "Phase 'specify' was already completed. Re-running will update timestamps but not undo previous work. Continue?",
+      "header": "Backward",
+      "options": [
+        {"label": "Continue", "description": "Re-run the phase"},
+        {"label": "Cancel", "description": "Stay at current phase"}
+      ],
+      "multiSelect": false
+    }]
+  ```
+  If "Cancel": Stop execution.
+
+### 1b. Check Branch
 
 Read `.meta.json` for branch name.
 If current branch != expected:
@@ -79,7 +100,7 @@ b. **Invoke reviewer:** Use the Task tool to spawn chain-reviewer:
    ```
    Task tool call:
      description: "Review spec for chain sufficiency"
-     subagent_type: iflow:chain-reviewer
+     subagent_type: iflow-dev:chain-reviewer
      prompt: |
        Review the following artifacts for chain sufficiency.
 
@@ -165,5 +186,5 @@ AskUserQuestion:
   }]
 ```
 
-If "Continue to /design": Invoke `/iflow:design`
+If "Continue to /design": Invoke `/iflow-dev:design`
 If "Stop here": STOP

@@ -15,7 +15,35 @@ Before executing, check prerequisites using workflow-state skill:
 - Read current `.meta.json` state
 - Apply validateTransition logic for target phase "design"
 - If blocked: Show error, stop
-- If warning (skipping phases like specify): Show warning, ask to proceed
+- If backward (re-running completed phase): Use AskUserQuestion:
+  ```
+  AskUserQuestion:
+    questions: [{
+      "question": "Phase 'design' was already completed. Re-running will update timestamps but not undo previous work. Continue?",
+      "header": "Backward",
+      "options": [
+        {"label": "Continue", "description": "Re-run the phase"},
+        {"label": "Cancel", "description": "Stay at current phase"}
+      ],
+      "multiSelect": false
+    }]
+  ```
+  If "Cancel": Stop execution.
+- If warning (skipping phases like specify): Show warning via AskUserQuestion:
+  ```
+  AskUserQuestion:
+    questions: [{
+      "question": "Skipping {skipped phases}. This may reduce artifact quality. Continue anyway?",
+      "header": "Skip",
+      "options": [
+        {"label": "Continue", "description": "Proceed despite skipping phases"},
+        {"label": "Stop", "description": "Return to complete skipped phases"}
+      ],
+      "multiSelect": false
+    }]
+  ```
+  If "Continue": Record skipped phases in `.meta.json` skippedPhases array, then proceed.
+  If "Stop": Stop execution.
 
 ### 1b. Check Branch
 
@@ -156,7 +184,7 @@ b. **Invoke design-reviewer:** Use the Task tool to spawn design-reviewer (the s
    ```
    Task tool call:
      description: "Review design quality"
-     subagent_type: iflow:design-reviewer
+     subagent_type: iflow-dev:design-reviewer
      prompt: |
        Review this design for robustness and completeness.
 
@@ -241,7 +269,7 @@ b. **Invoke chain-reviewer:** Use the Task tool to spawn chain-reviewer (the gat
    ```
    Task tool call:
      description: "Review design for chain sufficiency"
-     subagent_type: iflow:chain-reviewer
+     subagent_type: iflow-dev:chain-reviewer
      prompt: |
        Review the following artifacts for chain sufficiency.
 
@@ -341,9 +369,9 @@ AskUserQuestion:
   4. Press Ctrl+G to edit plan in your editor
   5. Say "proceed with the plan" when ready
   ```
-- Note: "Phase tracking won't be updated until you run /iflow:create-tasks"
+- Note: "Phase tracking won't be updated until you run /iflow-dev:create-tasks"
 - Do NOT auto-continue (user switches modes manually)
 
-**If Option 2 (iflow /iflow:create-plan):**
-- Inform: "Continuing with /iflow:create-plan..."
-- Auto-invoke `/iflow:create-plan`
+**If Option 2 (iflow /iflow-dev:create-plan):**
+- Inform: "Continuing with /iflow-dev:create-plan..."
+- Auto-invoke `/iflow-dev:create-plan`

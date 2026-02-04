@@ -14,7 +14,35 @@ Before executing, check prerequisites using workflow-state skill:
 - Read current `.meta.json` state
 - Apply validateTransition logic for target phase "create-plan"
 - If blocked: Show error, stop
-- If warning (skipping phases like design): Show warning, ask to proceed
+- If backward (re-running completed phase): Use AskUserQuestion:
+  ```
+  AskUserQuestion:
+    questions: [{
+      "question": "Phase 'create-plan' was already completed. Re-running will update timestamps but not undo previous work. Continue?",
+      "header": "Backward",
+      "options": [
+        {"label": "Continue", "description": "Re-run the phase"},
+        {"label": "Cancel", "description": "Stay at current phase"}
+      ],
+      "multiSelect": false
+    }]
+  ```
+  If "Cancel": Stop execution.
+- If warning (skipping phases like design): Show warning via AskUserQuestion:
+  ```
+  AskUserQuestion:
+    questions: [{
+      "question": "Skipping {skipped phases}. This may reduce artifact quality. Continue anyway?",
+      "header": "Skip",
+      "options": [
+        {"label": "Continue", "description": "Proceed despite skipping phases"},
+        {"label": "Stop", "description": "Return to complete skipped phases"}
+      ],
+      "multiSelect": false
+    }]
+  ```
+  If "Continue": Record skipped phases in `.meta.json` skippedPhases array, then proceed.
+  If "Stop": Stop execution.
 
 ### 1b. Check Branch
 
@@ -77,7 +105,7 @@ b. **Invoke plan-reviewer:** Use Task tool:
    ```
    Task tool call:
      description: "Skeptical review of plan for failure modes"
-     subagent_type: iflow:plan-reviewer
+     subagent_type: iflow-dev:plan-reviewer
      prompt: |
        Review this plan for failure modes, untested assumptions,
        dependency accuracy, and TDD order compliance.
@@ -108,7 +136,7 @@ e. **Invoke chain-reviewer:** Use Task tool:
    ```
    Task tool call:
      description: "Validate plan ready for task breakdown"
-     subagent_type: iflow:chain-reviewer
+     subagent_type: iflow-dev:chain-reviewer
      prompt: |
        Validate this plan is ready for an experienced engineer
        to break into executable tasks.
@@ -175,7 +203,7 @@ After chain-reviewer approval, ask user:
 ```
 AskUserQuestion:
   questions: [{
-    "question": "Plan approved by reviewers. Run /iflow:create-tasks?",
+    "question": "Plan approved by reviewers. Run /iflow-dev:create-tasks?",
     "header": "Next Step",
     "options": [
       {"label": "Yes", "description": "Break plan into actionable tasks"},
@@ -186,5 +214,5 @@ AskUserQuestion:
 ```
 
 Based on selection:
-- "Yes" → Invoke /iflow:create-tasks
-- "No" → Show: "Plan at {path}/plan.md. Run /iflow:create-tasks when ready."
+- "Yes" → Invoke /iflow-dev:create-tasks
+- "No" → Show: "Plan at {path}/plan.md. Run /iflow-dev:create-tasks when ready."
