@@ -6,9 +6,9 @@ Structured feature development workflow with skills, agents, and commands for me
 
 | Type | Count |
 |------|-------|
-| Skills | 19 |
-| Agents | 21 |
-| Commands | 16 |
+| Skills | 20 |
+| Agents | 22 |
+| Commands | 17 |
 | Hooks | 5 |
 
 ## Commands
@@ -40,6 +40,7 @@ Structured feature development workflow with skills, agents, and commands for me
 | `/iflow:cleanup-brainstorms` | Delete old scratch files |
 | `/iflow:sync-cache` | Reload plugin after changes |
 | `/iflow:secretary` | Intelligent task routing to commands/agents |
+| `/iflow:root-cause-analysis` | Investigate bugs and failures to find all root causes |
 
 ## Design Phase Workflow
 
@@ -113,6 +114,7 @@ Stage 2: CHAIN-REVIEWER (Execution Readiness)
 | skill-searcher | Finds relevant existing skills |
 | spec-reviewer | Verifies implementation matches spec |
 | task-breakdown-reviewer | Validates task breakdown quality |
+| rca-investigator | Finds all root causes through 6-phase systematic investigation |
 | secretary | Intelligent task routing with discovery, interpretation, and delegation |
 
 ## Installation
