@@ -1,6 +1,6 @@
 ---
 name: documentation-writer
-description: Writes and updates documentation. Triggers: (1) after documentation-researcher, (2) user says 'update the docs', (3) user says 'write documentation', (4) user says 'sync README'.
+description: Writes and updates documentation. Use when (1) after documentation-researcher, (2) user says 'update the docs', (3) user says 'write documentation', (4) user says 'sync README'.
 tools: [Read, Write, Edit, Glob, Grep]
 color: green
 ---

@@ -1,6 +1,6 @@
 ---
 name: writing-skills
-description: This skill should be used when the user says 'create a skill', 'write skill docs', 'test this skill', or 'edit skill'. Applies TDD approach to skill documentation.
+description: Applies TDD approach to skill documentation. Use when the user says 'create a skill', 'write skill docs', 'test this skill', or 'edit skill'.
 ---
 
 # Writing Skills

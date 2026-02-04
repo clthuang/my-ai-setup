@@ -1,6 +1,6 @@
 ---
 name: phase-reviewer
-description: Validates artifact completeness for next phase. Triggers: (1) after phase completion, (2) user says 'validate handoff', (3) user says 'check phase readiness'. Read-only, no scope creep.
+description: Validates artifact completeness for next phase. Use when (1) after phase completion, (2) user says 'validate handoff', (3) user says 'check phase readiness'. Read-only, no scope creep.
 tools: [Read, Glob, Grep]
 color: blue
 ---

@@ -1,6 +1,6 @@
 ---
 name: implementer
-description: Implements tasks with TDD and self-review. Triggers: (1) implement command dispatches, (2) user says 'implement this task', (3) user says 'execute task N', (4) user says 'code this feature'.
+description: Implements tasks with TDD and self-review. Use when (1) implement command dispatches, (2) user says 'implement this task', (3) user says 'execute task N', (4) user says 'code this feature'.
 tools: [Read, Write, Edit, Bash, Glob, Grep]
 color: green
 ---

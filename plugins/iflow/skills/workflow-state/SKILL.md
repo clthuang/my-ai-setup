@@ -1,6 +1,6 @@
 ---
 name: workflow-state
-description: This skill should be used internally when checking phase prerequisites or managing workflow state. Defines phase sequence and validates transitions.
+description: Defines phase sequence and validates transitions. Use when checking phase prerequisites or managing workflow state.
 ---
 
 # Workflow State Management
@@ -35,8 +35,8 @@ These transitions are **blocked** if prerequisites are missing:
 
 | Target Phase | Required Artifact | Error Message |
 |--------------|-------------------|---------------|
-| /iflow:implement | spec.md | "spec.md required before implementation. Run /iflow:specify first." |
-| /iflow:create-tasks | plan.md | "plan.md required before task creation. Run /iflow:create-plan first." |
+| /iflow-dev:implement | spec.md | "spec.md required before implementation. Run /iflow-dev:specify first." |
+| /iflow-dev:create-tasks | plan.md | "plan.md required before task creation. Run /iflow-dev:create-plan first." |
 
 If blocked: Show error message, do not proceed.
 
@@ -175,8 +175,8 @@ function validateArtifact(path, type):
 
 **Usage in Commands:**
 Commands with hard prerequisites should call validateArtifact instead of just checking existence:
-- `/iflow:implement` validates spec.md
-- `/iflow:create-tasks` validates plan.md
+- `/iflow-dev:implement` validates spec.md
+- `/iflow-dev:create-tasks` validates plan.md
 
 ---
 
@@ -358,7 +358,7 @@ Terminal statuses cannot be changed. New work requires a new feature.
 
 ### Status Updates
 
-The `/iflow:finish` command updates status to terminal values:
+The `/iflow-dev:finish` command updates status to terminal values:
 
 ```json
 // For completed features
@@ -371,4 +371,4 @@ The `/iflow:finish` command updates status to terminal values:
 ## Review History
 
 During development, `.review-history.md` tracks iteration feedback.
-On `/iflow:finish`, this file is deleted (git has the permanent record).
+On `/iflow-dev:finish`, this file is deleted (git has the permanent record).

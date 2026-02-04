@@ -1,6 +1,6 @@
 ---
 name: breaking-down-tasks
-description: This skill should be used when the user says 'break down the plan', 'create tasks', 'split into tasks', or 'generate task list'. Breaks plans into small, actionable tasks with dependency tracking.
+description: Breaks plans into small, actionable tasks with dependency tracking. Use when the user says 'break down the plan', 'create tasks', 'split into tasks', or 'generate task list'.
 ---
 
 # Task Breakdown Phase

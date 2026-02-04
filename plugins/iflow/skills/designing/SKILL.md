@@ -1,6 +1,6 @@
 ---
 name: designing
-description: This skill should be used when the user says 'design the architecture', 'create technical design', 'define interfaces', or 'plan the structure'. Creates design.md with architecture and contracts.
+description: Creates design.md with architecture and contracts. Use when the user says 'design the architecture', 'create technical design', 'define interfaces', or 'plan the structure'.
 ---
 
 # Design Phase
@@ -10,7 +10,7 @@ Design the technical architecture.
 ## Prerequisites
 
 - If `spec.md` exists: Read for requirements
-- If not: "No spec found. Run /iflow:specify first, or describe requirements now."
+- If not: "No spec found. Run /iflow-dev:specify first, or describe requirements now."
 
 ## Read Feature Context
 
@@ -139,4 +139,4 @@ Errors: {error cases}
 ## Completion
 
 "Design complete. Saved to design.md."
-"Run /iflow:verify to check, or /iflow:create-plan to continue."
+"Run /iflow-dev:verify to check, or /iflow-dev:create-plan to continue."

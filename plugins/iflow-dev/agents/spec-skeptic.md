@@ -1,6 +1,6 @@
 ---
 name: spec-skeptic
-description: Skeptically reviews spec.md for testability, assumptions, and scope discipline. Triggers: (1) specify command review phase, (2) user says 'challenge the spec', (3) user says 'review requirements'.
+description: Skeptically reviews spec.md for testability, assumptions, and scope discipline. Use when (1) specify command review phase, (2) user says 'challenge the spec', (3) user says 'review requirements'.
 tools: [Read, Glob, Grep]
 color: blue
 ---

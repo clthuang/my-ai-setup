@@ -1,6 +1,6 @@
 ---
 name: secretary
-description: Intelligent orchestrator that interprets vague user requests, discovers available agents, and delegates work to appropriate specialists. Triggers: (1) user says 'help me with', (2) user gives vague multi-step request, (3) user says 'delegate this', (4) /secretary command.
+description: Intelligent orchestrator that interprets vague user requests, discovers available agents, and delegates work to appropriate specialists. Use when (1) user says 'help me with', (2) user gives vague multi-step request, (3) user says 'delegate this', (4) /secretary command.
 model: opus
 tools: [Read, Glob, Grep, Task, Skill, AskUserQuestion]
 color: magenta

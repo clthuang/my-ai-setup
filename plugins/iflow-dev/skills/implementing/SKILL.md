@@ -1,6 +1,6 @@
 ---
 name: implementing
-description: This skill should be used when the user says 'implement the feature', 'start coding', 'write the code', or 'execute tasks'. Guides phased TDD implementation (Interface → RED-GREEN → REFACTOR).
+description: Guides phased TDD implementation (Interface → RED-GREEN → REFACTOR). Use when the user says 'implement the feature', 'start coding', 'write the code', or 'execute tasks'.
 ---
 
 # Implementation Phase

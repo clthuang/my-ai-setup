@@ -1,6 +1,6 @@
 ---
 name: documentation-researcher
-description: Researches documentation state and identifies update needs. Triggers: (1) updating-docs skill Step 1, (2) user says 'check what docs need updating', (3) user says 'audit documentation'.
+description: Researches documentation state and identifies update needs. Use when (1) updating-docs skill Step 1, (2) user says 'check what docs need updating', (3) user says 'audit documentation'.
 tools: [Read, Glob, Grep]
 color: cyan
 ---

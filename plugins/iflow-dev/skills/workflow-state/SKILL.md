@@ -1,6 +1,6 @@
 ---
 name: workflow-state
-description: This skill should be used internally when checking phase prerequisites or managing workflow state. Defines phase sequence and validates transitions.
+description: Defines phase sequence and validates transitions. Use when checking phase prerequisites or managing workflow state.
 ---
 
 # Workflow State Management
