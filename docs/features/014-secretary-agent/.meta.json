@@ -1,7 +1,8 @@
 {
   "id": "014",
   "slug": "secretary-agent",
-  "status": "active",
+  "status": "completed",
+  "completed": "2026-02-04T21:00:00Z",
   "mode": "full",
   "created": "2026-02-04T12:00:00Z",
   "branch": "feature/014-secretary-agent",
@@ -59,6 +60,7 @@
   "currentPhase": "finish",
   "phases_finish": {
     "started": "2026-02-04T20:30:00Z",
-    "retro_completed": "2026-02-04T20:45:00Z"
+    "retro_completed": "2026-02-04T20:45:00Z",
+    "completed": "2026-02-04T21:00:00Z"
   }
 }
