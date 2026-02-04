@@ -1,7 +1,8 @@
 ---
 name: plan-reviewer
-description: Skeptical plan reviewer that identifies failure modes, untested assumptions, and validates TDD approach. Use when reviewing plan.md before chain validation.
+description: Skeptically reviews plans for failure modes. Triggers: (1) create-plan command review, (2) user says 'review the plan', (3) user says 'challenge assumptions', (4) user says 'find plan gaps'.
 tools: [Read, Glob, Grep, WebSearch, WebFetch, mcp__context7__resolve-library-id, mcp__context7__query-docs]
+color: blue
 ---
 
 # Plan Reviewer Agent

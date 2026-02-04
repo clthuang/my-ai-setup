@@ -1,7 +1,8 @@
 ---
 name: code-simplifier
-description: Identifies unnecessary complexity and suggests simplifications. Use when simplifying implementation after code is written.
+description: Identifies unnecessary complexity and suggests simplifications. Triggers: (1) after implementation phase, (2) user says 'simplify the code', (3) user says 'remove complexity'.
 tools: [Read, Glob, Grep]
+color: red
 ---
 
 # Code Simplifier

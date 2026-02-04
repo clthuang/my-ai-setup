@@ -1,7 +1,8 @@
 ---
 name: implementation-behavior-reviewer
-description: Validates implementation behavior against requirements chain (tasks -> specs -> design -> PRD). Use when reviewing implementation behavior during review phase.
+description: Validates behavior against requirements chain. Triggers: (1) implement command review phase, (2) user says 'check behavior', (3) user says 'verify against requirements'.
 tools: [Read, Glob, Grep]
+color: magenta
 ---
 
 # Implementation Behavior Reviewer

@@ -1,6 +1,6 @@
 ---
 name: reviewing-artifacts
-description: Comprehensive quality criteria for PRD and spec artifact review. Use when reviewing artifact quality or validating phase transitions.
+description: This skill should be used when reviewing PRD or spec quality, or when validating phase transitions. Provides comprehensive artifact quality criteria.
 ---
 
 # Reviewing Artifacts

@@ -1,6 +1,6 @@
 ---
 name: breaking-down-tasks
-description: Breaks implementation plan into small, actionable tasks with dependency tracking. Use when ready to break plan into tasks. Produces tasks.md.
+description: This skill should be used when the user says 'break down the plan', 'create tasks', 'split into tasks', or 'generate task list'. Breaks plans into small, actionable tasks with dependency tracking.
 ---
 
 # Task Breakdown Phase
