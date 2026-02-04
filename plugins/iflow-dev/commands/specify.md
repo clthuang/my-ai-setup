@@ -90,34 +90,38 @@ Update `.meta.json`:
 }
 ```
 
-### 4. Execute with Reviewer Loop
+### 4. Execute with Two-Stage Reviewer Loop
 
 Get max iterations from mode: Standard=1, Full=3.
 
+#### Stage 1: Spec-Skeptic Review (Quality Gate)
+
 a. **Produce artifact:** Follow the specifying skill to create/revise spec.md
 
-b. **Invoke reviewer:** Use the Task tool to spawn chain-reviewer:
+b. **Invoke spec-skeptic:** Use the Task tool to spawn spec-skeptic (the skeptic):
    ```
    Task tool call:
-     description: "Review spec for chain sufficiency"
-     subagent_type: iflow-dev:chain-reviewer
+     description: "Skeptical review of spec quality"
+     subagent_type: iflow-dev:spec-skeptic
      prompt: |
-       Review the following artifacts for chain sufficiency.
+       Skeptically review spec.md for testability, assumptions, and scope discipline.
 
-       ## Previous Artifact (prd.md)
+       ## PRD (original requirements)
        {content of prd.md, or "None - feature created without brainstorm"}
 
-       ## Current Artifact (spec.md)
+       ## Spec (what you're reviewing)
        {content of spec.md}
 
-       ## Next Phase Expectations
-       Design needs: All requirements listed, acceptance criteria defined,
-       scope boundaries clear.
+       ## Iteration Context
+       This is iteration {n} of {max}.
+
+       Your job: Find weaknesses before design does.
+       Be the skeptic. Challenge assumptions. Find gaps.
 
        Return your assessment as JSON:
        {
          "approved": true/false,
-         "issues": [...],
+         "issues": [{"severity": "blocker|warning|suggestion", "category": "...", "description": "...", "location": "...", "suggestion": "..."}],
          "summary": "..."
        }
    ```
@@ -126,26 +130,62 @@ c. **Parse response:** Extract the `approved` field from reviewer's JSON respons
    - If response is not valid JSON, ask reviewer to retry with correct format.
 
 d. **Branch on result:**
-   - If `approved: true` → Proceed to step 4e
+   - If `approved: true` → Proceed to Stage 2
    - If `approved: false` AND iteration < max:
-     - Append iteration to `.review-history.md` using format below
+     - Append iteration to `.review-history.md` with "Stage 1: Spec-Skeptic Review" marker
      - Increment iteration counter
      - Address the issues by revising spec.md
      - Return to step 4b
    - If `approved: false` AND iteration == max:
      - Note concerns in `.meta.json` reviewerNotes
-     - Proceed to step 4e
+     - Proceed to Stage 2 with warning
 
-e. **Complete phase:** Update state and show completion message.
+#### Stage 2: Phase-Reviewer Validation (Handoff Gate)
+
+e. **Invoke phase-reviewer:** Use the Task tool to spawn phase-reviewer (the gatekeeper):
+   ```
+   Task tool call:
+     description: "Validate spec ready for design"
+     subagent_type: iflow-dev:phase-reviewer
+     prompt: |
+       Validate this spec is ready for an engineer to design against.
+
+       ## PRD (original requirements)
+       {content of prd.md, or "None - feature created without brainstorm"}
+
+       ## Spec (what you're reviewing)
+       {content of spec.md}
+
+       ## Next Phase Expectations
+       Design needs: All requirements listed, acceptance criteria defined,
+       scope boundaries clear, no ambiguities.
+
+       Return your assessment as JSON:
+       {
+         "approved": true/false,
+         "issues": [{"severity": "blocker|warning|suggestion", "description": "...", "location": "...", "suggestion": "..."}],
+         "summary": "..."
+       }
+   ```
+
+f. **Single pass - no loop.** The spec-skeptic already validated spec quality.
+
+g. **Record result:**
+   - If `approved: false`: Store concerns in `.meta.json` phaseReview.reviewerNotes
+   - Note concerns but do NOT block (spec-skeptic already validated)
+
+h. **Complete phase:** Update state and show completion message.
 
 **Review History Entry Format** (append to `.review-history.md`):
 ```markdown
-## Iteration {n} - {ISO timestamp}
+## {Stage 1: Spec-Skeptic Review | Stage 2: Phase Review} - Iteration {n} - {ISO timestamp}
 
+**Reviewer:** {spec-skeptic (skeptic) | phase-reviewer (gatekeeper)}
 **Decision:** {Approved / Needs Revision}
 
 **Issues:**
-- [{severity}] {description} (at: {location})
+- [{severity}] [{category}] {description} (at: {location})
+  Suggestion: {suggestion}
 
 **Changes Made:**
 {Summary of revisions made to address issues}

@@ -12,7 +12,7 @@ Manage feature workflow state and validate phase transitions.
 The canonical workflow order:
 
 ```
-brainstorm → specify → design → create-plan → create-tasks → implement → verify → finish
+brainstorm → specify → design → create-plan → create-tasks → implement → finish
 ```
 
 | Phase | Produces | Required Before |
@@ -22,8 +22,7 @@ brainstorm → specify → design → create-plan → create-tasks → implement
 | design | design.md | create-plan |
 | create-plan | plan.md | create-tasks |
 | create-tasks | tasks.md | implement |
-| implement | code changes | verify |
-| verify | verification | finish |
+| implement | code changes | finish |
 | finish | (terminal) | — |
 
 ## Transition Validation
@@ -61,7 +60,7 @@ AskUserQuestion:
 Examples:
 - brainstorm → design (skips specify) → warn
 - specify → create-tasks (skips design, create-plan) → warn
-- Any phase → verify (out of order) → warn
+- Any phase → finish (out of order) → warn
 
 ### Normal Transitions (Proceed)
 
@@ -80,7 +79,7 @@ function validateTransition(currentPhase, targetPhase, artifacts):
     return { allowed: false, type: "blocked", message: "plan.md required..." }
 
   # Phase sequence for ordering
-  sequence = [brainstorm, specify, design, create-plan, create-tasks, implement, verify, finish]
+  sequence = [brainstorm, specify, design, create-plan, create-tasks, implement, finish]
   currentIndex = sequence.indexOf(currentPhase) or -1
   targetIndex = sequence.indexOf(targetPhase)
 
@@ -313,7 +312,7 @@ The design phase uses a 4-stage workflow with detailed tracking:
 | architecture | High-level structure, components, decisions, risks | None (validated in designReview) |
 | interface | Precise contracts between components | None (validated in designReview) |
 | designReview | Challenge assumptions, find gaps, ensure robustness | design-reviewer (skeptic) |
-| handoffReview | Ensure plan phase has everything it needs | chain-reviewer (gatekeeper) |
+| handoffReview | Ensure plan phase has everything it needs | phase-reviewer (gatekeeper) |
 
 ### Stage Object Fields
 
@@ -336,8 +335,8 @@ The design phase uses a 4-stage workflow with detailed tracking:
 |-------|------|-------------|
 | started | ISO8601 | When stage began |
 | completed | ISO8601/null | When stage completed |
-| approved | boolean | Whether chain-reviewer approved |
-| reviewerNotes | array | Concerns noted by chain-reviewer |
+| approved | boolean | Whether phase-reviewer approved |
+| reviewerNotes | array | Concerns noted by phase-reviewer |
 
 ### Recovery from Partial Design Phase
 

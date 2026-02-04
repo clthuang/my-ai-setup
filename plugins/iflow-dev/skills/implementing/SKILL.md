@@ -16,7 +16,6 @@ Execute the implementation plan with a structured phased approach.
 
 For complex implementations:
 - `implementing-with-tdd` - RED-GREEN-REFACTOR discipline
-- `verifying-before-completion` - Evidence before claims
 
 ## Read Feature Context
 
