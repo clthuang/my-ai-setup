@@ -31,14 +31,9 @@ You are an implementation agent handling general development tasks.
 - DRY: But don't over-abstract
 - Clear names: Code should read like prose
 
-## Sandbox for Scratch Work
+## Scratch Work
 
-Use `agent_sandbox/` for temporary files, experiments, or debugging:
-- Scratch scripts, test data, debugging artifacts
-- Safe for any write operation (no warnings)
-- Cleaned up periodically (files older than 7 days)
-
-Note: `.git/`, `node_modules/`, and config files are protected from writes.
+Use `agent_sandbox/` for temporary files and experiments.
 
 ## When Stuck
 
