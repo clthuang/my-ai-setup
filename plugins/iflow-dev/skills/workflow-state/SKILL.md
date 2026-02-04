@@ -79,17 +79,107 @@ function validateTransition(currentPhase, targetPhase, artifacts):
   if targetPhase == "create-tasks" and not artifacts.plan:
     return { allowed: false, type: "blocked", message: "plan.md required..." }
 
-  # Check if skipping phases
+  # Phase sequence for ordering
   sequence = [brainstorm, specify, design, create-plan, create-tasks, implement, verify, finish]
   currentIndex = sequence.indexOf(currentPhase) or -1
   targetIndex = sequence.indexOf(targetPhase)
 
+  # Backward transition detection
+  if targetIndex < currentIndex AND currentIndex >= 0:
+    return {
+      allowed: true,
+      type: "backward",
+      message: "Phase '{targetPhase}' was already completed. Re-running will update timestamps but not undo previous work."
+    }
+
+  # Check if skipping phases (forward jump)
   if targetIndex > currentIndex + 1:
     skipped = sequence[currentIndex+1 : targetIndex]
     return { allowed: true, type: "warning", message: "Skipping {skipped}..." }
 
   return { allowed: true, type: "proceed", message: null }
 ```
+
+### Backward Transition Warning
+
+When `validateTransition` returns `type: "backward"`, commands should use AskUserQuestion:
+
+```
+AskUserQuestion:
+  questions: [{
+    "question": "Phase '{targetPhase}' was already completed. Re-running will update timestamps but not undo previous work. Continue?",
+    "header": "Backward",
+    "options": [
+      {"label": "Continue", "description": "Re-run the phase"},
+      {"label": "Cancel", "description": "Stay at current phase"}
+    ],
+    "multiSelect": false
+  }]
+```
+
+If "Cancel": Stop execution.
+
+## Artifact Validation
+
+Beyond existence checks, validate artifact content quality before allowing phase transitions.
+
+### validateArtifact(path, type)
+
+**Level 1: Existence**
+- File exists at path
+
+**Level 2: Non-Empty**
+- File size > 100 bytes (prevents empty/stub files)
+
+**Level 3: Structure**
+- Has at least one markdown header (## )
+
+**Level 4: Type-Specific Sections**
+
+| Type | Required Sections |
+|------|-------------------|
+| spec.md | "## Success Criteria" OR "## Acceptance Criteria" |
+| design.md | "## Components" OR "## Architecture" |
+| plan.md | "## Implementation Order" OR "## Phase" |
+| tasks.md | "## Phase" OR "### Task" |
+
+**Implementation:**
+```
+function validateArtifact(path, type):
+  # Level 1
+  if not exists(path):
+    return { valid: false, level: 1, error: "File not found" }
+
+  content = read(path)
+
+  # Level 2
+  if len(content) < 100:
+    return { valid: false, level: 2, error: "File appears empty or stub (< 100 bytes)" }
+
+  # Level 3
+  if not contains(content, "## "):
+    return { valid: false, level: 3, error: "Missing markdown structure (no ## headers)" }
+
+  # Level 4
+  requiredSections = getSectionsForType(type)
+  foundAny = false
+  for section in requiredSections:
+    if contains(content, section):
+      foundAny = true
+      break
+
+  if not foundAny:
+    return { valid: false, level: 4, error: "Missing required sections: {requiredSections}" }
+
+  return { valid: true }
+```
+
+**Usage in Commands:**
+Commands with hard prerequisites should call validateArtifact instead of just checking existence:
+- `/iflow-dev:implement` validates spec.md
+- `/iflow-dev:create-tasks` validates plan.md
+
+---
 
 ## State Schema
 
@@ -107,6 +197,7 @@ The `.meta.json` file in each feature folder:
   "brainstorm_source": "docs/brainstorms/20260130-143052-feature-slug.prd.md",
   "backlog_source": "00001",
   "currentPhase": "specify",
+  "skippedPhases": [],
   "phases": {
     "specify": {
       "started": "2026-01-30T01:00:00Z",
@@ -136,6 +227,28 @@ The `.meta.json` file in each feature folder:
 |-------|------|-------------|
 | brainstorm_source | string/null | Path to original PRD if promoted from brainstorm |
 | backlog_source | string/null | Backlog item ID if promoted from backlog |
+
+### Skip Tracking Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| skippedPhases | array | Record of phases skipped via soft prerequisites |
+
+**skippedPhases Entry Structure:**
+```json
+{
+  "phase": "design",
+  "skippedAt": "2026-01-30T01:00:00Z",
+  "fromPhase": "specify",
+  "toPhase": "create-plan"
+}
+```
+
+When user confirms skipping phases via AskUserQuestion soft prerequisite warning:
+1. Read current `.meta.json`
+2. Append to `skippedPhases` array for each skipped phase
+3. Write updated `.meta.json`
+4. Proceed with target phase
 
 ### Phase Tracking Fields
 

@@ -12,18 +12,48 @@ Read docs/features/ to find active feature, then follow the workflow below.
 
 Before executing, check prerequisites using workflow-state skill:
 - Read current `.meta.json` state
-- Check for plan.md existence
+- Validate plan.md using `validateArtifact(path, "plan.md")`
 
-**HARD BLOCK:** If plan.md does not exist:
+**HARD BLOCK:** If plan.md validation fails:
 ```
-BLOCKED: plan.md required before task creation.
+❌ BLOCKED: Valid plan.md required before task creation.
 
-Task breakdown requires an implementation plan to work from.
-Run /iflow-dev:create-plan first to create the plan.
+{Level 1}: plan.md not found. Run /iflow-dev:create-plan first.
+{Level 2}: plan.md appears empty or stub. Run /iflow-dev:create-plan to complete it.
+{Level 3}: plan.md missing markdown structure. Run /iflow-dev:create-plan to fix.
+{Level 4}: plan.md missing required sections (Implementation Order or Phase). Run /iflow-dev:create-plan to add them.
 ```
 Stop execution. Do not proceed.
 
-- If warning (skipping other phases): Show warning, ask to proceed
+- If backward (re-running completed phase): Use AskUserQuestion:
+  ```
+  AskUserQuestion:
+    questions: [{
+      "question": "Phase 'create-tasks' was already completed. Re-running will update timestamps but not undo previous work. Continue?",
+      "header": "Backward",
+      "options": [
+        {"label": "Continue", "description": "Re-run the phase"},
+        {"label": "Cancel", "description": "Stay at current phase"}
+      ],
+      "multiSelect": false
+    }]
+  ```
+  If "Cancel": Stop execution.
+- If warning (skipping other phases): Show warning via AskUserQuestion:
+  ```
+  AskUserQuestion:
+    questions: [{
+      "question": "Skipping {skipped phases}. This may reduce artifact quality. Continue anyway?",
+      "header": "Skip",
+      "options": [
+        {"label": "Continue", "description": "Proceed despite skipping phases"},
+        {"label": "Stop", "description": "Return to complete skipped phases"}
+      ],
+      "multiSelect": false
+    }]
+  ```
+  If "Continue": Record skipped phases in `.meta.json` skippedPhases array, then proceed.
+  If "Stop": Stop execution.
 
 ### 1b. Check Branch
 

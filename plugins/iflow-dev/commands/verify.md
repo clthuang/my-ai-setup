@@ -13,6 +13,20 @@ Read docs/features/ to find active feature and determine phase, then follow the 
 Before executing, check state using workflow-state skill:
 - Read current `.meta.json` state
 - Determine which phase to verify (most recent completed phase)
+- If backward (re-running completed verification): Use AskUserQuestion:
+  ```
+  AskUserQuestion:
+    questions: [{
+      "question": "Phase 'verify' was already completed. Re-running will update timestamps but not undo previous work. Continue?",
+      "header": "Backward",
+      "options": [
+        {"label": "Continue", "description": "Re-run verification"},
+        {"label": "Cancel", "description": "Stay at current phase"}
+      ],
+      "multiSelect": false
+    }]
+  ```
+  If "Cancel": Stop execution.
 
 **WARNING:** If verifying a phase that isn't marked completed, use AskUserQuestion:
 ```
@@ -46,6 +60,25 @@ If feature has a branch defined in `.meta.json`:
     }]
   ```
 - Skip this check if branch is null (legacy feature)
+
+### 1c. Check for Partial Phase
+
+If `phases.verify.started` exists but `phases.verify.completed` is null:
+
+```
+AskUserQuestion:
+  questions: [{
+    "question": "Detected partial verification. How to proceed?",
+    "header": "Recovery",
+    "options": [
+      {"label": "Continue", "description": "Resume from where you left off"},
+      {"label": "Start Fresh", "description": "Begin verification anew"}
+    ],
+    "multiSelect": false
+  }]
+```
+
+If "Start Fresh": Clear `phases.verify.started` from `.meta.json`.
 
 ### 2. Execute Verification
 

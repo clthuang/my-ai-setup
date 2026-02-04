@@ -31,7 +31,28 @@ Once target feature is determined, read feature context and follow the workflow 
 
 ## Workflow Integration
 
-### 1. Ensure Correct Branch
+### 1. Validate Transition
+
+Before executing, check prerequisites using workflow-state skill:
+- Read current `.meta.json` state
+- Apply validateTransition logic for target phase "specify"
+- If blocked: Show error, stop
+- If backward (re-running completed phase): Use AskUserQuestion:
+  ```
+  AskUserQuestion:
+    questions: [{
+      "question": "Phase 'specify' was already completed. Re-running will update timestamps but not undo previous work. Continue?",
+      "header": "Backward",
+      "options": [
+        {"label": "Continue", "description": "Re-run the phase"},
+        {"label": "Cancel", "description": "Stay at current phase"}
+      ],
+      "multiSelect": false
+    }]
+  ```
+  If "Cancel": Stop execution.
+
+### 1b. Check Branch
 
 Read `.meta.json` for branch name.
 If current branch != expected:
