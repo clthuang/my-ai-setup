@@ -216,6 +216,7 @@ Hooks execute automatically at lifecycle points.
 | `sync-cache` | Session start | Syncs plugin source to Claude cache |
 | `cleanup-locks` | Session start | Removes stale lock files |
 | `pre-commit-guard` | Before git commit | Branch protection and iflow directory protection |
+| `write-control` | PreToolUse (Write/Edit) | Path-based write restrictions for agent subprocesses |
 
 Defined in `plugins/iflow-dev/hooks/hooks.json`.
 

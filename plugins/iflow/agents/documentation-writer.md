@@ -93,6 +93,12 @@ Return summary of changes:
 - **Minimal**: Only document user-visible changes
 - **Accurate**: Only document what was actually implemented
 
+## Sandbox for Drafts
+
+Use `agent_sandbox/` for draft content or experiments:
+- Safe for any write operation (no warnings)
+- Note: `.git/`, `node_modules/`, and config files are protected from writes
+
 ## What You MUST NOT Do
 
 - Create new documentation files unless explicitly needed

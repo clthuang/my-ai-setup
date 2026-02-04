@@ -33,3 +33,6 @@ venv/
 # Temporary files
 *.tmp
 *.bak
+
+# Agent sandbox (temporary investigation files)
+agent_sandbox/
