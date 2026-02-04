@@ -1,0 +1,17 @@
+{
+  "id": "015",
+  "slug": "agent-write-control",
+  "status": "active",
+  "mode": "full",
+  "created": "2026-02-04T21:30:00Z",
+  "branch": "feature/015-agent-write-control",
+  "brainstorm_source": "docs/brainstorms/20260204-agent-write-control.prd.md",
+  "phases": {
+    "brainstorm": {
+      "started": "2026-02-04T21:00:00Z",
+      "completed": "2026-02-04T21:30:00Z",
+      "iterations": 2
+    }
+  },
+  "currentPhase": "brainstorm"
+}
