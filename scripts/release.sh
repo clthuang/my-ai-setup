@@ -156,8 +156,8 @@ bump_version() {
 #############################################
 
 copy_dev_to_prod() {
-    success "Copying iflow-dev to iflow..."
-    cp -r plugins/iflow-dev/* plugins/iflow/
+    success "Syncing iflow-dev to iflow (with deletions)..."
+    rsync -av --delete --exclude='.claude-plugin/plugin.json' plugins/iflow-dev/ plugins/iflow/
 
     # Convert plugin references from iflow-dev to iflow
     # This handles both command refs (/iflow-dev:verify → /iflow:verify)

@@ -53,11 +53,9 @@ Before reporting, review with fresh eyes:
 
 If you find issues during self-review, fix them before reporting.
 
-## Sandbox for Scratch Work
+## Scratch Work
 
-Use `agent_sandbox/` for temporary files, experiments, or debugging:
-- Safe for any write operation (no warnings)
-- Note: `.git/`, `node_modules/`, and config files are protected from writes
+Use `agent_sandbox/` for temporary files and experiments.
 
 ## Report Format
 

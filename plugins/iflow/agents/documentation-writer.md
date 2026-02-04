@@ -93,11 +93,9 @@ Return summary of changes:
 - **Minimal**: Only document user-visible changes
 - **Accurate**: Only document what was actually implemented
 
-## Sandbox for Drafts
+## Scratch Work
 
-Use `agent_sandbox/` for draft content or experiments:
-- Safe for any write operation (no warnings)
-- Note: `.git/`, `node_modules/`, and config files are protected from writes
+Use `agent_sandbox/` for draft content or experiments.
 
 ## What You MUST NOT Do
 

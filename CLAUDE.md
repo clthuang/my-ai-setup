@@ -13,6 +13,13 @@ Claude Code plugin providing a structured feature development workflow—skills,
 - **Retro before cleanup** - Retrospective runs BEFORE branch deletion so context is still available.
 - **Edit *-dev plugins only** - Never edit `plugins/iflow/` directly. Make changes in `plugins/iflow-dev/`, then run release script to sync.
 
+## Writing Guidelines
+
+**Agents with Write/Edit access should use judgment.** Avoid modifying:
+- `.git/`, `node_modules/`, `.env*`, `*.key`, `*.pem`, lockfiles
+
+Use `agent_sandbox/` for temporary files, experiments, and debugging.
+
 ## User Input Standards
 
 **All interactive choices MUST use AskUserQuestion tool:**

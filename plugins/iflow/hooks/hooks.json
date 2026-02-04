@@ -47,15 +47,6 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-commit-guard.sh"
           }
         ]
-      },
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/write-control.sh"
-          }
-        ]
       }
     ]
   }
