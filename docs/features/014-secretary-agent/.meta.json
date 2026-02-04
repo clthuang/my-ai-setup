@@ -58,6 +58,7 @@
   },
   "currentPhase": "finish",
   "phases_finish": {
-    "started": "2026-02-04T20:30:00Z"
+    "started": "2026-02-04T20:30:00Z",
+    "retro_completed": "2026-02-04T20:45:00Z"
   }
 }
