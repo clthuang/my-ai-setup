@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-02-04
+
+### Added
+- Secretary agent for intelligent task routing with 5 modules (Discovery, Interpreter, Matcher, Recommender, Delegator)
+- `/iflow:secretary` command for manual invocation
+- `inject-secretary-context.sh` hook for aware mode activation
+- Activation modes: manual (explicit command) and aware (automatic via `.claude/secretary.local.md`)
+
 ## [1.3.0] - 2026-02-03
 
 ### Added
