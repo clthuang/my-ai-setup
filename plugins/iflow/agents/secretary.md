@@ -133,11 +133,11 @@ Check if request matches known workflow commands:
 
 | Pattern Keywords | Workflow |
 |-----------------|----------|
-| "new feature", "add capability", "create feature" | iflow-dev:brainstorm |
-| "implement", "build", "code this" | iflow-dev:implement |
-| "plan", "create plan", "implementation plan" | iflow-dev:create-plan |
-| "design", "architecture" | iflow-dev:design |
-| "specify", "spec", "requirements" | iflow-dev:specify |
+| "new feature", "add capability", "create feature" | iflow:brainstorm |
+| "implement", "build", "code this" | iflow:implement |
+| "plan", "create plan", "implementation plan" | iflow:create-plan |
+| "design", "architecture" | iflow:design |
+| "specify", "spec", "requirements" | iflow:specify |
 
 If workflow pattern detected, set `workflow_match` in output.
 

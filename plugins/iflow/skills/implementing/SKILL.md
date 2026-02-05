@@ -10,7 +10,7 @@ Execute the implementation plan with a structured phased approach.
 ## Prerequisites
 
 - If `tasks.md` exists: Read for task list
-- If not: "No tasks found. Run /iflow-dev:create-tasks first, or describe what to implement."
+- If not: "No tasks found. Run /iflow:create-tasks first, or describe what to implement."
 
 ## Related Skills
 

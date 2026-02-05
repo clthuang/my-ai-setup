@@ -10,7 +10,7 @@ Create small, actionable, testable tasks with clear dependencies for parallel ex
 ## Prerequisites
 
 - If `plan.md` exists: Read for implementation order
-- If not: "No plan found. Run /iflow-dev:create-plan first."
+- If not: "No plan found. Run /iflow:create-plan first."
 
 ## Read Feature Context
 
@@ -177,4 +177,4 @@ If TodoWrite:
 ## Completion
 
 "Tasks created. {n} tasks across {m} phases, {p} parallel groups."
-"Run /iflow-dev:verify to check, or /iflow-dev:implement to start building."
+"Run /iflow:verify to check, or /iflow:implement to start building."
