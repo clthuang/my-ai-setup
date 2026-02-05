@@ -26,7 +26,7 @@ This guide documents the review system redesign (v2.2.0) and evidence-grounded p
 
 | Component | Type | Purpose |
 |-----------|------|---------|
-| `spec-skeptic` | Agent | Reviews spec.md during specify phase for testability, assumptions, scope |
+| `spec-reviewer` | Agent | Reviews spec.md during specify phase for testability, assumptions, scope |
 | `implementation-reviewer` | Agent | 4-level validation (Tasks → Spec → Design → PRD) |
 
 ## Migration for Custom Workflows
@@ -62,7 +62,7 @@ The new system uses a consistent two-tier pattern for each phase:
 
 | Phase | Skeptic Agent | Focus |
 |-------|---------------|-------|
-| Specify | `spec-skeptic` | Testability, assumptions, scope |
+| Specify | `spec-reviewer` | Testability, assumptions, scope |
 | Design | `design-reviewer` | Robustness, completeness |
 | Plan | `plan-reviewer` | Failure modes, TDD order |
 | Tasks | `task-reviewer` | Executability, size |

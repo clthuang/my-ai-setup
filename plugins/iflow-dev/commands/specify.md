@@ -94,15 +94,15 @@ Update `.meta.json`:
 
 Get max iterations from mode: Standard=1, Full=3.
 
-#### Stage 1: Spec-Skeptic Review (Quality Gate)
+#### Stage 1: Spec-Reviewer Review (Quality Gate)
 
 a. **Produce artifact:** Follow the specifying skill to create/revise spec.md
 
-b. **Invoke spec-skeptic:** Use the Task tool to spawn spec-skeptic (the skeptic):
+b. **Invoke spec-reviewer:** Use the Task tool to spawn spec-reviewer (the skeptic):
    ```
    Task tool call:
      description: "Skeptical review of spec quality"
-     subagent_type: iflow-dev:spec-skeptic
+     subagent_type: iflow-dev:spec-reviewer
      prompt: |
        Skeptically review spec.md for testability, assumptions, and scope discipline.
 
@@ -132,7 +132,7 @@ c. **Parse response:** Extract the `approved` field from reviewer's JSON respons
 d. **Branch on result:**
    - If `approved: true` → Proceed to Stage 2
    - If `approved: false` AND iteration < max:
-     - Append iteration to `.review-history.md` with "Stage 1: Spec-Skeptic Review" marker
+     - Append iteration to `.review-history.md` with "Stage 1: Spec-Reviewer Review" marker
      - Increment iteration counter
      - Address the issues by revising spec.md
      - Return to step 4b
@@ -168,11 +168,11 @@ e. **Invoke phase-reviewer:** Use the Task tool to spawn phase-reviewer (the gat
        }
    ```
 
-f. **Single pass - no loop.** The spec-skeptic already validated spec quality.
+f. **Single pass - no loop.** The spec-reviewer already validated spec quality.
 
 g. **Record result:**
    - If `approved: false`: Store concerns in `.meta.json` phaseReview.reviewerNotes
-   - Note concerns but do NOT block (spec-skeptic already validated)
+   - Note concerns but do NOT block (spec-reviewer already validated)
 
 h. **Complete phase:** Proceed to auto-commit, then update state.
 
@@ -192,9 +192,9 @@ git push
 
 **Review History Entry Format** (append to `.review-history.md`):
 ```markdown
-## {Stage 1: Spec-Skeptic Review | Stage 2: Phase Review} - Iteration {n} - {ISO timestamp}
+## {Stage 1: Spec-Reviewer Review | Stage 2: Phase Review} - Iteration {n} - {ISO timestamp}
 
-**Reviewer:** {spec-skeptic (skeptic) | phase-reviewer (gatekeeper)}
+**Reviewer:** {spec-reviewer (skeptic) | phase-reviewer (gatekeeper)}
 **Decision:** {Approved / Needs Revision}
 
 **Issues:**

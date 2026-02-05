@@ -57,7 +57,7 @@ The iflow workflow uses a two-tier review pattern for quality assurance:
 ### Specify Phase Workflow
 
 ```
-spec-skeptic (Skeptic) → "Is spec testable and bounded?"
+spec-reviewer (Skeptic) → "Is spec testable and bounded?"
     ↓
 phase-reviewer (Gatekeeper) → "Has what design needs?"
 ```
@@ -129,7 +129,7 @@ The `/iflow-dev:implement` command uses three reviewers:
 | secretary | Intelligent task routing with discovery, interpretation, and delegation |
 | security-reviewer | Reviews implementation for security vulnerabilities |
 | skill-searcher | Finds relevant existing skills |
-| spec-skeptic | Skeptically reviews spec.md for testability and assumptions |
+| spec-reviewer | Skeptically reviews spec.md for testability and assumptions |
 | task-reviewer | Validates task breakdown quality and executability |
 
 ## Installation
