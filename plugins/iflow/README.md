@@ -2,6 +2,8 @@
 
 Structured feature development workflow with skills, agents, and commands for methodical development from ideation to implementation.
 
+![Workflow Overview](../../docs/workflow-overview.png)
+
 ## Components
 
 | Type | Count |
