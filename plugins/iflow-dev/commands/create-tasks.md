@@ -212,8 +212,22 @@ Task tool call:
 ```
 
 **Branch on result:**
-- If `approved: true` → Proceed to step 6
-- If `approved: false` → Note concerns in `.meta.json` chainReview.concerns, proceed to step 6
+- If `approved: true` → Proceed to step 5b
+- If `approved: false` → Note concerns in `.meta.json` chainReview.concerns, proceed to step 5b
+
+### 5b. Auto-Commit Phase Artifact
+
+After chain-reviewer validation (Stage 2):
+
+```bash
+git add docs/features/{id}-{slug}/tasks.md docs/features/{id}-{slug}/.meta.json docs/features/{id}-{slug}/.review-history.md
+git commit -m "phase(tasks): {slug} - approved"
+git push
+```
+
+**Error handling:**
+- On commit failure: Display error, do NOT mark phase completed, allow retry
+- On push failure: Commit succeeds locally, warn user with "Run: git push" instruction, mark phase completed
 
 ### 6. Update State on Completion
 

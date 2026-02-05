@@ -50,6 +50,19 @@ Not time estimates. Complexity indicators:
 - Medium: Some decisions needed
 - Complex: Significant work or risk
 
+## Estimation Approach
+
+**Use deliverables, not LOC or time:**
+- GOOD: "Create UserService with login method"
+- GOOD: "Add validation to signup form"
+- BAD: "~50 lines of code"
+- BAD: "~2 hours"
+
+**Complexity = decisions, not size:**
+- Simple: Follow established pattern, no new decisions
+- Medium: Some decisions needed, pattern exists
+- Complex: Significant decisions, may need research
+
 ## Output: plan.md
 
 Write to `docs/features/{id}-{slug}/plan.md`:
@@ -63,8 +76,12 @@ Write to `docs/features/{id}-{slug}/plan.md`:
 Items with no dependencies.
 
 1. **{Item}** — {brief description}
-   - Complexity: Simple/Medium/Complex
-   - Files: {files to create/modify}
+   - **Why this item:** {rationale referencing design/requirement}
+   - **Why this order:** {rationale referencing dependencies}
+   - **Deliverable:** {concrete output, NOT LOC}
+   - **Complexity:** Simple/Medium/Complex
+   - **Files:** {files to create/modify}
+   - **Verification:** {how to confirm complete}
 
 2. **{Item}** — {brief description}
    ...
@@ -73,9 +90,12 @@ Items with no dependencies.
 Items depending on Phase 1.
 
 1. **{Item}** — {brief description}
-   - Depends on: {Phase 1 items}
-   - Complexity: ...
-   - Files: ...
+   - **Why this item:** {rationale referencing design/requirement}
+   - **Why this order:** {rationale - depends on Phase 1 items}
+   - **Deliverable:** {concrete output, NOT LOC}
+   - **Complexity:** Simple/Medium/Complex
+   - **Files:** {files to create/modify}
+   - **Verification:** {how to confirm complete}
 
 ### Phase 3: Integration
 Items depending on Phase 2.
