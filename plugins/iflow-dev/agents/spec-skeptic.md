@@ -1,7 +1,7 @@
 ---
 name: spec-skeptic
 description: Skeptically reviews spec.md for testability, assumptions, and scope discipline. Use when (1) specify command review phase, (2) user says 'challenge the spec', (3) user says 'review requirements'.
-tools: [Read, Glob, Grep]
+tools: [Read, Glob, Grep, WebSearch, mcp__context7__resolve-library-id, mcp__context7__query-docs]
 color: blue
 ---
 
@@ -117,6 +117,23 @@ Return structured feedback:
 - "The system will..." without defining which system
 - Multiple interpretations possible
 - Sections contradict each other
+
+### Feasibility Verification
+
+- [ ] Feasibility assessment exists
+- [ ] Uses evidence (code refs, docs, first principles)
+- [ ] No unverified "Likely" on critical paths
+- [ ] Assumptions are testable
+
+**Challenge patterns:**
+- Missing feasibility section → "Spec requires feasibility assessment"
+- Opinion-based assessment → "Where is the evidence for this assessment?"
+- Unverified critical assumption → "This assumption is on critical path but unverified"
+
+**Independent Verification:**
+MUST use Context7 to verify at least one library/API claim OR WebSearch for external claims. Include verification result in output:
+- "Verified: {claim} via {source}"
+- OR "Unable to verify independently - flagged for human review"
 
 ## Review Process
 

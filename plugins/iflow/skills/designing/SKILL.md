@@ -82,6 +82,23 @@ Write to `docs/features/{id}-{slug}/design.md`:
 ```markdown
 # Design: {Feature Name}
 
+## Prior Art Research
+
+### Research Conducted
+| Question | Source | Finding |
+|----------|--------|---------|
+| Similar pattern in codebase? | Grep/Read | {Yes at {location} / No} |
+| Library support? | Context7 | {Yes: {method} / No} |
+| Industry standard? | WebSearch | {Yes: {reference} / No} |
+
+### Existing Solutions Evaluated
+| Solution | Source | Why Used/Not Used |
+|----------|--------|-------------------|
+| {pattern} | {location} | {Adopted/Rejected because...} |
+
+### Novel Work Justified
+{Why existing doesn't fit, what we're reusing}
+
 ## Architecture Overview
 
 {High-level description}
@@ -116,8 +133,13 @@ Errors: {error cases}
 
 ### {Decision 1}
 - **Choice:** {what we decided}
-- **Alternatives:** {what we considered}
-- **Rationale:** {why this choice}
+- **Alternatives Considered:**
+  1. {Alt A} — Rejected: {reason}
+  2. {Alt B} — Rejected: {reason}
+- **Trade-offs:** Pros: {benefits} | Cons: {accepted drawbacks}
+- **Rationale:** {why, based on trade-off analysis}
+- **Engineering Principle:** {KISS | YAGNI | DRY | Single Responsibility | etc.}
+- **Evidence:** {Codebase: file:line | Documentation: URL | First Principles: reasoning}
 
 ## Risks & Mitigations
 
@@ -135,6 +157,8 @@ Errors: {error cases}
 - [ ] KISS: Is this the simplest design that works?
 - [ ] Interfaces defined before implementation?
 - [ ] No over-engineering?
+- [ ] Prior Art Research section completed?
+- [ ] Each Technical Decision has evidence citation?
 
 ## Completion
 

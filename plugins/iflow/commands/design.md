@@ -98,11 +98,13 @@ Update `.meta.json`:
 }
 ```
 
-### 4. Execute 4-Stage Workflow
+### 4. Execute 5-Stage Workflow
 
-The design phase consists of 4 sequential stages:
+The design phase consists of 5 sequential stages:
 
 ```
+Stage 0: RESEARCH ("Don't Reinvent the Wheel")
+    ↓
 Stage 1: ARCHITECTURE DESIGN
     ↓
 Stage 2: INTERFACE DESIGN
@@ -110,6 +112,98 @@ Stage 2: INTERFACE DESIGN
 Stage 3: DESIGN REVIEW LOOP (design-reviewer, 1-3 iterations)
     ↓
 Stage 4: HANDOFF REVIEW (phase-reviewer)
+```
+
+---
+
+#### Stage 0: Research
+
+**Purpose:** Gather prior art before designing to avoid reinventing the wheel.
+
+a. **Mark stage started:**
+   ```json
+   "stages": {
+     "research": { "started": "{ISO timestamp}" }
+   }
+   ```
+
+b. **Dispatch parallel research agents:**
+   ```
+   Task tool call 1:
+     description: "Explore codebase for patterns"
+     subagent_type: iflow:codebase-explorer
+     prompt: |
+       Find existing patterns related to: {feature description from spec}
+
+       Look for:
+       - Similar implementations
+       - Reusable components
+       - Established conventions
+       - Related utilities
+
+       Return JSON: {"findings": [...], "locations": [...]}
+
+   Task tool call 2:
+     description: "Research external solutions"
+     subagent_type: iflow:internet-researcher
+     prompt: |
+       Research existing solutions for: {feature description from spec}
+
+       Look for:
+       - Industry standard approaches
+       - Library support
+       - Common patterns
+       - Best practices
+
+       Return JSON: {"findings": [...], "sources": [...]}
+   ```
+
+c. **Present findings via AskUserQuestion:**
+   ```
+   AskUserQuestion:
+     questions: [{
+       "question": "Research found {n} patterns. How to proceed?",
+       "header": "Research",
+       "options": [
+         {"label": "Review findings", "description": "See details before designing"},
+         {"label": "Proceed", "description": "Continue to architecture with findings"},
+         {"label": "Skip (domain expert)", "description": "Skip research, proceed directly"}
+       ],
+       "multiSelect": false
+     }]
+   ```
+
+d. **Record results in design.md Prior Art section:**
+   - If "Review findings": Display findings, then ask again (Proceed/Skip)
+   - If "Proceed": Write findings to Prior Art Research section
+   - If "Skip": Note "Research skipped by user" in Prior Art section
+
+e. **Handle agent failures gracefully:**
+   - If codebase-explorer fails: Note "Codebase search unavailable" in Prior Art section
+   - If internet-researcher fails: Note "No external solutions found" in Prior Art section
+   - If both fail: Proceed with empty Prior Art section, note "Research unavailable"
+
+f. **Mark stage completed:**
+   ```json
+   "stages": {
+     "research": { "started": "...", "completed": "{ISO timestamp}", "skipped": false }
+   }
+   ```
+
+**Recovery from partial Stage 0:**
+If `stages.research.started` exists but `stages.research.completed` is null:
+```
+AskUserQuestion:
+  questions: [{
+    "question": "Detected partial research. How to proceed?",
+    "header": "Recovery",
+    "options": [
+      {"label": "Resume", "description": "Continue from where research stopped"},
+      {"label": "Restart", "description": "Run research again from beginning"},
+      {"label": "Skip", "description": "Proceed without research"}
+    ],
+    "multiSelect": false
+  }]
 ```
 
 ---
@@ -322,6 +416,22 @@ f. **Append to review history:**
 
    ---
    ```
+
+---
+
+### 4c. Auto-Commit Phase Artifact
+
+After handoff review (Stage 4) completes:
+
+```bash
+git add docs/features/{id}-{slug}/design.md docs/features/{id}-{slug}/.meta.json docs/features/{id}-{slug}/.review-history.md
+git commit -m "phase(design): {slug} - approved"
+git push
+```
+
+**Error handling:**
+- On commit failure: Display error, do NOT mark phase completed, allow retry
+- On push failure: Commit succeeds locally, warn user with "Run: git push" instruction, mark phase completed
 
 ---
 

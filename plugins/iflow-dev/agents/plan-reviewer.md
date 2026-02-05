@@ -123,6 +123,21 @@ Return structured feedback:
 - Glossing over difficult algorithmic problems
 - Assuming features that don't exist
 
+### Reasoning Verification
+
+- [ ] Every item has "Why this item"
+- [ ] Every item has "Why this order"
+- [ ] Rationales reference design/dependencies
+- [ ] No LOC estimates (deliverables only)
+- [ ] Deliverables concrete and verifiable
+
+**Challenge patterns:**
+- Missing "Why this item" → "Why needed? Which design requirement does this implement?"
+- Missing "Why this order" → "Why this sequence? What dependency requires this position?"
+- LOC estimate found → "Replace with deliverable - what artifact proves completion?"
+- Vague deliverable → "What specific artifact proves this item is complete?"
+- Time estimate found → "Remove time estimate - use complexity level instead"
+
 ## Review Process
 
 1. **Read the design** to understand what must be implemented

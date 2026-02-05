@@ -131,6 +131,31 @@ Write to `docs/features/{id}-{slug}/spec.md`:
 - When {action}
 - Then {result}
 
+## Feasibility Assessment
+
+Evaluate whether requirements are achievable. Focus on POSSIBILITY, not difficulty.
+
+### Assessment Approach
+1. **First Principles** - What fundamental constraints apply?
+2. **Codebase Evidence** - Existing patterns that support this? Location: {file:line}
+3. **External Evidence** (if needed) - Documentation confirming approach? Source: {URL}
+
+### Feasibility Scale
+| Level | Meaning | Evidence Required |
+|-------|---------|-------------------|
+| Confirmed | Verified working approach | Code reference or documentation |
+| Likely | No blockers, standard patterns | First principles reasoning |
+| Uncertain | Assumptions need validation | List assumptions to verify |
+| Unlikely | Significant obstacles | Document obstacles |
+| Impossible | Violates constraints | State the constraint |
+
+### Assessment
+**Overall:** {Confirmed | Likely | Uncertain | Unlikely | Impossible}
+**Reasoning:** {WHY, based on evidence}
+**Key Assumptions:**
+- {Assumption} — Status: {Verified at {location} | Needs verification}
+**Open Risks:** {Risks if assumptions wrong}
+
 ## Dependencies
 - {External dependency, if any}
 
@@ -144,6 +169,8 @@ Write to `docs/features/{id}-{slug}/spec.md`:
 - [ ] No implementation details (what, not how)?
 - [ ] No unnecessary features (YAGNI)?
 - [ ] Concise (fits one screen)?
+- [ ] Feasibility assessment uses evidence, not opinion?
+- [ ] Assumptions explicitly listed?
 
 If any check fails, revise before saving.
 

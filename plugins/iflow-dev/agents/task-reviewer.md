@@ -51,6 +51,16 @@ Each task must be immediately actionable:
 - [ ] "Done when" is binary (yes/no, not subjective)
 - [ ] Test can run independently after task completion
 
+### 6. Reasoning Traceability
+- [ ] Every task has "Why" field
+- [ ] "Why" traces to plan item or design component
+- [ ] No orphan tasks (tasks without backing in plan/design)
+
+**Challenge patterns:**
+- Missing "Why" → "What plan item does this implement?"
+- Can't trace to plan/design → "Doesn't map to plan - scope creep?"
+- Vague traceability → "Which specific plan item or design component?"
+
 ## Challenge Patterns
 
 When you see this → Challenge with this:

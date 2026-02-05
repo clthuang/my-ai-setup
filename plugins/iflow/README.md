@@ -64,14 +64,16 @@ phase-reviewer (Gatekeeper) → "Has what design needs?"
 
 ### Design Phase Workflow
 
-The `/iflow:design` command uses a 4-stage workflow for robust design artifacts:
+The `/iflow:design` command uses a 5-stage workflow for robust design artifacts:
 
 ```
-Stage 1: ARCHITECTURE DESIGN → High-level structure, components, decisions, risks
+Stage 0: PRIOR ART RESEARCH → Existing solutions, patterns, standards, evidence gathering
+    ↓
+Stage 1: ARCHITECTURE DESIGN → High-level structure, components, evidence-grounded decisions, risks
     ↓
 Stage 2: INTERFACE DESIGN → Precise contracts between components
     ↓
-Stage 3: DESIGN REVIEW LOOP → design-reviewer challenges assumptions (1-3 iterations)
+Stage 3: DESIGN REVIEW LOOP → design-reviewer challenges assumptions using independent verification (1-3 iterations)
     ↓
 Stage 4: HANDOFF REVIEW → phase-reviewer ensures plan phase readiness
 ```
