@@ -1,6 +1,6 @@
 ---
 name: updating-docs
-description: This skill should be used when the user says 'update docs', 'sync documentation', or when completing a feature. Automatically updates documentation using agents.
+description: Automatically updates documentation using agents. Use when the user says 'update docs', 'sync documentation', or when completing a feature.
 ---
 
 # Updating Documentation

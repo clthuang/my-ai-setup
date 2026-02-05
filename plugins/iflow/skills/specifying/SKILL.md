@@ -1,6 +1,6 @@
 ---
 name: specifying
-description: This skill should be used when the user says 'write the spec', 'document requirements', 'define acceptance criteria', or 'create spec.md'. Creates precise specifications.
+description: Creates precise specifications. Use when the user says 'write the spec', 'document requirements', 'define acceptance criteria', or 'create spec.md'.
 ---
 
 # Specification Phase
@@ -12,7 +12,7 @@ Create precise, testable requirements.
 Check for feature context:
 - Look for feature folder in `docs/features/`
 - If not found:
-  - "No active feature. Would you like to /iflow:brainstorm first to explore ideas?"
+  - "No active feature. Would you like to /iflow-dev:brainstorm first to explore ideas?"
   - Do NOT proceed without user confirmation
 - If found:
   - Check for `docs/features/{id}-{slug}/prd.md`
@@ -30,7 +30,7 @@ Check for feature context:
         "multiSelect": false
       }]
     ```
-    - If "Run /brainstorm": Invoke `/iflow:brainstorm` → STOP
+    - If "Run /brainstorm": Invoke `/iflow-dev:brainstorm` → STOP
     - If "Describe feature now": Proceed to gather requirements directly
 
 ## Read Feature Context
@@ -150,4 +150,4 @@ If any check fails, revise before saving.
 ## Completion
 
 "Spec complete. Saved to spec.md."
-"Run /iflow:verify to check, or /iflow:design to continue."
+"Run /iflow-dev:verify to check, or /iflow-dev:design to continue."

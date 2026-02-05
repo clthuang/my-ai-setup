@@ -1,6 +1,6 @@
 ---
 name: codebase-explorer
-description: Analyzes codebase patterns and constraints. Triggers: (1) brainstorming Stage 2, (2) user says 'explore codebase', (3) user says 'find existing patterns', (4) user says 'what code is related'.
+description: Analyzes codebase patterns and constraints. Use when (1) brainstorming Stage 2, (2) user says 'explore codebase', (3) user says 'find existing patterns', (4) user says 'what code is related'.
 tools: [Glob, Grep, Read]
 color: cyan
 ---

@@ -1,6 +1,6 @@
 ---
 name: plan-reviewer
-description: Skeptically reviews plans for failure modes. Triggers: (1) create-plan command review, (2) user says 'review the plan', (3) user says 'challenge assumptions', (4) user says 'find plan gaps'.
+description: Skeptically reviews plans for failure modes. Use when (1) create-plan command review, (2) user says 'review the plan', (3) user says 'challenge assumptions', (4) user says 'find plan gaps'.
 tools: [Read, Glob, Grep, WebSearch, WebFetch, mcp__context7__resolve-library-id, mcp__context7__query-docs]
 color: blue
 ---

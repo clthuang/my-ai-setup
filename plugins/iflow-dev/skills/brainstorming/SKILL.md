@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: This skill should be used when the user says 'brainstorm this idea', 'explore options for', 'start ideation', or 'create a PRD'. Guides a 7-stage process producing evidence-backed PRDs.
+description: Guides a 7-stage process producing evidence-backed PRDs. Use when the user says 'brainstorm this idea', 'explore options for', 'start ideation', or 'create a PRD'.
 ---
 
 # Brainstorming Phase

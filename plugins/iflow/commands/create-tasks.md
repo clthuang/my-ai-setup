@@ -12,18 +12,48 @@ Read docs/features/ to find active feature, then follow the workflow below.
 
 Before executing, check prerequisites using workflow-state skill:
 - Read current `.meta.json` state
-- Check for plan.md existence
+- Validate plan.md using `validateArtifact(path, "plan.md")`
 
-**HARD BLOCK:** If plan.md does not exist:
+**HARD BLOCK:** If plan.md validation fails:
 ```
-BLOCKED: plan.md required before task creation.
+❌ BLOCKED: Valid plan.md required before task creation.
 
-Task breakdown requires an implementation plan to work from.
-Run /iflow:create-plan first to create the plan.
+{Level 1}: plan.md not found. Run /iflow:create-plan first.
+{Level 2}: plan.md appears empty or stub. Run /iflow:create-plan to complete it.
+{Level 3}: plan.md missing markdown structure. Run /iflow:create-plan to fix.
+{Level 4}: plan.md missing required sections (Implementation Order or Phase). Run /iflow:create-plan to add them.
 ```
 Stop execution. Do not proceed.
 
-- If warning (skipping other phases): Show warning, ask to proceed
+- If backward (re-running completed phase): Use AskUserQuestion:
+  ```
+  AskUserQuestion:
+    questions: [{
+      "question": "Phase 'create-tasks' was already completed. Re-running will update timestamps but not undo previous work. Continue?",
+      "header": "Backward",
+      "options": [
+        {"label": "Continue", "description": "Re-run the phase"},
+        {"label": "Cancel", "description": "Stay at current phase"}
+      ],
+      "multiSelect": false
+    }]
+  ```
+  If "Cancel": Stop execution.
+- If warning (skipping other phases): Show warning via AskUserQuestion:
+  ```
+  AskUserQuestion:
+    questions: [{
+      "question": "Skipping {skipped phases}. This may reduce artifact quality. Continue anyway?",
+      "header": "Skip",
+      "options": [
+        {"label": "Continue", "description": "Proceed despite skipping phases"},
+        {"label": "Stop", "description": "Return to complete skipped phases"}
+      ],
+      "multiSelect": false
+    }]
+  ```
+  If "Continue": Record skipped phases in `.meta.json` skippedPhases array, then proceed.
+  If "Stop": Stop execution.
 
 ### 1b. Check Branch
 
@@ -82,18 +112,24 @@ Execute this loop:
 
 a. **Produce artifact:** Follow the breaking-down-tasks skill to create/revise tasks.md
 
-b. **Invoke task-breakdown-reviewer:** Use the Task tool:
+b. **Invoke task-reviewer:** Use the Task tool:
    ```
    Task tool call:
      description: "Review task breakdown quality"
-     subagent_type: task-breakdown-reviewer
+     subagent_type: iflow:task-reviewer
      prompt: |
        Review the task breakdown for quality and executability.
 
-       ## Implementation Plan (plan.md)
+       ## Spec (requirements)
+       {content of spec.md}
+
+       ## Design (architecture)
+       {content of design.md}
+
+       ## Plan (what tasks should cover)
        {content of plan.md}
 
-       ## Task Breakdown (tasks.md)
+       ## Tasks (what you're reviewing)
        {content of tasks.md}
 
        Validate:
@@ -106,7 +142,7 @@ b. **Invoke task-breakdown-reviewer:** Use the Task tool:
        Return your assessment as JSON:
        {
          "approved": true/false,
-         "issues": [{"severity": "blocker|warning|note", "task": "...", "description": "...", "suggestion": "..."}],
+         "issues": [{"severity": "blocker|warning|suggestion", "task": "...", "description": "...", "suggestion": "..."}],
          "summary": "..."
        }
    ```
@@ -142,19 +178,25 @@ d. **Branch on result:**
 
 ### 5. Stage 2: Chain Validation
 
-After Stage 1 completes, invoke chain-reviewer for final validation:
+After Stage 1 completes, invoke phase-reviewer for final validation:
 
 ```
 Task tool call:
-  description: "Validate chain readiness for implementation"
-  subagent_type: chain-reviewer
+  description: "Validate tasks ready for implementation"
+  subagent_type: iflow:phase-reviewer
   prompt: |
-    Review the task breakdown for chain sufficiency.
+    Validate this task breakdown is ready for implementation.
 
-    ## Previous Artifact (plan.md)
+    ## Spec (requirements)
+    {content of spec.md}
+
+    ## Design (architecture)
+    {content of design.md}
+
+    ## Plan (what tasks should cover)
     {content of plan.md}
 
-    ## Current Artifact (tasks.md)
+    ## Tasks (what you're reviewing)
     {content of tasks.md}
 
     ## Next Phase Expectations
@@ -164,7 +206,7 @@ Task tool call:
     Return your assessment as JSON:
     {
       "approved": true/false,
-      "issues": [...],
+      "issues": [{"severity": "blocker|warning|suggestion", "description": "...", "location": "...", "suggestion": "..."}],
       "summary": "..."
     }
 ```

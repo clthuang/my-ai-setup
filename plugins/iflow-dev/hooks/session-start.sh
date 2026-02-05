@@ -104,8 +104,7 @@ get_next_command() {
         "creating-plan") echo "/create-plan" ;;
         "creating-tasks") echo "/create-tasks" ;;
         "implementing") echo "/implement" ;;
-        "verifying") echo "/verify" ;;
-        *) echo "/verify" ;;
+        *) echo "/finish" ;;
     esac
 }
 
@@ -177,7 +176,7 @@ build_context() {
     fi
 
     # Always include workflow overview
-    context+="\nAvailable commands: /brainstorm → /specify → /design → /create-plan → /create-tasks → /implement → /verify → /finish (/create-feature as alternative)"
+    context+="\nAvailable commands: /brainstorm → /specify → /design → /create-plan → /create-tasks → /implement → /finish (/create-feature as alternative)"
 
     if [[ -z "$meta_file" ]]; then
         context+="\n\nNo active feature. Use /brainstorm to start exploring ideas, or /create-feature to skip brainstorming."

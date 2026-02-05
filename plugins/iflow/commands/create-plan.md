@@ -14,7 +14,35 @@ Before executing, check prerequisites using workflow-state skill:
 - Read current `.meta.json` state
 - Apply validateTransition logic for target phase "create-plan"
 - If blocked: Show error, stop
-- If warning (skipping phases like design): Show warning, ask to proceed
+- If backward (re-running completed phase): Use AskUserQuestion:
+  ```
+  AskUserQuestion:
+    questions: [{
+      "question": "Phase 'create-plan' was already completed. Re-running will update timestamps but not undo previous work. Continue?",
+      "header": "Backward",
+      "options": [
+        {"label": "Continue", "description": "Re-run the phase"},
+        {"label": "Cancel", "description": "Stay at current phase"}
+      ],
+      "multiSelect": false
+    }]
+  ```
+  If "Cancel": Stop execution.
+- If warning (skipping phases like design): Show warning via AskUserQuestion:
+  ```
+  AskUserQuestion:
+    questions: [{
+      "question": "Skipping {skipped phases}. This may reduce artifact quality. Continue anyway?",
+      "header": "Skip",
+      "options": [
+        {"label": "Continue", "description": "Proceed despite skipping phases"},
+        {"label": "Stop", "description": "Return to complete skipped phases"}
+      ],
+      "multiSelect": false
+    }]
+  ```
+  If "Continue": Record skipped phases in `.meta.json` skippedPhases array, then proceed.
+  If "Stop": Stop execution.
 
 ### 1b. Check Branch
 
@@ -82,13 +110,19 @@ b. **Invoke plan-reviewer:** Use Task tool:
        Review this plan for failure modes, untested assumptions,
        dependency accuracy, and TDD order compliance.
 
-       ## Design Artifact
+       ## PRD (original requirements)
+       {content of prd.md, or "None - feature created without brainstorm"}
+
+       ## Spec (requirements)
+       {content of spec.md}
+
+       ## Design (architecture)
        {content of design.md}
 
-       ## Plan Artifact
+       ## Plan (what you're reviewing)
        {content of plan.md}
 
-       Return JSON: {"approved": bool, "issues": [...], "summary": "..."}
+       Return JSON: {"approved": bool, "issues": [{"severity": "blocker|warning|suggestion", "description": "...", "location": "...", "suggestion": "..."}], "summary": "..."}
    ```
 
 c. **Parse response:** Extract `approved` field.
@@ -104,26 +138,32 @@ d. **Branch on result:**
 
 #### Stage 2: Chain-Reviewer Validation (Execution Readiness)
 
-e. **Invoke chain-reviewer:** Use Task tool:
+e. **Invoke phase-reviewer:** Use Task tool:
    ```
    Task tool call:
      description: "Validate plan ready for task breakdown"
-     subagent_type: iflow:chain-reviewer
+     subagent_type: iflow:phase-reviewer
      prompt: |
        Validate this plan is ready for an experienced engineer
        to break into executable tasks.
 
-       ## Design Artifact
+       ## PRD (original requirements)
+       {content of prd.md, or "None - feature created without brainstorm"}
+
+       ## Spec (requirements)
+       {content of spec.md}
+
+       ## Design (architecture)
        {content of design.md}
 
-       ## Plan Artifact
+       ## Plan (what you're reviewing)
        {content of plan.md}
 
        ## Next Phase Expectations
        Tasks needs: Ordered steps with dependencies,
        all design items covered, clear sequencing.
 
-       Return JSON: {"approved": bool, "issues": [...], "summary": "..."}
+       Return JSON: {"approved": bool, "issues": [{"severity": "blocker|warning|suggestion", "description": "...", "location": "...", "suggestion": "..."}], "summary": "..."}
    ```
 
 f. **Parse response:** Extract `approved` field.
@@ -132,7 +172,7 @@ g. **Branch on result:**
    - `approved: true` → Proceed to step 4h
    - `approved: false`:
      - Append to `.review-history.md` with "Stage 2: Chain Review" marker
-     - If iteration < max: Address issues, return to 4e (chain-reviewer)
+     - If iteration < max: Address issues, return to 4e (phase-reviewer)
      - If iteration == max: Note concerns, proceed to 4h
 
 h. **Complete phase:** Update state.
@@ -170,7 +210,7 @@ Update `.meta.json`:
 
 ### 6. User Prompt for Next Step
 
-After chain-reviewer approval, ask user:
+After phase-reviewer approval, ask user:
 
 ```
 AskUserQuestion:

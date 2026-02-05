@@ -12,18 +12,48 @@ Read docs/features/ to find active feature, then follow the workflow below.
 
 Before executing, check prerequisites using workflow-state skill:
 - Read current `.meta.json` state
-- Check for spec.md existence
+- Validate spec.md using `validateArtifact(path, "spec.md")`
 
-**HARD BLOCK:** If spec.md does not exist:
+**HARD BLOCK:** If spec.md validation fails:
 ```
-❌ BLOCKED: spec.md required before implementation.
+❌ BLOCKED: Valid spec.md required before implementation.
 
-Implementation requires a specification to implement against.
-Run /iflow:specify first to create the specification.
+{Level 1}: spec.md not found. Run /iflow:specify first.
+{Level 2}: spec.md appears empty or stub. Run /iflow:specify to complete it.
+{Level 3}: spec.md missing markdown structure. Run /iflow:specify to fix.
+{Level 4}: spec.md missing required sections (Success Criteria or Acceptance Criteria). Run /iflow:specify to add them.
 ```
 Stop execution. Do not proceed.
 
-- If warning (skipping other phases like tasks): Show warning, ask to proceed
+- If backward (re-running completed phase): Use AskUserQuestion:
+  ```
+  AskUserQuestion:
+    questions: [{
+      "question": "Phase 'implement' was already completed. Re-running will update timestamps but not undo previous work. Continue?",
+      "header": "Backward",
+      "options": [
+        {"label": "Continue", "description": "Re-run the phase"},
+        {"label": "Cancel", "description": "Stay at current phase"}
+      ],
+      "multiSelect": false
+    }]
+  ```
+  If "Cancel": Stop execution.
+- If warning (skipping other phases like tasks): Show warning via AskUserQuestion:
+  ```
+  AskUserQuestion:
+    questions: [{
+      "question": "Skipping {skipped phases}. This may reduce artifact quality. Continue anyway?",
+      "header": "Skip",
+      "options": [
+        {"label": "Continue", "description": "Proceed despite skipping phases"},
+        {"label": "Stop", "description": "Return to complete skipped phases"}
+      ],
+      "multiSelect": false
+    }]
+  ```
+  If "Continue": Record skipped phases in `.meta.json` skippedPhases array, then proceed.
+  If "Stop": Stop execution.
 
 ### 1b. Check Branch
 
@@ -122,52 +152,41 @@ If simplifications found:
 
 No iteration limit. Loop continues until ALL reviewers approve.
 
-Execute review cycle with all four reviewers:
+Execute review cycle with three reviewers:
 
-**6a. Spec Compliance Review:**
+**6a. Implementation Review (4-Level Validation):**
 ```
 Task tool call:
-  description: "Review spec compliance"
-  subagent_type: iflow:spec-reviewer
+  description: "Review implementation against requirements chain"
+  subagent_type: iflow:implementation-reviewer
   prompt: |
-    Verify implementation matches specification.
+    Validate implementation against full requirements chain with 4-level validation.
 
-    ## spec.md
+    ## PRD (original requirements)
+    {content of prd.md or brainstorm file}
+
+    ## Spec (acceptance criteria)
     {content of spec.md}
+
+    ## Design (architecture to follow)
+    {content of design.md}
+
+    ## Tasks (what should be done)
+    {content of tasks.md}
 
     ## Implementation files
     {list of files with code}
 
-    Return verification with COMPLIANT or ISSUES FOUND status.
+    Validate all 4 levels:
+    - Level 1: Task completeness
+    - Level 2: Spec compliance
+    - Level 3: Design alignment
+    - Level 4: PRD delivery
+
+    Return JSON with approval status, level results, issues, and evidence.
 ```
 
-**6b. Behavior Review:**
-```
-Task tool call:
-  description: "Review implementation behavior"
-  subagent_type: iflow:implementation-behavior-reviewer
-  prompt: |
-    Validate implementation behavior against requirements chain.
-
-    ## tasks.md
-    {content of tasks.md}
-
-    ## spec.md
-    {content of spec.md}
-
-    ## design.md
-    {content of design.md}
-
-    ## PRD source
-    {content of prd.md or brainstorm file}
-
-    ## Implementation files
-    {list of files with summaries}
-
-    Return JSON with approval status and issues by level.
-```
-
-**6c. Code Quality Review:**
+**6b. Code Quality Review:**
 ```
 Task tool call:
   description: "Review code quality"
@@ -187,7 +206,7 @@ Task tool call:
     Return assessment with approval status.
 ```
 
-**6d. Security Review:**
+**6c. Security Review:**
 ```
 Task tool call:
   description: "Review security"
@@ -206,12 +225,13 @@ Task tool call:
     Return JSON with approval status and vulnerabilities.
 ```
 
-**6e. Automated Iteration Logic:**
+**6d. Automated Iteration Logic:**
 
-Collect results from all four reviewers (spec, behavior, quality, security).
+Collect results from all three reviewers (implementation, quality, security).
 
-IF all four approved:
-  → Proceed to Final Review (step 7)
+IF all three approved:
+  → Mark phase completed
+  → Proceed to step 7
 
 ELSE (any issues found):
   → Append iteration to `.review-history.md`
@@ -228,20 +248,23 @@ ELSE (any issues found):
         After fixing, return summary of changes made.
     ```
   → Increment iteration counter
-  → Loop back to step 6a (repeat until all four approve)
+  → Loop back to step 6a (repeat until all three approve)
 
 **Review History Entry Format** (append to `.review-history.md`):
 ```markdown
 ## Iteration {n} - {ISO timestamp}
 
-**Spec Review:** {Compliant / Issues found}
-**Behavior Review:** {Approved / Issues found}
+**Implementation Review:** {Approved / Issues found}
+  - Level 1 (Tasks): {pass/fail}
+  - Level 2 (Spec): {pass/fail}
+  - Level 3 (Design): {pass/fail}
+  - Level 4 (PRD): {pass/fail}
 **Quality Review:** {Approved / Issues found}
 **Security Review:** {Approved / Issues found}
-**Final Review:** {Approved / Issues found / Not run yet}
 
 **Issues:**
-- [{severity}] {reviewer}: {description} (at: {location})
+- [{severity}] [{level}] {reviewer}: {description} (at: {location})
+  Suggestion: {suggestion}
 
 **Changes Made:**
 {Summary of revisions made to address issues}
@@ -249,51 +272,7 @@ ELSE (any issues found):
 ---
 ```
 
-### 7. Final Review (Automated)
-
-Dispatch final-reviewer against PRD deliverables:
-```
-Task tool call:
-  description: "Final review against PRD"
-  subagent_type: iflow:final-reviewer
-  prompt: |
-    Verify implementation delivers PRD outcomes.
-
-    ## PRD Source
-    {content of prd.md or brainstorm file - the original requirements}
-
-    ## Implementation Summary
-    Files: {list of files created/modified}
-    Tests: {test results summary}
-
-    Does this deliver what was originally requested?
-    Return JSON with approval status, issues, and evidence.
-```
-
-**Automated iteration on final review issues:**
-
-IF final-reviewer approves:
-  → Mark phase completed
-  → Proceed to step 8
-
-ELSE (issues found):
-  → Append to `.review-history.md` under "Final Review" section
-  → Dispatch implementer to fix:
-    ```
-    Task tool call:
-      description: "Fix final review issues"
-      subagent_type: iflow:implementer
-      prompt: |
-        The final reviewer found issues with PRD delivery:
-
-        {issues from final-reviewer}
-
-        Fix these issues to ensure PRD outcomes are met.
-    ```
-  → Increment iteration counter
-  → Loop back to step 6a (full review cycle, repeat until final-reviewer approves)
-
-### 8. Update State on Completion
+### 7. Update State on Completion
 
 Update `.meta.json`:
 ```json
@@ -309,7 +288,7 @@ Update `.meta.json`:
 }
 ```
 
-### 9. Completion Message
+### 8. Completion Message
 
 Use AskUserQuestion:
 ```

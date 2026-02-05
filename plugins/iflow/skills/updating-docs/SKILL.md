@@ -1,6 +1,6 @@
 ---
 name: updating-docs
-description: This skill should be used when the user says 'update docs', 'sync documentation', or when completing a feature. Automatically updates documentation using agents.
+description: Automatically updates documentation using agents. Use when the user says 'update docs', 'sync documentation', or when completing a feature.
 ---
 
 # Updating Documentation
@@ -10,7 +10,7 @@ Automatic documentation updates using documentation-researcher and documentation
 ## Prerequisites
 
 - Feature folder in `docs/features/` with spec.md for context
-- This skill is invoked automatically from `/iflow:finish`
+- This skill is invoked automatically from `/iflow-dev:finish`
 
 ## Process
 
@@ -19,7 +19,7 @@ Automatic documentation updates using documentation-researcher and documentation
 ```
 Task tool call:
   description: "Research documentation context"
-  subagent_type: iflow:documentation-researcher
+  subagent_type: iflow-dev:documentation-researcher
   prompt: |
     Research current documentation state for feature {id}-{slug}.
 
@@ -63,7 +63,7 @@ If updates needed:
 ```
 Task tool call:
   description: "Update documentation"
-  subagent_type: iflow:documentation-writer
+  subagent_type: iflow-dev:documentation-writer
   prompt: |
     Update documentation based on research findings.
 

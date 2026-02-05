@@ -1,6 +1,6 @@
 ---
 name: retrospecting
-description: This skill should be used when the user says 'run retro', 'capture learnings', 'reflect on feature', or 'update knowledge bank'. Automatically captures learnings using subagents.
+description: Automatically captures learnings using subagents. Use when the user says 'run retro', 'capture learnings', 'reflect on feature', or 'update knowledge bank'.
 ---
 
 # Retrospective

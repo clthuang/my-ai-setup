@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: This skill should be used when the user says 'brainstorm this idea', 'explore options for', 'start ideation', or 'create a PRD'. Guides a 7-stage process producing evidence-backed PRDs.
+description: Guides a 7-stage process producing evidence-backed PRDs. Use when the user says 'brainstorm this idea', 'explore options for', 'start ideation', or 'create a PRD'.
 ---
 
 # Brainstorming Phase
@@ -71,17 +71,17 @@ Stage 1: CLARIFY → Stage 2: RESEARCH → Stage 3: DRAFT PRD
 
 1. **Internet research:**
    - Tool: `Task`
-   - subagent_type: `iflow:internet-researcher`
+   - subagent_type: `iflow-dev:internet-researcher`
    - prompt: Query about the topic with context
 
 2. **Codebase exploration:**
    - Tool: `Task`
-   - subagent_type: `iflow:codebase-explorer`
+   - subagent_type: `iflow-dev:codebase-explorer`
    - prompt: Query about existing patterns/constraints
 
 3. **Skills search:**
    - Tool: `Task`
-   - subagent_type: `iflow:skill-searcher`
+   - subagent_type: `iflow-dev:skill-searcher`
    - prompt: Query about related capabilities
 
 **Collect results:** Each agent returns JSON with `findings` array and `source` references.
@@ -114,7 +114,7 @@ Stage 1: CLARIFY → Stage 2: RESEARCH → Stage 3: DRAFT PRD
 
 **Action:** Dispatch Task tool:
 - Tool: `Task`
-- subagent_type: `iflow:prd-reviewer`
+- subagent_type: `iflow-dev:prd-reviewer`
 - prompt: Full PRD content + request for JSON response
 
 **Expected response:**
@@ -165,7 +165,7 @@ Stage 1: CLARIFY → Stage 2: RESEARCH → Stage 3: DRAFT PRD
 
 **Action:** Dispatch Task tool:
 - Tool: `Task`
-- subagent_type: `iflow:brainstorm-reviewer`
+- subagent_type: `iflow-dev:brainstorm-reviewer`
 - prompt: PRD file path + request for JSON response
 
 **Expected response:**
@@ -228,7 +228,7 @@ AskUserQuestion:
 
 | Response | Action |
 |----------|--------|
-| Promote to Feature / Promote Anyway | Ask for mode → Invoke `/iflow:create-feature --prd={current-prd-path}` → STOP |
+| Promote to Feature / Promote Anyway | Ask for mode → Invoke `/iflow-dev:create-feature --prd={current-prd-path}` → STOP |
 | Refine Further / Address Issues | Loop back to Stage 1 with issue context |
 | Save and Exit | Output "PRD saved to {filepath}." → STOP |
 
@@ -345,7 +345,7 @@ Items excluded from current scope but may be considered later.
 - {Question that needs resolution}
 
 ## Next Steps
-Ready for /iflow:create-feature to begin implementation.
+Ready for /iflow-dev:create-feature to begin implementation.
 ```
 
 ---
@@ -378,7 +378,7 @@ Ready for /iflow:create-feature to begin implementation.
 
 After Stage 7, if user chooses "Promote to Feature":
 1. Ask for workflow mode (Standard/Full)
-2. Invoke `/iflow:create-feature --prd={prd-file-path}` with the PRD path
+2. Invoke `/iflow-dev:create-feature --prd={prd-file-path}` with the PRD path
 
 PRD location: `docs/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`
 
@@ -388,9 +388,9 @@ PRD location: `docs/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`
 
 When executing the brainstorming skill, you MUST NOT:
 
-- Proceed to /iflow:specify, /iflow:design, /iflow:create-plan, or /iflow:implement
+- Proceed to /iflow-dev:specify, /iflow-dev:design, /iflow-dev:create-plan, or /iflow-dev:implement
 - Write any implementation code
-- Create feature folders directly (use /iflow:create-feature)
+- Create feature folders directly (use /iflow-dev:create-feature)
 - Continue with any action after user says "Save and Exit"
 - Skip the research stage (Stage 2)
 - Skip the critical review stage (Stage 4)

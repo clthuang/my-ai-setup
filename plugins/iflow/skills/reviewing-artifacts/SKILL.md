@@ -1,6 +1,6 @@
 ---
 name: reviewing-artifacts
-description: This skill should be used when reviewing PRD or spec quality, or when validating phase transitions. Provides comprehensive artifact quality criteria.
+description: Provides comprehensive quality criteria for PRD, spec, design, plan, and tasks. Use when reviewing artifact quality or validating phase transitions.
 ---
 
 # Reviewing Artifacts
@@ -91,6 +91,123 @@ Quality criteria and review checklists for workflow artifacts.
 
 ---
 
+## Design Quality Criteria
+
+### 1. Architecture Clarity
+
+- [ ] Components clearly defined with responsibilities
+- [ ] Component boundaries explicit
+- [ ] Data flows documented
+- [ ] No circular dependencies
+
+### 2. Interface Precision
+
+- [ ] All interfaces have method signatures
+- [ ] Input/output types specified
+- [ ] Error conditions defined
+- [ ] Contract invariants stated
+
+### 3. Technical Decisions
+
+- [ ] Key decisions documented with rationale
+- [ ] Alternatives considered
+- [ ] Trade-offs explicit
+- [ ] No premature optimization
+
+### 4. Risk Assessment
+
+- [ ] Technical risks identified
+- [ ] Mitigation strategies noted
+- [ ] Dependencies on external systems documented
+- [ ] Failure modes considered
+
+### 5. Implementation Independence
+
+- [ ] Design could be implemented multiple ways
+- [ ] No code snippets (unless illustrative)
+- [ ] Framework-agnostic where possible
+- [ ] Abstractions are justified
+
+---
+
+## Plan Quality Criteria
+
+### 1. Dependency Accuracy
+
+- [ ] All dependencies explicit
+- [ ] No circular dependencies
+- [ ] Critical path identified
+- [ ] Parallel opportunities noted
+
+### 2. Sequencing Logic
+
+- [ ] Order makes sense (interface → tests → implementation)
+- [ ] Each step buildable
+- [ ] No "magic" steps assumed
+- [ ] Rollback points identified
+
+### 3. Design Coverage
+
+- [ ] Every design component has plan items
+- [ ] Every interface has implementation steps
+- [ ] No orphaned design items
+- [ ] No scope creep from design
+
+### 4. TDD Compliance
+
+- [ ] Interface phase before implementation
+- [ ] Test phase before code phase
+- [ ] Verification steps explicit
+- [ ] Refactor phase included
+
+### 5. Risk Mitigation
+
+- [ ] High-risk items early (fail fast)
+- [ ] External dependencies planned
+- [ ] Blockers identified
+- [ ] Contingencies noted
+
+---
+
+## Tasks Quality Criteria
+
+### 1. Task Size
+
+- [ ] Each task 5-15 minutes
+- [ ] No multi-hour tasks
+- [ ] Single responsibility per task
+- [ ] Clear stopping point
+
+### 2. Executability
+
+- [ ] Verb + object format (e.g., "Add field X to Y")
+- [ ] Exact file paths specified
+- [ ] No "figure out" tasks
+- [ ] No ambiguous instructions
+
+### 3. Testability
+
+- [ ] Each task has verification method
+- [ ] "Done when" is binary (yes/no)
+- [ ] Test can run independently
+- [ ] No "looks good" criteria
+
+### 4. Dependency Accuracy
+
+- [ ] Blocking relationships correct
+- [ ] Parallel groups identified
+- [ ] No missing dependencies
+- [ ] No circular dependencies
+
+### 5. Plan Fidelity
+
+- [ ] Every plan item has task(s)
+- [ ] No orphaned tasks
+- [ ] No scope creep
+- [ ] Task count reasonable
+
+---
+
 ## Severity Classification
 
 | Issue Type | Severity | Blocks? |
@@ -100,25 +217,48 @@ Quality criteria and review checklists for workflow artifacts.
 | Scope ambiguity | blocker | Yes |
 | Implementation detail leaked | warning | No |
 | Missing edge case coverage | warning | No |
-| Style/formatting issue | note | No |
+| Style/formatting issue | suggestion | No |
 
 ---
 
-## Usage by Chain Reviewer
+## Usage by Phase Reviewer
 
-When chain-reviewer validates **prd.md -> spec.md** (brainstorm -> specify transition):
+When phase-reviewer validates artifact transitions, apply the appropriate checklist:
+
+### prd.md → spec.md (brainstorm → specify)
 
 1. Apply "PRD Quality Criteria" checklist
 2. Focus on: Problem precision, Evidence standards, Scope discipline
-3. Mark issues as blocker/warning/note
+3. Mark issues as blocker/warning/suggestion
 4. Summarize: "Can specify phase proceed with this PRD?"
 
-When chain-reviewer validates **spec.md -> design.md** (specify -> design transition):
+### spec.md → design.md (specify → design)
 
 1. Apply "Spec Quality Criteria" checklist
 2. Focus on: Problem precision, Success criteria, Acceptance criteria
-3. Mark issues as blocker/warning/note
+3. Mark issues as blocker/warning/suggestion
 4. Summarize: "Can design phase proceed with this spec?"
+
+### design.md → plan.md (design → create-plan)
+
+1. Apply "Design Quality Criteria" checklist
+2. Focus on: Architecture clarity, Interface precision, Risk assessment
+3. Mark issues as blocker/warning/suggestion
+4. Summarize: "Can plan phase proceed with this design?"
+
+### plan.md → tasks.md (create-plan → create-tasks)
+
+1. Apply "Plan Quality Criteria" checklist
+2. Focus on: Dependency accuracy, Design coverage, TDD compliance
+3. Mark issues as blocker/warning/suggestion
+4. Summarize: "Can tasks phase proceed with this plan?"
+
+### tasks.md → implementation (create-tasks → implement)
+
+1. Apply "Tasks Quality Criteria" checklist
+2. Focus on: Task size, Executability, Testability
+3. Mark issues as blocker/warning/suggestion
+4. Summarize: "Can implementation proceed with these tasks?"
 
 ---
 
@@ -128,4 +268,10 @@ When chain-reviewer validates **spec.md -> design.md** (specify -> design transi
 
 **Spec must answer:** What exactly? How do we know it's done? What's the scope?
 
-**Both must avoid:** False certainty, scope creep, implementation details.
+**Design must answer:** What components? How do they interact? What are the contracts?
+
+**Plan must answer:** What order? What dependencies? How to verify each step?
+
+**Tasks must answer:** What specific action? In which file? How to verify done?
+
+**All must avoid:** False certainty, scope creep, implementation details (except design/tasks).

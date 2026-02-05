@@ -1,6 +1,6 @@
 ---
 name: planning
-description: This skill should be used when the user says 'create a plan', 'plan the implementation', 'sequence the work', or 'determine build order'. Produces plan.md with dependencies and ordering.
+description: Produces plan.md with dependencies and ordering. Use when the user says 'create a plan', 'plan the implementation', 'sequence the work', or 'determine build order'.
 ---
 
 # Planning Phase
@@ -10,7 +10,7 @@ Create an ordered implementation plan.
 ## Prerequisites
 
 - If `design.md` exists: Read for architecture
-- If not: "No design found. Run /iflow:design first, or describe architecture now."
+- If not: "No design found. Run /iflow-dev:design first, or describe architecture now."
 
 ## Read Feature Context
 
@@ -109,4 +109,4 @@ Items depending on Phase 2.
 ## Completion
 
 "Plan complete. Saved to plan.md."
-"Run /iflow:verify to check, or /iflow:create-tasks to break into actionable items."
+"Run /iflow-dev:verify to check, or /iflow-dev:create-tasks to break into actionable items."

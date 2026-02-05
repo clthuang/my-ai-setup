@@ -1,6 +1,6 @@
 ---
 name: retrospecting
-description: This skill should be used when the user says 'run retro', 'capture learnings', 'reflect on feature', or 'update knowledge bank'. Automatically captures learnings using subagents.
+description: Automatically captures learnings using subagents. Use when the user says 'run retro', 'capture learnings', 'reflect on feature', or 'update knowledge bank'.
 ---
 
 # Retrospective
@@ -21,7 +21,7 @@ Dispatch investigation-agent to gather retrospective data:
 ```
 Task tool call:
   description: "Gather feature learnings"
-  subagent_type: iflow:investigation-agent
+  subagent_type: iflow-dev:investigation-agent
   prompt: |
     Gather retrospective data for feature {id}-{slug}.
 
@@ -112,7 +112,7 @@ Saved to retro.md.
 
 ## Automatic Execution
 
-This skill runs automatically during `/iflow:finish`:
+This skill runs automatically during `/iflow-dev:finish`:
 - No permission prompt required
 - Findings drive knowledge bank updates
 - User sees summary of learnings captured

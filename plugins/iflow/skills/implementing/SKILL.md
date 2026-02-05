@@ -1,6 +1,6 @@
 ---
 name: implementing
-description: This skill should be used when the user says 'implement the feature', 'start coding', 'write the code', or 'execute tasks'. Guides phased TDD implementation (Interface → RED-GREEN → REFACTOR).
+description: Guides phased TDD implementation (Interface → RED-GREEN → REFACTOR). Use when the user says 'implement the feature', 'start coding', 'write the code', or 'execute tasks'.
 ---
 
 # Implementation Phase
@@ -10,13 +10,12 @@ Execute the implementation plan with a structured phased approach.
 ## Prerequisites
 
 - If `tasks.md` exists: Read for task list
-- If not: "No tasks found. Run /iflow:create-tasks first, or describe what to implement."
+- If not: "No tasks found. Run /iflow-dev:create-tasks first, or describe what to implement."
 
 ## Related Skills
 
 For complex implementations:
 - `implementing-with-tdd` - RED-GREEN-REFACTOR discipline
-- `verifying-before-completion` - Evidence before claims
 
 ## Read Feature Context
 

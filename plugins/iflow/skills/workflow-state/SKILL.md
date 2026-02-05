@@ -1,6 +1,6 @@
 ---
 name: workflow-state
-description: This skill should be used internally when checking phase prerequisites or managing workflow state. Defines phase sequence and validates transitions.
+description: Defines phase sequence and validates transitions. Use when checking phase prerequisites or managing workflow state.
 ---
 
 # Workflow State Management
@@ -12,7 +12,7 @@ Manage feature workflow state and validate phase transitions.
 The canonical workflow order:
 
 ```
-brainstorm → specify → design → create-plan → create-tasks → implement → verify → finish
+brainstorm → specify → design → create-plan → create-tasks → implement → finish
 ```
 
 | Phase | Produces | Required Before |
@@ -22,8 +22,7 @@ brainstorm → specify → design → create-plan → create-tasks → implement
 | design | design.md | create-plan |
 | create-plan | plan.md | create-tasks |
 | create-tasks | tasks.md | implement |
-| implement | code changes | verify |
-| verify | verification | finish |
+| implement | code changes | finish |
 | finish | (terminal) | — |
 
 ## Transition Validation
@@ -36,8 +35,8 @@ These transitions are **blocked** if prerequisites are missing:
 
 | Target Phase | Required Artifact | Error Message |
 |--------------|-------------------|---------------|
-| /iflow:implement | spec.md | "spec.md required before implementation. Run /iflow:specify first." |
-| /iflow:create-tasks | plan.md | "plan.md required before task creation. Run /iflow:create-plan first." |
+| /iflow-dev:implement | spec.md | "spec.md required before implementation. Run /iflow-dev:specify first." |
+| /iflow-dev:create-tasks | plan.md | "plan.md required before task creation. Run /iflow-dev:create-plan first." |
 
 If blocked: Show error message, do not proceed.
 
@@ -61,7 +60,7 @@ AskUserQuestion:
 Examples:
 - brainstorm → design (skips specify) → warn
 - specify → create-tasks (skips design, create-plan) → warn
-- Any phase → verify (out of order) → warn
+- Any phase → finish (out of order) → warn
 
 ### Normal Transitions (Proceed)
 
@@ -79,17 +78,107 @@ function validateTransition(currentPhase, targetPhase, artifacts):
   if targetPhase == "create-tasks" and not artifacts.plan:
     return { allowed: false, type: "blocked", message: "plan.md required..." }
 
-  # Check if skipping phases
-  sequence = [brainstorm, specify, design, create-plan, create-tasks, implement, verify, finish]
+  # Phase sequence for ordering
+  sequence = [brainstorm, specify, design, create-plan, create-tasks, implement, finish]
   currentIndex = sequence.indexOf(currentPhase) or -1
   targetIndex = sequence.indexOf(targetPhase)
 
+  # Backward transition detection
+  if targetIndex < currentIndex AND currentIndex >= 0:
+    return {
+      allowed: true,
+      type: "backward",
+      message: "Phase '{targetPhase}' was already completed. Re-running will update timestamps but not undo previous work."
+    }
+
+  # Check if skipping phases (forward jump)
   if targetIndex > currentIndex + 1:
     skipped = sequence[currentIndex+1 : targetIndex]
     return { allowed: true, type: "warning", message: "Skipping {skipped}..." }
 
   return { allowed: true, type: "proceed", message: null }
 ```
+
+### Backward Transition Warning
+
+When `validateTransition` returns `type: "backward"`, commands should use AskUserQuestion:
+
+```
+AskUserQuestion:
+  questions: [{
+    "question": "Phase '{targetPhase}' was already completed. Re-running will update timestamps but not undo previous work. Continue?",
+    "header": "Backward",
+    "options": [
+      {"label": "Continue", "description": "Re-run the phase"},
+      {"label": "Cancel", "description": "Stay at current phase"}
+    ],
+    "multiSelect": false
+  }]
+```
+
+If "Cancel": Stop execution.
+
+## Artifact Validation
+
+Beyond existence checks, validate artifact content quality before allowing phase transitions.
+
+### validateArtifact(path, type)
+
+**Level 1: Existence**
+- File exists at path
+
+**Level 2: Non-Empty**
+- File size > 100 bytes (prevents empty/stub files)
+
+**Level 3: Structure**
+- Has at least one markdown header (## )
+
+**Level 4: Type-Specific Sections**
+
+| Type | Required Sections |
+|------|-------------------|
+| spec.md | "## Success Criteria" OR "## Acceptance Criteria" |
+| design.md | "## Components" OR "## Architecture" |
+| plan.md | "## Implementation Order" OR "## Phase" |
+| tasks.md | "## Phase" OR "### Task" |
+
+**Implementation:**
+```
+function validateArtifact(path, type):
+  # Level 1
+  if not exists(path):
+    return { valid: false, level: 1, error: "File not found" }
+
+  content = read(path)
+
+  # Level 2
+  if len(content) < 100:
+    return { valid: false, level: 2, error: "File appears empty or stub (< 100 bytes)" }
+
+  # Level 3
+  if not contains(content, "## "):
+    return { valid: false, level: 3, error: "Missing markdown structure (no ## headers)" }
+
+  # Level 4
+  requiredSections = getSectionsForType(type)
+  foundAny = false
+  for section in requiredSections:
+    if contains(content, section):
+      foundAny = true
+      break
+
+  if not foundAny:
+    return { valid: false, level: 4, error: "Missing required sections: {requiredSections}" }
+
+  return { valid: true }
+```
+
+**Usage in Commands:**
+Commands with hard prerequisites should call validateArtifact instead of just checking existence:
+- `/iflow-dev:implement` validates spec.md
+- `/iflow-dev:create-tasks` validates plan.md
+
+---
 
 ## State Schema
 
@@ -107,6 +196,7 @@ The `.meta.json` file in each feature folder:
   "brainstorm_source": "docs/brainstorms/20260130-143052-feature-slug.prd.md",
   "backlog_source": "00001",
   "currentPhase": "specify",
+  "skippedPhases": [],
   "phases": {
     "specify": {
       "started": "2026-01-30T01:00:00Z",
@@ -136,6 +226,28 @@ The `.meta.json` file in each feature folder:
 |-------|------|-------------|
 | brainstorm_source | string/null | Path to original PRD if promoted from brainstorm |
 | backlog_source | string/null | Backlog item ID if promoted from backlog |
+
+### Skip Tracking Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| skippedPhases | array | Record of phases skipped via soft prerequisites |
+
+**skippedPhases Entry Structure:**
+```json
+{
+  "phase": "design",
+  "skippedAt": "2026-01-30T01:00:00Z",
+  "fromPhase": "specify",
+  "toPhase": "create-plan"
+}
+```
+
+When user confirms skipping phases via AskUserQuestion soft prerequisite warning:
+1. Read current `.meta.json`
+2. Append to `skippedPhases` array for each skipped phase
+3. Write updated `.meta.json`
+4. Proceed with target phase
 
 ### Phase Tracking Fields
 
@@ -200,7 +312,7 @@ The design phase uses a 4-stage workflow with detailed tracking:
 | architecture | High-level structure, components, decisions, risks | None (validated in designReview) |
 | interface | Precise contracts between components | None (validated in designReview) |
 | designReview | Challenge assumptions, find gaps, ensure robustness | design-reviewer (skeptic) |
-| handoffReview | Ensure plan phase has everything it needs | chain-reviewer (gatekeeper) |
+| handoffReview | Ensure plan phase has everything it needs | phase-reviewer (gatekeeper) |
 
 ### Stage Object Fields
 
@@ -223,8 +335,8 @@ The design phase uses a 4-stage workflow with detailed tracking:
 |-------|------|-------------|
 | started | ISO8601 | When stage began |
 | completed | ISO8601/null | When stage completed |
-| approved | boolean | Whether chain-reviewer approved |
-| reviewerNotes | array | Concerns noted by chain-reviewer |
+| approved | boolean | Whether phase-reviewer approved |
+| reviewerNotes | array | Concerns noted by phase-reviewer |
 
 ### Recovery from Partial Design Phase
 
@@ -246,7 +358,7 @@ Terminal statuses cannot be changed. New work requires a new feature.
 
 ### Status Updates
 
-The `/iflow:finish` command updates status to terminal values:
+The `/iflow-dev:finish` command updates status to terminal values:
 
 ```json
 // For completed features
@@ -259,4 +371,4 @@ The `/iflow:finish` command updates status to terminal values:
 ## Review History
 
 During development, `.review-history.md` tracks iteration feedback.
-On `/iflow:finish`, this file is deleted (git has the permanent record).
+On `/iflow-dev:finish`, this file is deleted (git has the permanent record).

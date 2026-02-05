@@ -1,6 +1,6 @@
 ---
 name: finishing-branch
-description: This skill should be used when the user says 'finish the branch', 'merge to main', 'create PR', or 'complete the feature'. Guides branch completion with PR or merge options.
+description: Guides branch completion with PR or merge options. Use when the user says 'finish the branch', 'merge to main', 'create PR', or 'complete the feature'.
 ---
 
 # Finishing a Development Branch

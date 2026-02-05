@@ -1,6 +1,6 @@
 ---
 name: designing
-description: This skill should be used when the user says 'design the architecture', 'create technical design', 'define interfaces', or 'plan the structure'. Creates design.md with architecture and contracts.
+description: Creates design.md with architecture and contracts. Use when the user says 'design the architecture', 'create technical design', 'define interfaces', or 'plan the structure'.
 ---
 
 # Design Phase

@@ -1,6 +1,6 @@
 ---
 name: specifying
-description: This skill should be used when the user says 'write the spec', 'document requirements', 'define acceptance criteria', or 'create spec.md'. Creates precise specifications.
+description: Creates precise specifications. Use when the user says 'write the spec', 'document requirements', 'define acceptance criteria', or 'create spec.md'.
 ---
 
 # Specification Phase
