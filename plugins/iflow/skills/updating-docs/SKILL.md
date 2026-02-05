@@ -10,7 +10,7 @@ Automatic documentation updates using documentation-researcher and documentation
 ## Prerequisites
 
 - Feature folder in `docs/features/` with spec.md for context
-- This skill is invoked automatically from `/iflow-dev:finish`
+- This skill is invoked automatically from `/iflow:finish`
 
 ## Process
 
@@ -19,7 +19,7 @@ Automatic documentation updates using documentation-researcher and documentation
 ```
 Task tool call:
   description: "Research documentation context"
-  subagent_type: iflow-dev:documentation-researcher
+  subagent_type: iflow:documentation-researcher
   prompt: |
     Research current documentation state for feature {id}-{slug}.
 
@@ -63,7 +63,7 @@ If updates needed:
 ```
 Task tool call:
   description: "Update documentation"
-  subagent_type: iflow-dev:documentation-writer
+  subagent_type: iflow:documentation-writer
   prompt: |
     Update documentation based on research findings.
 
