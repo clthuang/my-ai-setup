@@ -175,7 +175,21 @@ g. **Branch on result:**
      - If iteration < max: Address issues, return to 4e (phase-reviewer)
      - If iteration == max: Note concerns, proceed to 4h
 
-h. **Complete phase:** Update state.
+h. **Complete phase:** Proceed to auto-commit, then update state.
+
+### 4b. Auto-Commit Phase Artifact
+
+After chain-reviewer approval (Stage 2 step h):
+
+```bash
+git add docs/features/{id}-{slug}/plan.md docs/features/{id}-{slug}/.meta.json docs/features/{id}-{slug}/.review-history.md
+git commit -m "phase(plan): {slug} - approved"
+git push
+```
+
+**Error handling:**
+- On commit failure: Display error, do NOT mark phase completed, allow retry
+- On push failure: Commit succeeds locally, warn user with "Run: git push" instruction, mark phase completed
 
 **Review History Entry Format** (append to `.review-history.md`):
 ```markdown

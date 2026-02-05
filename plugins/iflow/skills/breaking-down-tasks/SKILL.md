@@ -120,6 +120,7 @@ graph TD
 ### Phase 1: Foundation
 
 #### Task 1.1: {Verb + Object + Context}
+- **Why:** Implements Plan {X.Y} / Design Component {Name}
 - **Depends on:** None (can start immediately)
 - **Blocks:** Task 2.1, Task 2.2
 - **Files:** `path/to/file.ts`
@@ -132,6 +133,7 @@ graph TD
 - **Estimated:** 10 min
 
 #### Task 1.2: {Verb + Object + Context}
+- **Why:** Implements Plan {X.Y} / Design Component {Name}
 - **Depends on:** None (can start immediately)
 - **Blocks:** Task 2.1
 - **Files:** `path/to/other.ts`
@@ -145,6 +147,7 @@ graph TD
 ### Phase 2: Core Implementation
 
 #### Task 2.1: {Verb + Object + Context}
+- **Why:** Implements Plan {X.Y} / Design Component {Name}
 - **Depends on:** Task 1.1, Task 1.2
 - **Blocks:** Task 3.1
 - **Files:** `path/to/file.ts`

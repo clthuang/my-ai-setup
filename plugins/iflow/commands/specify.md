@@ -174,7 +174,21 @@ g. **Record result:**
    - If `approved: false`: Store concerns in `.meta.json` phaseReview.reviewerNotes
    - Note concerns but do NOT block (spec-skeptic already validated)
 
-h. **Complete phase:** Update state and show completion message.
+h. **Complete phase:** Proceed to auto-commit, then update state.
+
+### 4b. Auto-Commit Phase Artifact
+
+After phase-reviewer approval (Stage 2):
+
+```bash
+git add docs/features/{id}-{slug}/spec.md docs/features/{id}-{slug}/.meta.json docs/features/{id}-{slug}/.review-history.md
+git commit -m "phase(specify): {slug} - approved"
+git push
+```
+
+**Error handling:**
+- On commit failure: Display error, do NOT mark phase completed, allow retry
+- On push failure: Commit succeeds locally, warn user with "Run: git push" instruction, mark phase completed
 
 **Review History Entry Format** (append to `.review-history.md`):
 ```markdown
