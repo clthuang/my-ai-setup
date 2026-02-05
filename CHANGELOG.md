@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-02-05
+
+### Added
+- Feasibility Assessment section in spec.md with 5-level confidence scale (None → Proven) and evidence requirements
+- Prior Art Research stage (Stage 0) in design phase preceding architecture design
+- Evidence-grounded Technical Decisions documenting alternatives, trade-offs, and principles in design
+- Reasoning fields in plan.md items (Why this item, Why this order) replacing LOC estimates
+- Task traceability with Why field in tasks.md linking back to plan items
+- Auto-commit and auto-push after phase approval (specify, design, create-plan, create-tasks)
+- Independent verification in spec-skeptic and design-reviewer agents using Context7 and WebSearch tools
+
+### Changed
+- Design phase workflow expanded to 5 stages: Prior Art Research → Architecture → Interface → Design Review → Handoff
+- Plan phase removes line-of-code estimates, focuses on reasoning and traceability
+- Phase approval now triggers automatic VCS commits and pushes for better workflow continuity
+
 ## [1.5.0] - 2026-02-05
 
 ### Added

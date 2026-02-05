@@ -1,6 +1,6 @@
-# Review System Migration (v2.2.0)
+# Review System and Evidence-Grounded Workflow (v2.3.0)
 
-This guide documents breaking changes from the review system redesign.
+This guide documents the review system redesign (v2.2.0) and evidence-grounded phase improvements (v2.3.0).
 
 ## Breaking Changes
 
@@ -105,19 +105,88 @@ The consolidated `implementation-reviewer` validates at 4 levels:
 
 Critical rule: **Verify independently** - never trust claims, always read code.
 
+## Evidence-Grounded Workflow Improvements (v2.3.0)
+
+### Spec Phase Enhancements
+
+Spec.md now includes a **Feasibility Assessment** section with:
+- **5-level confidence scale:** None → Possible → Plausible → Probable → Proven
+- **Evidence requirements:** Citations to research, prototypes, prior art, or proofs
+- Replaces unsupported assumptions with evidence-based validation
+
+### Design Phase Enhancements
+
+Design workflow expanded to 5 stages with evidence grounding:
+
+**Stage 0: Prior Art Research**
+- Gather existing solutions, patterns, standards
+- Document what's already been tried
+- Identify evidence sources for decisions
+
+**Stage 1-2: Architecture & Interface Design**
+- Technical decisions now require documented alternatives and trade-offs
+- Evidence-grounded reasoning: why this choice over alternatives
+- Principles documented to guide implementation
+
+**Stage 3: Design Review with Independent Verification**
+- design-reviewer uses Context7 (documentation) and WebSearch (standards/best practices)
+- Independent verification replaces assumption-based review
+- 1-3 iteration review loop for robustness
+
+### Plan Phase Enhancements
+
+Plan.md items now include reasoning fields:
+- **Why this item:** Links to spec requirements and design decisions
+- **Why this order:** Dependency reasoning, TDD sequence
+- **Removed:** Line-of-code estimates (replaced by reasoning)
+- **Added:** Traceability to design and spec artifacts
+
+### Tasks Phase Enhancements
+
+Tasks.md now includes:
+- **Why field:** Links each task back to plan items
+- **Traceability chain:** Tasks → Plan → Design → Spec → PRD
+- Enables requirements verification at implementation
+
+### Workflow Automation (v2.3.0)
+
+Phase approvals now trigger automatic actions:
+- **Auto-commit:** After spec, design, plan, tasks approval
+- **Auto-push:** After phase completion for workflow continuity
+- Commit messages include phase name and changes summary
+
 ## Workflow Changes
 
-### Old Flow
+### Old Flow (v2.1 and earlier)
 ```
 brainstorm → specify → design → create-plan → create-tasks → implement → verify → finish
 ```
 
-### New Flow
+### Current Flow (v2.2+)
 ```
 brainstorm → specify → design → create-plan → create-tasks → implement → finish
 ```
 
-The `verify` phase is removed because:
+### Evidence-Grounded Flow (v2.3+)
+```
+brainstorm
+  ↓ (PRD with research evidence)
+specify (with Feasibility Assessment + evidence)
+  ↓ (spec-skeptic validates assumptions)
+design (5-stage: Prior Art → Architecture → Interface → Review → Handoff)
+  ↓ (design-reviewer uses independent verification)
+create-plan (items with reasoning fields)
+  ↓ (plan-reviewer validates failure modes)
+create-tasks (with Why field traceability)
+  ↓ (task-reviewer validates executability)
+implement (4-level requirements verification)
+  ↓
+finish (merge, retro, cleanup)
+```
+
+Key improvements:
 - Each phase now has its own skeptic reviewer
 - Phase transitions validated by `phase-reviewer`
-- No separate verification step needed
+- Evidence-grounded decisions throughout
+- Auto-commit/auto-push maintain VCS continuity
+- Complete traceability from tasks back to PRD
