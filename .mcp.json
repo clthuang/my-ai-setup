@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest",
+        "--user-data-dir",
+        "/Users/terry/projects/my-ai-setup/.chrome-profile"
+      ]
+    }
+  }
+}
