@@ -267,6 +267,42 @@ AskUserQuestion:
 
 ## Phase 5: Execute Selected Option
 
+### Step 5a: Pre-Merge Validation
+
+Before executing the selected option, discover and run project checks to catch issues while still on the feature branch.
+
+**Discovery** — scan in this order, collecting checks from all matching categories:
+
+1. **CI/CD config**: Glob for `.github/workflows/*.yml`. For each file, grep for `run:` lines that reference local scripts or common commands (e.g. `./validate.sh`, `npm test`, `npm run lint`). Deduplicate against checks already collected.
+2. **Validation script**: Check if `validate.sh` exists at the project root. If found, add `./validate.sh`.
+3. **Package.json scripts**: If `package.json` exists, read it and look for scripts named `test`, `lint`, `check`, or `validate`. For each found, add `npm run {name}`.
+4. **Makefile**: If `Makefile` exists, grep for targets named `check`, `test`, `lint`, or `validate`. For each found, add `make {target}`.
+
+Deduplicate: if the same underlying command appears via multiple discovery paths, run it only once.
+
+If **no checks discovered**: Log "No project checks found — skipping pre-merge validation." and proceed.
+
+**Execution loop** (max 3 attempts):
+
+1. Run all discovered checks sequentially.
+2. If all pass → proceed to the selected option below.
+3. If any check fails:
+   - Analyze the failure output and attempt to fix the issues automatically.
+   - Commit fixes: `git add -A && git commit -m "fix: address pre-merge validation failures"`.
+   - Re-run all checks (counts as next attempt).
+4. If checks still fail after 3 attempts, STOP and inform the user:
+
+```
+Pre-merge validation failed after 3 attempts.
+
+Still failing:
+- {check command}: {brief error summary}
+
+Fix these issues manually, then run /finish again.
+```
+
+Do NOT proceed to Create PR or Merge & Release if validation is failing.
+
 ### If "Create PR":
 
 ```bash
