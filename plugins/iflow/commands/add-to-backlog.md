@@ -1,5 +1,5 @@
 ---
-description: Add an item to the backlog. Use for capturing ad-hoc ideas, todos, or fixes during any workflow.
+description: Add an item to the backlog for capturing ad-hoc ideas, todos, or fixes.
 argument-hint: <description>
 ---
 

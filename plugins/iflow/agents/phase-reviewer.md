@@ -1,9 +1,24 @@
 ---
 name: phase-reviewer
 description: Validates artifact completeness for next phase. Use when (1) after phase completion, (2) user says 'validate handoff', (3) user says 'check phase readiness'. Read-only, no scope creep.
+model: inherit
 tools: [Read, Glob, Grep]
 color: blue
 ---
+
+<example>
+Context: User has completed a workflow phase
+user: "validate handoff"
+assistant: "I'll use the phase-reviewer agent to validate artifact completeness for the next phase."
+<commentary>User requests handoff validation, triggering phase readiness check.</commentary>
+</example>
+
+<example>
+Context: User wants to check if phase is ready to proceed
+user: "check phase readiness for design"
+assistant: "I'll use the phase-reviewer agent to check if the spec is ready for design."
+<commentary>User asks about phase readiness, matching the agent's core function.</commentary>
+</example>
 
 # Phase Reviewer Agent
 

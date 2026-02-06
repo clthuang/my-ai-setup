@@ -1,9 +1,24 @@
 ---
 name: task-reviewer
 description: Validates task breakdown quality. Use when (1) create-tasks command review, (2) user says 'review tasks', (3) user says 'check task breakdown', (4) user says 'validate tasks.md'.
+model: inherit
 tools: [Read, Glob, Grep]
 color: blue
 ---
+
+<example>
+Context: User has broken down plan into tasks
+user: "review tasks"
+assistant: "I'll use the task-reviewer agent to validate the task breakdown quality."
+<commentary>User requests task review, triggering executability and dependency validation.</commentary>
+</example>
+
+<example>
+Context: User wants to validate task breakdown
+user: "validate tasks.md"
+assistant: "I'll use the task-reviewer agent to check task completeness and accuracy."
+<commentary>User asks to validate tasks.md, matching the agent's trigger.</commentary>
+</example>
 
 # Task Reviewer Agent
 

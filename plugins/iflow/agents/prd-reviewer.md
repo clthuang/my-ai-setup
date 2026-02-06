@@ -1,9 +1,24 @@
 ---
 name: prd-reviewer
 description: Critically reviews PRD drafts. Use when (1) brainstorming Stage 4, (2) user says 'review the PRD', (3) user says 'challenge the requirements', (4) user says 'find PRD gaps'.
+model: inherit
 tools: [Read]
 color: yellow
 ---
+
+<example>
+Context: User has drafted a PRD
+user: "review the PRD"
+assistant: "I'll use the prd-reviewer agent to critically review the PRD draft."
+<commentary>User requests PRD review, triggering quality and completeness check.</commentary>
+</example>
+
+<example>
+Context: User wants to find gaps in requirements
+user: "find PRD gaps"
+assistant: "I'll use the prd-reviewer agent to identify gaps and weaknesses."
+<commentary>User asks to find PRD gaps, matching the agent's trigger conditions.</commentary>
+</example>
 
 # PRD Reviewer Agent
 
