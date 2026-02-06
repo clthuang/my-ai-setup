@@ -1,69 +1,79 @@
 ---
-description: Show current feature state and progress
-argument-hint: [feature-id]
+description: Show workspace dashboard with features, branches, and brainstorms
 ---
 
 # /iflow:show-status Command
 
-Display the current state of a feature.
+Display a workspace dashboard with current context, open features, and brainstorms.
 
-## Determine Feature
+## Section 1: Current Context
 
-1. If argument provided: Use that feature ID
-2. If on feature branch: Extract feature ID from branch name pattern `feature/{id}-{slug}`
-3. Otherwise: List recent features and ask
+Gather via git and file inspection:
 
-## Gather State
+1. **Current branch**: Run `git rev-parse --abbrev-ref HEAD`
+2. **Current feature**: If branch matches `feature/{id}-{slug}`, read `docs/features/{id}-{slug}/.meta.json` to get feature name and determine current phase (first missing artifact from: spec.md, design.md, plan.md, tasks.md — or "implement" if all exist). Show "None" if not on a feature branch.
+3. **Other branches**: Run `git branch` and list all local branches except the current one. Show "None" if only one branch exists.
 
-Read `docs/features/{id}-{slug}/`:
+## Section 2: Open Features
 
-| File | Exists? | Phase Status |
-|------|---------|--------------|
-| brainstorm.md | ✓/✗ | Brainstorm complete/pending |
-| spec.md | ✓/✗ | Spec complete/pending |
-| design.md | ✓/✗ | Design complete/pending |
-| plan.md | ✓/✗ | Plan complete/pending |
-| tasks.md | ✓/✗ | Tasks complete/pending |
+Scan `docs/features/` for folders containing `.meta.json` where `status` is NOT `"completed"`.
 
-Current phase = first missing artifact (or "implement" if all exist)
+For each open feature, show:
+- **ID**: from `.meta.json`
+- **Name**: the slug from `.meta.json`
+- **Phase**: determined from first missing artifact (spec.md, design.md, plan.md, tasks.md) or "implement" if all exist
+- **Branch**: from `.meta.json`
 
-## Check Execution Progress
+If no open features exist, show "None".
 
-If Vibe-Kanban available:
-- Get card status
-- Get task completion counts
+## Section 3: Open Brainstorms
 
-If TodoWrite:
-- Check task list status
+List files in `docs/brainstorms/` excluding `.gitkeep`. For each file, show:
+- Filename
+- Age (e.g., "1 day ago", "3 days ago") based on file modification time
 
-## Display Status
+If no brainstorm files exist, show "None".
+
+## Display Format
+
+When on a feature branch:
 
 ```
-Feature: {id}-{slug}
-Mode: {mode}
-Phase: {current-phase}
+## Current Context
+Branch: feature/018-show-status-upgrade
+Feature: 018-show-status-upgrade (phase: design)
+Other branches: main, develop
 
-Artifacts:
-  ✓ brainstorm.md
-  ✓ spec.md
-  ○ design.md (current)
-  ○ plan.md
-  ○ tasks.md
+## Open Features
+ID   Name                    Phase        Branch
+018  show-status-upgrade     design       feature/018-show-status-upgrade
+016  api-refactor            implement    feature/016-api-refactor
 
-Progress: {completed}/{total} tasks (if in implement phase)
+## Open Brainstorms
+20260205-002937-rca-agent.prd.md (1 day ago)
+20260204-secretary-agent.prd.md (2 days ago)
 
 Next: Run /iflow:design to continue
 ```
 
-## If No Feature Active
+When not on a feature branch:
 
 ```
-No active feature detected.
+## Current Context
+Branch: develop
+Feature: None
+Other branches: main
 
-Recent features:
-  42-user-auth (design phase)
-  41-search (complete)
+## Open Features
+None
 
-Run /iflow:create-feature to start a new feature
-or /iflow:show-status {id} to check a specific feature
+## Open Brainstorms
+20260205-002937-rca-agent.prd.md (1 day ago)
+
+Tip: Run /iflow:create-feature or /iflow:brainstorm to start
 ```
+
+## Footer Logic
+
+- If on a feature branch with a detected phase, show: `Next: Run /iflow:{next-command} to continue` where `{next-command}` is the command for the current phase (e.g., design, create-plan, create-tasks, implement).
+- If not on a feature branch, show: `Tip: Run /iflow:create-feature or /iflow:brainstorm to start`

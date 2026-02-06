@@ -142,69 +142,72 @@ No routing layer. No orchestration. Just well-written prompts.
 
 ## Skills
 
-Skills are instructions Claude follows for specific development practices.
+Skills are instructions Claude follows for specific development practices. Located in `plugins/iflow-dev/skills/{name}/SKILL.md`.
 
-### Feature Workflow
+### Workflow Phases
 | Skill | Purpose |
 |-------|---------|
-| `brainstorming` | Ideation with YAGNI discipline |
-| `specifying` | Requirements and acceptance criteria |
-| `designing` | Architecture and interfaces |
-| `planning` | Implementation approach |
-| `breaking-down-tasks` | Create actionable tasks with dependency tracking |
-| `implementing` | Code execution with TDD |
-| `verifying` | Phase-appropriate verification |
-| `updating-docs` | Guide documentation updates |
-| `retrospecting` | Capture learnings |
+| `brainstorming` | Guides 7-stage process producing evidence-backed PRDs |
+| `specifying` | Creates precise specifications with acceptance criteria |
+| `designing` | Creates design.md with architecture and contracts |
+| `planning` | Produces plan.md with dependencies and ordering |
+| `breaking-down-tasks` | Breaks plans into small, actionable tasks with dependency tracking |
+| `implementing` | Guides phased TDD implementation (Interface → RED-GREEN → REFACTOR) |
+| `finishing-branch` | Guides branch completion with PR or merge options |
 
-### Advanced Disciplines
+### Quality & Review
 | Skill | Purpose |
 |-------|---------|
-| `implementing-with-tdd` | RED-GREEN-REFACTOR enforcement |
-| `systematic-debugging` | Root cause investigation |
-| `verifying-before-completion` | Evidence before claims |
+| `reviewing-artifacts` | Comprehensive quality criteria for PRD, spec, design, plan, and tasks |
+| `implementing-with-tdd` | Enforces RED-GREEN-REFACTOR cycle with rationalization prevention |
+| `workflow-state` | Defines phase sequence and validates transitions |
 
-### Infrastructure
+### Investigation
 | Skill | Purpose |
 |-------|---------|
-| `finishing-branch` | Branch completion options |
-| `writing-skills` | TDD for skill authoring |
-| `workflow-state` | Phase sequence and state management |
-| `detecting-kanban` | Kanban availability with TodoWrite fallback |
-| `reviewing-artifacts` | PRD and spec quality criteria for reviewers |
+| `systematic-debugging` | Guides four-phase root cause investigation |
+| `root-cause-analysis` | Structured 6-phase process for finding ALL contributing causes |
+
+### Maintenance
+| Skill | Purpose |
+|-------|---------|
+| `retrospecting` | Captures learnings using subagents after feature completion |
+| `updating-docs` | Automatically updates documentation using agents |
+| `writing-skills` | Applies TDD approach to skill documentation |
+| `detecting-kanban` | Detects Vibe-Kanban and provides TodoWrite fallback |
 
 ## Agents
 
-**Implementation:**
-- `implementer` — Task implementation with self-review, TDD
-- `generic-worker` — General-purpose implementation
+Agents are isolated subprocesses spawned by the workflow. Located in `plugins/iflow-dev/agents/{name}.md`.
 
-**Quality Review:**
-- `spec-reviewer` — Verify implementation matches specification
-- `code-quality-reviewer` — Code quality assessment
-- `quality-reviewer` — Post-implementation quality check
-- `final-reviewer` — Validates implementation delivers PRD outcomes
-- `chain-reviewer` — Validates artifact quality and phase handoffs
-- `task-breakdown-reviewer` — Validates task executability, size, dependencies, and plan fidelity
+**Reviewers (10):**
+- `brainstorm-reviewer` — Reviews brainstorm artifacts for completeness before promotion
+- `code-quality-reviewer` — Reviews implementation quality after spec compliance is confirmed
+- `design-reviewer` — Challenges design assumptions and finds gaps
+- `implementation-reviewer` — Validates implementation against full requirements chain (Tasks → Spec → Design → PRD)
+- `phase-reviewer` — Validates artifact completeness for next phase transition
+- `plan-reviewer` — Skeptically reviews plans for failure modes and feasibility
+- `prd-reviewer` — Critically reviews PRD drafts for quality and completeness
+- `spec-reviewer` — Reviews spec.md for testability, assumptions, and scope discipline
+- `security-reviewer` — Reviews implementation for security vulnerabilities
+- `task-reviewer` — Validates task breakdown quality for immediate executability
 
-**Implementation Review:**
-- `code-simplifier` — Identifies unnecessary complexity, dead code, over-engineering
-- `implementation-behavior-reviewer` — Validates behavior against tasks -> specs -> design -> PRD
-- `security-reviewer` — OWASP top 10, input validation, auth, data protection
+**Workers (4):**
+- `implementer` — Implements tasks with TDD and self-review discipline
+- `generic-worker` — General-purpose implementation agent for mixed-domain tasks
+- `documentation-writer` — Writes and updates documentation based on research findings
+- `code-simplifier` — Identifies unnecessary complexity and suggests simplifications
 
-**Brainstorm & PRD:**
-- `brainstorm-reviewer` — Reviews brainstorm readiness for promotion
-- `prd-reviewer` — Critical review of PRD quality
+**Researchers (5):**
+- `codebase-explorer` — Analyzes codebase to find relevant patterns and constraints
+- `documentation-researcher` — Researches documentation state and identifies update needs
+- `internet-researcher` — Searches web for best practices, standards, and prior art
+- `investigation-agent` — Read-only research agent for context gathering
+- `skill-searcher` — Finds relevant existing skills for a given topic
 
-**Research:**
-- `investigation-agent` — Read-only context gathering
-- `codebase-explorer` — Analyzes codebase for patterns and constraints
-- `internet-researcher` — Web research for best practices
-- `skill-searcher` — Finds relevant existing skills
-
-**Documentation:**
-- `documentation-researcher` — Researches current documentation state
-- `documentation-writer` — Writes and updates documentation
+**Orchestration (2):**
+- `secretary` — Routes user requests to appropriate specialist agents
+- `rca-investigator` — Finds all root causes through 6-phase systematic investigation
 
 ## Hooks
 
@@ -212,11 +215,12 @@ Hooks execute automatically at lifecycle points.
 
 | Hook | Trigger | Purpose |
 |------|---------|---------|
-| `session-start` | Session start/resume/clear/compact | Inject active feature context |
-| `sync-cache` | Session start | Syncs plugin source to Claude cache |
-| `cleanup-locks` | Session start | Removes stale lock files |
-| `pre-commit-guard` | Before git commit | Branch protection and iflow directory protection |
-| `write-control` | PreToolUse (Write/Edit) | Path-based write restrictions for agent subprocesses |
+| `sync-cache` | SessionStart | Syncs plugin source to Claude cache |
+| `cleanup-locks` | SessionStart | Removes stale lock files |
+| `session-start` | SessionStart | Injects active feature context |
+| `inject-secretary-context` | SessionStart | Injects available agent/command context for secretary |
+| `cleanup-sandbox` | (utility) | Cleans up agent_sandbox/ temporary files |
+| `pre-commit-guard` | PreToolUse (Bash) | Branch protection and iflow directory protection |
 
 Defined in `plugins/iflow-dev/hooks/hooks.json`.
 
@@ -243,14 +247,14 @@ The `/create-tasks` command uses a two-stage review process:
    - Parallel execution groups
    - Detailed task specifications (files, steps, tests, done criteria)
 
-2. **Task Review**: `task-breakdown-reviewer` validates (up to 3 iterations):
+2. **Task Review**: `task-reviewer` validates (up to 3 iterations):
    - Plan fidelity (every plan item has tasks)
    - Task executability (any engineer can start immediately)
    - Task size (5-15 min each)
    - Dependency accuracy (parallel groups correct)
    - Testability (binary done criteria)
 
-3. **Chain Review**: `chain-reviewer` validates readiness for implementation phase
+3. **Phase Review**: `phase-reviewer` validates readiness for implementation phase
 
 4. **Completion**: Prompts user to start `/implement`
 
@@ -260,9 +264,8 @@ The `/implement` command uses a multi-phase execution flow:
 
 1. **Implementation**: Subagents -> Interface scaffold -> RED-GREEN loop -> REFACTOR
 2. **Simplification**: `code-simplifier` removes unnecessary complexity
-3. **Review** (iterative): behavior -> quality -> security (up to 2-3 iterations)
-4. **Final Review**: `final-reviewer` validates against PRD deliverables
-5. **Completion**: Prompts user to run `/finish`
+3. **Review** (iterative): `implementation-reviewer` -> `code-quality-reviewer` -> `security-reviewer` (up to 2-3 iterations)
+4. **Completion**: Prompts user to run `/finish`
 
 ## Knowledge Bank
 

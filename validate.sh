@@ -99,6 +99,150 @@ validate_skill_size() {
     fi
 }
 
+# Validate agent-specific fields (model, color, example blocks)
+validate_agent_fields() {
+    local file=$1
+    local content=$(cat "$file")
+    local frontmatter=$(echo "$content" | sed -n '/^---$/,/^---$/p' | sed '1d;$d')
+
+    # Check model field
+    if echo "$frontmatter" | grep -q "^model:"; then
+        local model=$(echo "$frontmatter" | grep "^model:" | sed 's/^model:[[:space:]]*//')
+        if ! echo "inherit sonnet opus haiku" | grep -qw "$model"; then
+            log_error "$file: Invalid model '$model' (must be inherit, sonnet, opus, or haiku)"
+        fi
+    else
+        log_warning "$file: Missing 'model' field (defaults to inherit)"
+    fi
+
+    # Check color field
+    if echo "$frontmatter" | grep -q "^color:"; then
+        local color=$(echo "$frontmatter" | grep "^color:" | sed 's/^color:[[:space:]]*//')
+        if ! echo "blue cyan green yellow magenta red" | grep -qw "$color"; then
+            log_error "$file: Invalid color '$color' (must be blue, cyan, green, yellow, magenta, or red)"
+        fi
+    else
+        log_warning "$file: Missing 'color' field (recommended for UI differentiation)"
+    fi
+
+    # Check for example blocks in description (best practice for reliable triggering)
+    local description=$(echo "$content" | sed -n '/^---$/,/^---$/p' | sed '1d;$d' | grep "^description:")
+    if ! grep -q "<example>" "$file"; then
+        log_warning "$file: No <example> blocks found (recommended for reliable agent triggering)"
+    fi
+}
+
+# Validate hooks.json schema (event names, structure, portability)
+validate_hooks_schema() {
+    local file=$1
+    local valid_events="PreToolUse PostToolUse UserPromptSubmit Stop SubagentStop SessionStart SessionEnd PreCompact Notification"
+
+    # Check top-level structure has "hooks" key
+    if ! jq -e '.hooks' "$file" > /dev/null 2>&1; then
+        log_error "$file: Missing top-level 'hooks' key"
+        return 1
+    fi
+
+    # Validate event names
+    local events=$(jq -r '.hooks | keys[]' "$file" 2>/dev/null)
+    while IFS= read -r event; do
+        [ -z "$event" ] && continue
+        if ! echo "$valid_events" | grep -qw "$event"; then
+            log_error "$file: Invalid event name '$event' (valid: $valid_events)"
+        fi
+    done <<< "$events"
+
+    # Validate each event's hook entries
+    local event_count=$(jq '.hooks | keys | length' "$file" 2>/dev/null)
+    for (( i=0; i<event_count; i++ )); do
+        local event_name=$(jq -r ".hooks | keys[$i]" "$file")
+        local entry_count=$(jq ".hooks[\"$event_name\"] | length" "$file" 2>/dev/null)
+
+        for (( j=0; j<entry_count; j++ )); do
+            local entry_path=".hooks[\"$event_name\"][$j]"
+
+            # Check matcher field
+            if ! jq -e "$entry_path.matcher" "$file" > /dev/null 2>&1; then
+                log_error "$file: $event_name[$j] missing 'matcher' field"
+            fi
+
+            # Check hooks array
+            if ! jq -e "$entry_path.hooks" "$file" > /dev/null 2>&1; then
+                log_error "$file: $event_name[$j] missing 'hooks' array"
+                continue
+            fi
+
+            local hook_count=$(jq "$entry_path.hooks | length" "$file" 2>/dev/null)
+            for (( k=0; k<hook_count; k++ )); do
+                local hook_path="$entry_path.hooks[$k]"
+                local hook_type=$(jq -r "$hook_path.type // empty" "$file")
+
+                # Check type field
+                if [ -z "$hook_type" ]; then
+                    log_error "$file: $event_name[$j].hooks[$k] missing 'type' field"
+                elif [ "$hook_type" != "command" ] && [ "$hook_type" != "prompt" ]; then
+                    log_error "$file: $event_name[$j].hooks[$k] invalid type '$hook_type' (must be 'command' or 'prompt')"
+                fi
+
+                # Check type-specific required fields
+                if [ "$hook_type" = "command" ]; then
+                    if ! jq -e "$hook_path.command" "$file" > /dev/null 2>&1; then
+                        log_error "$file: $event_name[$j].hooks[$k] type 'command' missing 'command' field"
+                    else
+                        local cmd=$(jq -r "$hook_path.command" "$file")
+                        if [[ "$cmd" != *'${CLAUDE_PLUGIN_ROOT}'* ]] && [[ "$cmd" == *"/"* ]]; then
+                            log_warning "$file: $event_name[$j].hooks[$k] command uses hardcoded path — consider \${CLAUDE_PLUGIN_ROOT} for portability"
+                        fi
+                    fi
+                elif [ "$hook_type" = "prompt" ]; then
+                    if ! jq -e "$hook_path.prompt" "$file" > /dev/null 2>&1; then
+                        log_error "$file: $event_name[$j].hooks[$k] type 'prompt' missing 'prompt' field"
+                    fi
+                fi
+            done
+        done
+    done
+
+    return 0
+}
+
+# Validate .claude-plugin/ directory structure
+validate_plugin_dir_structure() {
+    local plugin_dir=$1
+    local allowed_files="plugin.json marketplace.json"
+
+    while IFS= read -r file_in_dir; do
+        [ -z "$file_in_dir" ] && continue
+        local basename=$(basename "$file_in_dir")
+        if ! echo "$allowed_files" | grep -qw "$basename"; then
+            log_warning "$plugin_dir: Unexpected file '$basename' — .claude-plugin/ should only contain plugin.json and marketplace.json"
+        fi
+    done < <(find "$plugin_dir" -maxdepth 1 -type f 2>/dev/null)
+}
+
+# Validate command frontmatter details (description length, allowed-tools)
+validate_command_frontmatter() {
+    local file=$1
+    local frontmatter=$2
+
+    # Check description length (appears in /help output, should be concise)
+    if echo "$frontmatter" | grep -q "^description:"; then
+        local desc=$(echo "$frontmatter" | grep "^description:" | sed 's/^description:[[:space:]]*//')
+        if [ ${#desc} -gt 80 ]; then
+            log_warning "$file: Command description is ${#desc} chars (recommended <=80 for /help output)"
+        fi
+    fi
+
+    # Check allowed-tools format if present
+    if echo "$frontmatter" | grep -q "^allowed-tools:"; then
+        local tools_value=$(echo "$frontmatter" | grep "^allowed-tools:" | sed 's/^allowed-tools:[[:space:]]*//')
+        # Should be a YAML list or comma-separated — warn if it looks like a single unquoted word with spaces
+        if [[ "$tools_value" != "["* ]] && [[ "$tools_value" == *" "* ]] && [[ "$tools_value" != *","* ]]; then
+            log_warning "$file: 'allowed-tools' format may be incorrect — use comma-separated values or YAML list"
+        fi
+    fi
+}
+
 # Validate plugin.json
 validate_plugin_json() {
     local file=$1
@@ -203,6 +347,7 @@ while IFS= read -r agent_file; do
     log_info "Checking $agent_file"
     validate_frontmatter "$agent_file" && log_success "Frontmatter valid"
     validate_description "$agent_file"
+    validate_agent_fields "$agent_file"
     ((agent_count++)) || true
 done < <(find . -type f -name "*.md" \( -path "./agents/*" -o -path "./plugins/*/agents/*" \) 2>/dev/null)
 if [ $agent_count -eq 0 ]; then
@@ -230,6 +375,9 @@ while IFS= read -r cmd_file; do
             fi
         fi
 
+        # Validate description length and allowed-tools format
+        validate_command_frontmatter "$cmd_file" "$cmd_frontmatter"
+
         log_success "Frontmatter valid"
     else
         log_success "No frontmatter (valid - all fields optional)"
@@ -252,6 +400,7 @@ for hooks_dir in hooks plugins/*/hooks; do
         log_info "Checking $hooks_dir/hooks.json"
         if jq empty "$hooks_dir/hooks.json" 2>/dev/null; then
             log_success "hooks.json valid JSON"
+            validate_hooks_schema "$hooks_dir/hooks.json" && log_success "hooks.json schema valid"
         else
             log_error "$hooks_dir/hooks.json: Invalid JSON syntax"
         fi
@@ -347,9 +496,7 @@ for w in warnings:
     print(f'WARNING: {w}')
 
 sys.exit(1 if errors else 0)
-" 2>&1)
-
-    python_exit=$?
+" 2>&1) && python_exit=0 || python_exit=$?
     if [ $python_exit -eq 0 ]; then
         if [ -n "$validation_output" ]; then
             # Has warnings but no errors - use here-string to avoid subshell
@@ -376,18 +523,22 @@ echo ""
 
 # Validate plugin.json files
 echo "Validating Plugin Manifests..."
-for plugin_json in $(find . -path "*/.claude-plugin/plugin.json" -type f 2>/dev/null); do
+while IFS= read -r plugin_json; do
+    [ -z "$plugin_json" ] && continue
     log_info "Checking $plugin_json"
     validate_plugin_json "$plugin_json" && log_success "plugin.json valid"
-done
+    # Check that .claude-plugin/ only contains allowed files
+    validate_plugin_dir_structure "$(dirname "$plugin_json")"
+done < <(find . -path "*/.claude-plugin/plugin.json" -type f 2>/dev/null)
 echo ""
 
 # Validate marketplace.json
 echo "Validating Marketplace..."
-for marketplace_json in $(find . -path "*/.claude-plugin/marketplace.json" -type f 2>/dev/null); do
+while IFS= read -r marketplace_json; do
+    [ -z "$marketplace_json" ] && continue
     log_info "Checking $marketplace_json"
     validate_marketplace_json "$marketplace_json" && log_success "marketplace.json valid"
-done
+done < <(find . -path "*/.claude-plugin/marketplace.json" -type f 2>/dev/null)
 echo ""
 
 # Summary
