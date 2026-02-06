@@ -1,9 +1,24 @@
 ---
 name: codebase-explorer
 description: Analyzes codebase patterns and constraints. Use when (1) brainstorming Stage 2, (2) user says 'explore codebase', (3) user says 'find existing patterns', (4) user says 'what code is related'.
+model: inherit
 tools: [Glob, Grep, Read]
 color: cyan
 ---
+
+<example>
+Context: User wants to understand existing patterns
+user: "explore codebase for authentication patterns"
+assistant: "I'll use the codebase-explorer agent to find relevant code patterns."
+<commentary>User asks to explore codebase, triggering pattern analysis.</commentary>
+</example>
+
+<example>
+Context: User wants to find related code
+user: "what code is related to the validation system?"
+assistant: "I'll use the codebase-explorer agent to find related code and constraints."
+<commentary>User asks about related code, matching the agent's trigger conditions.</commentary>
+</example>
 
 # Codebase Explorer Agent
 

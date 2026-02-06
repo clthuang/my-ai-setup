@@ -1,9 +1,24 @@
 ---
 name: code-quality-reviewer
 description: Reviews code quality and categorizes issues by severity. Use when (1) after implementation-reviewer passes, (2) user says 'review code quality', (3) user says 'check implementation quality'.
+model: inherit
 tools: [Read, Glob, Grep]
 color: magenta
 ---
+
+<example>
+Context: Implementation review has passed, now checking quality
+user: "review code quality"
+assistant: "I'll use the code-quality-reviewer agent to check implementation quality."
+<commentary>User explicitly requests code quality review after implementation passes.</commentary>
+</example>
+
+<example>
+Context: User wants to verify code quality standards
+user: "check implementation quality of the new feature"
+assistant: "I'll use the code-quality-reviewer agent to review the implementation."
+<commentary>User asks to check implementation quality, matching the agent's trigger.</commentary>
+</example>
 
 # Code Quality Reviewer Agent
 

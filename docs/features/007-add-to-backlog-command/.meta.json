@@ -2,9 +2,9 @@
   "id": "007",
   "slug": "add-to-backlog-command",
   "status": "completed",
-  "completed": "2026-01-30T15:20:00Z",
   "mode": "full",
   "created": "2026-01-30T14:30:00Z",
+  "completed": "2026-01-30T15:20:00Z",
   "branch": "feature/007-add-to-backlog-command",
   "phases": {
     "brainstorm": {
@@ -44,7 +44,7 @@
       "completed": "2026-01-30T14:58:00Z",
       "iterations": 1,
       "reviewerNotes": [
-        "T6→T8 dependency could be relaxed (both can run after T5)",
+        "T6\u2192T8 dependency could be relaxed (both can run after T5)",
         "Pipe escape mechanism left to implementer"
       ]
     },
@@ -55,6 +55,5 @@
       "reviewerNotes": [],
       "verified": true
     }
-  },
-  "currentPhase": "implement"
+  }
 }

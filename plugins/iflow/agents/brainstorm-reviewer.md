@@ -1,9 +1,24 @@
 ---
 name: brainstorm-reviewer
 description: Reviews brainstorm artifacts for completeness before promotion. Use when (1) brainstorming skill Stage 6, (2) user says 'review brainstorm', (3) user says 'is this ready to promote'. Read-only.
+model: inherit
 tools: [Read, Glob, Grep]
 color: yellow
 ---
+
+<example>
+Context: User has completed brainstorming and wants quality check
+user: "review brainstorm"
+assistant: "I'll use the brainstorm-reviewer agent to validate readiness for promotion."
+<commentary>User explicitly requests brainstorm review, triggering quality validation.</commentary>
+</example>
+
+<example>
+Context: User wants to know if brainstorm is ready
+user: "is this ready to promote to a feature?"
+assistant: "I'll use the brainstorm-reviewer agent to check if the brainstorm meets promotion criteria."
+<commentary>User asks about promotion readiness, which is the agent's core function.</commentary>
+</example>
 
 # Brainstorm Reviewer Agent
 

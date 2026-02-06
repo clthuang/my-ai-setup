@@ -1,9 +1,24 @@
 ---
 name: skill-searcher
 description: Finds relevant existing skills. Use when (1) brainstorming Stage 2, (2) user says 'what skills exist', (3) user says 'find related capabilities', (4) user says 'search skills'.
+model: inherit
 tools: [Glob, Grep, Read]
 color: cyan
 ---
+
+<example>
+Context: User wants to find relevant skills
+user: "what skills exist for code review?"
+assistant: "I'll use the skill-searcher agent to find relevant existing skills."
+<commentary>User asks about existing skills, triggering skill discovery.</commentary>
+</example>
+
+<example>
+Context: User wants to find related capabilities
+user: "find related capabilities for testing"
+assistant: "I'll use the skill-searcher agent to search for related skills."
+<commentary>User asks to find related capabilities, matching the agent's trigger.</commentary>
+</example>
 
 # Skill Searcher Agent
 

@@ -56,7 +56,7 @@ AskUserQuestion:
 
 | Document | Use When |
 |----------|----------|
-| [Component Authoring Guide](docs/guides/component-authoring.md) | Creating skills, agents, plugins, commands, or hooks |
+| [Component Authoring Guide](docs/dev_guides/component-authoring.md) | Creating skills, agents, plugins, commands, or hooks |
 | [Architecture Design](docs/prds/claude_code_special_force_design.md) | Understanding the three-tier config hierarchy |
 
 ## Quick Reference

@@ -1,9 +1,24 @@
 ---
 name: code-simplifier
 description: Identifies unnecessary complexity and suggests simplifications. Use when (1) after implementation phase, (2) user says 'simplify the code', (3) user says 'remove complexity'.
+model: inherit
 tools: [Read, Glob, Grep]
 color: red
 ---
+
+<example>
+Context: User wants to reduce code complexity
+user: "simplify the code"
+assistant: "I'll use the code-simplifier agent to identify unnecessary complexity."
+<commentary>User asks to simplify code, triggering complexity analysis.</commentary>
+</example>
+
+<example>
+Context: User notices over-engineering
+user: "remove complexity from the auth module"
+assistant: "I'll use the code-simplifier agent to find simplification opportunities."
+<commentary>User asks to remove complexity, matching the agent's trigger conditions.</commentary>
+</example>
 
 # Code Simplifier
 

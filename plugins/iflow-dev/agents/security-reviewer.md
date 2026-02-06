@@ -1,9 +1,24 @@
 ---
 name: security-reviewer
 description: Reviews for security vulnerabilities. Use when (1) implement command review phase, (2) user says 'security review', (3) user says 'check for vulnerabilities', (4) user says 'audit security'.
+model: inherit
 tools: [Read, Glob, Grep]
 color: magenta
 ---
+
+<example>
+Context: User wants security audit of implementation
+user: "security review"
+assistant: "I'll use the security-reviewer agent to check for vulnerabilities."
+<commentary>User requests security review, triggering vulnerability analysis.</commentary>
+</example>
+
+<example>
+Context: User is concerned about vulnerabilities
+user: "check for vulnerabilities in the auth module"
+assistant: "I'll use the security-reviewer agent to audit the authentication module."
+<commentary>User asks to check for vulnerabilities, matching the agent's trigger.</commentary>
+</example>
 
 # Security Reviewer
 

@@ -1,9 +1,24 @@
 ---
 name: design-reviewer
 description: Challenges design assumptions and finds gaps. Use when (1) after design phase, (2) user says 'review the design', (3) user says 'validate architecture', (4) user says 'check design quality'.
+model: inherit
 tools: [Read, Glob, Grep, WebSearch, mcp__context7__resolve-library-id, mcp__context7__query-docs]
 color: blue
 ---
+
+<example>
+Context: User has completed design phase
+user: "review the design"
+assistant: "I'll use the design-reviewer agent to challenge assumptions and find gaps."
+<commentary>User requests design review, triggering adversarial design validation.</commentary>
+</example>
+
+<example>
+Context: User wants architecture validation
+user: "validate architecture for the authentication system"
+assistant: "I'll use the design-reviewer agent to validate the architecture."
+<commentary>User asks to validate architecture, matching the agent's trigger conditions.</commentary>
+</example>
 
 # Design Reviewer Agent
 

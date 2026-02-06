@@ -297,4 +297,4 @@ iflow@1.2.0 available, iflow-dev@1.3.0-dev ready
 | `validate.sh` | ADD version validation | R6.1 |
 | `README.md` | UPDATE | R7.1 |
 | `README_FOR_DEV.md` | UPDATE | R7.2 |
-| `docs/guides/component-authoring.md` | CHECK/UPDATE | R7.3 |
+| `docs/dev_guides/component-authoring.md` | CHECK/UPDATE | R7.3 |

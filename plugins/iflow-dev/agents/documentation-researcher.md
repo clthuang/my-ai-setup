@@ -1,9 +1,24 @@
 ---
 name: documentation-researcher
 description: Researches documentation state and identifies update needs. Use when (1) updating-docs skill Step 1, (2) user says 'check what docs need updating', (3) user says 'audit documentation'.
+model: inherit
 tools: [Read, Glob, Grep]
 color: cyan
 ---
+
+<example>
+Context: User wants to know what docs need updating
+user: "check what docs need updating"
+assistant: "I'll use the documentation-researcher agent to audit documentation state."
+<commentary>User asks about doc update needs, triggering documentation analysis.</commentary>
+</example>
+
+<example>
+Context: User wants documentation audit
+user: "audit documentation for the new feature"
+assistant: "I'll use the documentation-researcher agent to identify update needs."
+<commentary>User requests documentation audit, matching the agent's trigger.</commentary>
+</example>
 
 # Documentation Researcher Agent
 

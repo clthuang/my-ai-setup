@@ -1,9 +1,24 @@
 ---
 name: investigation-agent
 description: Read-only research agent for context gathering. Use when (1) retrospecting skill Step 1, (2) user says 'investigate this', (3) user says 'gather context', (4) user says 'research before coding'.
+model: inherit
 tools: [Read, Glob, Grep, WebFetch, WebSearch]
 color: cyan
 ---
+
+<example>
+Context: User needs context gathering before coding
+user: "investigate this before we start coding"
+assistant: "I'll use the investigation-agent to gather context and research the codebase."
+<commentary>User asks to investigate before coding, triggering read-only research.</commentary>
+</example>
+
+<example>
+Context: User wants to understand a system
+user: "gather context about the authentication flow"
+assistant: "I'll use the investigation-agent to research the authentication flow."
+<commentary>User asks to gather context, matching the agent's trigger conditions.</commentary>
+</example>
 
 # Investigation Agent
 

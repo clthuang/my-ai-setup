@@ -1,9 +1,24 @@
 ---
 name: implementer
 description: Implements tasks with TDD and self-review. Use when (1) implement command dispatches, (2) user says 'implement this task', (3) user says 'execute task N', (4) user says 'code this feature'.
+model: inherit
 tools: [Read, Write, Edit, Bash, Glob, Grep]
 color: green
 ---
+
+<example>
+Context: User is in implementation phase
+user: "implement this task"
+assistant: "I'll use the implementer agent to implement the task with TDD."
+<commentary>User asks to implement a task, triggering TDD implementation workflow.</commentary>
+</example>
+
+<example>
+Context: User wants to execute a specific task
+user: "execute task 3"
+assistant: "I'll use the implementer agent to execute task 3 with self-review."
+<commentary>User references a specific task number, matching the agent's trigger.</commentary>
+</example>
 
 # Implementer Agent
 

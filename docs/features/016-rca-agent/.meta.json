@@ -1,13 +1,12 @@
 {
   "id": "016",
   "slug": "rca-agent",
-  "mode": "standard",
   "status": "completed",
+  "mode": "standard",
   "created": "2026-02-04T16:47:35Z",
   "completed": "2026-02-05T04:30:00Z",
   "branch": "feature/016-rca-agent",
   "brainstorm_source": "docs/brainstorms/20260205-002937-rca-agent.prd.md",
-  "currentPhase": "finish",
   "phases": {
     "finish": {
       "started": "2026-02-05T04:00:00Z",
@@ -44,10 +43,26 @@
       "started": "2026-02-04T16:53:56Z",
       "completed": "2026-02-04T17:19:13Z",
       "stages": {
-        "architecture": { "started": "2026-02-04T16:53:56Z", "completed": "2026-02-04T17:03:24Z" },
-        "interface": { "started": "2026-02-04T17:03:24Z", "completed": "2026-02-04T17:03:24Z" },
-        "designReview": { "started": "2026-02-04T17:03:24Z", "completed": "2026-02-04T17:19:13Z", "iterations": 3, "reviewerNotes": [] },
-        "handoffReview": { "started": "2026-02-04T17:19:13Z", "completed": "2026-02-04T17:19:13Z", "approved": true, "reviewerNotes": [] }
+        "architecture": {
+          "started": "2026-02-04T16:53:56Z",
+          "completed": "2026-02-04T17:03:24Z"
+        },
+        "interface": {
+          "started": "2026-02-04T17:03:24Z",
+          "completed": "2026-02-04T17:03:24Z"
+        },
+        "designReview": {
+          "started": "2026-02-04T17:03:24Z",
+          "completed": "2026-02-04T17:19:13Z",
+          "iterations": 3,
+          "reviewerNotes": []
+        },
+        "handoffReview": {
+          "started": "2026-02-04T17:19:13Z",
+          "completed": "2026-02-04T17:19:13Z",
+          "approved": true,
+          "reviewerNotes": []
+        }
       }
     },
     "specify": {

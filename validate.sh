@@ -130,6 +130,36 @@ validate_agent_fields() {
     if ! grep -q "<example>" "$file"; then
         log_warning "$file: No <example> blocks found (recommended for reliable agent triggering)"
     fi
+
+    # Error on YAML examples: in frontmatter (must use XML <example> blocks only)
+    if echo "$frontmatter" | grep -q "^examples:"; then
+        log_error "$file: YAML 'examples:' in frontmatter — must use XML <example> blocks in body instead"
+    fi
+
+    # Warn on non-canonical frontmatter field order (name → description → model → tools → color)
+    local field_order=""
+    while IFS= read -r line; do
+        local key=$(echo "$line" | sed -n 's/^\([a-z_-]*\):.*/\1/p')
+        [ -n "$key" ] && field_order="$field_order $key"
+    done <<< "$frontmatter"
+    local canonical=" name description model tools color"
+    # Extract only canonical fields in the order they appear
+    local actual_order=""
+    for f in $field_order; do
+        case "$f" in
+            name|description|model|tools|color) actual_order="$actual_order $f" ;;
+        esac
+    done
+    local expected_order=""
+    for f in $canonical; do
+        # Only include fields that actually exist
+        if echo "$actual_order" | grep -qw "$f"; then
+            expected_order="$expected_order $f"
+        fi
+    done
+    if [ "$actual_order" != "$expected_order" ]; then
+        log_warning "$file: Non-canonical frontmatter field order (expected:$expected_order, got:$actual_order)"
+    fi
 }
 
 # Validate hooks.json schema (event names, structure, portability)
@@ -451,7 +481,7 @@ import json
 import sys
 
 required = ['id', 'mode', 'status', 'created', 'branch']
-deprecated = ['worktree', 'currentPhase', 'phases']
+deprecated = ['worktree', 'currentPhase']
 
 try:
     with open('$meta_file') as f:
@@ -468,12 +498,12 @@ for field in required:
     if field not in meta:
         errors.append(f'Missing required field: {field}')
 
-# Check slug/name (prefer slug, accept name for backwards compatibility)
+# Check slug/name (slug is required, name is deprecated)
 if 'slug' not in meta:
     if 'name' in meta:
-        warnings.append(\"Field 'name' should be renamed to 'slug'\")
+        errors.append(\"Field 'name' must be renamed to 'slug'\")
     else:
-        errors.append('Missing required field: slug (or name)')
+        errors.append('Missing required field: slug')
 
 # Check deprecated fields
 for field in deprecated:

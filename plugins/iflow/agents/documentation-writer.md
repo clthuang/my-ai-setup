@@ -1,9 +1,24 @@
 ---
 name: documentation-writer
 description: Writes and updates documentation. Use when (1) after documentation-researcher, (2) user says 'update the docs', (3) user says 'write documentation', (4) user says 'sync README'.
+model: inherit
 tools: [Read, Write, Edit, Glob, Grep]
 color: green
 ---
+
+<example>
+Context: Documentation research is complete
+user: "update the docs"
+assistant: "I'll use the documentation-writer agent to write and update documentation."
+<commentary>User asks to update docs, triggering documentation writing.</commentary>
+</example>
+
+<example>
+Context: User wants README synced with code
+user: "sync README with the latest changes"
+assistant: "I'll use the documentation-writer agent to update the README."
+<commentary>User asks to sync README, matching the agent's trigger conditions.</commentary>
+</example>
 
 # Documentation Writer Agent
 

@@ -168,9 +168,9 @@
 ---
 
 ### Task 3.8: Review component-authoring.md for updates
-**File:** `docs/guides/component-authoring.md`
+**File:** `docs/dev_guides/component-authoring.md`
 **Action:** Search for `plugins/iflow/` paths and update to `plugins/iflow-dev/` for development instructions
-**Done when:** `grep -c 'plugins/iflow/' docs/guides/component-authoring.md` returns 0 or only references production plugin
+**Done when:** `grep -c 'plugins/iflow/' docs/dev_guides/component-authoring.md` returns 0 or only references production plugin
 
 ---
 

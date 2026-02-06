@@ -8,7 +8,7 @@
 
 **Tech Stack:** Markdown with YAML frontmatter, Bash for validation
 
-**Reference:** Follow conventions in `docs/guides/component-authoring.md`:
+**Reference:** Follow conventions in `docs/dev_guides/component-authoring.md`:
 - Skills: `skills/{skill-name}/SKILL.md` with gerund-form names preferred
 - Agents: `agents/{agent-name}.md` with action/role names
 - Descriptions: "[What it does]. Use when [triggers]." (both parts required)

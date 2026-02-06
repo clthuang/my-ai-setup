@@ -1,14 +1,12 @@
 {
   "id": "011",
   "slug": "plugin-distribution-versioning",
-  "mode": "standard",
   "status": "abandoned",
-  "abandoned_reason": "Superseded by feature 012-two-plugin-coexistence",
+  "mode": "standard",
   "created": "2026-01-31T15:03:01Z",
   "completed": "2026-01-31T18:00:00Z",
   "branch": "feature/011-plugin-distribution-versioning",
   "brainstorm_source": "/Users/terry/projects/my-ai-setup/docs/brainstorms/20260131-144632-plugin-distribution-versioning.md",
-  "backlog_source": "00005",
   "phases": {
     "specify": {
       "started": "2026-01-31T15:03:30Z",
@@ -36,5 +34,6 @@
       "iterations": 1
     }
   },
-  "currentPhase": "implement"
+  "abandoned_reason": "Superseded by feature 012-two-plugin-coexistence",
+  "backlog_source": "00005"
 }
