@@ -113,7 +113,7 @@ This eliminates fragile branch-based transformations and provides clear separati
 - Update release process documentation
 - Document hook protection
 
-**R7.3** Update `docs/guides/component-authoring.md` if it references single plugin
+**R7.3** Update `docs/dev_guides/component-authoring.md` if it references single plugin
 
 ---
 

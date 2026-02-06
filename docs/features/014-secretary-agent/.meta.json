@@ -2,9 +2,9 @@
   "id": "014",
   "slug": "secretary-agent",
   "status": "completed",
-  "completed": "2026-02-04T21:00:00Z",
   "mode": "full",
   "created": "2026-02-04T12:00:00Z",
+  "completed": "2026-02-04T21:00:00Z",
   "branch": "feature/014-secretary-agent",
   "brainstorm_source": "docs/brainstorms/20260204-secretary-agent.prd.md",
   "phases": {
@@ -17,15 +17,33 @@
       "started": "2026-02-04T13:00:00Z",
       "completed": "2026-02-04T13:35:00Z",
       "iterations": 1,
-      "reviewerNotes": ["Phase 1a/1b boundary clarified in verification checklist"]
+      "reviewerNotes": [
+        "Phase 1a/1b boundary clarified in verification checklist"
+      ]
     },
     "design": {
       "started": "2026-02-04T14:00:00Z",
       "stages": {
-        "architecture": { "started": "2026-02-04T14:00:00Z", "completed": "2026-02-04T14:15:00Z" },
-        "interface": { "started": "2026-02-04T14:15:00Z", "completed": "2026-02-04T14:30:00Z" },
-        "designReview": { "started": "2026-02-04T14:30:00Z", "completed": "2026-02-04T14:50:00Z", "iterations": 2, "reviewerNotes": [] },
-        "handoffReview": { "started": "2026-02-04T14:50:00Z", "completed": "2026-02-04T14:55:00Z", "approved": true, "reviewerNotes": [] }
+        "architecture": {
+          "started": "2026-02-04T14:00:00Z",
+          "completed": "2026-02-04T14:15:00Z"
+        },
+        "interface": {
+          "started": "2026-02-04T14:15:00Z",
+          "completed": "2026-02-04T14:30:00Z"
+        },
+        "designReview": {
+          "started": "2026-02-04T14:30:00Z",
+          "completed": "2026-02-04T14:50:00Z",
+          "iterations": 2,
+          "reviewerNotes": []
+        },
+        "handoffReview": {
+          "started": "2026-02-04T14:50:00Z",
+          "completed": "2026-02-04T14:55:00Z",
+          "approved": true,
+          "reviewerNotes": []
+        }
       },
       "completed": "2026-02-04T14:55:00Z"
     },
@@ -53,7 +71,9 @@
       "started": "2026-02-04T19:00:00Z",
       "completed": "2026-02-04T20:20:00Z",
       "iterations": 4,
-      "reviewerNotes": ["Best practices alignment review added Grep to tools, clarified thresholds, added proactive mode handling"]
+      "reviewerNotes": [
+        "Best practices alignment review added Grep to tools, clarified thresholds, added proactive mode handling"
+      ]
     },
     "finish": {
       "started": "2026-02-04T20:30:00Z",

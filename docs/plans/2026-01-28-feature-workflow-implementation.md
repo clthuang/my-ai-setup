@@ -194,7 +194,7 @@ When something fails:
 
 ### Creating Components
 
-See [Component Authoring Guide](docs/guides/component-authoring.md).
+See [Component Authoring Guide](docs/dev_guides/component-authoring.md).
 
 **Skills:** `skills/{name}/SKILL.md` — Instructions Claude follows
 **Agents:** `agents/{name}.md` — Isolated workers with specific focus
@@ -231,7 +231,7 @@ No routing layer. No orchestration. Just well-written prompts.
 ## References
 
 - [Feature Workflow Design](docs/plans/2026-01-28-feature-workflow-design.md)
-- [Component Authoring Guide](docs/guides/component-authoring.md)
+- [Component Authoring Guide](docs/dev_guides/component-authoring.md)
 - [Superpowers](https://github.com/obra/superpowers)
 - [Spec-kit](https://github.com/github/spec-kit)
 ```
@@ -2275,24 +2275,24 @@ git commit -m "feat: add kanban-detection helper skill"
 
 Change:
 ```markdown
-See [Component Authoring Guide](docs/guides/component-authoring.md).
+See [Component Authoring Guide](docs/dev_guides/component-authoring.md).
 ```
 
 To:
 ```markdown
-See [Component Authoring Guide](./docs/guides/component-authoring.md).
+See [Component Authoring Guide](./docs/dev_guides/component-authoring.md).
 ```
 
 And:
 ```markdown
 - [Feature Workflow Design](docs/plans/2026-01-28-feature-workflow-design.md)
-- [Component Authoring Guide](docs/guides/component-authoring.md)
+- [Component Authoring Guide](docs/dev_guides/component-authoring.md)
 ```
 
 To:
 ```markdown
 - [Feature Workflow Design](./docs/plans/2026-01-28-feature-workflow-design.md)
-- [Component Authoring Guide](./docs/guides/component-authoring.md)
+- [Component Authoring Guide](./docs/dev_guides/component-authoring.md)
 ```
 
 **Step 2: Commit**

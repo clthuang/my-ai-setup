@@ -1,10 +1,10 @@
 {
   "id": "012",
   "slug": "two-plugin-coexistence",
-  "mode": "standard",
   "status": "completed",
-  "completed": "2026-02-02T12:15:00Z",
+  "mode": "standard",
   "created": "2026-02-01T07:39:40Z",
+  "completed": "2026-02-02T12:15:00Z",
   "branch": "feature/012-two-plugin-coexistence",
   "brainstorm_source": "/Users/terry/projects/my-ai-setup/docs/brainstorms/20260201-072847-two-plugin-coexistence.md",
   "phases": {

@@ -169,7 +169,7 @@ cp -r plugins/iflow plugins/iflow-dev
 **Verification:** No references to branch-based transformation
 
 #### Step 10: Check component-authoring.md
-**File:** `docs/guides/component-authoring.md`
+**File:** `docs/dev_guides/component-authoring.md`
 **Action:** Review for single-plugin references, update if needed
 **Requirement:** R7.3
 **Verification:** All paths reference iflow-dev for development

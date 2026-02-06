@@ -1,6 +1,5 @@
 ---
 description: Create architecture design for current feature
-argument-hint:
 ---
 
 Invoke the designing skill for the current feature context.

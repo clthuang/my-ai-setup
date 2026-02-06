@@ -280,7 +280,7 @@ Updated via `/iflow:retrospect` after feature completion.
 
 ## Creating Components
 
-See [Component Authoring Guide](./docs/guides/component-authoring.md).
+See [Component Authoring Guide](./docs/dev_guides/component-authoring.md).
 
 All components are created in the `plugins/iflow-dev/` directory:
 
@@ -314,4 +314,4 @@ When something fails:
 
 ## References
 
-- [Component Authoring Guide](./docs/guides/component-authoring.md)
+- [Component Authoring Guide](./docs/dev_guides/component-authoring.md)
