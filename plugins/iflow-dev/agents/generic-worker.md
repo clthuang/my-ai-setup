@@ -1,9 +1,24 @@
 ---
 name: generic-worker
 description: General-purpose implementation agent. Use when (1) mixed-domain tasks, (2) no specialist fits, (3) user says 'just do the task', (4) fallback when specific agent unavailable.
+model: inherit
 tools: [Read, Write, Edit, Bash, Glob, Grep]
 color: green
 ---
+
+<example>
+Context: No specialist agent fits the task
+user: "just do the task"
+assistant: "I'll use the generic-worker agent to handle this general implementation task."
+<commentary>User asks to just do it with no specific specialist needed.</commentary>
+</example>
+
+<example>
+Context: Mixed-domain task requiring multiple capabilities
+user: "implement this small fix and update the config"
+assistant: "I'll use the generic-worker agent for this mixed-domain task."
+<commentary>Mixed-domain task with no single specialist, triggering fallback agent.</commentary>
+</example>
 
 # Generic Worker Agent
 

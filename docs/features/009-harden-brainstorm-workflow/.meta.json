@@ -1,6 +1,6 @@
 {
   "id": "009",
-  "name": "harden-brainstorm-workflow",
+  "slug": "harden-brainstorm-workflow",
   "mode": "standard",
   "created": "2026-01-31T12:09:00Z",
   "branch": "feature/009-harden-brainstorm-workflow",
@@ -39,7 +39,6 @@
       "iterations": 1
     }
   },
-  "currentPhase": "implement",
   "status": "completed",
   "completed": "2026-01-31T12:45:00Z"
 }

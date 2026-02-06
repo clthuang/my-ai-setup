@@ -7,7 +7,6 @@
   "completed": "2026-02-05T04:30:00Z",
   "branch": "feature/016-rca-agent",
   "brainstorm_source": "docs/brainstorms/20260205-002937-rca-agent.prd.md",
-  "currentPhase": "finish",
   "phases": {
     "finish": {
       "started": "2026-02-05T04:00:00Z",

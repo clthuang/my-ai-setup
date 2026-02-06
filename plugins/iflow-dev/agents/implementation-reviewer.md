@@ -1,9 +1,24 @@
 ---
 name: implementation-reviewer
 description: Validates implementation against full requirements chain (Tasks → Spec → Design → PRD). Use when (1) implement command review phase, (2) user says 'check implementation', (3) user says 'verify against requirements'.
+model: inherit
 tools: [Read, Glob, Grep]
 color: magenta
 ---
+
+<example>
+Context: User has completed implementation and wants validation
+user: "check implementation against the spec"
+assistant: "I'll use the implementation-reviewer agent to validate against the full requirements chain."
+<commentary>User asks to check implementation, triggering 4-level validation.</commentary>
+</example>
+
+<example>
+Context: User wants to verify requirements are met
+user: "verify against requirements"
+assistant: "I'll use the implementation-reviewer agent to verify all requirements are fulfilled."
+<commentary>User explicitly asks to verify against requirements, matching the trigger.</commentary>
+</example>
 
 # Implementation Reviewer Agent
 

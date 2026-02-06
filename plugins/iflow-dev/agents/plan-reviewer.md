@@ -1,9 +1,24 @@
 ---
 name: plan-reviewer
 description: Skeptically reviews plans for failure modes. Use when (1) create-plan command review, (2) user says 'review the plan', (3) user says 'challenge assumptions', (4) user says 'find plan gaps'.
+model: inherit
 tools: [Read, Glob, Grep, WebSearch, WebFetch, mcp__context7__resolve-library-id, mcp__context7__query-docs]
 color: blue
 ---
+
+<example>
+Context: User has created an implementation plan
+user: "review the plan"
+assistant: "I'll use the plan-reviewer agent to find failure modes and challenge assumptions."
+<commentary>User requests plan review, triggering skeptical plan analysis.</commentary>
+</example>
+
+<example>
+Context: User wants to validate plan assumptions
+user: "challenge assumptions in the plan"
+assistant: "I'll use the plan-reviewer agent to challenge untested assumptions."
+<commentary>User explicitly asks to challenge assumptions, matching the trigger.</commentary>
+</example>
 
 # Plan Reviewer Agent
 

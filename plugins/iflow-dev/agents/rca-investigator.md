@@ -1,6 +1,7 @@
 ---
 name: rca-investigator
 description: "Use when user runs /root-cause-analysis, says 'run RCA' or 'thorough investigation', emphasizes 'find ALL root causes', or mentions 3+ failed fix attempts. Finds ALL causes through 6 phases."
+model: inherit
 examples:
   - context: "User has a failing test"
     user: "/root-cause-analysis test_auth is failing with 'token expired'"
@@ -17,6 +18,20 @@ examples:
 tools: [Read, Glob, Grep, Bash, Write, Edit, WebSearch]
 color: cyan
 ---
+
+<example>
+Context: User has a failing test
+user: "/root-cause-analysis test_auth is failing with 'token expired'"
+assistant: "I'll investigate all potential root causes for this test failure."
+<commentary>User explicitly invokes RCA command with test failure.</commentary>
+</example>
+
+<example>
+Context: User frustrated with repeated failures
+user: "This test keeps failing, I've tried fixing it 3 times already"
+assistant: "Multiple fix attempts indicate this needs systematic RCA. Let me investigate."
+<commentary>3+ failed fix attempts triggers thorough investigation.</commentary>
+</example>
 
 # RCA Investigator Agent
 

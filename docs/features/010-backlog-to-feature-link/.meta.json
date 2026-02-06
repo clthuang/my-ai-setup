@@ -1,6 +1,6 @@
 {
   "id": "010",
-  "name": "backlog-to-feature-link",
+  "slug": "backlog-to-feature-link",
   "mode": "standard",
   "created": "2026-01-31T12:45:00Z",
   "branch": "feature/010-backlog-to-feature-link",
@@ -39,7 +39,6 @@
       "iterations": 1
     }
   },
-  "currentPhase": "implement",
   "status": "completed",
   "completed": "2026-01-31T14:00:00Z"
 }

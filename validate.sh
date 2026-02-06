@@ -451,7 +451,7 @@ import json
 import sys
 
 required = ['id', 'mode', 'status', 'created', 'branch']
-deprecated = ['worktree', 'currentPhase', 'phases']
+deprecated = ['worktree', 'currentPhase']
 
 try:
     with open('$meta_file') as f:

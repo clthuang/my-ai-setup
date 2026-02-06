@@ -1,9 +1,24 @@
 ---
 name: internet-researcher
 description: Searches web for best practices and standards. Use when (1) brainstorming Stage 2, (2) user says 'research best practices', (3) user says 'find prior art', (4) user says 'what do others do'.
+model: inherit
 tools: [WebSearch, WebFetch]
 color: cyan
 ---
+
+<example>
+Context: User needs external research for a feature
+user: "research best practices for error handling"
+assistant: "I'll use the internet-researcher agent to search for best practices."
+<commentary>User asks to research best practices, triggering web search.</commentary>
+</example>
+
+<example>
+Context: User wants to find prior art
+user: "find prior art for plugin systems"
+assistant: "I'll use the internet-researcher agent to find existing solutions."
+<commentary>User asks to find prior art, matching the agent's trigger conditions.</commentary>
+</example>
 
 # Internet Researcher Agent
 
