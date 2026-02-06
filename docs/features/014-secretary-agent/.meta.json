@@ -48,19 +48,17 @@
         "approved": true,
         "concerns": []
       }
-    }
-  },
-  "implement": {
+    },
+    "implement": {
       "started": "2026-02-04T19:00:00Z",
       "completed": "2026-02-04T20:20:00Z",
       "iterations": 4,
       "reviewerNotes": ["Best practices alignment review added Grep to tools, clarified thresholds, added proactive mode handling"]
+    },
+    "finish": {
+      "started": "2026-02-04T20:30:00Z",
+      "retro_completed": "2026-02-04T20:45:00Z",
+      "completed": "2026-02-04T21:00:00Z"
     }
-  },
-  "currentPhase": "finish",
-  "phases_finish": {
-    "started": "2026-02-04T20:30:00Z",
-    "retro_completed": "2026-02-04T20:45:00Z",
-    "completed": "2026-02-04T21:00:00Z"
   }
 }
