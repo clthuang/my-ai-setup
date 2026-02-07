@@ -330,7 +330,7 @@ git merge feature/{id}-{slug}
 git push
 
 # Run release script
-./scripts/release.sh
+./scripts/release.sh --ci
 ```
 
 Output: "Merged to develop. Release: v{version}"
