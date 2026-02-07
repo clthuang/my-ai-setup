@@ -1,0 +1,23 @@
+{
+  "id": "018",
+  "slug": "structured-problem-solving",
+  "status": "active",
+  "mode": "standard",
+  "created": "2026-02-07T12:00:00Z",
+  "completed": null,
+  "branch": "feature/018-structured-problem-solving",
+  "brainstorm_source": "docs/brainstorms/20260207-structured-problem-solving.prd.md",
+  "currentPhase": "specify",
+  "phases": {
+    "specify": {
+      "started": "2026-02-07T12:10:00Z",
+      "completed": "2026-02-07T12:25:00Z",
+      "iterations": 1,
+      "reviewerNotes": [
+        "Exit condition wording clarified — Steps 6-8 run after original exit condition",
+        "Other type uses universal review criteria only",
+        "Phase-reviewer: 3 warnings addressed, 2 suggestions noted for design phase"
+      ]
+    }
+  }
+}
