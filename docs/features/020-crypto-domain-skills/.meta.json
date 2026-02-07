@@ -1,0 +1,22 @@
+{
+  "id": "020",
+  "slug": "crypto-domain-skills",
+  "mode": "full",
+  "status": "active",
+  "created": "2026-02-08T05:30:00Z",
+  "branch": "feature/020-crypto-domain-skills",
+  "brainstorm_source": "docs/brainstorms/20260208-050000-crypto-domain-skills.prd.md",
+  "currentPhase": "specify",
+  "phases": {
+    "specify": {
+      "started": "2026-02-08T05:35:00Z",
+      "completed": "2026-02-08T06:00:00Z",
+      "iterations": 2,
+      "reviewerNotes": [
+        "Base directory term undefined in C2.2 (spec-reviewer warning)",
+        "PRD-to-spec scope deviation undocumented - generic dispatch was PRD Out of Scope (spec-reviewer warning)",
+        "Game-design SKILL.md Stage 2 Research Context migration content not specified (phase-reviewer warning)"
+      ]
+    }
+  }
+}
