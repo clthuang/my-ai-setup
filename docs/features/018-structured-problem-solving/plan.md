@@ -44,34 +44,33 @@ Step 6: End-to-end validation
 
 **Why first:** All subsequent steps depend on these assumptions. If cross-skill Read fails, Step 4's framework loading mechanism changes. If "Other" isn't built-in, Step 4's AskUserQuestion changes.
 
-### 0a: Verify AskUserQuestion "Other" Behavior
+### 0a: AskUserQuestion "Other" Behavior — RESOLVED
 
-The design assumes AskUserQuestion provides a built-in "Other" free-text option (TD-5). The spec (FR-4) requires 7 user-facing options. Both agree the user must see 7 choices.
+**Result:** "Other" IS built-in. The AskUserQuestion tool description explicitly states: "Users will always be able to select 'Other' to provide custom text input." All 15+ AskUserQuestion invocations across the codebase omit an explicit "Other" option, relying on the built-in behavior. Feature 014 (secretary-agent) also documents this as a known platform feature.
 
-**Action:**
-1. Read the AskUserQuestion tool schema — check if `options` always includes an implicit "Other" choice
-2. Search codebase for existing AskUserQuestion usage patterns that rely on "Other"
-3. **If "Other" is built-in:** Proceed with 6 explicit options as designed. User sees 7 (6 + built-in Other).
-4. **If "Other" is NOT built-in:** Add explicit 7th option `{"label": "Other", "description": "Custom problem type (describe in text)"}` to the AskUserQuestion in Step 4 Change 1. User sees 7 (5 types + Other + Skip).
+**Decision:** Use 6 explicit options as designed (5 types + Skip). User sees 7 choices (6 + built-in Other). This satisfies both Design TD-5 and Spec FR-4.
 
-**Either outcome satisfies FR-4's "7 options" requirement.**
+### 0b: Cross-Skill Read Mechanism — RESEARCH COMPLETE, VERIFY AT RUNTIME
 
-### 0b: Verify Cross-Skill Read Mechanism
+**Research findings:**
+- `${CLAUDE_PLUGIN_ROOT}` is ONLY expanded in hooks.json shell commands (5 uses in hooks.json, 0 uses in any SKILL.md). It does NOT work in Read tool invocations.
+- The system DOES inject `Base directory for this skill: {absolute path}` into the skill invocation prompt (confirmed from this session's system prompt).
+- No existing skill has ever Read another skill's files. This is a novel pattern.
+- All existing skills read their OWN references/ via relative markdown links (e.g., `[Name](references/file.md)`) — this pattern has 100% success rate.
+- One cross-skill markdown link exists: root-cause-analysis links to `../systematic-debugging/SKILL.md` — but this is a documentation reference, not a proven Read tool invocation.
 
-The design specifies reading `structured-problem-solving/SKILL.md` from inside the brainstorming skill's execution context. This is a novel pattern — no existing skill reads another skill's files.
+**Mechanism to test at runtime (Step 0b during implementation):**
+1. When brainstorming skill executes, the Base directory is available (e.g., `~/.claude/plugins/cache/.../skills/brainstorming/`)
+2. Derive sibling path: replace `skills/brainstorming` with `skills/structured-problem-solving`
+3. Test Read tool with derived path
+4. **If works:** Document as proven pattern for cross-skill reads
+5. **If fails:** Use fallback below
 
-**Proposed mechanism (unproven — verify in Step 0b):** When a skill is invoked, the system injects `Base directory for this skill: {absolute path}` into the prompt. The brainstorming skill's base directory is something like `~/.claude/plugins/cache/.../skills/brainstorming/`. To read a sibling skill, navigate from this base to `../structured-problem-solving/SKILL.md`. If this mechanism does not work, the fallback (copying content to brainstorming's own references/) is the expected outcome.
+**Fallback (likely path):** The structured-problem-solving skill is a standalone package. For brainstorming to use it, Step 7 instructions in brainstorming/SKILL.md simply tell the LLM to read the sibling skill using the Base directory path derivation. Since the LLM (not the SKILL.md file system) performs the Read, and the LLM has the Base directory in its context, it can construct the absolute path. This is how the LLM already resolves relative reference links — the mechanism is the LLM's own path resolution, not a file system mechanism.
 
-**Action:**
-1. Confirm the brainstorming skill receives a `Base directory` in its invocation context (check system prompt injection)
-2. Derive the sibling path: replace `skills/brainstorming` with `skills/structured-problem-solving` in the base directory
-3. Test: use Read tool with the derived absolute path to verify file access
-4. **If path works:** Use the derived path pattern in Step 4 Change 1
-5. **If path fails:** Embed the structured-problem-solving content directly as a reference file within brainstorming's own `references/` directory (fallback: copy rather than cross-read)
+**Key insight:** Skills don't "execute" in a directory — they provide instructions to the LLM. The LLM reads reference files because the SKILL.md text tells it to. Cross-skill Read works the same way: tell the LLM to derive the sibling path from its Base directory and Read it. The Read tool accepts absolute paths.
 
-**Note:** `${CLAUDE_PLUGIN_ROOT}` is only expanded in hooks.json shell commands, NOT in SKILL.md Read tool invocations. The plan does NOT use `${CLAUDE_PLUGIN_ROOT}` in any SKILL.md content. Instead, it uses the `Base directory` path from the system prompt.
-
-**Exit criteria:** Both assumptions verified or fallback approach chosen.
+**Exit criteria:** Test during implementation Step 0b. Both outcomes are covered.
 
 ---
 
