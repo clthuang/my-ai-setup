@@ -61,6 +61,53 @@ Stage 1: CLARIFY → Stage 2: RESEARCH → Stage 3: DRAFT PRD
 
 **Exit condition:** User confirms understanding is correct, OR you have answers to all 5 required items.
 
+**After exit condition is satisfied, always run Steps 6-8 before proceeding to Stage 2:**
+
+#### Step 6: Problem Type Classification
+
+Present problem type options via AskUserQuestion:
+```
+AskUserQuestion:
+  questions: [{
+    "question": "What type of problem is this?",
+    "header": "Problem Type",
+    "options": [
+      {"label": "Product/Feature", "description": "User-facing product or feature design"},
+      {"label": "Technical/Architecture", "description": "System design, infrastructure, or technical debt"},
+      {"label": "Financial/Business", "description": "Business model, pricing, or financial analysis"},
+      {"label": "Research/Scientific", "description": "Hypothesis-driven investigation or experiment"},
+      {"label": "Creative/Design", "description": "Visual, UX, or creative exploration"},
+      {"label": "Skip", "description": "No framework — proceed with standard brainstorm"}
+    ],
+    "multiSelect": false
+  }]
+```
+
+(User sees 7 options: 6 above + built-in "Other" for free text.)
+
+#### Step 7: Optional Framework Loading
+
+**If user selected a named type (not "Skip"):**
+1. Derive sibling skill path: replace `skills/brainstorming` in Base directory with `skills/structured-problem-solving`
+2. Read `{derived path}/SKILL.md` via Read tool
+3. If file not found: warn "Structured problem-solving skill not found, skipping framework" → skip to Step 8
+4. Read reference files as directed by SKILL.md
+5. Apply SCQA framing to the problem
+6. Apply type-specific decomposition (or generic issue tree for "Other")
+7. Generate inline Mermaid mind map from decomposition
+8. Write `## Structured Analysis` section to PRD (between Research Summary and Review History)
+
+**If user selected "Other" (free text):**
+- Apply SCQA framing (universal) + generic issue tree decomposition
+- Store custom type string as-is
+
+**If "Skip":** Set type to "none", skip Step 7 body entirely.
+
+**Loop-back behavior:** If `## Structured Analysis` already exists in the PRD (from a previous Stage 7 → Stage 1 loop), delete it entirely before re-running Steps 6-8. Do NOT duplicate.
+
+#### Step 8: Store Problem Type
+- Add `- Problem Type: {type}` to PRD Status section (or `none` if skipped)
+
 ---
 
 ### Stage 2: RESEARCH
@@ -166,7 +213,17 @@ Stage 1: CLARIFY → Stage 2: RESEARCH → Stage 3: DRAFT PRD
 **Action:** Dispatch Task tool:
 - Tool: `Task`
 - subagent_type: `iflow-dev:brainstorm-reviewer`
-- prompt: PRD file path + request for JSON response
+- prompt: |
+    Review this brainstorm for promotion readiness.
+
+    ## PRD Content
+    {read PRD file and paste full markdown content here}
+
+    ## Context
+    Problem Type: {type from Step 8, or "none" if skipped/absent}
+
+    Return your assessment as JSON:
+    { "approved": true/false, "issues": [...], "summary": "..." }
 
 **Expected response:**
 ```json
@@ -259,6 +316,7 @@ Write to `docs/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`:
 - Created: {date}
 - Last updated: {date}
 - Status: Draft
+- Problem Type: {type or "none" if skipped}
 
 ## Problem Statement
 {What problem are we solving? Why does it matter?}
@@ -337,6 +395,32 @@ Items excluded from current scope but may be considered later.
 
 ### Existing Capabilities
 - {Relevant skill/feature} — How it relates: {explanation}
+
+## Structured Analysis
+*(Only included when Problem Type is not "none")*
+
+### Problem Type
+{type} — {one-line description of why this type was selected}
+
+### SCQA Framing
+- **Situation:** {current state}
+- **Complication:** {what changed / what's wrong}
+- **Question:** {the key question to answer}
+- **Answer:** {proposed direction}
+
+### Decomposition
+{Type-specific decomposition tree (text)}
+
+### Mind Map
+```mermaid
+mindmap
+  root((Key Question))
+    Branch 1
+      Sub-branch 1a
+      Sub-branch 1b
+    Branch 2
+      Sub-branch 2a
+```
 
 ## Review History
 {Added by Stage 5 auto-correct}

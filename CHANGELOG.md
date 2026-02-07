@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Structured problem-solving skill with SCQA framing and 5 problem type frameworks (product/feature, technical/architecture, financial/business, research/scientific, creative/design)
+- Problem type classification step in brainstorming Stage 1 (Steps 6-8) with Skip option for backward compatibility
+- Type-specific review criteria in brainstorm-reviewer for domain-adaptive quality checks
+- Mermaid mind map visualization in PRD Structured Analysis section
+- 4 reference files: problem-types.md, scqa-framing.md, decomposition-methods.md, review-criteria-by-type.md
+
+### Changed
+- Brainstorming Stage 1 CLARIFY expanded with Steps 6-8 (problem type classification, optional framework loading, metadata storage)
+- PRD format gains Problem Type metadata in Status section and Structured Analysis section (SCQA framing, decomposition tree, mind map)
+- Brainstorm-reviewer applies universal criteria (5) plus type-specific criteria (3) when problem type is provided
+- Stage 6 READINESS CHECK dispatch now sends inline PRD content with Problem Type context
+
 ## [2.3.0] - 2026-02-05
 
 ### Added

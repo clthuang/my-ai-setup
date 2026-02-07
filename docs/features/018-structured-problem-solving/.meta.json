@@ -7,8 +7,21 @@
   "completed": null,
   "branch": "feature/018-structured-problem-solving",
   "brainstorm_source": "docs/brainstorms/20260207-structured-problem-solving.prd.md",
-  "currentPhase": "create-tasks",
+  "currentPhase": "implement",
   "phases": {
+    "finish": {
+      "started": "2026-02-07T15:00:00Z"
+    },
+    "implement": {
+      "started": "2026-02-07T14:20:00Z",
+      "completed": "2026-02-07T14:50:00Z",
+      "iterations": 1,
+      "reviewerNotes": [
+        "PRD FR-9 text contradicts implementation (MCP tool vs inline Mermaid) — spec/design resolved, PRD is frozen",
+        "Cross-skill Read runtime verification deferred to first brainstorm invocation",
+        "brainstorming/SKILL.md at 482 lines (18 under 500 limit)"
+      ]
+    },
     "create-tasks": {
       "started": "2026-02-07T13:35:00Z",
       "completed": "2026-02-07T14:15:00Z",
