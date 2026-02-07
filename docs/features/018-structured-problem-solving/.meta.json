@@ -1,16 +1,17 @@
 {
   "id": "018",
   "slug": "structured-problem-solving",
-  "status": "active",
+  "status": "completed",
   "mode": "standard",
   "created": "2026-02-07T12:00:00Z",
-  "completed": null,
+  "completed": "2026-02-07T16:00:00Z",
   "branch": "feature/018-structured-problem-solving",
   "brainstorm_source": "docs/brainstorms/20260207-structured-problem-solving.prd.md",
   "currentPhase": "implement",
   "phases": {
     "finish": {
-      "started": "2026-02-07T15:00:00Z"
+      "started": "2026-02-07T15:00:00Z",
+      "completed": "2026-02-07T16:00:00Z"
     },
     "implement": {
       "started": "2026-02-07T14:20:00Z",

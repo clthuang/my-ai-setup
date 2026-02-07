@@ -13,12 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Type-specific review criteria in brainstorm-reviewer for domain-adaptive quality checks
 - Mermaid mind map visualization in PRD Structured Analysis section
 - 4 reference files: problem-types.md, scqa-framing.md, decomposition-methods.md, review-criteria-by-type.md
+- Game-design domain skill with 7 reference files (design-frameworks, engagement-retention, aesthetic-direction, monetization-models, market-analysis, tech-evaluation-criteria, review-criteria)
+- Domain selection (Steps 9-10) in brainstorming Stage 1 for opt-in domain enrichment
 
 ### Changed
 - Brainstorming Stage 1 CLARIFY expanded with Steps 6-8 (problem type classification, optional framework loading, metadata storage)
 - PRD format gains Problem Type metadata in Status section and Structured Analysis section (SCQA framing, decomposition tree, mind map)
 - Brainstorm-reviewer applies universal criteria (5) plus type-specific criteria (3) when problem type is provided
 - Stage 6 READINESS CHECK dispatch now sends inline PRD content with Problem Type context
+- Brainstorming Stage 2 gains domain-aware research query enhancement
+- Brainstorm-reviewer gains domain criteria parsing with warning-level checks
+- PRD output format gains conditional Game Design Analysis section
 
 ## [2.3.0] - 2026-02-05
 

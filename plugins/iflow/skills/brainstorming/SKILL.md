@@ -42,7 +42,6 @@ Stage 1: CLARIFY → Stage 2: RESEARCH → Stage 3: DRAFT PRD
 ```
 
 ---
-
 ### Stage 1: CLARIFY
 
 **Goal:** Resolve ambiguities through Q&A before research begins.
@@ -64,7 +63,6 @@ Stage 1: CLARIFY → Stage 2: RESEARCH → Stage 3: DRAFT PRD
 **After exit condition is satisfied, always run Steps 6-8 before proceeding to Stage 2:**
 
 #### Step 6: Problem Type Classification
-
 Present problem type options via AskUserQuestion:
 ```
 AskUserQuestion:
@@ -86,7 +84,6 @@ AskUserQuestion:
 (User sees 7 options: 6 above + built-in "Other" for free text.)
 
 #### Step 7: Optional Framework Loading
-
 **If user selected a named type (not "Skip"):**
 1. Derive sibling skill path: replace `skills/brainstorming` in Base directory with `skills/structured-problem-solving`
 2. Read `{derived path}/SKILL.md` via Read tool
@@ -108,8 +105,34 @@ AskUserQuestion:
 #### Step 8: Store Problem Type
 - Add `- Problem Type: {type}` to PRD Status section (or `none` if skipped)
 
----
+#### Step 9: Domain Selection
+Present domain options via AskUserQuestion:
+```
+AskUserQuestion:
+  questions: [{
+    "question": "Does this concept have a specific domain?",
+    "header": "Domain",
+    "options": [
+      {"label": "Game Design", "description": "Apply game design frameworks (core loop, engagement, aesthetics, viability)"},
+      {"label": "None", "description": "No domain-specific analysis"}
+    ],
+    "multiSelect": false
+  }]
+```
+If "None": skip Step 10, proceed to Stage 2.
 
+#### Step 10: Domain Loading
+1. Derive sibling skill path: replace `skills/brainstorming` in Base directory with `skills/game-design`
+2. Read `{derived path}/SKILL.md` via Read tool
+3. If file not found: warn "Game design skill not found, skipping domain enrichment" → skip to Stage 2
+4. Execute the game-design skill inline (read reference files, apply frameworks to concept)
+5. **Two-phase write:** Hold analysis in memory — do NOT write to PRD yet. Stage 3 writes it during PRD drafting.
+6. Store domain review criteria (from skill output) for Stage 6 dispatch
+7. Store `domain: game-design` context for Stage 2 query enhancement
+
+**Loop-back behavior:** If `## Game Design Analysis` already exists in the PRD (from a previous Stage 7 → Stage 1 loop), delete it entirely, clear domain context, and re-prompt Step 9.
+
+---
 ### Stage 2: RESEARCH
 
 **Goal:** Gather evidence from 3 sources in parallel.
@@ -120,6 +143,10 @@ AskUserQuestion:
    - Tool: `Task`
    - subagent_type: `iflow:internet-researcher`
    - prompt: Query about the topic with context
+   - **If `domain: game-design` active**, append to prompt:
+     - "Research current game engines/platforms suitable for this concept"
+     - If tech-evaluation-criteria.md was loaded: "Evaluate against these dimensions: {dimensions from file}"
+     - "Include current market data for the game's genre/platform"
 
 2. **Codebase exploration:**
    - Tool: `Task`
@@ -138,7 +165,6 @@ AskUserQuestion:
 **Exit condition:** All 3 agents have returned (success or failure).
 
 ---
-
 ### Stage 3: DRAFT PRD
 
 **Goal:** Generate a complete PRD document with evidence citations.
@@ -154,7 +180,6 @@ AskUserQuestion:
 **Exit condition:** PRD file written with all sections populated.
 
 ---
-
 ### Stage 4: CRITICAL REVIEW
 
 **Goal:** Challenge PRD quality using prd-reviewer agent.
@@ -174,7 +199,6 @@ AskUserQuestion:
 **Exit condition:** Reviewer response received and parsed.
 
 ---
-
 ### Stage 5: AUTO-CORRECT
 
 **Goal:** Apply actionable improvements from the review.
@@ -205,7 +229,6 @@ AskUserQuestion:
 **Exit condition:** All actionable issues addressed and PRD file updated.
 
 ---
-
 ### Stage 6: READINESS CHECK
 
 **Goal:** Validate brainstorm is ready for feature promotion (first quality gate).
@@ -221,6 +244,13 @@ AskUserQuestion:
 
     ## Context
     Problem Type: {type from Step 8, or "none" if skipped/absent}
+    {If domain context exists, add:}
+    Domain: game-design
+    Domain Review Criteria:
+    - Core loop defined?
+    - Monetization risks stated?
+    - Aesthetic direction articulated?
+    - Engagement hooks identified?
 
     Return your assessment as JSON:
     { "approved": true/false, "issues": [...], "summary": "..." }
@@ -237,20 +267,17 @@ AskUserQuestion:
 **Exit condition:** Readiness status determined.
 
 ---
-
 ### Stage 7: USER DECISION
 
 **Goal:** Present readiness status and let user decide next action.
 
 **Step 1: Display readiness status**
-
 - If `approved: true` with no blockers: Output "Readiness check: PASSED"
 - If `approved: true` with warnings: Output "Readiness check: PASSED ({n} warnings)" + list warnings
 - If `approved: false`: Output "Readiness check: BLOCKED ({n} issues)" + list all issues
 - If `approved: unknown`: Output "Readiness check: SKIPPED (reviewer unavailable)"
 
 **Step 2: Present options based on status**
-
 If PASSED or SKIPPED:
 ```
 AskUserQuestion:
@@ -304,9 +331,7 @@ AskUserQuestion:
 ```
 
 ---
-
 ## PRD Output Format
-
 Write to `docs/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`:
 
 ```markdown
@@ -320,7 +345,6 @@ Write to `docs/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`:
 
 ## Problem Statement
 {What problem are we solving? Why does it matter?}
-
 ### Evidence
 - {Source}: {Finding that supports this problem exists}
 
@@ -330,29 +354,19 @@ Write to `docs/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`:
 
 ## Success Criteria
 - [ ] {Measurable criterion 1}
-- [ ] {Measurable criterion 2}
 
 ## User Stories
-
 ### Story 1: {Title}
-**As a** {role}
-**I want** {capability}
-**So that** {benefit}
-
+**As a** {role} **I want** {capability} **So that** {benefit}
 **Acceptance criteria:**
 - {criterion}
 
 ## Use Cases
-
 ### UC-1: {Title}
-**Actors:** {who}
-**Preconditions:** {what must be true}
-**Flow:**
-1. {step}
-2. {step}
+**Actors:** {who} | **Preconditions:** {what must be true}
+**Flow:** 1. {step} 2. {step}
 **Postconditions:** {what is true after}
-**Edge cases:**
-- {edge case with handling}
+**Edge cases:** {edge case with handling}
 
 ## Edge Cases & Error Handling
 | Scenario | Expected Behavior | Rationale |
@@ -360,67 +374,77 @@ Write to `docs/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`:
 | {case}   | {behavior}        | {why}     |
 
 ## Constraints
-
 ### Behavioral Constraints (Must NOT do)
 - {Behavior to avoid} — Rationale: {why this would be harmful}
-
 ### Technical Constraints
 - {Technical limitation} — Evidence: {source}
 
 ## Requirements
-
 ### Functional
 - FR-1: {requirement}
-
 ### Non-Functional
 - NFR-1: {requirement}
 
 ## Non-Goals
-Strategic decisions about what this feature will NOT aim to achieve.
-
 - {Non-goal} — Rationale: {why we're explicitly not pursuing this}
 
 ## Out of Scope (This Release)
-Items excluded from current scope but may be considered later.
-
 - {Item} — Future consideration: {when/why it might be added}
 
 ## Research Summary
-
 ### Internet Research
 - {Finding} — Source: {URL/reference}
-
 ### Codebase Analysis
 - {Pattern/constraint found} — Location: {file:line}
-
 ### Existing Capabilities
 - {Relevant skill/feature} — How it relates: {explanation}
 
 ## Structured Analysis
 *(Only included when Problem Type is not "none")*
-
 ### Problem Type
 {type} — {one-line description of why this type was selected}
-
 ### SCQA Framing
 - **Situation:** {current state}
 - **Complication:** {what changed / what's wrong}
 - **Question:** {the key question to answer}
 - **Answer:** {proposed direction}
-
 ### Decomposition
 {Type-specific decomposition tree (text)}
-
 ### Mind Map
 ```mermaid
 mindmap
   root((Key Question))
     Branch 1
       Sub-branch 1a
-      Sub-branch 1b
     Branch 2
       Sub-branch 2a
 ```
+
+## Game Design Analysis
+*(Only included when game-design domain is active)*
+
+### Game Design Overview
+- **Core Loop:** {core gameplay loop}
+- **MDA Analysis:** Mechanics → Dynamics → Aesthetics
+- **Player Types:** {primary Bartle type} — {rationale}
+- **Genre-Mechanic Fit:** {genre} — {alignment assessment}
+
+### Engagement & Retention
+- **Hook Model:** Trigger → Action → Reward → Investment
+- **Progression:** {type} — {mechanics}
+- **Social Features:** {features or "single-player focus"}
+- **Retention Strategy:** {D1/D7/D30 approach}
+
+### Aesthetic Direction
+- **Art Style:** {style} — {rationale}
+- **Audio Design:** {approach}
+- **Game Feel/Juice:** {key elements}
+- **Mood:** {tone} — {reinforcement}
+
+### Feasibility & Viability
+- **Monetization Options:** {models with risk flags}
+- **Market Context:** {landscape and sizing}
+- **Platform Considerations:** {evaluation dimensions}
 
 ## Review History
 {Added by Stage 5 auto-correct}
@@ -433,45 +457,23 @@ Ready for /iflow:create-feature to begin implementation.
 ```
 
 ---
-
 ## Error Handling
 
-### WebSearch Unavailable
-- Skip internet research with warning: "WebSearch unavailable, skipping internet research"
-- Proceed with codebase and skills research only
-
-### Agent Unavailable
-- Show warning: "{agent} unavailable, proceeding without"
-- Continue with available agents
-
-### All Research Fails
-- Proceed with user input only
-- Mark all claims as: "Assumption: needs verification"
-
-### PRD Reviewer Unavailable
-- Show warning: "PRD reviewer unavailable, skipping critical review"
-- Proceed directly to Stage 5
-
-### Brainstorm Reviewer Unavailable
-- Show warning: "Brainstorm reviewer unavailable, skipping readiness check"
-- Proceed directly to Stage 7 with `approved: unknown`
+- **WebSearch Unavailable:** Skip internet research with warning, proceed with codebase and skills research only
+- **Agent Unavailable:** Show warning "{agent} unavailable, proceeding without", continue with available agents
+- **All Research Fails:** Proceed with user input only, mark all claims as "Assumption: needs verification"
+- **PRD Reviewer Unavailable:** Show warning, proceed directly to Stage 5 with empty issues array
+- **Brainstorm Reviewer Unavailable:** Show warning, proceed directly to Stage 7 with `approved: unknown`
 
 ---
-
 ## Completion
-
 After Stage 7, if user chooses "Promote to Feature":
 1. Ask for workflow mode (Standard/Full)
 2. Invoke `/iflow:create-feature --prd={prd-file-path}` with the PRD path
 
-PRD location: `docs/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`
-
 ---
-
 ## PROHIBITED Actions
-
 When executing the brainstorming skill, you MUST NOT:
-
 - Proceed to /iflow:specify, /iflow:design, /iflow:create-plan, or /iflow:implement
 - Write any implementation code
 - Create feature folders directly (use /iflow:create-feature)
