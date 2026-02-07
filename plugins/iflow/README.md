@@ -18,7 +18,7 @@ Structured feature development workflow with skills, agents, and commands for me
 **Start:**
 | Command | Description |
 |---------|-------------|
-| `/iflow:brainstorm [topic]` | 7-stage PRD creation with research subagents |
+| `/iflow:brainstorm [topic]` | 7-stage PRD creation with research subagents and domain enrichment |
 | `/iflow:create-feature <desc>` | Start building (creates folder + branch) |
 
 **Build phases** (run in order):

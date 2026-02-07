@@ -109,9 +109,26 @@ NOT: "What else could this brainstorm include?"
 2. **Parse Problem Type** from `## Context` section (if provided)
 3. **Check universal criteria** (5 items) against the content
 4. **If known type:** Check 3 type-specific criteria from table above
-5. **For each gap found:**
+5. **Parse Domain** from `## Context` section (if provided):
+   - Look for `Domain: {name}` line
+   - Look for `Domain Review Criteria:` block with bulleted items
+   - If `Domain:` absent or malformed: skip domain checks entirely (backward compatible)
+6. **If domain criteria present:** Check each criterion using existence + keyword matching:
+
+   | Criterion | Subsection Header | Keywords (any match, case-insensitive) |
+   |-----------|-------------------|----------------------------------------|
+   | Core loop defined? | `### Game Design Overview` | `core loop`, `gameplay loop`, `loop` |
+   | Monetization risks stated? | `### Feasibility & Viability` | `monetization`, `revenue`, `pricing`, `free-to-play`, `premium` |
+   | Aesthetic direction articulated? | `### Aesthetic Direction` | `art`, `audio`, `style`, `music`, `mood`, `game feel` |
+   | Engagement hooks identified? | `### Engagement & Retention` | `hook`, `progression`, `retention`, `engagement` |
+
+   **Per-criterion check:** Subsection header exists AND at least one keyword found in body text between that header and next H2/H3.
+   **Severity:** All domain criteria produce **warnings** (not blockers) — missing domain criteria do NOT affect the `approved` boolean.
+   **Error handling:** If a criterion cannot be parsed, skip it and check remaining ones. If zero bullets parsed, treat domain as absent.
+
+7. **For each gap found:**
    - Is it a blocker (cannot create feature)?
    - Is it a warning (quality concern)?
    - Is it a note (nice improvement)?
-6. **Assess overall:** Is this ready?
-7. **Return structured feedback** including which criteria set was applied (universal only / universal + {type})
+8. **Assess overall:** Is this ready?
+9. **Return structured feedback** including which criteria set was applied (universal only / universal + {type} / universal + {type} + domain)
