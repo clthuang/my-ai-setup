@@ -33,6 +33,20 @@ Rationalizing that a task is "just mechanical" to justify skipping workflow phas
 - Root cause: Task felt simple (search-and-replace), so jumped from option selection to implementation
 - Instead: Brainstorm phase ends with "Turn this into a feature?" - always ask, let user decide to skip
 
+### Anti-Pattern: Line Number References in Sequential Tasks
+Referencing specific line numbers in tasks that will shift after earlier task insertions.
+- Observed in: Feature #018
+- Cost: Tasks 4.2-4.4 line numbers shifted ~60 lines after Task 4.1 insertion, causing confusion
+- Root cause: Line numbers are brittle anchors when tasks modify the same file sequentially
+- Instead: Use semantic anchors (exact text search targets) that survive insertions
+
+### Anti-Pattern: Frozen Artifact Contradictions
+Leaving PRD claims that contradict later spec/design resolutions without noting the divergence.
+- Observed in: Feature #018
+- Cost: Implementation reviewer flagged PRD FR-9 (MCP tool) vs actual implementation (inline Mermaid) as a "blocker"
+- Root cause: PRD is frozen brainstorm artifact but readers don't know which claims were superseded
+- Instead: Add Design Divergences table in plan.md documenting PRD/spec/design deviations with rationale
+
 <!-- Example format:
 ### Anti-Pattern: Premature Optimization
 Optimizing before measuring actual performance.
