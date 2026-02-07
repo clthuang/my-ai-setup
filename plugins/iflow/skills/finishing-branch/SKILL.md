@@ -68,7 +68,7 @@ git merge {feature-branch}
 git push
 
 # Run release script
-./scripts/release.sh
+./scripts/release.sh --ci
 
 # Delete feature branch
 git branch -d {feature-branch}
