@@ -62,7 +62,8 @@ Skills are internal capabilities that Claude uses automatically during the workf
 
 | Skill | Purpose |
 |-------|---------|
-| brainstorming | Guides 7-stage process producing evidence-backed PRDs |
+| brainstorming | Guides 7-stage process producing evidence-backed PRDs with optional structured problem-solving |
+| structured-problem-solving | Applies SCQA framing and type-specific decomposition to problems during brainstorming |
 | specifying | Creates precise specifications with acceptance criteria |
 | designing | Creates design.md with architecture and contracts |
 | planning | Produces plan.md with dependencies and ordering |
@@ -102,7 +103,7 @@ Agents run as specialized subprocesses delegated by the workflow. They operate a
 
 | Agent | Purpose |
 |-------|---------|
-| brainstorm-reviewer | Reviews brainstorm artifacts for completeness before promotion |
+| brainstorm-reviewer | Reviews brainstorm artifacts with universal + type-specific criteria before promotion |
 | code-quality-reviewer | Reviews implementation quality after spec compliance is confirmed |
 | design-reviewer | Challenges design assumptions and finds gaps |
 | implementation-reviewer | Validates implementation against full requirements chain |

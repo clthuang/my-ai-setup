@@ -32,8 +32,9 @@ That's it. You validate readiness for promotion, nothing more.
 
 ## Input
 
-You receive:
-1. **Brainstorm file path** - The scratch file to review
+You receive (via Task tool prompt):
+1. **Brainstorm content** — full PRD markdown, passed inline in prompt
+2. **Problem Type** (optional) — from `## Context` section of prompt. When present and not "none", apply type-specific criteria in addition to universal criteria.
 
 ## Output Format
 
@@ -63,15 +64,29 @@ Return structured feedback:
 
 **Approval rule:** `approved: true` only when zero blockers.
 
-## Brainstorm Checklist
+## Review Criteria
 
-For a brainstorm to be ready for promotion, it needs:
+### Universal Criteria (always checked)
 
-- [ ] **Problem clearly stated** - What are we solving?
-- [ ] **Goals defined** - What does success look like?
-- [ ] **Options explored** - Were alternatives considered?
-- [ ] **Direction chosen** - Is there a clear decision?
-- [ ] **Rationale documented** - Why this approach?
+- [ ] **Problem clearly stated** — What are we solving?
+- [ ] **Goals defined** — What does success look like?
+- [ ] **Options explored** — Were alternatives considered?
+- [ ] **Direction chosen** — Is there a clear decision?
+- [ ] **Rationale documented** — Why this approach?
+
+### Type-Specific Criteria (when Problem Type is present and not "none" or custom)
+
+| Problem Type | Check 1 | Check 2 | Check 3 |
+|---|---|---|---|
+| product/feature | Target users defined | User journey described | UX considerations noted |
+| technical/architecture | Technical constraints identified | Component boundaries clear | Migration/compatibility noted |
+| financial/business | Key assumptions quantified | Risk factors enumerated | Success metrics are financial |
+| research/scientific | Hypothesis stated and testable | Methodology outlined | Falsifiability criteria defined |
+| creative/design | Design space explored (>1 option) | Aesthetic/experiential goals stated | Inspiration/references cited |
+
+**When Problem Type is "none" or absent:** Universal criteria only (backward compatible).
+**When Problem Type is a custom string (from "Other"):** Universal criteria only — no type-specific checks.
+**Existence check only:** Check whether domain-relevant analysis EXISTS, not whether it's the RIGHT analysis.
 
 ## What You MUST NOT Do
 
@@ -90,11 +105,13 @@ NOT: "What else could this brainstorm include?"
 
 ## Review Process
 
-1. **Read the brainstorm file** thoroughly
-2. **Check each checklist item** against the content
-3. **For each gap found:**
+1. **Read the brainstorm content** thoroughly (provided inline in prompt)
+2. **Parse Problem Type** from `## Context` section (if provided)
+3. **Check universal criteria** (5 items) against the content
+4. **If known type:** Check 3 type-specific criteria from table above
+5. **For each gap found:**
    - Is it a blocker (cannot create feature)?
    - Is it a warning (quality concern)?
    - Is it a note (nice improvement)?
-4. **Assess overall:** Is this ready?
-5. **Return structured feedback**
+6. **Assess overall:** Is this ready?
+7. **Return structured feedback** including which criteria set was applied (universal only / universal + {type})

@@ -111,6 +111,27 @@ Assign colors to agents based on functional category for visual distinction.
   - `red` = Simplification
 - Benefit: Terminal output distinguishes agent types at a glance
 
+### Pattern: Thin Orchestrator + Reference Files
+Keep SKILL.md as a process orchestrator (<120 lines), push domain knowledge to `references/` directory.
+- Used in: Feature #018
+- Benefit: Extensible without touching core logic; new types/methods added to reference files only
+- Structure: SKILL.md defines Input/Process/Output, references/ holds domain-specific content
+- Example: structured-problem-solving SKILL.md (114 lines) + 4 reference files (~480 lines total)
+
+### Pattern: Cross-Skill Read via Base Directory
+Derive sibling skill path by replacing skill name in Base directory path for read-only access.
+- Used in: Feature #018
+- Mechanism: Replace `skills/{current-skill}` with `skills/{target-skill}` in Base directory
+- Constraint: Read-only access to reference files only; never write to another skill's directory
+- Fallback: Copy needed content to own `references/` directory if path resolution fails
+
+### Pattern: Conditional PRD Sections
+Use "only when condition is met" guards for optional sections in document templates.
+- Used in: Feature #018
+- Benefit: Backward compatibility — absence of condition means default behavior
+- Example: Structured Analysis section only appears when Problem Type is not "none"
+- Key: Missing field = default behavior, no version flags or migration scripts needed
+
 <!-- Example format:
 ### Pattern: Early Interface Definition
 Define interfaces before implementation. Enables parallel work.
