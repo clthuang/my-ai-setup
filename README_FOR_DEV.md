@@ -147,7 +147,7 @@ Skills are instructions Claude follows for specific development practices. Locat
 ### Workflow Phases
 | Skill | Purpose |
 |-------|---------|
-| `brainstorming` | Guides 7-stage process producing evidence-backed PRDs with optional structured problem-solving |
+| `brainstorming` | Guides 7-stage process producing evidence-backed PRDs with optional structured problem-solving and domain skill enrichment |
 | `structured-problem-solving` | Applies SCQA framing and type-specific decomposition to problems during brainstorming |
 | `specifying` | Creates precise specifications with acceptance criteria |
 | `designing` | Creates design.md with architecture and contracts |
@@ -168,6 +168,11 @@ Skills are instructions Claude follows for specific development practices. Locat
 |-------|---------|
 | `systematic-debugging` | Guides four-phase root cause investigation |
 | `root-cause-analysis` | Structured 6-phase process for finding ALL contributing causes |
+
+### Domain Knowledge
+| Skill | Purpose |
+|-------|---------|
+| `game-design` | Game design frameworks, engagement/retention analysis, aesthetic direction, and feasibility evaluation |
 
 ### Maintenance
 | Skill | Purpose |
