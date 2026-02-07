@@ -1,0 +1,22 @@
+{
+  "id": "019",
+  "slug": "game-design-skill",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-02-07T17:30:00Z",
+  "branch": "feature/019-game-design-skill",
+  "brainstorm_source": "docs/brainstorms/20260207-111029-game-design-skill.prd.md",
+  "currentPhase": "specify",
+  "phases": {
+    "specify": {
+      "started": "2026-02-07T17:30:00Z",
+      "completed": "2026-02-07T17:50:00Z",
+      "iterations": 1,
+      "reviewerNotes": [
+        "C2.2 Stage 2 modification lacks acceptance criteria for domain context verification",
+        "C3 lacks error handling for malformed/empty domain criteria",
+        "BS-3 doesn't cover SKILL.md Read permission/corruption errors"
+      ]
+    }
+  }
+}
