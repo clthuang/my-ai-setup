@@ -98,11 +98,11 @@ crypto-analysis/
 
 **Location:** `plugins/iflow-dev/skills/brainstorming/SKILL.md`
 
-Four modification points. Steps 9-10, Stage 2, and Stage 6 are **refactored from per-domain hardcoded blocks to a generic domain-dispatch pattern**. This solves the line budget constraint (current file at 484/500) by replacing ~46 lines of game-design-specific content with ~25 lines of generic domain handling, then adding crypto at ~1 line cost (one new AskUserQuestion option).
+Four modification points. Steps 9-10, Stage 2, and Stage 6 are **refactored from per-domain hardcoded blocks to a generic domain-dispatch pattern**. This solves the line budget constraint (current file at 485/500) by replacing ~46 lines of game-design-specific content with ~25 lines of generic domain handling, then adding crypto at ~1 line cost (one new AskUserQuestion option).
 
 #### C2.1: Stage 1 CLARIFY — Step 9 Update (Generic Domain Registry)
 
-Replace the current 2-option AskUserQuestion with a domain registry pattern. The options list is the only place where domain names are enumerated:
+Replace the current 2-option AskUserQuestion with a domain registry pattern. The registry is a **static inline mapping** in SKILL.md text — not a file-based or auto-discovery mechanism. The AskUserQuestion options list is the only place where domain names are enumerated:
 ```
 AskUserQuestion:
   questions: [{
@@ -118,6 +118,10 @@ AskUserQuestion:
 ```
 Future domains are added as additional options here (1 line each).
 
+**Acceptance criteria for C2.1:**
+- Given brainstorming Stage 1 reaches Step 9, when AskUserQuestion is presented, then it shows "Game Design", "Crypto/Web3", and "None" options
+- Given user selects "None", when Step 10 runs, then domain loading is skipped entirely and no domain context is stored
+
 **Domain-to-skill mapping** (used by Steps 10, Stage 2, and Stage 6):
 ```
 Domain Label     → Skill Directory Name
@@ -130,7 +134,7 @@ Domain Label     → Skill Directory Name
 **Replace** the current hardcoded game-design loading block with a generic pattern:
 
 1. Map Step 9 selection to skill directory name using the mapping above
-2. Derive sibling skill path: replace `skills/brainstorming` in Base directory with `skills/{skill-directory-name}`
+2. Derive sibling skill path: replace `skills/brainstorming` in **Base directory** with `skills/{skill-directory-name}`. ("Base directory" = the brainstorming skill's own directory path, available at runtime from the skill loading mechanism — defined in brainstorming SKILL.md's preamble as the resolved path of the skill's parent directory.)
 3. Read `{derived path}/SKILL.md` via Read tool
 4. If file not found: warn "{Domain} skill not found, skipping domain enrichment" → skip to Stage 2
 5. Execute the domain skill inline (read reference files, apply frameworks to concept)
@@ -140,13 +144,30 @@ Domain Label     → Skill Directory Name
 
 **This replaces** the current game-design-specific block at lines 124-131 with a generic version. The game-design skill itself is unchanged — only the dispatch mechanism in brainstorming SKILL.md becomes generic.
 
-**Loop-back behavior (generic):** If any domain analysis section exists in the PRD (detected by checking for `## Game Design Analysis` or `## Crypto Analysis` or any `## {Domain} Analysis` heading), delete it entirely, clear domain context, and re-prompt Step 9. This replaces the current game-design-only loop-back check at line 133.
+**Acceptance criteria for C2.2:**
+- Given user selects "Crypto/Web3" in Step 9, when Step 10 runs, then it maps to `crypto-analysis`, derives `skills/crypto-analysis/SKILL.md` path from Base directory, reads it, and executes inline
+- Given user selects "Game Design" in Step 9, when Step 10 runs, then it maps to `game-design`, derives `skills/game-design/SKILL.md` path, and executes inline (same behavior as before, different mechanism)
+- Given a domain is selected but its SKILL.md is not found, when Step 10 runs, then it warns and skips to Stage 2
 
-**Line budget impact:**
-- Lines removed: ~46 (game-design-specific Step 10 block + Stage 2 conditionals + Stage 6 domain lines + 26-line PRD template)
-- Lines added: ~25 (generic Step 10 block + generic Stage 2/6 pattern + slim PRD template comment)
-- Net change: ~-21 lines (from 484 to ~463), creating headroom for future domains
-- Adding crypto: ~1 line (new AskUserQuestion option) — no per-domain blocks needed
+**Loop-back behavior (generic):** If any domain analysis section exists in the PRD (detected by checking for `## Game Design Analysis` or `## Crypto Analysis` or any `## {Domain} Analysis` heading), delete it entirely, **clear all stored domain context** (analysis buffer, domain name, review criteria, Stage 2 research context), and re-prompt Step 9. This replaces the current game-design-only loop-back check at line 133.
+
+**Line budget impact** (current file: 485 lines):
+- Lines removed:
+  - Step 10 game-design block (lines 124-131): ~8 lines
+  - Stage 2 game-design conditionals (lines 146-149): ~4 lines
+  - Stage 6 game-design domain lines: ~4 lines
+  - PRD template Game Design Analysis block (lines 423-448): ~26 lines
+  - Step 9 game-design-only formatting: ~2 lines
+  - **Total removed: ~44 lines**
+- Lines added:
+  - Step 9 generic AskUserQuestion with mapping table: ~8 lines
+  - Step 10 generic loading pattern (8 steps): ~10 lines
+  - Stage 2 generic dispatch (`If domain active: append context`): ~2 lines
+  - Stage 6 generic context block: ~2 lines
+  - PRD template generic placeholder: ~2 lines
+  - **Total added: ~24 lines**
+- **Net change: -20 lines** (485 → ~465)
+- Adding crypto: +1 line (new AskUserQuestion option) → ~466 lines, 34 lines under budget
 
 #### C2.3: Stage 2 RESEARCH — Generic Domain-Aware Query Enhancement
 
@@ -167,7 +188,13 @@ Additional crypto research context:
 - Internet-researcher results are written to `Research Summary > Internet Research` as normal
 - Stage 3 incorporates findings into the domain analysis section
 
-**For game-design**, the existing prompt lines (research engines/platforms, evaluate dimensions, market data) are moved from brainstorming SKILL.md into the game-design SKILL.md's `## Stage 2 Research Context` section. Functionally identical output, different source of truth.
+**For game-design**, the existing 3 prompt lines (currently hardcoded at brainstorming SKILL.md lines 147-149) are moved into game-design SKILL.md's new `## Stage 2 Research Context` section:
+```
+- Research current game engines/platforms suitable for this concept
+- Evaluate against these dimensions: {dimensions from tech-evaluation-criteria.md, if loaded}
+- Include current market data for the game's genre/platform
+```
+Functionally identical output, different source of truth. The game-design SKILL.md gains this section (~6 lines including header); brainstorming SKILL.md loses the 4 hardcoded lines (3 prompts + 1 conditional).
 
 **Generic dispatch pattern in brainstorming SKILL.md:**
 ```
@@ -207,6 +234,11 @@ Domain Review Criteria:
 
 When domain is "None" or absent: Domain lines are omitted entirely (existing behavior).
 
+**Acceptance criteria for C2.4:**
+- Given domain is `crypto-analysis`, when Stage 6 dispatches brainstorm-reviewer, then `## Context` includes `Domain: crypto-analysis` and 4 bulleted crypto review criteria
+- Given domain is `game-design`, when Stage 6 dispatches, then `## Context` includes `Domain: game-design` and 4 bulleted game-design review criteria (same content as before, sourced from stored Step 10 output)
+- Given domain is "None" or absent, when Stage 6 dispatches, then `## Context` has no Domain or Domain Review Criteria lines
+
 #### C2.5: PRD Output Format — Generic Domain Analysis Section
 
 **Replace** the current 26-line Game Design Analysis template in the PRD Output Format with a generic placeholder:
@@ -216,11 +248,16 @@ When domain is "None" or absent: Domain lines are omitted entirely (existing beh
 *(Only included when a domain is active. Section structure defined by the domain skill's SKILL.md output template.)*
 ```
 
-The actual section structure (subsections, fields) is defined by each domain skill's SKILL.md. For crypto-analysis, the output is the 4-subsection `## Crypto Analysis` structure defined in C1. For game-design, it remains the 4-subsection `## Game Design Analysis` structure already defined in its SKILL.md.
+The actual section structure (subsections, fields) is the **domain skill's SKILL.md** — that is the source of truth for the output template. For crypto-analysis, the output is the 4-subsection `## Crypto Analysis` structure defined in C1. For game-design, it remains the 4-subsection `## Game Design Analysis` structure already defined in its SKILL.md.
 
 This reduces the PRD Output Format from ~26 domain-specific lines to ~2 generic lines. Placed between Structured Analysis and Review History (or between Research Summary and Review History if Structured Analysis is absent).
 
 When domain is "None": no domain analysis section appears in the PRD.
+
+**Acceptance criteria for C2.5:**
+- Given crypto-analysis domain is active, when PRD is written at Stage 3, then `## Crypto Analysis` section appears with the 4 subsections defined in C1's output template
+- Given game-design domain is active, when PRD is written, then `## Game Design Analysis` section appears with the 4 subsections defined in game-design SKILL.md
+- Given no domain is active, when PRD is written, then no domain analysis section appears
 
 ### C3: Modified Agent — `brainstorm-reviewer`
 
@@ -256,7 +293,7 @@ Crypto-analysis criteria table:
 
 Each reference file provides evaluation frameworks, not static recommendations. Internal structure uses markdown with H2 headings. MUST NOT recommend specific tokens, protocols, or investment positions.
 
-**C4.1: `protocol-comparison.md`** (target: 130 lines, max: 160)
+**C4.1: `protocol-comparison.md`** (max: 160 lines)
 - Layer Architecture: L1 base chains vs L2 scaling solutions — trade-offs (security/throughput/cost/finality)
 - EVM Compatibility: EVM vs non-EVM — developer ecosystem, tooling, bridge implications
 - Consensus Mechanisms: PoW, PoS, DPoS, PoH, PoA — security/decentralization/performance trade-offs
@@ -264,7 +301,7 @@ Each reference file provides evaluation frameworks, not static recommendations. 
 - Chain Architecture: Monolithic vs modular (execution/settlement/DA/consensus layers)
 - Interoperability: Bridge patterns, cross-chain messaging, atomic swaps
 
-**C4.2: `defi-taxonomy.md`** (target: 120 lines, max: 160)
+**C4.2: `defi-taxonomy.md`** (max: 160 lines)
 - CCAF DeFi Categories (Cambridge Centre for Alternative Finance, https://ccaf.io/defi/taxonomy): Trading, lending, asset management, blockchain interoperability
 - Protocol Patterns: AMM, order book, lending pool, yield aggregator, liquid staking, restaking
 - Composability: Money legos concept, flash loans, protocol stacking risks
@@ -272,7 +309,7 @@ Each reference file provides evaluation frameworks, not static recommendations. 
 - Stablecoin Models: Fiat-backed, crypto-collateralized, algorithmic — risk spectrum
 - Messari Sector Mapping: Cryptomoney, TradFi, Chains, DeFi, AI x Crypto, DePIN, Consumer Apps
 
-**C4.3: `tokenomics-frameworks.md`** (target: 140 lines, max: 160)
+**C4.3: `tokenomics-frameworks.md`** (max: 160 lines)
 - Token Utility Models: governance, utility, security, payment, hybrid — use case mapping
 - Distribution Strategies: Fair launch, ICO/IDO, airdrop, retroactive, vesting schedules
 - Supply Economics: Fixed supply, inflationary, deflationary, elastic supply — impact on value
@@ -281,7 +318,7 @@ Each reference file provides evaluation frameworks, not static recommendations. 
 - Anti-patterns: Ponzinomics indicators, death spiral risks, whale concentration, governance attacks
 - Risk Indicators per model (advisory, not prescriptive)
 
-**C4.4: `trading-strategies.md`** (target: 140 lines, max: 160)
+**C4.4: `trading-strategies.md`** (max: 160 lines)
 - Quant Strategy Taxonomy: HFT, pairs trading, cross-exchange arbitrage, market making, momentum, mean reversion, statistical arbitrage
 - MEV Classification (arxiv taxonomy): front-running, back-running, sandwich attacks, arbitrage, liquidation, time-bandit attacks
 - Algorithm Patterns: TWAP, VWAP, implementation shortfall, iceberg orders
@@ -290,7 +327,7 @@ Each reference file provides evaluation frameworks, not static recommendations. 
 - EVM-Specific Mechanics: Gas optimization, mempool monitoring, flashbots, private order flow
 - NOTE: MUST NOT present any strategy as guaranteed profitable. All strategies carry risk.
 
-**C4.5: `market-structure.md`** (target: 120 lines, max: 160)
+**C4.5: `market-structure.md`** (max: 160 lines)
 - Market Sizing Dimensions: TVL, daily volume, active addresses, transaction count, fee revenue
 - On-Chain Analytics Dimensions: Holder distribution, whale activity, DEX vs CEX flow, staking ratios
 - Data Source Guidance: BigQuery public datasets (25+ chains), DeFiLlama (TVL/fees), CoinGecko (prices), Dune Analytics (custom queries), Nansen (wallet labeling), Flipside (community analytics)
@@ -298,7 +335,7 @@ Each reference file provides evaluation frameworks, not static recommendations. 
 - Competitive Landscape Framework: Protocol comparison by TVL, fees, unique users, composability
 - NOTE: Data sources are for Stage 2 internet-researcher guidance — not for embedding static data
 
-**C4.6: `chain-evaluation-criteria.md`** (target: 110 lines, max: 160)
+**C4.6: `chain-evaluation-criteria.md`** (max: 160 lines)
 - Evaluation Dimensions: technology-agnostic criteria such as: TPS/throughput, finality time, gas costs, smart contract language, developer tooling maturity, ecosystem size, bridge availability, MEV protection
   - Dimensions are phrased as questions: "What is the chain's TPS?" not "Chain X has Y TPS"
   - Example: "Does the chain support EVM-compatible smart contracts?", "What is the average transaction finality time?", "What developer tooling ecosystem exists?"
@@ -307,7 +344,8 @@ Each reference file provides evaluation frameworks, not static recommendations. 
 - Solo Builder Constraints: Development cost, deployment complexity, testing infrastructure, documentation quality
 - NOTE: MUST NOT contain specific chain recommendations — dimensions are for internet-researcher to use at Stage 2 via C2.3 query enhancement
 
-**C4.7: `review-criteria.md`** (target: 70 lines, max: 160)
+**C4.7: `review-criteria.md`** (max: 160 lines)
+- Follows same structure as `game-design/references/review-criteria.md` (4 criteria with subsection header, keywords, severity)
 - Domain review criteria list for brainstorm-reviewer dispatch
 - Per-criterion explanation of what "exists" means (keyword lists per criterion)
 - Severity guidance: all criteria produce warnings
@@ -394,12 +432,13 @@ Each reference file provides evaluation frameworks, not static recommendations. 
 - The `## Crypto Analysis` section header includes: `*(Analysis frameworks only — not financial advice.)*`
 - This is defined in the crypto-analysis SKILL.md output template (C1 responsibility #4)
 - All output is framed as analytical frameworks for product/protocol design, not investment decisions
+- **Relationship to BS-5:** BS-5 defines content generation constraints (what the LLM must NOT produce). BS-9 defines a user-facing disclaimer in the output. Both address the same concern from different angles — BS-5 constrains the generator, BS-9 informs the reader.
 
 ## Scope Boundaries
 
 ### In Scope
 - New `crypto-analysis` skill with SKILL.md + 7 reference files
-- **Refactor brainstorming Steps 9-10, Stage 2, Stage 6, and PRD template to generic domain-dispatch pattern** (replaces per-domain hardcoded blocks)
+- **Refactor brainstorming Steps 9-10, Stage 2, Stage 6, and PRD template to generic domain-dispatch pattern** (replaces per-domain hardcoded blocks). *Note: The PRD listed this as Out of Scope ("Domain-loading extraction to generic pattern — Future consideration: When 3+ domains exist"). It was pulled into scope because the line budget analysis (485/500) proved that adding a second domain via per-domain hardcoded blocks is infeasible. The generic refactor is a prerequisite, not a premature optimization.*
 - Step 9 gains "Crypto/Web3" option
 - Game-design SKILL.md gains `## Stage 2 Research Context` section (moved from brainstorming SKILL.md)
 - Stage 3 DRAFT PRD: conditional inclusion of domain analysis section (format change only)
@@ -418,7 +457,7 @@ Each reference file provides evaluation frameworks, not static recommendations. 
 
 | Question | Resolution |
 |---|---|
-| Line budget for C2 modifications? | Refactor to generic domain-dispatch pattern. Removes ~46 game-design-specific lines, adds ~25 generic lines = net ~-21 lines. Crypto adds ~1 line (new option). Budget: 484 → ~463 + 1 = ~464, well within 500. |
+| Line budget for C2 modifications? | Refactor to generic domain-dispatch pattern. Removes ~44 game-design-specific lines (Step 10: 8, Stage 2: 4, Stage 6: 4, PRD template: 26, Step 9: 2), adds ~24 generic lines (Step 9: 8, Step 10: 10, Stage 2: 2, Stage 6: 2, PRD: 2). Net: -20. Crypto adds +1 line. Budget: 485 → ~466, 34 lines under 500. |
 | Single skill or three separate skills? | Single unified `crypto-analysis` skill. All three sub-domains (quant, HFT/EVM, tokenomics) share foundational concepts. Sub-domain focus emerges from which frameworks are most relevant to the concept. |
 | How many reference files? | 7 files, matching game-design count. Organized by concern (protocols, DeFi, tokenomics, strategies, market, chain eval, review criteria). |
 | Hardcoded table or dynamic parse for reviewer? | Hardcoded static table in brainstorm-reviewer, keyed by domain name (same pattern as game-design). Second table for crypto-analysis. Domain criteria are stable enough that dynamic parsing adds complexity without benefit. |
