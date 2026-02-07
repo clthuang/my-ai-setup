@@ -64,7 +64,8 @@ game-design/
 - **Aesthetic Direction:** All 4 fields required (Art Style, Audio Design, Game Feel/Juice, Mood). Art Style must name a style from the taxonomy. Mood must link visual/audio.
 - **Feasibility & Viability:** All 3 fields required (Monetization Options, Market Context, Platform Considerations). Monetization must include risk flags. Platform Considerations must note that actual data comes from Stage 2.
 - **Framework citation:** satisfied by template structure — each subsection references its source framework by name (MDA, Hook Model, Bartle's, etc.). Field labels in the template above are the expected bold-label format.
-- **Enforcement boundary:** Field-level acceptance criteria above are enforced by SKILL.md instructions (telling the LLM what to produce). The brainstorm-reviewer (C3) validates subsection presence and topic keywords only, not field-level completeness or exact label formatting. Game concept context (problem statement, target user, constraints) is available from brainstorming Steps 1-5 — no explicit parameter passing needed since SKILL.md is executed inline.
+- **Enforcement boundary:** Field-level acceptance criteria above are enforced by SKILL.md instructions (telling the LLM what to produce). The brainstorm-reviewer (C3) validates subsection presence and topic keywords only, not field-level completeness or exact label formatting. This is intentional: SKILL.md instructions are the primary enforcement mechanism (LLM follows the template), and C3 provides a structural safety net (subsection + keyword check). Field-level correctness is verified by human review at Stage 7.
+- **Context passing:** Game concept context (problem statement, target user, constraints) is available from brainstorming Steps 1-5 conversation history — no explicit parameter passing needed since SKILL.md is executed inline within the same agent turn. The game-design SKILL.md is Read and executed in the brainstorming agent's context, not dispatched as a sub-agent.
 
 5. Output domain review criteria as markdown list for brainstorming to forward to Stage 6 dispatch:
    ```
@@ -112,13 +113,13 @@ After existing Steps 6-8 (problem type classification, framework loading, store 
   - Derive sibling skill path: replace `skills/brainstorming` in Base directory with `skills/game-design`
   - Read `{derived path}/SKILL.md` via Read tool
   - If file not found: warn "Game design skill not found, proceeding without domain enrichment" → skip to Stage 2
-  - Follow game-design SKILL.md instructions inline (Read tool, same as structured-problem-solving loading pattern — not a sub-agent dispatch) to read references and produce game design analysis context
+  - Follow game-design SKILL.md instructions inline (Read tool on each reference file, same as structured-problem-solving loading pattern — executed in the brainstorming agent's context, not dispatched as a sub-agent) to read references and produce game design analysis context
   - **Do NOT write Game Design Analysis to PRD yet** — store the analysis context (all 4 subsections) in memory for Stage 3 to incorporate after Stage 2 research completes
   - Store domain review criteria (markdown list from SKILL.md output) for Stage 6 dispatch
   - Store `domain: game-design` in brainstorming context for Stage 2 and Stage 6
 - If user selected "None": skip Step 10 body entirely, proceed to Stage 2
 
-**Two-phase write strategy:** Step 10 produces the Game Design Analysis content using reference frameworks, but the `## Game Design Analysis` section is written to the PRD by Stage 3 (DRAFT PRD) — not during Stage 1. This ensures the Feasibility & Viability subsection's Platform Considerations can incorporate Stage 2 internet-researcher findings. Stage 3 merges the Step 10 framework analysis with Stage 2 research data when writing the final PRD.
+**Two-phase write strategy:** Step 10 produces the Game Design Analysis content using reference frameworks, but the `## Game Design Analysis` section is written to the PRD by Stage 3 (DRAFT PRD) — not during Stage 1. This ensures the Feasibility & Viability subsection's Platform Considerations can incorporate Stage 2 internet-researcher findings. Stage 3 merges by: (1) writing Game Design Overview, Engagement & Retention, and Aesthetic Direction subsections from Step 10 analysis as-is, then (2) writing Feasibility & Viability with monetization/market data from Step 10 plus platform/engine findings from Stage 2 internet-researcher results. Analysis is held in conversation context between Step 10 and Stage 3; if context pressure becomes an issue during implementation, the analysis can be written to a temporary scratch section in the PRD and merged/moved by Stage 3.
 
 **Loop-back behavior:** If `## Game Design Analysis` already exists in the PRD (from a previous Stage 7 → Stage 1 loop), delete it entirely and clear any stored domain context (domain name, analysis, review criteria) before re-running Steps 9-10. Step 9 re-prompts the user on loop-back (domain choice may change between iterations). Do NOT duplicate.
 
@@ -133,9 +134,10 @@ When `domain` is set to `game-design`:
   - Evaluate against these dimensions: {dimensions from tech-evaluation-criteria.md, or omit this bullet if file was not loaded}
   - Include current market data for the game's genre/platform
   ```
-- The "evaluate against these dimensions" bullet is conditional on tech-evaluation-criteria.md being loaded in Step 10. The "market data" bullet is always included when domain is game-design (not conditional on any reference file).
+- The "evaluate against these dimensions" bullet is conditional on tech-evaluation-criteria.md being loaded in Step 10. When present, `{dimensions from tech-evaluation-criteria.md}` is replaced with the actual dimension questions read from the file (e.g., "Does the engine support 2D tile-based rendering?", "What is the licensing cost for a solo developer?"). The "market data" bullet is always included when domain is game-design (not conditional on any reference file).
 - Internet-researcher results are written to `Research Summary > Internet Research` as normal
 - Stage 3 incorporates these findings into the Game Design Analysis Feasibility & Viability subsection
+- **Degradation link:** If tech-evaluation-criteria.md was not loaded (per C1 graceful degradation), the dimensions bullet is omitted from the internet-researcher prompt — research proceeds without structured evaluation criteria, using only the market data bullet
 
 **Acceptance criteria for C2.2:**
 - Given domain is `game-design` and tech-evaluation-criteria.md was loaded, when internet-researcher is dispatched, then its prompt contains the full "Additional game-design research context" block with dimensions from the loaded file
@@ -205,9 +207,9 @@ In addition to existing Problem Type parsing, the reviewer also parses:
 - For each criterion in `Domain Review Criteria:` list, check PRD content for the corresponding analysis:
   - "Core loop defined?" → check `### Game Design Overview` subsection exists AND body contains any of: `core loop`, `gameplay loop`, `loop`
   - "Monetization risks stated?" → check `### Feasibility & Viability` subsection exists AND body contains any of: `monetization`, `revenue`, `pricing`, `free-to-play`, `premium`
-  - "Aesthetic direction articulated?" → check `### Aesthetic Direction` subsection exists AND body contains any of: `art`, `audio`, `style`, `music`, `mood`, `feel`
+  - "Aesthetic direction articulated?" → check `### Aesthetic Direction` subsection exists AND body contains any of: `art`, `audio`, `style`, `music`, `mood`, `game feel`
   - "Engagement hooks identified?" → check `### Engagement & Retention` subsection exists AND body contains any of: `hook`, `progression`, `retention`, `engagement`
-- **Existence check rule:** passes if the subsection header exists AND the subsection body contains at least one keyword from its list (case-insensitive substring match)
+- **Existence check rule:** passes if the subsection header exists (H3 heading `### {name}`) AND the text between that header and the next H2/H3 heading contains at least one keyword from its list (case-insensitive substring match). This relies on standard markdown heading structure which the PRD template guarantees.
 - Report missing domain criteria as warnings (not blockers). Domain criteria warnings are included in the issues array with severity "warning" and do not affect the approved boolean (same treatment as existing type-specific criteria warnings).
 
 **When domain is absent or "None":** only universal + type-specific criteria apply (backward compatible). The Domain and Domain Review Criteria lines are simply absent from the dispatch prompt — no special handling needed.
@@ -225,7 +227,7 @@ Each reference file provides evaluation frameworks, not static recommendations. 
 
 **C4.1: `design-frameworks.md`** (target: 135 lines, max: 160)
 - MDA Framework: Mechanics → Dynamics → Aesthetics with application template
-- Core Loop Design: 3-layer model (Core Gameplay → Meta Game → Content Strategy)
+- Core Loop Design: 3-layer model (Core Gameplay Loop → Meta Game Loop → Content Strategy Loop) with definitions and examples per layer
 - Bartle's Player Taxonomy: 4 primary types + extended 8-type model
 - Progression Systems: vertical vs horizontal, nested loop patterns
 - Genre-Mechanic Mappings: common genre archetypes with typical mechanic combinations
@@ -267,24 +269,27 @@ Each reference file provides evaluation frameworks, not static recommendations. 
 - Domain review criteria list for brainstorm-reviewer dispatch
 - Per-criterion explanation of what "exists" means (keyword lists per criterion)
 - Severity guidance: missing core loop = warning, missing aesthetic direction = warning
-- **Source of truth:** SKILL.md hardcodes the 4 criteria in its output (C1 responsibility #5). review-criteria.md documents these same criteria with detailed explanations for human reference and for brainstorm-reviewer's parsing logic. If criteria need to be added/changed, update both SKILL.md output and review-criteria.md.
+- **Source of truth:** SKILL.md hardcodes the 4 criteria in its output (C1 responsibility #5). review-criteria.md documents these same criteria with detailed explanations for human reference and for brainstorm-reviewer's parsing logic. The spec's C3 keyword lists are the implementation specification; review-criteria.md documents them for human reference. If criteria or keywords need to be added/changed, update C3 keyword lists, SKILL.md output, and review-criteria.md.
 
 ## Requirements Traceability
+
+*Note: For FR-2 through FR-7, "contains" means an H2 heading exists for each listed topic, per the structural convention defined in C4.*
 
 | Requirement | Component | Acceptance Criteria |
 |---|---|---|
 | FR-1 | C1 | Given game-design skill is created, when `plugins/iflow-dev/skills/game-design/SKILL.md` is checked, then it exists with <120 lines AND `references/` contains 7 files |
-| FR-2 | C4.1 | Given `design-frameworks.md` is read, then it contains MDA framework, core loop model, Bartle's taxonomy, progression systems, and genre-mechanic mappings |
+| FR-2 | C4.1 | Given `design-frameworks.md` is read, then it contains H2 sections for: MDA framework, core loop model, Bartle's taxonomy, progression systems, and genre-mechanic mappings |
 | FR-3 | C4.4 | Given `monetization-models.md` is read, then it presents models with risk/viability indicators AND does NOT prescribe a specific pricing strategy |
 | FR-4 | C4.6 | Given `tech-evaluation-criteria.md` is read, then it provides evaluation dimensions AND contains NO specific engine/platform recommendations |
-| FR-5 | C4.2 | Given `engagement-retention.md` is read, then it contains hook models, progression mechanics, social features, and retention frameworks |
+| FR-5 | C4.2 | Given `engagement-retention.md` is read, then it contains H2 sections for: hook models, progression mechanics, social features, and retention frameworks |
 | FR-6 | C4.5 | Given `market-analysis.md` is read, then it provides competitor analysis framework and market sizing approach |
-| FR-7 | C4.3 | Given `aesthetic-direction.md` is read, then it contains art style taxonomy, audio design dimensions, game feel/juice, and mood-to-genre mappings |
+| FR-7 | C4.3 | Given `aesthetic-direction.md` is read, then it contains H2 sections for: art style taxonomy, audio design dimensions, game feel/juice, and mood-to-genre mappings |
 | FR-8 | C4.7 | Given `review-criteria.md` is read, then it lists domain-specific checks with per-criterion existence definitions |
 | FR-9 | C2 | Given Steps 6-8 complete (or skipped), when Step 9 runs, then AskUserQuestion presents domain options including "Game Design" and "None" |
 | FR-10 | C3 | Given brainstorm-reviewer receives `Domain: game-design` and criteria in `## Context`, then it checks each domain criterion against PRD content |
-| FR-11 | C4.6 + Stage 2 | Given tech-evaluation-criteria.md provides dimensions, when internet-researcher runs at Stage 2, then it uses those dimensions to research current engines/platforms for this specific game concept |
-| FR-12 | C2 PRD Format | Given game-design domain is active, when PRD is written, then it contains `## Game Design Analysis` with 4 subsections (Game Design Overview, Engagement & Retention, Aesthetic Direction, Feasibility & Viability) placed between Structured Analysis and Review History (or between Research Summary and Review History when Structured Analysis is absent) |
+| FR-11 | C4.6 + C2.2 | Given tech-evaluation-criteria.md was loaded in Step 10 and provides dimension questions, when internet-researcher is dispatched at Stage 2, then its prompt includes the "evaluate against these dimensions" bullet with the actual dimension text from the file |
+| FR-12a | C2 PRD Format | Given game-design domain is active AND Structured Analysis is present, when PRD is written, then `## Game Design Analysis` with 4 subsections (Game Design Overview, Engagement & Retention, Aesthetic Direction, Feasibility & Viability) appears after Structured Analysis and before Review History |
+| FR-12b | C2 PRD Format | Given game-design domain is active AND Structured Analysis is absent (Step 6 skipped), when PRD is written, then `## Game Design Analysis` with 4 subsections appears after Research Summary and before Review History |
 | NFR-1 | C1 | game-design SKILL.md <120 lines |
 | NFR-2 | C4 | Each reference file <160 lines |
 | NFR-3 | C2 | Brainstorming SKILL.md stays under 500 lines after Steps 9-10 addition |
@@ -320,7 +325,7 @@ Each reference file provides evaluation frameworks, not static recommendations. 
 - Method produces `## Structured Analysis` (SCQA + decomposition)
 - Domain produces `## Game Design Analysis` (game frameworks)
 - Both sections appear in PRD when both are active — no conflict, no replacement
-- PRD section order: Research Summary → Structured Analysis → Game Design Analysis → Review History → Open Questions → Next Steps
+- PRD section order (verified against brainstorming SKILL.md lines 388-432, pre-modification — adjust after Steps 9-10 insertion): Research Summary → Structured Analysis → Game Design Analysis → Review History → Open Questions → Next Steps
 - **Steps 9-10 are independent of Steps 6-8:** If the user selects "Skip" at Step 6 (no problem type), Steps 9-10 still execute normally. Domain selection does not depend on method selection.
 - **When Structured Analysis is absent** (Step 6 skipped): Game Design Analysis is placed directly after Research Summary, before Review History
 
@@ -347,12 +352,14 @@ Each reference file provides evaluation frameworks, not static recommendations. 
 ### In Scope
 - New `game-design` skill with SKILL.md + 7 reference files
 - Stage 1 CLARIFY additions (Steps 9-10) in brainstorming skill
+- Stage 2 RESEARCH: domain-aware query enhancement (C2.2)
+- Stage 3 DRAFT PRD: conditional inclusion of Game Design Analysis section, merging Step 10 analysis + Stage 2 research into Feasibility & Viability (format change only, no control flow changes)
 - Stage 6 dispatch enhancement (domain context + review criteria)
 - Brainstorm-reviewer domain criteria parsing and checking
 - PRD format: Game Design Analysis section template
 
 ### Out of Scope
-- Logic changes to Stages 3-5, 7 of brainstorming (Stage 2 gains domain-aware query enhancement via C2.2; Stage 3 writes the updated PRD format from C2.4, merging Step 10 framework analysis with Stage 2 research data into the Feasibility & Viability subsection — no changes to Stage 3 control flow or decision logic; Stages 4-5 and 7 are unchanged)
+- Control flow or decision logic changes to Stages 3-5, 7 of brainstorming (Stages 4-5 and 7 are unchanged)
 - Changes to prd-reviewer
 - New agents
 - Additional domain skills (future work)
@@ -364,7 +371,7 @@ Each reference file provides evaluation frameworks, not static recommendations. 
 
 | Question | Resolution |
 |---|---|
-| Line budget for Steps 9-10? | ~15-17 lines. Feasible within 17-line headroom (483/500). Fallback: trim whitespace/trailing blank lines in Steps 6-8, or extract domain loading to separate skill. |
+| Line budget for all C2 modifications? | Steps 9-10: ~15-17 lines. C2.2 (query enhancement): ~5-8 lines. C2.3 (dispatch): ~3-4 lines. C2.4 (template): ~12-15 lines. Total: ~35-44 lines against 17 lines headroom (483/500). Feasible via whitespace trimming (133 blank lines in current file). Fallback: extract domain loading to separate skill. |
 | How does domain skill load? | Cross-skill Read: replace `skills/brainstorming` with `skills/game-design` in Base directory. Same mechanism as structured-problem-solving (Feature #018). |
 | How do domain criteria reach reviewer? | Inline in Stage 6 dispatch `## Context` section, same pattern as `Problem Type: {type}`. |
 | Where do game sections go in PRD? | `## Game Design Analysis` placed between Structured Analysis and Review History. Additional section, not a replacement. |
