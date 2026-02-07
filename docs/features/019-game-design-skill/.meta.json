@@ -2,7 +2,8 @@
   "id": "019",
   "slug": "game-design-skill",
   "mode": "standard",
-  "status": "active",
+  "status": "completed",
+  "completed": "2026-02-08T04:30:00Z",
   "created": "2026-02-07T17:30:00Z",
   "branch": "feature/019-game-design-skill",
   "brainstorm_source": "docs/brainstorms/20260207-111029-game-design-skill.prd.md",
@@ -83,7 +84,8 @@
       ]
     },
     "finish": {
-      "started": "2026-02-08T04:20:00Z"
+      "started": "2026-02-08T04:20:00Z",
+      "completed": "2026-02-08T04:30:00Z"
     }
   }
 }
