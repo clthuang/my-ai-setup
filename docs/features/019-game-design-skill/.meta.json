@@ -6,7 +6,7 @@
   "created": "2026-02-07T17:30:00Z",
   "branch": "feature/019-game-design-skill",
   "brainstorm_source": "docs/brainstorms/20260207-111029-game-design-skill.prd.md",
-  "currentPhase": "specify",
+  "currentPhase": "design",
   "phases": {
     "specify": {
       "started": "2026-02-07T17:30:00Z",
@@ -17,6 +17,40 @@
         "FR-2 through FR-7 'contains' relies on C4 H2 structural convention",
         "NFR-3 total additions ~35-44 lines — feasible via whitespace trimming (133 blank lines available)"
       ]
+    },
+    "design": {
+      "started": "2026-02-07T19:45:00Z",
+      "completed": "2026-02-07T21:00:00Z",
+      "stages": {
+        "research": {
+          "started": "2026-02-07T19:45:00Z",
+          "completed": "2026-02-07T20:00:00Z",
+          "skipped": false
+        },
+        "architecture": {
+          "started": "2026-02-07T20:00:00Z",
+          "completed": "2026-02-07T20:15:00Z"
+        },
+        "interface": {
+          "started": "2026-02-07T20:15:00Z",
+          "completed": "2026-02-07T20:30:00Z"
+        },
+        "designReview": {
+          "started": "2026-02-07T20:30:00Z",
+          "completed": "2026-02-07T20:45:00Z",
+          "iterations": 1,
+          "reviewerNotes": []
+        },
+        "handoffReview": {
+          "started": "2026-02-07T20:45:00Z",
+          "completed": "2026-02-07T21:00:00Z",
+          "approved": true,
+          "reviewerNotes": [
+            "Line count discrepancy (482 vs 483) — does not affect feasibility",
+            "C3 insertion point clarified after reviewer feedback"
+          ]
+        }
+      }
     }
   }
 }
