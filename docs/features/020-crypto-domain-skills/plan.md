@@ -59,7 +59,7 @@ Topics: Market sizing dimensions (TVL, daily volume, active addresses, tx count,
 Topics: Evaluation dimensions as QUESTIONS (TPS/throughput, finality time, gas costs, smart contract language, developer tooling maturity, ecosystem size, bridge availability, MEV protection), security dimensions (audit ecosystem, bug bounty, formal verification, upgrade mechanisms), DeFi readiness (AMM/lending/oracle infrastructure, liquidity depth), solo builder constraints (dev cost, deployment complexity, testing, docs). NOTE: MUST NOT contain specific chain recommendations.
 
 **1.2g: `review-criteria.md`**
-Topics: 4 criteria with subsection header, keywords, severity — follows game-design/references/review-criteria.md structure (H2 Criteria, H3 per criterion with Subsection/What "exists" means/Keywords/Severity, H2 Validation Rules). Criteria must exactly match C3 table and C1 Output H3 headings.
+Topics: 4 criteria with subsection header, keywords, severity — follows game-design/references/review-criteria.md structure (H2 Criteria, H3 per criterion with Subsection/What "exists" means/Keywords/Severity, H2 Validation Rules). Criteria must exactly match C3 table and C1 Output H3 headings. Expected ~55 lines (matching game-design's 54-line review-criteria.md pattern), well under the 160-line maximum.
 
 **Verify per file:** <160 lines, H2 structure, no specific token/protocol recommendations, framework/evaluation language only.
 
@@ -125,7 +125,7 @@ When this domain is active, append these lines to the internet-researcher dispat
 6. Two-phase write: hold in memory
 7. Store review criteria for Stage 6
 8. Store domain name for Stage 2
-- Loop-back: check `## {stored-analysis-heading}` for exact heading match (not wildcard), clear all context, re-prompt Step 9
+- Loop-back: check for `## {Analysis Heading from Step 9 mapping table}` (e.g., `## Crypto Analysis`) for exact heading match (not wildcard), clear all context, re-prompt Step 9
 
 **Verify:** Generic pattern with 8 steps. Loop-back uses exact heading from mapping table. No game-design-specific references.
 
@@ -169,9 +169,9 @@ Domain Review Criteria:
 
 ### Step 3.6: Verify Line Budget
 
-**What:** Count total lines in modified brainstorming SKILL.md.
+**What:** Count total lines in modified brainstorming SKILL.md. Use `wc -l` for definitive count.
 
-**Verify:** <=500 lines. Expected: ~464 lines (485 - 22 + 1 crypto option = 464). 36 lines headroom.
+**Verify:** <=500 lines via `wc -l`. Expected: ~464 lines (485 - 22 + 1 crypto option = 464). 36 lines headroom. Note: The design's per-section line counts (-22 net) supersede the spec's estimates (-20 net) — see source-of-truth hierarchy in Implementation Strategy. Run `validate.sh` after Phase 3 to catch any issues before Phase 4.
 
 ---
 
@@ -179,7 +179,9 @@ Domain Review Criteria:
 
 **Goal:** Add crypto-analysis criteria table to brainstorm-reviewer alongside existing game-design table.
 
-**Dependencies:** Phase 1 (C1 Output H3 headings must be finalized for C1/C3 alignment) and Phase 3 (brainstorming must dispatch generic domain context for crypto criteria to be exercised end-to-end).
+**Dependencies:**
+- **Implementation dependency:** Phase 1 step 1.1 (C1 Output H3 headings must be finalized for C1/C3 alignment). Phase 4 can be implemented immediately after Phase 1.
+- **Validation dependency:** Phase 3 (brainstorming must dispatch generic domain context for crypto criteria to be exercised end-to-end). Phase 4's table won't be exercised until Phase 3's generic dispatch is in place.
 
 ### Step 4.1: Add Crypto Criteria Table and Selection Mechanism
 
@@ -196,7 +198,7 @@ Domain Review Criteria:
 
 Add table selection mechanism description: conditional block keyed by `Domain:` value.
 
-**Verify:** Table has 4 rows. Subsection headers exactly match C1 Output H3 headings. Selection mechanism documented. All criteria → warnings severity.
+**Verify:** Table has 4 rows. Subsection headers exactly match C1 Output H3 headings. Selection mechanism documented. Confirm the existing severity rule (all domain criteria produce warnings, not blockers) applies to the new table — no separate severity annotation needed per table.
 
 ---
 
@@ -230,7 +232,7 @@ Phase 4: C3 (brainstorm-reviewer criteria)  ← small addition
 - Phase 1 steps 1.2a-g (all 7 reference files) can be written in parallel
 - Phases 1 and 2 can run in parallel (no shared files)
 - Phase 3 steps 3.1-3.5 are sequential (all modify the same file)
-- Phase 4 can start after Phase 1 step 1.1 (needs C1 Output H3 headings finalized)
+- Phase 4 implementation can start after Phase 1 step 1.1 (needs C1 Output H3 headings); end-to-end validation requires Phase 3
 
 **Critical path:** Phase 1.1 → Phase 3 (needs crypto skill to verify end-to-end) → Phase 3.6 (line budget gate)
 
