@@ -8,7 +8,7 @@ Structured feature development workflow with skills, agents, and commands for me
 
 | Type | Count |
 |------|-------|
-| Skills | 18 |
+| Skills | 19 |
 | Agents | 19 |
 | Commands | 16 |
 | Hooks | 5 |
