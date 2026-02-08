@@ -6,7 +6,7 @@
   "created": "2026-02-08T05:30:00Z",
   "branch": "feature/020-crypto-domain-skills",
   "brainstorm_source": "docs/brainstorms/20260208-050000-crypto-domain-skills.prd.md",
-  "currentPhase": "specify",
+  "currentPhase": "design",
   "phases": {
     "specify": {
       "started": "2026-02-08T05:35:00Z",
@@ -17,6 +17,17 @@
         "game-design SKILL.md line count impact (104->~110) not in line budget (phase-reviewer, non-blocking)",
         "Base directory is implicit runtime behavior (phase-reviewer, non-blocking)"
       ]
+    },
+    "design": {
+      "started": "2026-02-08T06:15:00Z",
+      "completed": "2026-02-08T07:00:00Z",
+      "stages": {
+        "research": { "started": "2026-02-08T06:15:00Z", "completed": "2026-02-08T06:20:00Z", "skipped": false },
+        "architecture": { "started": "2026-02-08T06:20:00Z", "completed": "2026-02-08T06:30:00Z" },
+        "interface": { "started": "2026-02-08T06:30:00Z", "completed": "2026-02-08T06:40:00Z" },
+        "designReview": { "started": "2026-02-08T06:40:00Z", "completed": "2026-02-08T06:55:00Z", "iterations": 2, "reviewerNotes": [] },
+        "handoffReview": { "started": "2026-02-08T06:55:00Z", "completed": "2026-02-08T07:00:00Z", "approved": true, "reviewerNotes": [] }
+      }
     }
   }
 }
