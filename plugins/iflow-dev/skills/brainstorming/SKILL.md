@@ -106,6 +106,14 @@ AskUserQuestion:
 - Add `- Problem Type: {type}` to PRD Status section (or `none` if skipped)
 
 #### Step 9: Domain Selection
+
+**Domain-to-skill mapping:**
+
+| Label | Skill Dir | Analysis Heading |
+|-------|-----------|------------------|
+| Game Design | game-design | Game Design Analysis |
+| Crypto/Web3 | crypto-analysis | Crypto Analysis |
+
 Present domain options via AskUserQuestion:
 ```
 AskUserQuestion:
@@ -114,6 +122,7 @@ AskUserQuestion:
     "header": "Domain",
     "options": [
       {"label": "Game Design", "description": "Apply game design frameworks (core loop, engagement, aesthetics, viability)"},
+      {"label": "Crypto/Web3", "description": "Apply crypto analysis frameworks (protocol, tokenomics, market, risk)"},
       {"label": "None", "description": "No domain-specific analysis"}
     ],
     "multiSelect": false
@@ -122,15 +131,16 @@ AskUserQuestion:
 If "None": skip Step 10, proceed to Stage 2.
 
 #### Step 10: Domain Loading
-1. Derive sibling skill path: replace `skills/brainstorming` in Base directory with `skills/game-design`
-2. Read `{derived path}/SKILL.md` via Read tool
-3. If file not found: warn "Game design skill not found, skipping domain enrichment" → skip to Stage 2
-4. Execute the game-design skill inline (read reference files, apply frameworks to concept)
-5. **Two-phase write:** Hold analysis in memory — do NOT write to PRD yet. Stage 3 writes it during PRD drafting.
-6. Store domain review criteria (from skill output) for Stage 6 dispatch
-7. Store `domain: game-design` context for Stage 2 query enhancement
+1. Look up user's selection in the domain-to-skill mapping table (Step 9) to get **Skill Dir** and **Analysis Heading**
+2. Derive sibling skill path: replace `skills/brainstorming` in Base directory with `skills/{Skill Dir}`
+3. Read `{derived path}/SKILL.md` via Read tool
+4. If file not found: warn "{Skill Dir} skill not found, skipping domain enrichment" → skip to Stage 2
+5. Execute the domain skill inline (read reference files, apply frameworks to concept)
+6. **Two-phase write:** Hold analysis in memory — do NOT write to PRD yet. Stage 3 writes it during PRD drafting.
+7. Store domain review criteria (from skill output) for Stage 6 dispatch
+8. Store `domain: {Skill Dir}` context for Stage 2 query enhancement
 
-**Loop-back behavior:** If `## Game Design Analysis` already exists in the PRD (from a previous Stage 7 → Stage 1 loop), delete it entirely, clear domain context, and re-prompt Step 9.
+**Loop-back behavior:** If `## {Analysis Heading}` already exists in the PRD (from a previous Stage 7 → Stage 1 loop), delete it entirely, clear domain context, and re-prompt Step 9.
 
 ---
 ### Stage 2: RESEARCH
@@ -143,10 +153,7 @@ If "None": skip Step 10, proceed to Stage 2.
    - Tool: `Task`
    - subagent_type: `iflow-dev:internet-researcher`
    - prompt: Query about the topic with context
-   - **If `domain: game-design` active**, append to prompt:
-     - "Research current game engines/platforms suitable for this concept"
-     - If tech-evaluation-criteria.md was loaded: "Evaluate against these dimensions: {dimensions from file}"
-     - "Include current market data for the game's genre/platform"
+   - **If a domain is active:** Append the domain skill's `## Stage 2 Research Context` prompt lines to the internet-researcher dispatch
 
 2. **Codebase exploration:**
    - Tool: `Task`
@@ -245,12 +252,9 @@ If "None": skip Step 10, proceed to Stage 2.
     ## Context
     Problem Type: {type from Step 8, or "none" if skipped/absent}
     {If domain context exists, add:}
-    Domain: game-design
+    Domain: {stored domain name from Step 10}
     Domain Review Criteria:
-    - Core loop defined?
-    - Monetization risks stated?
-    - Aesthetic direction articulated?
-    - Engagement hooks identified?
+    {stored criteria list from Step 10}
 
     Return your assessment as JSON:
     { "approved": true/false, "issues": [...], "summary": "..." }
@@ -420,31 +424,8 @@ mindmap
       Sub-branch 2a
 ```
 
-## Game Design Analysis
-*(Only included when game-design domain is active)*
-
-### Game Design Overview
-- **Core Loop:** {core gameplay loop}
-- **MDA Analysis:** Mechanics → Dynamics → Aesthetics
-- **Player Types:** {primary Bartle type} — {rationale}
-- **Genre-Mechanic Fit:** {genre} — {alignment assessment}
-
-### Engagement & Retention
-- **Hook Model:** Trigger → Action → Reward → Investment
-- **Progression:** {type} — {mechanics}
-- **Social Features:** {features or "single-player focus"}
-- **Retention Strategy:** {D1/D7/D30 approach}
-
-### Aesthetic Direction
-- **Art Style:** {style} — {rationale}
-- **Audio Design:** {approach}
-- **Game Feel/Juice:** {key elements}
-- **Mood:** {tone} — {reinforcement}
-
-### Feasibility & Viability
-- **Monetization Options:** {models with risk flags}
-- **Market Context:** {landscape and sizing}
-- **Platform Considerations:** {evaluation dimensions}
+## {Domain} Analysis
+*(Only included when a domain is active. Section structure defined by the domain skill's SKILL.md output template.)*
 
 ## Review History
 {Added by Stage 5 auto-correct}

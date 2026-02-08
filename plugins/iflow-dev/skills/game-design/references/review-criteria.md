@@ -1,6 +1,6 @@
 # Domain Review Criteria
 
-Review criteria for the brainstorm-reviewer to validate game design analysis completeness. Each criterion checks for subsection existence and topic-relevant keywords.
+Review criteria for the brainstorm-reviewer to validate game design analysis completeness. Each criterion checks for subsection existence and topic-relevant keywords. This file is the canonical definition; the brainstorm-reviewer inlines a copy for runtime use.
 
 ## Criteria
 
