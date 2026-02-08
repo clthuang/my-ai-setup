@@ -9,7 +9,7 @@ This feature has two interleaved concerns: (1) creating the crypto-analysis doma
 **Source of truth hierarchy:** The design supersedes the spec where they differ:
 - **Stage 2 prompt wording:** Design I-3 uses "Research publicly available on-chain data" — spec C1 item 6 uses "Query BigQuery" / "Check DeFiLlama API". Follow design I-3 (internet-researcher uses WebSearch, not direct API access).
 - **Loop-back detection:** Design C2.2 specifies exact stored heading match — spec C2.2 says "any `## {Domain} Analysis` heading". Follow design (exact match avoids false positives).
-- **Line budget numbers:** Design's per-section counts (net -22, total 464) supersede spec estimates (net -20, total ~466). Design was based on actual line-by-line file analysis.
+- **Line budget numbers:** Design's per-section counts (net -22, total 463) supersede spec estimates (net -20, total ~466). Design was based on actual line-by-line file analysis. Note: The C2.1 delta (+5, from 15→20 lines) already includes the "Crypto/Web3" option line — do NOT add a separate +1 for crypto. PRD says 484 lines; actual file is 485 (verified via `wc -l`).
 
 **Rollback strategy for Phase 3:** Phase 3 steps 3.1-3.5 all modify the same file (brainstorming SKILL.md). If the refactor fails partway, revert ALL Phase 3 changes to the file (`git checkout -- plugins/iflow-dev/skills/brainstorming/SKILL.md`) rather than leaving a partial refactor. A partial refactor (e.g., generic Step 9/10 but hardcoded Stage 6) produces an inconsistent state. Phase 3 is atomic — all 5 modifications ship together or none do.
 
@@ -34,7 +34,7 @@ This feature has two interleaved concerns: (1) creating the crypto-analysis doma
 - `## Graceful Degradation` section: per-file degradation rules, all-missing STOP, review-criteria fallback
 - Domain review criteria output block (4 criteria matching C3 table exactly)
 
-**Verify:** File exists, <120 lines, contains all required sections (Input, Process, Output, Stage 2 Research Context, Graceful Degradation). Output H3 headings match: `### Protocol & Chain Context`, `### Tokenomics & Sustainability`, `### Market & Strategy Context`, `### Risk Assessment`.
+**Verify:** File exists, <120 lines (confirm via `wc -l`), contains all required sections (Input, Process, Output, Stage 2 Research Context, Graceful Degradation). Output H3 headings match: `### Protocol & Chain Context`, `### Tokenomics & Sustainability`, `### Market & Strategy Context`, `### Risk Assessment`. **These 4 headings are finalized at this step** — Phase 4's criteria table must use these exact strings. Do not modify them after Step 1.1 without also updating Phase 4.
 
 ### Step 1.2: Create 7 Reference Files (Parallel)
 
@@ -65,7 +65,7 @@ Topics: 4 criteria with subsection header, keywords, severity — follows game-d
 
 ### Phase 1 Checkpoint
 
-Run `validate.sh` after Phase 1 to confirm crypto-analysis SKILL.md passes frontmatter validation (name, description with "Use when" pattern, line count) before proceeding to Phase 3. Fix any warnings before continuing.
+Run `validate.sh` after Phase 1 to confirm crypto-analysis SKILL.md passes frontmatter validation (name, description with "Use when" pattern) before proceeding to Phase 3. Note: validate.sh checks the 500-line general limit, not the 120-line NFR — use `wc -l` from Step 1.1's Verify to confirm <120. Fix any warnings before continuing.
 
 **SKILL.md line budget note:** The crypto-analysis SKILL.md has one more section than game-design (Stage 2 Research Context ~6 lines). Game-design is 103 lines. Crypto-analysis will be tight at ~110-115 lines. Use concise field templates and combine graceful degradation rules to stay under 120.
 
@@ -91,7 +91,7 @@ When this domain is active, append these lines to the internet-researcher dispat
 - Include current market data for the game's genre/platform
 ```
 
-**Verify:** File <120 lines. Section exists. 3 prompt lines present. Existing sections unchanged. Run `validate.sh` to confirm game-design SKILL.md still passes.
+**Verify:** File <120 lines (confirm via `wc -l`). Section exists. 3 prompt lines present. Existing sections unchanged. Run `validate.sh` to confirm game-design SKILL.md still passes.
 
 ---
 
@@ -171,7 +171,7 @@ Domain Review Criteria:
 
 **What:** Count total lines in modified brainstorming SKILL.md. Use `wc -l` for definitive count.
 
-**Verify:** <=500 lines via `wc -l`. Expected: ~464 lines (485 - 22 + 1 crypto option = 464). 36 lines headroom. Note: The design's per-section line counts (-22 net) supersede the spec's estimates (-20 net) — see source-of-truth hierarchy in Implementation Strategy. Run `validate.sh` after Phase 3 to catch any issues before Phase 4.
+**Verify:** <=500 lines via `wc -l`. Expected: ~463 lines (485 - 22 = 463). The -22 delta already includes the crypto option in C2.1's +5. 37 lines headroom. Note: The design's per-section line counts (-22 net) supersede the spec's estimates (-20 net) — see source-of-truth hierarchy in Implementation Strategy. Run `validate.sh` after Phase 3 to catch any issues before Phase 4.
 
 ---
 
