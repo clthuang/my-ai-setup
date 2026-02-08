@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 4 reference files: problem-types.md, scqa-framing.md, decomposition-methods.md, review-criteria-by-type.md
 - Game-design domain skill with 7 reference files (design-frameworks, engagement-retention, aesthetic-direction, monetization-models, market-analysis, tech-evaluation-criteria, review-criteria)
 - Domain selection (Steps 9-10) in brainstorming Stage 1 for opt-in domain enrichment
+- Crypto-analysis domain skill with 7 reference files (protocol-comparison, defi-taxonomy, tokenomics-models, trading-strategies, mev-classification, market-structure, risk-assessment)
+- Crypto/Web3 option in brainstorming Step 9 domain selection
+- Crypto-analysis criteria table in brainstorm-reviewer for domain-specific quality checks
 
 ### Changed
 - Brainstorming Stage 1 CLARIFY expanded with Steps 6-8 (problem type classification, optional framework loading, metadata storage)
@@ -24,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Brainstorming Stage 2 gains domain-aware research query enhancement
 - Brainstorm-reviewer gains domain criteria parsing with warning-level checks
 - PRD output format gains conditional Game Design Analysis section
+- Brainstorming refactored to generic domain-dispatch pattern
+- Game-design Stage 2 research context moved to game-design SKILL.md
+- PRD output format gains generic domain analysis section placeholder
 
 ## [2.3.0] - 2026-02-05
 

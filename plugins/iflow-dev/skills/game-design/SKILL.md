@@ -27,10 +27,8 @@ Read each reference file via Read tool. Each file is optional — warn and conti
 - [monetization-models.md](references/monetization-models.md) — Revenue models with risk indicators
 - [market-analysis.md](references/market-analysis.md) — Competitor frameworks, market sizing, platform selection
 - [tech-evaluation-criteria.md](references/tech-evaluation-criteria.md) — Engine/platform evaluation dimensions
-- [review-criteria.md](references/review-criteria.md) — Domain review criteria for brainstorm-reviewer
 
-If a reference file is missing: warn "Reference {filename} not found, skipping" and continue.
-If ALL reference files are missing: warn "No reference files found, skipping domain enrichment" and STOP.
+See Graceful Degradation for missing-file behavior.
 
 ### 2. Apply Frameworks to Concept
 
@@ -87,6 +85,13 @@ Domain Review Criteria:
 
 Insert the Game Design Analysis section in the PRD between `## Structured Analysis` and `## Review History`. If `## Structured Analysis` is absent, place after `## Research Summary` and before `## Review History`.
 
+## Stage 2 Research Context
+
+When this domain is active, append these lines to the internet-researcher dispatch:
+- Research current game engines/platforms suitable for this concept
+- If tech-evaluation-criteria.md was loaded: Evaluate against these dimensions: {dimensions from file}
+- Include current market data for the game's genre/platform
+
 ## Graceful Degradation
 
 If reference files are partially available:
@@ -97,7 +102,3 @@ If reference files are partially available:
 If ALL reference files are missing:
 1. Warn: "No reference files found, skipping domain enrichment"
 2. STOP — do not produce a Game Design Analysis section
-
-If review-criteria.md is missing:
-1. Use the hardcoded 4-criteria fallback above (Core loop, Monetization, Aesthetic, Engagement)
-2. Domain review criteria output is always available regardless of file presence

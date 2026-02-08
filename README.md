@@ -91,6 +91,7 @@ Skills are internal capabilities that Claude uses automatically during the workf
 | Skill | Purpose |
 |-------|---------|
 | game-design | Game design frameworks, engagement/retention analysis, aesthetic direction, and feasibility evaluation |
+| crypto-analysis | Crypto/Web3 frameworks for protocol comparison, DeFi taxonomy, tokenomics, trading strategies, MEV classification, market structure, and risk assessment |
 
 ### Maintenance
 

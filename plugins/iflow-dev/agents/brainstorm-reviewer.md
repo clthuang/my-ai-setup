@@ -113,7 +113,9 @@ NOT: "What else could this brainstorm include?"
    - Look for `Domain: {name}` line
    - Look for `Domain Review Criteria:` block with bulleted items
    - If `Domain:` absent or malformed: skip domain checks entirely (backward compatible)
-6. **If domain criteria present:** Check each criterion using existence + keyword matching:
+6. **If domain criteria present:** Select the matching criteria table by `Domain:` value, then check each criterion using existence + keyword matching:
+
+   **game-design:**
 
    | Criterion | Subsection Header | Keywords (any match, case-insensitive) |
    |-----------|-------------------|----------------------------------------|
@@ -121,6 +123,17 @@ NOT: "What else could this brainstorm include?"
    | Monetization risks stated? | `### Feasibility & Viability` | `monetization`, `revenue`, `pricing`, `free-to-play`, `premium` |
    | Aesthetic direction articulated? | `### Aesthetic Direction` | `art`, `audio`, `style`, `music`, `mood`, `game feel` |
    | Engagement hooks identified? | `### Engagement & Retention` | `hook`, `progression`, `retention`, `engagement` |
+
+   **crypto-analysis:**
+
+   | Criterion | Subsection Header | Keywords (any match, case-insensitive) |
+   |-----------|-------------------|----------------------------------------|
+   | Protocol context defined? | `### Protocol & Chain Context` | `protocol`, `chain`, `L1`, `L2`, `EVM` |
+   | Tokenomics risks stated? | `### Tokenomics & Sustainability` | `tokenomics`, `token`, `distribution`, `governance`, `supply` |
+   | Market dynamics assessed? | `### Market & Strategy Context` | `market`, `TVL`, `liquidity`, `volume`, `strategy` |
+   | Risk framework applied? | `### Risk Assessment` | `risk`, `MEV`, `exploit`, `regulatory`, `audit` |
+
+   **Table selection:** Match `Domain:` value against table labels above. If no table matches the domain name, skip domain criteria checks entirely.
 
    **Per-criterion check:** Subsection header exists AND at least one keyword found in body text between that header and next H2/H3.
    **Severity:** All domain criteria produce **warnings** (not blockers) — missing domain criteria do NOT affect the `approved` boolean.
