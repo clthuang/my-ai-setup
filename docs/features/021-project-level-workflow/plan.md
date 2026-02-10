@@ -134,7 +134,7 @@
 - **Deliverable:** SKILL.md under 500 lines with complete orchestration flow. Use terse numbered-step format from the start (like existing skills) rather than verbose prose — this is the primary strategy for staying under the token budget.
 - **Complexity:** Complex
 - **Task breakdown guidance:** This step should become 3-5 tasks during `/create-tasks`: (a) agent dispatch + reviewer cycle, (b) name-to-ID mapping + cycle detection + tsort, (c) user approval gate, (d) feature creation + roadmap generation + project update. Risk R1's line count breakdown provides natural split points.
-- **Verification:** `./validate.sh` passes. SKILL.md is under 500 lines. Manual read confirms all 11 steps are documented. Token count < 5,000.
+- **Verification:** `./validate.sh` passes. SKILL.md is under 500 lines (`wc -l`). Manual read confirms all 11 steps are documented. Token count < 5,000 (approximate via `wc -c SKILL.md` / 4, since 1 token ≈ 4 characters for English text).
 
 ### Phase 3 Checkpoint
 ```
@@ -202,9 +202,9 @@ wc -l plugins/iflow-dev/skills/decomposing/SKILL.md  # Must be < 500
 
 ### Step 5.2: Modify workflow-state for planned→active transition
 
-- **File:** `plugins/iflow-dev/skills/workflow-state/SKILL.md` (modify)
+- **File:** `plugins/iflow-dev/skills/workflow-state/SKILL.md` (modify, insert at line ~72 — the `validateTransition` function definition. New logic goes BEFORE the existing hard blocks at line 74.)
 - **What:** Add planned→active transition logic to validateTransition:
-  1. Detect `status: "planned"` before normal transition validation
+  1. Detect `status: "planned"` before normal transition validation (insert before existing hard blocks at line 74)
   2. AskUserQuestion: "Start working on {id}-{slug}?" (Yes/Cancel)
   3. If Cancel: stop
   4. AskUserQuestion: mode selection (Standard/Full)
@@ -213,6 +213,7 @@ wc -l plugins/iflow-dev/skills/decomposing/SKILL.md  # Must be < 500
   7. Create git branch: `git checkout -b feature/{id}-{slug}`
   8. Continue normal phase execution
   - Add note about brainstorm-skip suppression: `lastCompletedPhase` set to `"brainstorm"` makes specify a normal forward transition. **Verified:** workflow-state SKILL.md line 82 defines the phase sequence as `[brainstorm, specify, design, create-plan, create-tasks, implement, finish]` — the string `"brainstorm"` is the exact value used at index 0.
+  - **State consistency note:** Setting `lastCompletedPhase` to `"brainstorm"` without a corresponding `phases.brainstorm` entry is intentional — the project PRD serves as the brainstorm artifact. No `phases.brainstorm` timestamp is needed because `validateAndSetup` Step 3 checks `phases.{targetPhase}.started` (i.e., `phases.specify.started`), not `phases.brainstorm`. This minor inconsistency has no functional impact.
   - Add note about targeting planned features with `--feature` argument. **Important:** All phase commands (specify, design, create-plan, create-tasks, implement) already support `--feature=<id-slug>` via their YAML frontmatter `argument-hint` field. The routing mechanism is already implemented: e.g., `specify.md` line 10-13 reads `--feature` and resolves to `docs/features/{feature}/` directly, then reads `.meta.json`. When validateAndSetup reads that `.meta.json` and finds `status: "planned"`, it triggers the new planned→active transition logic. No command modifications needed.
 - **Why this order:** Must be in place for any planned feature to be activated.
 - **Deliverable:** Updated SKILL.md with transition logic
@@ -260,7 +261,7 @@ wc -l plugins/iflow-dev/skills/decomposing/SKILL.md  # Must be < 500
 
 **Goal:** Update show-status, list-features, and session-start to recognize project features.
 
-**Dependencies:** Phase 1 (schema), Phase 5 (workflow changes). Does NOT depend on Phase 6 (brainstorm modification) — peripheral display components need schema and workflow-state changes but not the brainstorm entry point.
+**Dependencies:** Phase 1 (schema), Phase 5 (specifically Step 5.2 — workflow-state's planned→active transition and `planned` status recognition; Step 5.1 context injection is not required by peripheral components). Does NOT depend on Phase 6 (brainstorm modification) — peripheral display components need schema and workflow-state changes but not the brainstorm entry point.
 
 ### Step 7.1: Modify show-status command
 
@@ -339,7 +340,8 @@ Phase 5: Workflow   │               ▼
 - Phase 2 has NO dependency on Phase 1 — agents are standalone files with YAML frontmatter. Phases 1 and 2 can execute in parallel.
 - Phases 2→3→4→6 form the "new component chain"
 - Phase 5 depends only on Phase 1 and can run in parallel with Phases 2-4
-- Phase 7 depends on Phase 1 (schema) and Phase 5 (workflow changes). It does NOT depend on Phase 6 — peripheral display components need schema and workflow-state changes but not the brainstorm entry point. However, sequential execution is recommended for simpler verification.
+- Phase 7 depends on Phase 1 (schema) and Phase 5 Step 5.2 (planned status recognition). It does NOT depend on Phase 6 — peripheral display components need schema and workflow-state changes but not the brainstorm entry point. However, sequential execution is recommended for simpler verification.
+- **Testing note:** Phase 7 code (show-status project grouping, session-start project display) can only be functionally tested with real project directories, which are created by Phase 4. Structural validation via `./validate.sh` is sufficient at Phase 7 completion; full functional testing happens during the end-to-end walkthrough.
 
 ---
 
@@ -396,4 +398,4 @@ The decomposing skill scans `docs/features/` for the highest existing ID and ass
 - [ ] `./validate.sh` passes with 0 errors, 0 warnings on all existing features
 - [ ] No existing feature behavior regresses (standalone features unchanged)
 - [ ] End-to-end manual walkthrough: brainstorm with project-scale PRD → scale detection → project creation → decomposition → feature creation → planned→active transition → verify context injection during specify
-- [ ] Release script syncs iflow-dev to iflow after all changes
+- [ ] Release script syncs iflow-dev to iflow after all changes: `./scripts/release.sh`
