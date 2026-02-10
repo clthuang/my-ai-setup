@@ -24,13 +24,13 @@ Check for feature context:
         "question": "No PRD found. How to proceed?",
         "header": "PRD Missing",
         "options": [
-          {"label": "Run /brainstorm", "description": "Create PRD through brainstorming first"},
+          {"label": "Run /iflow-dev:brainstorm", "description": "Create PRD through brainstorming first"},
           {"label": "Describe feature now", "description": "Provide requirements directly"}
         ],
         "multiSelect": false
       }]
     ```
-    - If "Run /brainstorm": Invoke `/iflow-dev:brainstorm` → STOP
+    - If "Run /iflow-dev:brainstorm": Invoke `/iflow-dev:brainstorm` → STOP
     - If "Describe feature now": Proceed to gather requirements directly
 
 ## Read Feature Context

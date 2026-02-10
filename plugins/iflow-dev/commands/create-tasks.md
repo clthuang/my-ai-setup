@@ -174,12 +174,12 @@ AskUserQuestion:
     "question": "Tasks complete. Continue to next phase?",
     "header": "Next Step",
     "options": [
-      {"label": "Continue to /implement (Recommended)", "description": "Start implementation"},
+      {"label": "Continue to /iflow-dev:implement (Recommended)", "description": "Start implementation"},
       {"label": "Review tasks.md first", "description": "Inspect the tasks before continuing"}
     ],
     "multiSelect": false
   }]
 ```
 
-If "Continue to /implement (Recommended)": Invoke `/iflow-dev:implement`
+If "Continue to /iflow-dev:implement (Recommended)": Invoke `/iflow-dev:implement`
 If "Review tasks.md first": Show "Tasks at {path}/tasks.md. Run /iflow-dev:implement when ready." → STOP

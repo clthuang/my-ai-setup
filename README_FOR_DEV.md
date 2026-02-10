@@ -151,6 +151,7 @@ Skills are instructions Claude follows for specific development practices. Locat
 | `structured-problem-solving` | Applies SCQA framing and type-specific decomposition to problems during brainstorming |
 | `specifying` | Creates precise specifications with acceptance criteria |
 | `designing` | Creates design.md with architecture and contracts |
+| `decomposing` | Orchestrates project decomposition pipeline (AI decomposition, review, feature creation) |
 | `planning` | Produces plan.md with dependencies and ordering |
 | `breaking-down-tasks` | Breaks plans into small, actionable tasks with dependency tracking |
 | `implementing` | Guides phased TDD implementation (Interface → RED-GREEN → REFACTOR) |
@@ -162,6 +163,7 @@ Skills are instructions Claude follows for specific development practices. Locat
 | `reviewing-artifacts` | Comprehensive quality criteria for PRD, spec, design, plan, and tasks |
 | `implementing-with-tdd` | Enforces RED-GREEN-REFACTOR cycle with rationalization prevention |
 | `workflow-state` | Defines phase sequence and validates transitions |
+| `workflow-transitions` | Shared workflow boilerplate for phase commands (validation, branch check, commit, state update) |
 
 ### Investigation
 | Skill | Purpose |
@@ -187,7 +189,7 @@ Skills are instructions Claude follows for specific development practices. Locat
 
 Agents are isolated subprocesses spawned by the workflow. Located in `plugins/iflow-dev/agents/{name}.md`.
 
-**Reviewers (10):**
+**Reviewers (11):**
 - `brainstorm-reviewer` — Reviews brainstorm artifacts with universal + type-specific criteria before promotion
 - `code-quality-reviewer` — Reviews implementation quality after spec compliance is confirmed
 - `design-reviewer` — Challenges design assumptions and finds gaps
@@ -195,12 +197,14 @@ Agents are isolated subprocesses spawned by the workflow. Located in `plugins/if
 - `phase-reviewer` — Validates artifact completeness for next phase transition
 - `plan-reviewer` — Skeptically reviews plans for failure modes and feasibility
 - `prd-reviewer` — Critically reviews PRD drafts for quality and completeness
+- `project-decomposition-reviewer` — Validates project decomposition quality (coverage, sizing, dependencies)
 - `spec-reviewer` — Reviews spec.md for testability, assumptions, and scope discipline
 - `security-reviewer` — Reviews implementation for security vulnerabilities
 - `task-reviewer` — Validates task breakdown quality for immediate executability
 
-**Workers (4):**
+**Workers (5):**
 - `implementer` — Implements tasks with TDD and self-review discipline
+- `project-decomposer` — Decomposes project PRD into ordered features with dependencies and milestones
 - `generic-worker` — General-purpose implementation agent for mixed-domain tasks
 - `documentation-writer` — Writes and updates documentation based on research findings
 - `code-simplifier` — Identifies unnecessary complexity and suggests simplifications

@@ -167,12 +167,12 @@ AskUserQuestion:
     "question": "Specification complete. Continue to next phase?",
     "header": "Next Step",
     "options": [
-      {"label": "Continue to /design (Recommended)", "description": "Create architecture design"},
+      {"label": "Continue to /iflow-dev:design (Recommended)", "description": "Create architecture design"},
       {"label": "Review spec.md first", "description": "Inspect the spec before continuing"}
     ],
     "multiSelect": false
   }]
 ```
 
-If "Continue to /design (Recommended)": Invoke `/iflow-dev:design`
+If "Continue to /iflow-dev:design (Recommended)": Invoke `/iflow-dev:design`
 If "Review spec.md first": Show "Spec at {path}/spec.md. Run /iflow-dev:design when ready." → STOP

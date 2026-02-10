@@ -45,15 +45,15 @@ AskUserQuestion:
     "header": "Tasks",
     "options": [
       {"label": "Continue anyway", "description": "Proceed despite incomplete tasks"},
-      {"label": "Run /implement", "description": "Execute implementation once more"},
-      {"label": "Run /implement until done", "description": "Loop until all tasks complete"}
+      {"label": "Run /iflow-dev:implement", "description": "Execute implementation once more"},
+      {"label": "Run /iflow-dev:implement until done", "description": "Loop until all tasks complete"}
     ],
     "multiSelect": false
   }]
 ```
 
-If "Run /implement": Execute `/iflow-dev:implement`, then return to Phase 2.
-If "Run /implement until done": Loop `/iflow-dev:implement` until no incomplete tasks, then continue.
+If "Run /iflow-dev:implement": Execute `/iflow-dev:implement`, then return to Phase 2.
+If "Run /iflow-dev:implement until done": Loop `/iflow-dev:implement` until no incomplete tasks, then continue.
 
 ### Step 2b: Documentation Update (Automatic)
 
