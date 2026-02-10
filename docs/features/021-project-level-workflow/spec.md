@@ -47,7 +47,7 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
    - New `/create-project` command, invocable two ways:
      - Automatically from brainstorm Stage 7 when user selects "Promote to Project"
      - Standalone: `/create-project --prd={path}` (fallback for scale detection misses; also prompts for `expected_lifetime` via AskUserQuestion)
-   - Creates `docs/projects/{id}-{slug}/` directory with `.meta.json` and `prd.md`
+   - **Command flow:** Prompt expected_lifetime → create `docs/projects/{id}-{slug}/` directory → write `.meta.json` and `prd.md` → invoke decomposing skill
    - P-prefixed project IDs with 3-digit zero-padding (P001, P002, ... P999) — sequential, derived from highest existing ID in `docs/projects/`
    - **Project slug derivation:** Same sanitization as `create-feature` — lowercase, replace spaces/special chars with hyphens, max 30 chars, trim trailing hyphens. Derived from the PRD title.
    - Project statuses: `active`, `completed`, `abandoned`
@@ -106,7 +106,7 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
        ]
      }
      ```
-   - New `decomposing` skill, invoked automatically by the `create-project` command after project directory creation as a continuation of the "Promote to Project" flow. Orchestrates: decomposer call → reviewer review-fix cycle (max 3 iterations) → cycle detection → topological sort → name→id-slug mapping → milestone grouping → user approval gate (max 3 refinement iterations)
+   - New `decomposing` skill, invoked automatically by the `create-project` command after project directory creation as a continuation of the "Promote to Project" flow. Orchestrates: decomposer call → reviewer review-fix cycle (max 3 iterations) → cycle detection → topological sort → name→id-slug mapping → milestone grouping → user approval gate (max 3 refinement iterations). These are independent iteration budgets: up to 3 reviewer-decomposer iterations per decomposition attempt, and up to 3 user refinement iterations. A single user refinement triggers a fresh reviewer-decomposer cycle.
    - **Name→id-slug mapping:** The decomposer outputs human-readable feature names (e.g., "User registration and login"). The decomposing skill assigns sequential feature IDs starting from the next available ID in `docs/features/` (e.g., if 022 is highest, first decomposed feature gets 023). Slugs are derived using the same sanitization as `create-feature` (lowercase, hyphens, max 30 chars). The skill then maps `depends_on` references from names to `{id}-{slug}` format before creating feature directories.
    - **Reviewer evaluation criteria** (checklist in reviewer agent prompt):
      1. Organisational cohesion — module boundaries align with functional domains
@@ -139,7 +139,7 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
      }
      ```
    - `mode` and `branch` are `null` for planned features (set when transitioning to active)
-   - `validate.sh` must be updated to (a) explicitly validate that `mode` and `branch` are non-null for `active`/`completed`/`abandoned` features, and (b) explicitly allow `null` for `mode` and `branch` only when `status` is `planned`
+   - `validate.sh` must be updated to (a) explicitly validate that `mode` and `branch` are non-null for `active`/`completed`/`abandoned` features, and (b) explicitly allow `null` for `mode` and `branch` only when `status` is `planned`. Cross-referential validation (e.g., verifying `project_id` references an existing project directory) is deferred beyond Phase 1.
    - **Planned→active transition:** When user runs `/specify` (or any first phase command) on a planned feature:
      1. System detects `status: "planned"` and prompts via AskUserQuestion: "Start working on {id}-{slug}? This will set it to active and create a branch."
      2. User selects workflow mode (Standard/Full) via AskUserQuestion
@@ -157,8 +157,8 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
      1. Resolve project directory via `docs/projects/{project_id}-*/`
      2. Read project PRD: `{project_dir}/prd.md`
      3. Read roadmap: `{project_dir}/roadmap.md`
-     3. For each feature in `depends_on_features` with `status: "completed"`: read its `spec.md` and `design.md`
-     4. Prepend to phase input as:
+     4. For each feature in `depends_on_features` with `status: "completed"`: read its `spec.md` and `design.md`
+     5. Prepend to phase input as:
         ```markdown
         ## Project Context
         ### Project PRD
@@ -172,6 +172,7 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
         {content of design.md}
         ```
    - If project directory or roadmap.md does not exist: warn "Project artifacts missing for {project_id}, proceeding without project context" and continue
+   - **Context size note:** For Phase 1, full injection is acceptable given typical project sizes (5-20 features). If combined project context exceeds approximately 30% of available context window, design should consider summarization or selective injection strategies.
    - All phase commands receive this context automatically via workflow-transitions
    - Standalone features (no `project_id`) skip Step 5 entirely — no behavior change
 
@@ -179,7 +180,7 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
    - Projects have an expected lifetime — systems are not built to last forever
    - Decomposition reviewer challenges over-engineering and premature generalisation
    - Focus on good scaffolding that makes rebuilding easy before entropy sets in
-   - `expected_lifetime` field in project `.meta.json` is set during project creation (user selects via AskUserQuestion, default "1-year")
+   - `expected_lifetime` field in project `.meta.json` is set during project creation (user selects via AskUserQuestion, default "1-year"). (PRD schema omits this field; added here because FR-5 lifetime philosophy requires it at creation time.)
    - Decomposition reviewer uses lifetime expectation to calibrate complexity tolerance: shorter lifetime = simpler decomposition, less abstraction
 
 7. **`.meta.json` field consistency across workflow** (FR-6)
@@ -205,13 +206,14 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
 - Project templates, cross-project dependencies, time-based milestones
 - Automated merge conflict detection between concurrent features
 - Shared project architecture document (context injection serves this purpose for MVP)
+- Structured YAML front-matter in roadmap.md (PRD suggested this for machine parsing; dropped because roadmap.md is injected as markdown context into LLM prompts, making structured front-matter unnecessary for Phase 1)
 
 ## Acceptance Criteria
 
 ### AC-1: Scale Detection
 - Given a PRD describing 4+ entity types, 3+ functional areas, and cross-cutting auth concerns
 - When brainstorm Stage 7 runs
-- Then AskUserQuestion presents 4 options: "Promote to Project (recommended)", "Promote to Feature", "Refine Further", "Save and Exit"
+- Then AskUserQuestion presents 4 options: "Promote to Project (recommended)", "Promote to Feature", "Refine Further", "Save and Exit" (labels match existing brainstorming Stage 7; "Promote to Project (recommended)" is the only new addition)
 
 ### AC-2: Scale Detection — No False Positive
 - Given a PRD describing a single utility function with 1 entity type and 1 functional area
@@ -297,6 +299,7 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
 - Given a project with `expected_lifetime: "6-months"` and a decomposition proposing 8 modules with shared abstraction layers
 - When the `project-decomposition-reviewer` evaluates with the lifetime-appropriate complexity criterion
 - Then the reviewer's `issues[]` includes at least one entry referencing over-engineering relative to the expected lifetime
+- Note: This criterion validates prompt design rather than deterministic logic. Verification is by manual inspection: the reviewer prompt must include lifetime-appropriate complexity in its checklist AND the reviewer output must demonstrate awareness of the lifetime constraint.
 
 ### AC-15: `.meta.json` Field Consistency — Schema
 - Given the new fields are defined (`project_id`, `module`, `depends_on_features`, status `planned`)
@@ -363,7 +366,7 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
 - LLM can reliably detect scale signals in PRD text — Status: Likely (LLM already performs complex analysis in brainstorm stages 4-6)
 - LLM can decompose a PRD into well-structured modules/features — Status: Likely (similar to task breakdown, which works well)
 - LLM reviewer can evaluate decomposition quality against engineering principles — Status: Likely (same pattern as design-reviewer evaluating architecture quality)
-- Topological sort can be implemented as LLM instructions (not programmatic code) — Status: Likely (the sort is on small graphs, 5-20 nodes; LLM can order them)
+- Topological sort can be implemented as LLM instructions (not programmatic code) — Status: Likely (the sort is on small graphs, 5-20 nodes; LLM can order them). If LLM-produced ordering is incorrect, the user approval gate catches it. Design should evaluate whether a programmatic Kahn's algorithm implementation would be preferable.
 - `validate.sh` can be updated to handle nullable fields for planned features — Status: Confirmed (simple conditional in bash)
 
 **Open Risks:** If LLM decomposition quality is poor, the review-fix cycle and user approval gate catch it (max 3 reviewer iterations + max 3 user refinements). Manual `/create-project` remains as fallback.
