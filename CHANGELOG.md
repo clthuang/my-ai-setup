@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Project-level workflow with `/iflow:create-project` command for AI-driven PRD decomposition into ordered features
+- Scale detection in brainstorming Stage 7 using 6 signals with "Promote to Project" option
+- `decomposing` skill orchestrating project decomposition pipeline (decompose, review, create features)
+- `project-decomposer` agent for generating feature breakdown with milestones and dependencies
+- `project-decomposition-reviewer` agent for validating decomposition quality
+- Feature `.meta.json` extended with optional `project_id`, `module`, and `depends_on_features` fields
+- New "planned" feature status for decomposition-created features
+- `show-status` displays Project Features section with milestone progress
+- `list-features` shows project_id column and planned features
+- `session-start` hook displays project affiliation context
+- `workflow-transitions` injects project context at Step 5
+- `validate.sh` validates planned features and project metadata
+- `docs/projects/` directory for project decomposition artifacts
 - Structured problem-solving skill with SCQA framing and 5 problem type frameworks (product/feature, technical/architecture, financial/business, research/scientific, creative/design)
 - Problem type classification step in brainstorming Stage 1 (Steps 6-8) with Skip option for backward compatibility
 - Type-specific review criteria in brainstorm-reviewer for domain-adaptive quality checks
