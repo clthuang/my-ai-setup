@@ -34,6 +34,7 @@ for root, dirs, files in os.walk(features_dir):
             with open(meta_path) as f:
                 meta = json.load(f)
             # Only consider features with explicit active status
+            # Note: planned features are excluded here — only active features are surfaced
             status = meta.get('status')
             if status == 'active':
                 mtime = os.path.getmtime(meta_path)
@@ -71,6 +72,7 @@ with open('$meta_file') as f:
     print(meta.get('slug', meta.get('name', 'unknown')))
     print(meta.get('mode', 'Standard'))
     print(meta.get('branch', ''))
+    print(meta.get('project_id', ''))
 " 2>/dev/null
 }
 
@@ -152,11 +154,27 @@ build_context() {
             name=$(echo "$meta_output" | sed -n '2p')
             mode=$(echo "$meta_output" | sed -n '3p')
             branch=$(echo "$meta_output" | sed -n '4p')
+            project_id=$(echo "$meta_output" | sed -n '5p')
             phase=$(detect_phase "$feature_dir")
             next_cmd=$(get_next_command "$phase")
 
             context="You're working on feature ${id}-${name} (${mode} mode).\n"
             context+="Current phase: ${phase}\n"
+
+            # Show project affiliation if present
+            if [[ -n "$project_id" ]]; then
+                local project_slug
+                project_slug=$(python3 -c "
+import os, json, glob, sys
+dirs = glob.glob(os.path.join(sys.argv[1], 'docs/projects', sys.argv[2] + '-*/'))
+if dirs:
+    with open(os.path.join(dirs[0], '.meta.json')) as f:
+        print(json.load(f).get('slug', 'unknown'))
+else:
+    print('unknown')
+" "$PROJECT_ROOT" "$project_id" 2>/dev/null)
+                context+="Project: ${project_id}-${project_slug}\n"
+            fi
 
             # Check branch mismatch and add warning
             if [[ -n "$branch" ]]; then
@@ -176,7 +194,7 @@ build_context() {
     fi
 
     # Always include workflow overview
-    context+="\nAvailable commands: /brainstorm → /specify → /design → /create-plan → /create-tasks → /implement → /finish (/create-feature as alternative)"
+    context+="\nAvailable commands: /brainstorm → /specify → /design → /create-plan → /create-tasks → /implement → /finish (/create-feature, /create-project as alternatives)"
 
     if [[ -z "$meta_file" ]]; then
         context+="\n\nNo active feature. Use /brainstorm to start exploring ideas, or /create-feature to skip brainstorming."
