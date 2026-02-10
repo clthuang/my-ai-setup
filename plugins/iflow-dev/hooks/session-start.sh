@@ -131,6 +131,16 @@ check_branch_mismatch() {
     return 1  # Match
 }
 
+# Check if claude-md-management plugin is available
+check_claude_md_plugin() {
+    local cache_dir="$HOME/.claude/plugins/cache"
+    # Check if any marketplace has claude-md-management cached
+    if compgen -G "${cache_dir}/*/claude-md-management" > /dev/null 2>&1; then
+        return 0  # Found
+    fi
+    return 1  # Not found
+}
+
 # Build context message
 build_context() {
     local context=""
@@ -195,6 +205,11 @@ else:
 
     # Always include workflow overview
     context+="\nAvailable commands: /brainstorm → /specify → /design → /create-plan → /create-tasks → /implement → /finish (/create-feature, /create-project as alternatives)"
+
+    # Check optional dependency
+    if ! check_claude_md_plugin; then
+        context+="\n\nNote: claude-md-management plugin not installed. Install it from claude-plugins-official marketplace for automatic CLAUDE.md updates during /finish."
+    fi
 
     if [[ -z "$meta_file" ]]; then
         context+="\n\nNo active feature. Use /brainstorm to start exploring ideas, or /create-feature to skip brainstorming."
