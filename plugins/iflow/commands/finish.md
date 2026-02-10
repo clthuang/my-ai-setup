@@ -194,6 +194,25 @@ git commit -m "docs: add retrospective for feature {id}-{slug}"
 git push
 ```
 
+### Step 3d: CLAUDE.md Update
+
+Capture session learnings into project CLAUDE.md.
+
+**Dependency:** Requires `claude-md-management` plugin (from claude-plugins-official marketplace).
+
+1. **Invoke skill:**
+   Invoke the `claude-md-management:revise-claude-md` skill via the Skill tool.
+
+2. **If skill unavailable** (plugin not installed):
+   Log "claude-md-management plugin not installed, skipping CLAUDE.md update." and continue to Phase 4.
+
+3. **If changes made:**
+   ```bash
+   git add CLAUDE.md .claude.local.md 2>/dev/null
+   git commit -m "chore: update CLAUDE.md with feature {id}-{slug} learnings" --allow-empty
+   git push
+   ```
+
 ---
 
 ## Phase 4: Completion Decision
@@ -203,11 +222,11 @@ Present only two options:
 ```
 AskUserQuestion:
   questions: [{
-    "question": "Feature {id}-{slug} ready. How would you like to complete?",
+    "question": "Feature {id}-{slug} complete. How would you like to finish?",
     "header": "Finish",
     "options": [
-      {"label": "Create PR", "description": "Open pull request for team review"},
-      {"label": "Merge & Release", "description": "Merge to develop and run release script"}
+      {"label": "Merge & Release (Recommended)", "description": "Merge to develop and run release script"},
+      {"label": "Create PR", "description": "Open pull request for team review"}
     ],
     "multiSelect": false
   }]
