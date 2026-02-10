@@ -27,6 +27,8 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
 
 ### In Scope (Phase 1 Foundation MVP)
 
+> **Note:** FR numbering below (FR-1 through FR-6) is local to this Phase 1 spec. The PRD uses FR-5 through FR-9 for Phase 2/3 requirements. There is no collision — this spec only covers Phase 1.
+
 1. **Scale detection in brainstorm Stage 7** (FR-1)
    - 6 closed signals analyzed by LLM against PRD content:
      1. **Multiple entity types** — PRD describes 3+ distinct data entities with separate CRUD lifecycles
@@ -39,16 +41,18 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
    - "Promote to Project" option added to Stage 7 AskUserQuestion when threshold met
    - Both project and feature options shown when triggered; only feature when not
    - LLM-based detection is inherently fuzzy; false positives handled by user choosing "Promote to Feature", false negatives by manual `/create-project`
+   - "Promote to Project" only appears in the PASSED/SKIPPED AskUserQuestion; BLOCKED state retains current options unchanged (Address Issues, Promote Anyway, Save and Exit)
 
 2. **Project creation command and data model** (FR-2)
    - New `/create-project` command, invocable two ways:
      - Automatically from brainstorm Stage 7 when user selects "Promote to Project"
-     - Standalone: `/create-project --prd={path}` (fallback for scale detection misses)
+     - Standalone: `/create-project --prd={path}` (fallback for scale detection misses; also prompts for `expected_lifetime` via AskUserQuestion)
    - Creates `docs/projects/{id}-{slug}/` directory with `.meta.json` and `prd.md`
-   - P-prefixed project IDs (P001, P002, etc.)
+   - P-prefixed project IDs with 3-digit zero-padding (P001, P002, ... P999) — sequential, derived from highest existing ID in `docs/projects/`
+   - **Project slug derivation:** Same sanitization as `create-feature` — lowercase, replace spaces/special chars with hyphens, max 30 chars, trim trailing hyphens. Derived from the PRD title.
    - Project statuses: `active`, `completed`, `abandoned`
    - During project creation, user is asked for `expected_lifetime` via AskUserQuestion with options: "3-months", "6-months", "1-year", "2-years" (default: "1-year")
-   - **Project `.meta.json` schema:**
+   - **Project `.meta.json` schema** (example shows post-decomposition state; at creation time `milestones` and `features` are empty arrays — see AC-3):
      ```json
      {
        "id": "P001",
@@ -87,7 +91,7 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
                "name": "User registration and login",
                "description": "Email/password auth with JWT tokens",
                "depends_on": [],
-               "complexity": "Medium"
+               "complexity": "Medium"  // values: Low, Medium, High
              }
            ]
          }
@@ -102,7 +106,8 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
        ]
      }
      ```
-   - New `decomposing` skill orchestrating: decomposer call → reviewer review-fix cycle (max 3 iterations) → cycle detection → topological sort → milestone grouping → user approval gate (max 3 refinement iterations)
+   - New `decomposing` skill, invoked automatically by the `create-project` command after project directory creation as a continuation of the "Promote to Project" flow. Orchestrates: decomposer call → reviewer review-fix cycle (max 3 iterations) → cycle detection → topological sort → name→id-slug mapping → milestone grouping → user approval gate (max 3 refinement iterations)
+   - **Name→id-slug mapping:** The decomposer outputs human-readable feature names (e.g., "User registration and login"). The decomposing skill assigns sequential feature IDs starting from the next available ID in `docs/features/` (e.g., if 022 is highest, first decomposed feature gets 023). Slugs are derived using the same sanitization as `create-feature` (lowercase, hyphens, max 30 chars). The skill then maps `depends_on` references from names to `{id}-{slug}` format before creating feature directories.
    - **Reviewer evaluation criteria** (checklist in reviewer agent prompt):
      1. Organisational cohesion — module boundaries align with functional domains
      2. Engineering best practices — dependencies flow one direction, no god-modules, no circular deps
@@ -110,7 +115,7 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
      4. Lifetime-appropriate complexity — complexity calibrated to `expected_lifetime`
      5. 100% coverage — every PRD requirement maps to at least one feature
    - Review-fix cycle: reviewer returns JSON with `approved`, `issues[]`, `criteria_evaluated[]`; decomposer revises on rejection; max 3 iterations
-   - `roadmap.md` artifact with mermaid graph and execution order
+   - `roadmap.md` artifact (plain markdown, no YAML front-matter — it is a project content artifact, not a plugin component; the PRD suggested YAML front-matter for machine parsing, but this is dropped because roadmap.md is injected as markdown context into LLM prompts, making structured front-matter unnecessary for Phase 1) with mermaid dependency graph and topologically-sorted execution order
    - User approval gate via AskUserQuestion after reviewer approves (max 3 user refinement iterations)
    - Milestone groupings based on dependency layers (features sharing same dependency depth grouped together); delegated to LLM decomposer via `suggested_milestones` output
 
@@ -134,20 +139,24 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
      }
      ```
    - `mode` and `branch` are `null` for planned features (set when transitioning to active)
-   - `validate.sh` must be updated to allow `null` for `mode` and `branch` when `status` is `planned`
+   - `validate.sh` must be updated to (a) explicitly validate that `mode` and `branch` are non-null for `active`/`completed`/`abandoned` features, and (b) explicitly allow `null` for `mode` and `branch` only when `status` is `planned`
    - **Planned→active transition:** When user runs `/specify` (or any first phase command) on a planned feature:
      1. System detects `status: "planned"` and prompts via AskUserQuestion: "Start working on {id}-{slug}? This will set it to active and create a branch."
      2. User selects workflow mode (Standard/Full) via AskUserQuestion
      3. System updates `.meta.json`: `status` → `"active"`, `mode` → selected mode, `branch` → `"feature/{id}-{slug}"`
      4. System creates git branch
      5. Phase 1 enforces single-active-feature: if another active feature exists, show existing active-feature-exists warning via AskUserQuestion (same as current `create-feature` behavior)
+   - **Brainstorm skip suppression:** When `status` is `planned` and `project_id` is set, `validateTransition` treats the feature as if the brainstorm phase was completed (the project PRD serves as the brainstorm artifact). This prevents a misleading "skipping brainstorm" warning.
+   - **Create-feature side effects:** Planned features created by the decomposing skill skip the detecting-kanban state tracking and do not auto-invoke `/specify`. These side effects only apply when a feature transitions to active status.
    - `depends_on_features` is stored and used for roadmap generation and context injection but NOT enforced at runtime in Phase 1 (enforcement deferred to Phase 2)
 
 5. **Project context injection** (FR-4b)
    - `workflow-transitions` `validateAndSetup` gains a new Step 5 (after marking phase started): "Inject project context"
+   - **Project directory resolution:** Feature `.meta.json` stores only `project_id` (e.g., `"P001"`), not the project slug. All consumers resolve the project directory via glob pattern `docs/projects/{project_id}-*/` (e.g., `docs/projects/P001-*/`). This is consistent with how feature directories are resolved elsewhere.
    - When `project_id` is detected in feature `.meta.json`:
-     1. Read project PRD: `docs/projects/{project_id}-{slug}/prd.md`
-     2. Read roadmap: `docs/projects/{project_id}-{slug}/roadmap.md`
+     1. Resolve project directory via `docs/projects/{project_id}-*/`
+     2. Read project PRD: `{project_dir}/prd.md`
+     3. Read roadmap: `{project_dir}/roadmap.md`
      3. For each feature in `depends_on_features` with `status: "completed"`: read its `spec.md` and `design.md`
      4. Prepend to phase input as:
         ```markdown
@@ -180,10 +189,10 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
      - `create-feature` command — no changes needed (decomposing skill creates planned features directly; create-feature only handles user-initiated creation)
      - `show-status` command — displays `project_id` and `module` when present; shows `planned` features grouped under their project with basic grouping (not full dashboard — that's Phase 2)
      - `list-features` command — includes `planned` features; shows project affiliation
-     - `session-start` hook — recognizes `planned` status (not surfaced as "active feature"); includes project name in context when active feature has `project_id`
+     - `session-start` hook — recognizes `planned` status (not surfaced as "active feature"); when active feature has `project_id`, resolves project directory via glob `docs/projects/{project_id}-*/` and reads project `.meta.json` to extract project slug for display. If project directory not found, proceeds without project context.
      - `finish` command — no changes needed (only operates on `active` features)
      - Phase commands (specify, design, create-plan, create-tasks, implement) — receive project context via `workflow-transitions` Step 5; handle planned→active transition at first invocation
-     - `validate.sh` — updated to allow `null` for `mode` and `branch` when `status` is `planned`
+     - `validate.sh` — updated to validate non-null `mode`/`branch` for active/completed/abandoned features; allow `null` only when `status` is `planned`
    - Standalone features (no `project_id`) behave identically to current workflow
 
 ### Out of Scope
@@ -225,7 +234,7 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
 ### AC-5: Decomposition — Cycle Detection
 - Given the decomposition subagent returns features with circular dependencies (A depends on B, B depends on A)
 - When cycle detection runs
-- Then the system blocks approval and displays the cycle to the user
+- Then the system blocks approval and displays the cycle path as text (e.g., "Circular dependency detected: A → B → A")
 - And the user can refine (up to 3 iterations)
 
 ### AC-6: Roadmap Generation
@@ -256,7 +265,7 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
 ### AC-9: Project Context Injection — Phase Commands
 - Given a feature with `project_id: "P001"` and `docs/projects/P001-{slug}/prd.md` exists
 - When `/specify` runs on that feature
-- Then the skill's input context includes a "## Project Context" section containing the project PRD title heading and roadmap content
+- Then the skill's input context includes a "## Project Context" section containing the full project prd.md content under a "### Project PRD" heading and the full roadmap.md content under a "### Roadmap" heading
 
 ### AC-10: Project Context Injection — Sibling Artifacts
 - Given Feature B depends on Feature A (`depends_on_features: ["021-auth"]`)
@@ -273,7 +282,7 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
 - Given the decomposition subagent has returned results
 - When the system presents the user approval gate
 - Then AskUserQuestion shows: "Approve decomposition ({N} modules, {M} features)", "Refine (describe what to change)", "Cancel (save PRD without project creation)"
-- And selecting "Refine" allows up to 3 refinement iterations before forcing a decision
+- And selecting "Refine" allows up to 3 refinement iterations; after 3 iterations, only "Approve" and "Cancel" options remain
 
 ### AC-13: Decomposition Review-Fix Cycle
 - Given the `project-decomposer` agent has produced a decomposition
@@ -298,8 +307,8 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
 ### AC-16: `.meta.json` Field Consistency — Show Status
 - Given 3 features with `project_id: "P001"` (1 planned, 1 active, 1 completed)
 - When `/show-status` runs
-- Then planned features appear grouped under their project (basic grouping, not full dashboard)
-- And the active feature shows its project affiliation and module
+- Then planned features appear grouped under a "Project: P001-{slug}" heading with a bulleted list of feature names and statuses (basic grouping, not full dashboard with milestone progress or critical path)
+- And the active feature shows its project affiliation (`Project: P001-{slug}`) and module name
 
 ### AC-17: `.meta.json` Field Consistency — Session Start
 - Given the most recent active feature has `project_id: "P001"`
@@ -312,6 +321,12 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
 - Given a feature with `status: "planned"`, `mode: null`, `branch: null`
 - When `validate.sh` runs
 - Then no errors are reported for the null `mode` and `branch` fields
+
+### AC-19: `.meta.json` Field Consistency — List Features
+- Given 3 planned features and 1 active feature, all with `project_id: "P001"`
+- When `/list-features` runs
+- Then all 4 features appear in the output
+- And planned features show their `project_id` and `module`
 
 ## Feasibility Assessment
 
