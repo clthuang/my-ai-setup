@@ -98,6 +98,41 @@ Update `.meta.json`:
 }
 ```
 
+### Step 5: Inject Project Context (conditional)
+
+If feature `.meta.json` has no `project_id` (null or absent): skip Step 5 entirely.
+
+If `project_id` is present:
+
+1. Resolve project directory: glob `docs/projects/{project_id}-*/`
+2. If directory not found: warn "Project artifacts missing for {project_id}, proceeding without project context" → skip remaining sub-steps
+3. Read `{project_dir}/prd.md` → store as `project_prd`
+4. Read `{project_dir}/roadmap.md` → store as `project_roadmap` (if not found: warn, set empty)
+5. For each `feature_ref` in `depends_on_features`:
+   a. Resolve feature directory: glob `docs/features/{feature_ref}/`
+   b. Read feature `.meta.json`, check `status == "completed"`
+   c. If completed: read `spec.md` and `design.md`
+   d. Store as `dependency_context[]`
+6. Format as markdown:
+   ```
+   ## Project Context
+   ### Project PRD
+   {project_prd}
+   ### Roadmap
+   {project_roadmap}
+   ### Completed Dependency: {feature_ref}
+   #### Spec
+   {spec content}
+   #### Design
+   {design content}
+   ```
+7. Prepend to phase input context
+8. Each read can fail independently — missing project dir skips all, missing roadmap warns, missing dependency artifacts skip that dependency
+
+#### Reviewer Prompt Instruction
+
+When constructing reviewer prompts and the feature has no local `prd.md`, use the project PRD from the `## Project Context` section above. If neither local `prd.md` nor project context exists, use `"None — feature created without brainstorm"` as the PRD slot value.
+
 ## commitAndComplete(phaseName, artifacts[])
 
 Execute after phase work and reviews are done.

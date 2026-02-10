@@ -132,6 +132,25 @@ Use "only when condition is met" guards for optional sections in document templa
 - Example: Structured Analysis section only appears when Problem Type is not "none"
 - Key: Missing field = default behavior, no version flags or migration scripts needed
 
+### Pattern: Zero-Code-Change State Machine Solutions
+Explore whether existing transition logic can handle new cases by setting the right initial state values.
+- Used in: Feature #021
+- Benefit: Avoided modifying core validateTransition logic for planned→active feature transitions
+- Example: Setting `lastCompletedPhase = "brainstorm"` made /specify a normal forward transition (index 1 == 0 + 1)
+- Key: Reuse existing invariants rather than adding conditional branches
+
+### Pattern: Test Fixtures Must Match Tool Scan Paths
+Place test fixtures where validation tools actually scan, not in temporary/sandbox locations.
+- Used in: Feature #021
+- Benefit: Plan reviewer caught that fixtures in agent_sandbox/ would be invisible to validate.sh scanning docs/features/
+- Instead: Use docs/features/999-test-*/ for validate.sh fixtures, with explicit cleanup steps
+
+### Pattern: Independent Iteration Budgets for Nested Cycles
+When a workflow has nested iteration loops, make budgets independent.
+- Used in: Feature #021
+- Benefit: Reviewer-decomposer cycle (max 3) doesn't consume user refinement cycle (max 3) budget
+- Key: Each cycle has its own counter and max, preventing one from starving the other
+
 <!-- Example format:
 ### Pattern: Early Interface Definition
 Define interfaces before implementation. Enables parallel work.

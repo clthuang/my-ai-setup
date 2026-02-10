@@ -34,6 +34,7 @@ Then follow the phases:
 |---------|---------|
 | `/iflow:brainstorm [topic]` | Explore ideas, produce evidence-backed PRD |
 | `/iflow:create-feature <desc>` | Skip brainstorming, create feature directly |
+| `/iflow:create-project <prd>` | Create project from PRD with AI-driven decomposition into features |
 | `/iflow:specify` | Write requirements (spec.md) |
 | `/iflow:design` | Define architecture (design.md) |
 | `/iflow:create-plan` | Plan implementation (plan.md) |
@@ -66,6 +67,7 @@ Skills are internal capabilities that Claude uses automatically during the workf
 | structured-problem-solving | Applies SCQA framing and type-specific decomposition to problems during brainstorming |
 | specifying | Creates precise specifications with acceptance criteria |
 | designing | Creates design.md with architecture and contracts |
+| decomposing | Orchestrates project decomposition pipeline (AI decomposition, review, feature creation) |
 | planning | Produces plan.md with dependencies and ordering |
 | breaking-down-tasks | Breaks plans into small, actionable tasks with dependency tracking |
 | implementing | Guides phased TDD implementation (Interface → RED-GREEN → REFACTOR) |
@@ -117,6 +119,7 @@ Agents run as specialized subprocesses delegated by the workflow. They operate a
 | phase-reviewer | Validates artifact completeness for next phase transition |
 | plan-reviewer | Skeptically reviews plans for failure modes and feasibility |
 | prd-reviewer | Critically reviews PRD drafts for quality and completeness |
+| project-decomposition-reviewer | Validates project decomposition quality (coverage, sizing, dependencies) |
 | spec-reviewer | Reviews spec.md for testability, assumptions, and scope discipline |
 | security-reviewer | Reviews implementation for security vulnerabilities |
 | task-reviewer | Validates task breakdown quality for immediate executability |
@@ -126,6 +129,7 @@ Agents run as specialized subprocesses delegated by the workflow. They operate a
 | Agent | Purpose |
 |-------|---------|
 | implementer | Implements tasks with TDD and self-review discipline |
+| project-decomposer | Decomposes project PRD into ordered features with dependencies and milestones |
 | generic-worker | General-purpose implementation agent for mixed-domain tasks |
 | documentation-writer | Writes and updates documentation based on research findings |
 | code-simplifier | Identifies unnecessary complexity and suggests simplifications |
@@ -168,6 +172,8 @@ docs/
 ├── features/{id}-{name}/  # From /iflow:create-feature
 │   ├── spec.md, design.md, plan.md, tasks.md
 │   └── .meta.json         # Phase tracking
+├── projects/{id}-{name}/  # From /iflow:create-project
+│   └── project.md         # Decomposition, milestones, feature links
 └── knowledge-bank/        # Accumulated learnings
 ```
 

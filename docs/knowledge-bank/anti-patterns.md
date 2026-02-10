@@ -47,6 +47,20 @@ Leaving PRD claims that contradict later spec/design resolutions without noting 
 - Root cause: PRD is frozen brainstorm artifact but readers don't know which claims were superseded
 - Instead: Add Design Divergences table in plan.md documenting PRD/spec/design deviations with rationale
 
+### Anti-Pattern: Dual-Representation Dependency Graphs
+Maintaining dependency information in both ASCII art and textual description invites contradictions.
+- Observed in: Feature #021
+- Cost: Plan dependency graph redrawn 3+ times across 6 iterations to fix graph-vs-text mismatches
+- Root cause: Two representations of the same data with no single source of truth
+- Instead: Use mermaid for dependency graphs (serves both visual and textual roles) or maintain only one representation
+
+### Anti-Pattern: Bash Variable Interpolation in Inline Python
+Using `${VARIABLE}` inside Python strings embedded in bash scripts enables injection.
+- Observed in: Feature #021
+- Cost: Security reviewer flagged session-start.sh line 169 using `${PROJECT_ROOT}` in Python glob
+- Root cause: Bash expands variables before Python sees the string; special characters in paths could break or inject
+- Instead: Pass external values via `sys.argv` or environment variables; never string interpolation
+
 <!-- Example format:
 ### Anti-Pattern: Premature Optimization
 Optimizing before measuring actual performance.

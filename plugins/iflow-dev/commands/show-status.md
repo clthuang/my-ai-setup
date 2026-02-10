@@ -14,9 +14,23 @@ Gather via git and file inspection:
 2. **Current feature**: If branch matches `feature/{id}-{slug}`, read `docs/features/{id}-{slug}/.meta.json` to get feature name and determine current phase (first missing artifact from: spec.md, design.md, plan.md, tasks.md — or "implement" if all exist). Show "None" if not on a feature branch.
 3. **Other branches**: Run `git branch` and list all local branches except the current one. Show "None" if only one branch exists.
 
+## Section 1.5: Project Features
+
+Scan `docs/features/` for folders containing `.meta.json` where `project_id` is present and non-null.
+
+If any project-linked features found:
+1. Group features by `project_id`
+2. For each project_id:
+   a. Resolve project directory via glob `docs/projects/{project_id}-*/`
+   b. Read project `.meta.json` to get slug
+   c. Display heading: `## Project: {project_id}-{slug}`
+   d. List all features for that project as bullets: `- {id}-{slug} ({status}[, phase: {phase}])` — include ALL statuses (planned, active, completed, abandoned)
+
+If no project-linked features, omit this section entirely.
+
 ## Section 2: Open Features
 
-Scan `docs/features/` for folders containing `.meta.json` where `status` is NOT `"completed"`.
+Scan `docs/features/` for folders containing `.meta.json` where status is NOT `"completed"` AND `project_id` is either absent or null. This excludes project-linked features (shown in Section 1.5) and completed standalone features.
 
 For each open feature, show:
 - **ID**: from `.meta.json`
@@ -43,6 +57,11 @@ When on a feature branch:
 Branch: feature/018-show-status-upgrade
 Feature: 018-show-status-upgrade (phase: design)
 Other branches: main, develop
+
+## Project: P001-crypto-tracker
+- 021-auth (active, phase: design)
+- 022-data-models (planned)
+- 023-dashboard (planned)
 
 ## Open Features
 ID   Name                    Phase        Branch

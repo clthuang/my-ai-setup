@@ -480,7 +480,7 @@ while IFS= read -r meta_file; do
 import json
 import sys
 
-required = ['id', 'mode', 'status', 'created', 'branch']
+always_required = ['id', 'status', 'created']
 deprecated = ['worktree', 'currentPhase']
 
 try:
@@ -492,11 +492,26 @@ except json.JSONDecodeError as e:
 
 errors = []
 warnings = []
+status = meta.get('status')
 
-# Check required fields (slug or name accepted)
-for field in required:
+# Check always-required fields
+for field in always_required:
     if field not in meta:
         errors.append(f'Missing required field: {field}')
+
+# Status-aware required fields
+if status != 'planned':
+    for field in ['mode', 'branch']:
+        if field not in meta or meta[field] is None:
+            errors.append(f\"Missing required field: {field} (required when status != 'planned')\")
+else:
+    # Planned features: mode and branch should be null
+    if meta.get('mode') is not None:
+        warnings.append(\"Field 'mode' should be null when status is 'planned'\")
+    if meta.get('branch') is not None:
+        warnings.append(\"Field 'branch' should be null when status is 'planned'\")
+    if meta.get('completed') is not None:
+        errors.append(\"Field 'completed' must be null when status is 'planned'\")
 
 # Check slug/name (slug is required, name is deprecated)
 if 'slug' not in meta:
@@ -511,7 +526,6 @@ for field in deprecated:
         warnings.append(f\"Deprecated field '{field}' should be removed\")
 
 # Status consistency checks
-status = meta.get('status')
 completed = meta.get('completed')
 
 if status == 'active' and completed is not None:

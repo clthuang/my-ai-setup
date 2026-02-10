@@ -66,6 +66,30 @@ Examples:
 
 Transitions following the sequence proceed without warnings.
 
+### Planned→Active Transition
+
+When a phase command targets a feature with `status: "planned"`, handle the transition before normal validation:
+
+1. Detect `status: "planned"` in feature `.meta.json`
+2. AskUserQuestion: "Start working on {id}-{slug}? This will set it to active and create a branch."
+   - Options: "Yes" / "Cancel"
+   - If "Cancel": stop execution
+3. AskUserQuestion: mode selection
+   - Options: "Standard (Recommended)" / "Full"
+4. Single-active-feature check: scan `docs/features/` for any `.meta.json` with `status: "active"`
+   - If found: AskUserQuestion "Feature {active-id}-{active-slug} is already active. Activate {id}-{slug} anyway?"
+   - Options: "Continue" / "Cancel"
+   - If "Cancel": stop execution
+5. Update `.meta.json`:
+   - `status` → `"active"`
+   - `mode` → selected mode
+   - `branch` → `"feature/{id}-{slug}"`
+   - `lastCompletedPhase` → `"brainstorm"` (project PRD serves as brainstorm artifact, so `/specify` is a normal forward transition — no skip warning)
+6. Create git branch: `git checkout -b feature/{id}-{slug}`
+7. Continue with normal phase execution (proceed to `validateTransition` below)
+
+**Targeting planned features:** Users must use `--feature` argument (e.g., `/specify --feature=023-data-models`). Without `--feature`, commands scan for `status: "active"` only.
+
 ### Validation Logic
 
 ```
@@ -214,11 +238,14 @@ The `.meta.json` file in each feature folder:
 |-------|------|-------------|
 | id | string | Zero-padded feature number (e.g., "006") |
 | slug | string | Hyphenated feature name |
-| mode | string | One of: standard, full |
-| status | string | One of: active, completed, abandoned |
+| mode | string/null | One of: standard, full. Null when `status` is `planned`. |
+| status | string | One of: planned, active, completed, abandoned |
 | created | ISO8601 | Feature creation timestamp |
-| completed | ISO8601/null | Completion timestamp (null if active) |
-| branch | string | Git branch name |
+| completed | ISO8601/null | Completion timestamp (null if active or planned) |
+| branch | string/null | Git branch name. Null when `status` is `planned`. |
+| project_id | string/null | P-prefixed project ID (e.g., "P001") if feature belongs to a project |
+| module | string/null | Module name within project |
+| depends_on_features | array/null | Array of `{id}-{slug}` feature references this feature depends on |
 
 ### Source Tracking Fields
 
@@ -276,9 +303,12 @@ See [references/design-stages-schema.md](references/design-stages-schema.md) for
 
 | Status | Meaning | Terminal? |
 |--------|---------|-----------|
+| planned | Created by decomposition, not yet started | No |
 | active | Work in progress | No |
 | completed | Merged/finished successfully | Yes |
 | abandoned | Discarded intentionally | Yes |
+
+When `status` is `planned`, `mode` and `branch` are `null`. These fields are set when the feature transitions to `active`.
 
 Terminal statuses cannot be changed. New work requires a new feature.
 
