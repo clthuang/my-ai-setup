@@ -281,8 +281,39 @@ If "None": skip Step 10, proceed to Stage 2.
 - If `approved: false`: Output "Readiness check: BLOCKED ({n} issues)" + list all issues
 - If `approved: unknown`: Output "Readiness check: SKIPPED (reviewer unavailable)"
 
+**Step 1.5: Scale Detection (inline, before presenting options)**
+
+Analyze the PRD content against 6 closed signals:
+
+1. **Multiple entity types** — 3+ distinct data entities with separate CRUD lifecycles
+2. **Multiple functional areas** — 3+ distinct functional capabilities
+3. **Multiple API surfaces** — 2+ API types or 3+ distinct endpoint groups
+4. **Cross-cutting concerns** — Capabilities spanning multiple functional areas
+5. **Multiple UI sections** — 3+ distinct user-facing views/pages/screens
+6. **External integrations** — 2+ external service integrations
+
+Count matches. Store as `scale_signal_count`.
+- If `scale_signal_count >= 3`: set `project_recommended = true`
+- Otherwise: set `project_recommended = false`
+
 **Step 2: Present options based on status**
-If PASSED or SKIPPED:
+If PASSED or SKIPPED AND `project_recommended == true`:
+```
+AskUserQuestion:
+  questions: [{
+    "question": "PRD complete ({scale_signal_count}/6 project-scale signals detected). What would you like to do?",
+    "header": "Decision",
+    "options": [
+      {"label": "Promote to Project (Recommended)", "description": "Create project with AI-driven decomposition into features"},
+      {"label": "Promote to Feature", "description": "Create single feature and continue workflow"},
+      {"label": "Refine Further", "description": "Loop back to clarify and improve"},
+      {"label": "Save and Exit", "description": "Keep PRD, end session"}
+    ],
+    "multiSelect": false
+  }]
+```
+
+If PASSED or SKIPPED AND `project_recommended == false`:
 ```
 AskUserQuestion:
   questions: [{
@@ -316,11 +347,14 @@ AskUserQuestion:
 
 | Response | Action |
 |----------|--------|
+| Promote to Project | Skip mode prompt → Invoke `/iflow:create-project --prd={current-prd-path}` → STOP |
 | Promote to Feature / Promote Anyway | Ask for mode → Invoke `/iflow:create-feature --prd={current-prd-path}` → STOP |
 | Refine Further / Address Issues | Loop back to Stage 1 with issue context |
 | Save and Exit | Output "PRD saved to {filepath}." → STOP |
 
-**Mode selection (when promoting):**
+**Mode prompt bypass:** "Promote to Project" skips the mode selection below. Projects have no mode — modes are per-feature, set during planned→active transition when a user starts working on a decomposed feature.
+
+**Mode selection (only for "Promote to Feature" / "Promote Anyway"):**
 ```
 AskUserQuestion:
   questions: [{
@@ -350,9 +384,9 @@ Write PRD using template from [references/prd-template.md](references/prd-templa
 
 ---
 ## Completion
-After Stage 7, if user chooses "Promote to Feature":
-1. Ask for workflow mode (Standard/Full)
-2. Invoke `/iflow:create-feature --prd={prd-file-path}` with the PRD path
+After Stage 7:
+- If "Promote to Project": Invoke `/iflow:create-project --prd={prd-file-path}` directly (no mode prompt)
+- If "Promote to Feature": Ask for workflow mode (Standard/Full), then invoke `/iflow:create-feature --prd={prd-file-path}`
 
 ---
 ## PROHIBITED Actions
