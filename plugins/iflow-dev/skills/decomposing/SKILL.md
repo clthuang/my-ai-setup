@@ -161,41 +161,22 @@ Max 3 iterations. After Step 3 returns `review_result`:
 
 Store the updated decomposition as `mapped_decomposition` and the mapping table as `name_to_id_slug`.
 
-## Step 6: Cycle Detection
+## Step 6: Topological Sort and Cycle Detection
 
-Reason through the dependency graph to detect cycles. Do NOT write executable code -- perform this as LLM analysis:
-
-1. Build an adjacency list from `depends_on` arrays in `mapped_decomposition`. Each feature's `{id}-{slug}` maps to the list of `{id}-{slug}` values it depends on.
-2. Track three states per node: **unvisited**, **in-progress**, **visited**.
-3. For each unvisited node, walk depth-first through its dependencies:
-   - Mark current node **in-progress**.
-   - Recurse into each dependency.
-   - If a dependency is **in-progress**, a cycle exists -- trace the path back to identify the full cycle.
-   - After all dependencies are processed, mark node **visited**.
-4. If cycle found:
-   - Format: `"Circular dependency detected: {id-slug-A} -> {id-slug-B} -> ... -> {id-slug-A}"`
-   - Set `cycle_detected = true` and store the cycle description in `cycle_error`.
-   - This blocks approval at the user gate (Step 8). Do not proceed to Step 7.
-5. If no cycle: set `cycle_detected = false`, proceed to Step 7.
-
-## Step 7: Topological Sort
-
-Generate execution order via `tsort`:
+Use `tsort` for both ordering and cycle detection (tsort natively detects and reports cycles):
 
 1. Build tsort input lines from `mapped_decomposition`:
-   - For each feature with dependencies: for each dep, emit `echo "{dep} {feature}"` (dependency before dependent).
-   - For isolated features (empty `depends_on`): emit `echo "{feature} {feature}"` (self-edge ensures node appears in output).
+   - For each feature with dependencies: for each dep, emit `"{dep} {feature}"` (dependency before dependent).
+   - For isolated features (empty `depends_on`): emit `"{feature} {feature}"` (self-edge ensures node appears in output).
 2. Pipe all lines into `tsort`:
    ```
-   printf "%s\n" {all lines} | tsort
+   printf "%s\n" {all lines} | tsort 2>cycle_err
    ```
-3. Parse `tsort` output: each line is a feature `{id}-{slug}` in valid execution order.
-4. Store result as `execution_order` array.
-5. **Fallback:** If `command -v tsort` fails (tsort not available):
-   - Perform LLM-based topological sort: "Order these features so that every feature appears after all its dependencies. Process nodes with zero in-degree first, remove their edges, repeat."
-   - Store result as `execution_order`.
+3. **If tsort succeeds** (exit 0): parse output as `execution_order` array. Set `cycle_detected = false`.
+4. **If tsort fails** (exit non-zero): read stderr for cycle path. Set `cycle_detected = true`, store cycle description as `cycle_error`. Skip to Step 7 (approval gate presents the cycle).
+5. **Fallback** (if `command -v tsort` fails): Perform LLM-based topological sort with cycle check: "Order these features so each appears after all its dependencies. If a circular dependency exists, report it instead of an ordering."
 
-## Step 8: User Approval Gate
+## Step 7: User Approval Gate
 
 Initialize `refinement_count = 0`.
 
@@ -219,11 +200,11 @@ Initialize `refinement_count = 0`.
    ```
 
 3. Handle response:
-   - **"Approve"** -> proceed to Step 9.
+   - **"Approve"** -> proceed to Step 8.
    - **"Cancel"** -> output `"Decomposition cancelled. PRD saved at {project_dir}/prd.md."` -> STOP.
-   - **"Other" (free-text)** -> capture as `refinement_feedback`. Increment `refinement_count`. If `refinement_count > 3`: ignore, re-present with Approve/Cancel only. Otherwise: re-run full decomposer+reviewer cycle (Step 1) with previous `decomposition` + `refinement_feedback` appended to prompt, then return to Step 8.
+   - **"Other" (free-text)** -> capture as `refinement_feedback`. Increment `refinement_count`. If `refinement_count > 3`: ignore, re-present with Approve/Cancel only. Otherwise: re-run full decomposer+reviewer cycle (Step 1) with previous `decomposition` + `refinement_feedback` appended to prompt, then return to Step 7.
 
-## Step 9: Create Feature Directories
+## Step 8: Create Feature Directories
 
 For each feature in `execution_order`:
 
@@ -248,7 +229,7 @@ For each feature in `execution_order`:
    ```
    Note: `mode` and `branch` are null for planned features -- set during planned-to-active transition.
 
-## Step 10: Generate roadmap.md
+## Step 9: Generate roadmap.md
 
 Write `{project_dir}/roadmap.md` with this structure:
 
@@ -266,19 +247,19 @@ Write `{project_dir}/roadmap.md` with this structure:
 - H2: `Cross-Cutting Concerns` -- bullet list from `cross_cutting` array.
 
 Sources:
-- `execution_order` array from Step 7 for ordering.
+- `execution_order` array from Step 6 for ordering.
 - `suggested_milestones` from decomposition (feature refs already remapped to ID-slugs in Step 5).
 - `cross_cutting` array directly from decomposition.
 - Mermaid edges: for each feature with dependencies, emit `F{dep-id}[{dep-id}-{dep-slug}] --> F{feature-id}[{feature-id}-{feature-slug}]`.
 
-## Step 11: Update Project .meta.json
+## Step 10: Update Project .meta.json
 
 Read `{project_dir}/.meta.json` and update two fields:
 
 1. Set `"features"` to array of `"{id}-{slug}"` strings in execution order.
-2. Set `"milestones"` to array from `suggested_milestones` with feature refs as ID-slugs:
+2. Set `"milestones"` to array from `suggested_milestones` with feature refs as ID-slugs. Assign sequential IDs (`M1`, `M2`, ...) and set the first milestone's `status` to `"active"`, subsequent to `"planned"`:
    ```json
-   [{"name": "...", "features": ["{id}-{slug}", ...], "rationale": "..."}]
+   [{"id": "M1", "name": "...", "status": "active", "features": ["{id}-{slug}", ...]}, {"id": "M2", "name": "...", "status": "planned", "features": [...]}]
    ```
 
 Write the updated JSON back to `{project_dir}/.meta.json`.
@@ -293,7 +274,7 @@ Write the updated JSON back to `{project_dir}/.meta.json`.
 
 ## Output
 
-After Step 11 completes, display:
+After Step 10 completes, display:
 
 ```
 Project decomposition complete.
