@@ -15,59 +15,9 @@ Same logic as /iflow:show-status command.
 
 ## Phase 1: Auto-Commit (with Branch/Phase Checks)
 
-### Step 1a: Check Branch
+### Steps 1a-1c: Branch Check, Partial Recovery, Mark Started
 
-1. Get current branch via `git branch --show-current`
-2. Read `.meta.json` for expected branch
-3. If mismatch, use AskUserQuestion:
-
-```
-AskUserQuestion:
-  questions: [{
-    "question": "You're on '{current}', but feature uses '{expected}'. Switch branches?",
-    "header": "Branch",
-    "options": [
-      {"label": "Switch", "description": "Run: git checkout {expected}"},
-      {"label": "Continue", "description": "Stay on {current}"}
-    ],
-    "multiSelect": false
-  }]
-```
-
-If "Switch": Execute `git checkout {expected}` and continue.
-If "Continue": Proceed on current branch.
-
-### Step 1b: Check for Partial Phase
-
-If `phases.finish.started` exists but `phases.finish.completed` does not:
-
-```
-AskUserQuestion:
-  questions: [{
-    "question": "Detected partial finish. How to proceed?",
-    "header": "Recovery",
-    "options": [
-      {"label": "Continue", "description": "Resume from where you left off"},
-      {"label": "Start Fresh", "description": "Begin finish process anew"}
-    ],
-    "multiSelect": false
-  }]
-```
-
-If "Start Fresh": Clear `phases.finish` from `.meta.json`.
-
-### Step 1c: Mark Phase Started
-
-Update `.meta.json`:
-```json
-{
-  "phases": {
-    "finish": {
-      "started": "{ISO timestamp}"
-    }
-  }
-}
-```
+Follow `validateAndSetup("finish")` from the **workflow-transitions** skill (skip transition validation since finish has no hard prerequisites).
 
 ### Step 1d: Commit and Push
 

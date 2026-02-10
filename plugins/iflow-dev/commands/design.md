@@ -1,5 +1,6 @@
 ---
 description: Create architecture design for current feature
+argument-hint: "[--feature=<id-slug>]"
 ---
 
 Invoke the designing skill for the current feature context.
@@ -8,94 +9,11 @@ Read docs/features/ to find active feature, then follow the workflow below.
 
 ## Workflow Integration
 
-### 1. Validate Transition
+### 1-3. Validate, Branch Check, Partial Recovery, Mark Started
 
-Before executing, check prerequisites using workflow-state skill:
-- Read current `.meta.json` state
-- Apply validateTransition logic for target phase "design"
-- If blocked: Show error, stop
-- If backward (re-running completed phase): Use AskUserQuestion:
-  ```
-  AskUserQuestion:
-    questions: [{
-      "question": "Phase 'design' was already completed. Re-running will update timestamps but not undo previous work. Continue?",
-      "header": "Backward",
-      "options": [
-        {"label": "Continue", "description": "Re-run the phase"},
-        {"label": "Cancel", "description": "Stay at current phase"}
-      ],
-      "multiSelect": false
-    }]
-  ```
-  If "Cancel": Stop execution.
-- If warning (skipping phases like specify): Show warning via AskUserQuestion:
-  ```
-  AskUserQuestion:
-    questions: [{
-      "question": "Skipping {skipped phases}. This may reduce artifact quality. Continue anyway?",
-      "header": "Skip",
-      "options": [
-        {"label": "Continue", "description": "Proceed despite skipping phases"},
-        {"label": "Stop", "description": "Return to complete skipped phases"}
-      ],
-      "multiSelect": false
-    }]
-  ```
-  If "Continue": Record skipped phases in `.meta.json` skippedPhases array, then proceed.
-  If "Stop": Stop execution.
+Follow `validateAndSetup("design")` from the **workflow-transitions** skill.
 
-### 1b. Check Branch
-
-If feature has a branch defined in `.meta.json`:
-- Get current branch: `git branch --show-current`
-- If current branch != expected branch, use AskUserQuestion:
-  ```
-  AskUserQuestion:
-    questions: [{
-      "question": "You're on '{current}', but feature uses '{expected}'. Switch branches?",
-      "header": "Branch",
-      "options": [
-        {"label": "Switch", "description": "Run: git checkout {expected}"},
-        {"label": "Continue", "description": "Stay on {current}"}
-      ],
-      "multiSelect": false
-    }]
-  ```
-- Skip this check if branch is null (legacy feature)
-
-### 2. Check for Partial Phase
-
-If `phases.design.started` exists but `phases.design.completed` is null:
-
-**Detect which stage was in progress** by checking `phases.design.stages`:
-
-```
-AskUserQuestion:
-  questions: [{
-    "question": "Detected partial design work at stage '{current_stage}'. How to proceed?",
-    "header": "Recovery",
-    "options": [
-      {"label": "Continue", "description": "Resume from {current_stage}"},
-      {"label": "Start Fresh", "description": "Discard and begin from architecture"},
-      {"label": "Review First", "description": "View existing design before deciding"}
-    ],
-    "multiSelect": false
-  }]
-```
-
-### 3. Mark Phase Started
-
-Update `.meta.json`:
-```json
-{
-  "phases": {
-    "design": {
-      "started": "{ISO timestamp}",
-      "stages": {}
-    }
-  }
-}
-```
+**Design-specific partial recovery:** If partial design detected, also check `phases.design.stages` to identify which stage was in progress and offer resumption from that specific stage.
 
 ### 4. Execute 5-Stage Workflow
 
@@ -418,42 +336,11 @@ f. **Append to review history:**
 
 ---
 
-### 4c. Auto-Commit Phase Artifact
+### 4c. Auto-Commit and Update State
 
-After handoff review (Stage 4) completes:
+Follow `commitAndComplete("design", ["design.md"])` from the **workflow-transitions** skill.
 
-```bash
-git add docs/features/{id}-{slug}/design.md docs/features/{id}-{slug}/.meta.json docs/features/{id}-{slug}/.review-history.md
-git commit -m "phase(design): {slug} - approved"
-git push
-```
-
-**Error handling:**
-- On commit failure: Display error, do NOT mark phase completed, allow retry
-- On push failure: Commit succeeds locally, warn user with "Run: git push" instruction, mark phase completed
-
----
-
-### 5. Update State on Completion
-
-Update `.meta.json`:
-```json
-{
-  "phases": {
-    "design": {
-      "started": "...",
-      "completed": "{ISO timestamp}",
-      "stages": {
-        "architecture": { "started": "...", "completed": "..." },
-        "interface": { "started": "...", "completed": "..." },
-        "designReview": { "started": "...", "completed": "...", "iterations": 2, "reviewerNotes": [] },
-        "handoffReview": { "started": "...", "completed": "...", "approved": true, "reviewerNotes": [] }
-      }
-    }
-  },
-  "currentPhase": "design"
-}
-```
+Design additionally records stage-level tracking in `.meta.json` phases.design.stages (architecture, interface, designReview, handoffReview).
 
 ### 6. Completion Message
 

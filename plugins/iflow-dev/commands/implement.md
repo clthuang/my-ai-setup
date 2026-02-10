@@ -1,5 +1,6 @@
 ---
 description: Start or continue implementation of current feature
+argument-hint: "[--feature=<id-slug>]"
 ---
 
 Invoke the implementing skill for the current feature context.
@@ -8,15 +9,13 @@ Read docs/features/ to find active feature, then follow the workflow below.
 
 ## Workflow Integration
 
-### 1. Validate Transition (HARD PREREQUISITE)
+### 1-3. Validate, Branch Check, Partial Recovery, Mark Started
 
-Before executing, check prerequisites using workflow-state skill:
-- Read current `.meta.json` state
-- Validate spec.md using `validateArtifact(path, "spec.md")`
+Follow `validateAndSetup("implement")` from the **workflow-transitions** skill.
 
-**HARD BLOCK:** If spec.md validation fails:
+**Hard prerequisite:** Before standard validation, validate spec.md using `validateArtifact(path, "spec.md")`. If validation fails:
 ```
-❌ BLOCKED: Valid spec.md required before implementation.
+BLOCKED: Valid spec.md required before implementation.
 
 {Level 1}: spec.md not found. Run /iflow-dev:specify first.
 {Level 2}: spec.md appears empty or stub. Run /iflow-dev:specify to complete it.
@@ -24,85 +23,6 @@ Before executing, check prerequisites using workflow-state skill:
 {Level 4}: spec.md missing required sections (Success Criteria or Acceptance Criteria). Run /iflow-dev:specify to add them.
 ```
 Stop execution. Do not proceed.
-
-- If backward (re-running completed phase): Use AskUserQuestion:
-  ```
-  AskUserQuestion:
-    questions: [{
-      "question": "Phase 'implement' was already completed. Re-running will update timestamps but not undo previous work. Continue?",
-      "header": "Backward",
-      "options": [
-        {"label": "Continue", "description": "Re-run the phase"},
-        {"label": "Cancel", "description": "Stay at current phase"}
-      ],
-      "multiSelect": false
-    }]
-  ```
-  If "Cancel": Stop execution.
-- If warning (skipping other phases like tasks): Show warning via AskUserQuestion:
-  ```
-  AskUserQuestion:
-    questions: [{
-      "question": "Skipping {skipped phases}. This may reduce artifact quality. Continue anyway?",
-      "header": "Skip",
-      "options": [
-        {"label": "Continue", "description": "Proceed despite skipping phases"},
-        {"label": "Stop", "description": "Return to complete skipped phases"}
-      ],
-      "multiSelect": false
-    }]
-  ```
-  If "Continue": Record skipped phases in `.meta.json` skippedPhases array, then proceed.
-  If "Stop": Stop execution.
-
-### 1b. Check Branch
-
-If feature has a branch defined in `.meta.json`:
-- Get current branch: `git branch --show-current`
-- If current branch != expected branch, use AskUserQuestion:
-  ```
-  AskUserQuestion:
-    questions: [{
-      "question": "You're on '{current}', but feature uses '{expected}'. Switch branches?",
-      "header": "Branch",
-      "options": [
-        {"label": "Switch", "description": "Run: git checkout {expected}"},
-        {"label": "Continue", "description": "Stay on {current}"}
-      ],
-      "multiSelect": false
-    }]
-  ```
-- Skip this check if branch is null (legacy feature)
-
-### 2. Check for Partial Phase
-
-If `phases.implement.started` exists but `phases.implement.completed` is null, use AskUserQuestion:
-```
-AskUserQuestion:
-  questions: [{
-    "question": "Detected partial implementation work. How to proceed?",
-    "header": "Recovery",
-    "options": [
-      {"label": "Continue", "description": "Resume from where you left off"},
-      {"label": "Start Fresh", "description": "Discard and begin new"},
-      {"label": "Review First", "description": "View progress before deciding"}
-    ],
-    "multiSelect": false
-  }]
-```
-
-### 3. Mark Phase Started
-
-Update `.meta.json`:
-```json
-{
-  "phases": {
-    "implement": {
-      "started": "{ISO timestamp}"
-    }
-  }
-}
-```
 
 ### 4. Implementation Phase
 
@@ -150,7 +70,7 @@ If simplifications found:
 
 ### 6. Review Phase (Automated Iteration Loop)
 
-No iteration limit. Loop continues until ALL reviewers approve.
+Maximum 5 iterations. Loop continues until ALL reviewers approve or cap is reached.
 
 Execute review cycle with three reviewers:
 
@@ -248,7 +168,24 @@ ELSE (any issues found):
         After fixing, return summary of changes made.
     ```
   → Increment iteration counter
-  → Loop back to step 6a (repeat until all three approve)
+  → If iteration >= 5 (circuit breaker):
+    ```
+    AskUserQuestion:
+      questions: [{
+        "question": "Review loop reached 5 iterations without full approval. How to proceed?",
+        "header": "Circuit Breaker",
+        "options": [
+          {"label": "Force approve with warnings", "description": "Accept current state, log unresolved issues"},
+          {"label": "Pause and review manually", "description": "Stop loop, inspect code yourself"},
+          {"label": "Abandon changes", "description": "Discard implementation, return to planning"}
+        ],
+        "multiSelect": false
+      }]
+    ```
+    - "Force approve": Record unresolved issues in `.meta.json` reviewerNotes, proceed to step 7
+    - "Pause and review manually": Stop execution, output file list for manual review
+    - "Abandon changes": Stop execution, do NOT mark phase completed
+  → Else: Loop back to step 6a
 
 **Review History Entry Format** (append to `.review-history.md`):
 ```markdown
@@ -274,19 +211,7 @@ ELSE (any issues found):
 
 ### 7. Update State on Completion
 
-Update `.meta.json`:
-```json
-{
-  "phases": {
-    "implement": {
-      "completed": "{ISO timestamp}",
-      "iterations": {count},
-      "reviewerNotes": ["any unresolved concerns from reviews"]
-    }
-  },
-  "currentPhase": "implement"
-}
-```
+Follow the state update step from `commitAndComplete("implement", [])` in the **workflow-transitions** skill. Implementation does not auto-commit artifacts (code is committed during implementation).
 
 ### 8. Completion Message
 

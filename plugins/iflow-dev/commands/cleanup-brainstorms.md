@@ -1,5 +1,6 @@
 ---
 description: List and delete old brainstorm scratch files
+argument-hint: "[--dry-run]"
 ---
 
 # /iflow-dev:cleanup-brainstorms Command

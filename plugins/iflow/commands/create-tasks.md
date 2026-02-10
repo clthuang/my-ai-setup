@@ -1,5 +1,6 @@
 ---
 description: Break down plan into actionable tasks
+argument-hint: "[--feature=<id-slug>]"
 ---
 
 Invoke the breaking-down-tasks skill for the current feature context.
@@ -8,15 +9,13 @@ Read docs/features/ to find active feature, then follow the workflow below.
 
 ## Workflow Integration
 
-### 1. Validate Transition (HARD PREREQUISITE)
+### 1-3. Validate, Branch Check, Partial Recovery, Mark Started
 
-Before executing, check prerequisites using workflow-state skill:
-- Read current `.meta.json` state
-- Validate plan.md using `validateArtifact(path, "plan.md")`
+Follow `validateAndSetup("create-tasks")` from the **workflow-transitions** skill.
 
-**HARD BLOCK:** If plan.md validation fails:
+**Hard prerequisite:** Before standard validation, validate plan.md using `validateArtifact(path, "plan.md")`. If validation fails:
 ```
-❌ BLOCKED: Valid plan.md required before task creation.
+BLOCKED: Valid plan.md required before task creation.
 
 {Level 1}: plan.md not found. Run /iflow:create-plan first.
 {Level 2}: plan.md appears empty or stub. Run /iflow:create-plan to complete it.
@@ -24,85 +23,6 @@ Before executing, check prerequisites using workflow-state skill:
 {Level 4}: plan.md missing required sections (Implementation Order or Phase). Run /iflow:create-plan to add them.
 ```
 Stop execution. Do not proceed.
-
-- If backward (re-running completed phase): Use AskUserQuestion:
-  ```
-  AskUserQuestion:
-    questions: [{
-      "question": "Phase 'create-tasks' was already completed. Re-running will update timestamps but not undo previous work. Continue?",
-      "header": "Backward",
-      "options": [
-        {"label": "Continue", "description": "Re-run the phase"},
-        {"label": "Cancel", "description": "Stay at current phase"}
-      ],
-      "multiSelect": false
-    }]
-  ```
-  If "Cancel": Stop execution.
-- If warning (skipping other phases): Show warning via AskUserQuestion:
-  ```
-  AskUserQuestion:
-    questions: [{
-      "question": "Skipping {skipped phases}. This may reduce artifact quality. Continue anyway?",
-      "header": "Skip",
-      "options": [
-        {"label": "Continue", "description": "Proceed despite skipping phases"},
-        {"label": "Stop", "description": "Return to complete skipped phases"}
-      ],
-      "multiSelect": false
-    }]
-  ```
-  If "Continue": Record skipped phases in `.meta.json` skippedPhases array, then proceed.
-  If "Stop": Stop execution.
-
-### 1b. Check Branch
-
-If feature has a branch defined in `.meta.json`:
-- Get current branch: `git branch --show-current`
-- If current branch != expected branch, use AskUserQuestion:
-  ```
-  AskUserQuestion:
-    questions: [{
-      "question": "You're on '{current}', but feature uses '{expected}'. Switch branches?",
-      "header": "Branch",
-      "options": [
-        {"label": "Switch", "description": "Run: git checkout {expected}"},
-        {"label": "Continue", "description": "Stay on {current}"}
-      ],
-      "multiSelect": false
-    }]
-  ```
-- Skip this check if branch is null (legacy feature)
-
-### 2. Check for Partial Phase
-
-If `phases.create-tasks.started` exists but `phases.create-tasks.completed` is null, use AskUserQuestion:
-```
-AskUserQuestion:
-  questions: [{
-    "question": "Detected partial task breakdown work. How to proceed?",
-    "header": "Recovery",
-    "options": [
-      {"label": "Continue", "description": "Resume from draft"},
-      {"label": "Start Fresh", "description": "Discard and begin new"},
-      {"label": "Review First", "description": "View existing before deciding"}
-    ],
-    "multiSelect": false
-  }]
-```
-
-### 3. Mark Phase Started
-
-Update `.meta.json`:
-```json
-{
-  "phases": {
-    "create-tasks": {
-      "started": "{ISO timestamp}"
-    }
-  }
-}
-```
 
 ### 4. Stage 1: Task Breakdown with Review Loop
 
@@ -215,42 +135,11 @@ Task tool call:
 - If `approved: true` → Proceed to step 5b
 - If `approved: false` → Note concerns in `.meta.json` chainReview.concerns, proceed to step 5b
 
-### 5b. Auto-Commit Phase Artifact
+### 5b. Auto-Commit and Update State
 
-After chain-reviewer validation (Stage 2):
+Follow `commitAndComplete("create-tasks", ["tasks.md"])` from the **workflow-transitions** skill.
 
-```bash
-git add docs/features/{id}-{slug}/tasks.md docs/features/{id}-{slug}/.meta.json docs/features/{id}-{slug}/.review-history.md
-git commit -m "phase(tasks): {slug} - approved"
-git push
-```
-
-**Error handling:**
-- On commit failure: Display error, do NOT mark phase completed, allow retry
-- On push failure: Commit succeeds locally, warn user with "Run: git push" instruction, mark phase completed
-
-### 6. Update State on Completion
-
-Update `.meta.json`:
-```json
-{
-  "phases": {
-    "create-tasks": {
-      "completed": "{ISO timestamp}",
-      "taskReview": {
-        "iterations": {count},
-        "approved": true/false,
-        "concerns": []
-      },
-      "chainReview": {
-        "approved": true/false,
-        "concerns": []
-      }
-    }
-  },
-  "currentPhase": "create-tasks"
-}
-```
+Create-tasks additionally records taskReview and chainReview sub-objects in the phase state.
 
 ### 7. Completion Message and Next Step
 

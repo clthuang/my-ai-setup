@@ -217,6 +217,14 @@ NOT: "Can we approve this and clarify later?"
 
 On iteration 3, prefer approving with warnings over blocking on minor issues.
 
+## Tool Fallback
+
+If Context7 tools are unavailable:
+1. Use WebSearch as fallback for library/API verification
+2. If both Context7 and WebSearch are unavailable, flag claims as "Unable to verify — external tools unavailable"
+3. Do NOT block approval solely due to tool unavailability — note it in summary
+4. Include tool availability status in review output
+
 ## Error Cases
 
 | Situation | Response |

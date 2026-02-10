@@ -49,30 +49,31 @@ Only run this review AFTER implementation-reviewer confirms compliance.
 
 ## Output Format
 
+```json
+{
+  "approved": true | false,
+  "strengths": ["What was done well"],
+  "issues": [
+    {
+      "severity": "blocker | warning | suggestion",
+      "location": "file:line",
+      "description": "What's wrong",
+      "suggestion": "How to fix it"
+    }
+  ],
+  "summary": "Brief quality assessment"
+}
 ```
-## Code Quality Review
 
-### Strengths
-- {What was done well}
+### Severity Levels
 
-### Issues
+| Level | Meaning | Blocks Approval? |
+|-------|---------|------------------|
+| blocker | Must fix before merge (critical quality issue) | Yes |
+| warning | Should fix (important quality concern) | No |
+| suggestion | Consider fixing (minor improvement) | No |
 
-🔴 Critical (must fix):
-- {file:line}: {issue}
-  Fix: {suggestion}
-
-🟡 Important (should fix):
-- {file:line}: {issue}
-  Fix: {suggestion}
-
-🟢 Minor (consider):
-- {file:line}: {suggestion}
-
-### Assessment
-{APPROVED / NEEDS FIXES}
-
-{If NEEDS FIXES: List specific items to address}
-```
+**Approval rule:** `approved: true` only when zero blockers.
 
 ## Principle
 

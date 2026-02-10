@@ -31,64 +31,9 @@ Once target feature is determined, read feature context and follow the workflow 
 
 ## Workflow Integration
 
-### 1. Validate Transition
+### 1-3. Validate, Branch Check, Partial Recovery, Mark Started
 
-Before executing, check prerequisites using workflow-state skill:
-- Read current `.meta.json` state
-- Apply validateTransition logic for target phase "specify"
-- If blocked: Show error, stop
-- If backward (re-running completed phase): Use AskUserQuestion:
-  ```
-  AskUserQuestion:
-    questions: [{
-      "question": "Phase 'specify' was already completed. Re-running will update timestamps but not undo previous work. Continue?",
-      "header": "Backward",
-      "options": [
-        {"label": "Continue", "description": "Re-run the phase"},
-        {"label": "Cancel", "description": "Stay at current phase"}
-      ],
-      "multiSelect": false
-    }]
-  ```
-  If "Cancel": Stop execution.
-
-### 1b. Check Branch
-
-Read `.meta.json` for branch name.
-If current branch != expected:
-- Run: `git checkout {expected}`
-- Output: "Switched to branch {expected}."
-
-Skip this check if branch is null (legacy feature).
-
-### 2. Check for Partial Phase
-
-If `phases.specify.started` exists but `phases.specify.completed` is null, use AskUserQuestion:
-```
-AskUserQuestion:
-  questions: [{
-    "question": "Found partial spec. How to proceed?",
-    "header": "Recovery",
-    "options": [
-      {"label": "Continue", "description": "Resume from draft"},
-      {"label": "Start Fresh", "description": "Delete draft and begin new"}
-    ],
-    "multiSelect": false
-  }]
-```
-
-### 3. Mark Phase Started
-
-Update `.meta.json`:
-```json
-{
-  "phases": {
-    "specify": {
-      "started": "{ISO timestamp}"
-    }
-  }
-}
-```
+Follow `validateAndSetup("specify")` from the **workflow-transitions** skill.
 
 ### 4. Execute with Two-Stage Reviewer Loop
 
@@ -176,19 +121,9 @@ g. **Record result:**
 
 h. **Complete phase:** Proceed to auto-commit, then update state.
 
-### 4b. Auto-Commit Phase Artifact
+### 4b. Auto-Commit and Update State
 
-After phase-reviewer approval (Stage 2):
-
-```bash
-git add docs/features/{id}-{slug}/spec.md docs/features/{id}-{slug}/.meta.json docs/features/{id}-{slug}/.review-history.md
-git commit -m "phase(specify): {slug} - approved"
-git push
-```
-
-**Error handling:**
-- On commit failure: Display error, do NOT mark phase completed, allow retry
-- On push failure: Commit succeeds locally, warn user with "Run: git push" instruction, mark phase completed
+Follow `commitAndComplete("specify", ["spec.md"])` from the **workflow-transitions** skill.
 
 **Review History Entry Format** (append to `.review-history.md`):
 ```markdown
@@ -205,22 +140,6 @@ git push
 {Summary of revisions made to address issues}
 
 ---
-```
-
-### 5. Update State on Completion
-
-Update `.meta.json`:
-```json
-{
-  "phases": {
-    "specify": {
-      "completed": "{ISO timestamp}",
-      "iterations": {count},
-      "reviewerNotes": ["any unresolved concerns"]
-    }
-  },
-  "currentPhase": "specify"
-}
 ```
 
 ### 6. Completion Message

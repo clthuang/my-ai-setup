@@ -240,38 +240,22 @@ Compile findings with:
       "level": "spec",
       "category": "missing",
       "description": "R5 (input validation) not implemented",
-      "location": "spec.md requirement R5, no validation in src/",
-      "suggestion": "Add input validation in src/feature/handler.ts before processing"
+      "location": "spec.md requirement R5",
+      "suggestion": "Add input validation in src/feature/handler.ts"
     },
     {
       "severity": "blocker",
       "level": "prd",
       "category": "missing",
       "description": "CSV export not implemented",
-      "location": "PRD deliverable 3, no export code found",
+      "location": "PRD deliverable 3",
       "suggestion": "Implement export function in src/feature/export.ts"
-    },
-    {
-      "severity": "warning",
-      "level": "prd",
-      "category": "extra",
-      "description": "PDF export added but not in PRD",
-      "location": "src/feature/export-pdf.ts",
-      "suggestion": "Remove unless explicitly approved - adds maintenance burden"
     }
   ],
   "evidence": {
-    "verified": [
-      "R1: src/feature/list.ts:23",
-      "R2: src/feature/search.ts:45",
-      "R3: src/feature/filter.ts:12",
-      "R4: src/feature/sort.ts:8"
-    ],
-    "missing": [
-      "R5: no input validation found",
-      "PRD-D3: no CSV export found"
-    ]
+    "verified": ["R1: src/feature/list.ts:23", "R2: src/feature/search.ts:45"],
+    "missing": ["R5: no input validation found", "PRD-D3: no CSV export found"]
   },
-  "summary": "11 of 12 tasks complete. Spec compliance blocked by missing input validation (R5). PRD delivery blocked by missing CSV export. Extra PDF export should be removed."
+  "summary": "11 of 12 tasks complete. Blocked by missing input validation (R5) and CSV export."
 }
 ```

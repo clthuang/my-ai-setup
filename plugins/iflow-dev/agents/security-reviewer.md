@@ -66,27 +66,36 @@ You identify security vulnerabilities before they reach production.
 ```json
 {
   "approved": true | false,
-  "vulnerabilities": [
+  "issues": [
     {
-      "severity": "critical | high | medium | low",
+      "severity": "blocker | warning | suggestion",
+      "securitySeverity": "critical | high | medium | low",
       "category": "injection | auth | data-exposure | access-control | config | xss | deserialization | components | logging",
       "location": "file:line",
       "description": "What's vulnerable",
-      "fix": "How to fix it"
+      "suggestion": "How to fix it"
     }
   ],
   "summary": "Brief security assessment"
 }
 ```
 
+### Severity Mapping
+
+| securitySeverity | severity (standard) | Blocks Approval? |
+|------------------|---------------------|------------------|
+| critical | blocker | Yes |
+| high | blocker | Yes |
+| medium | warning | No |
+| low | suggestion | No |
+
 ## Approval Rules
 
 **Approve** (`approved: true`) when:
-- Zero critical severity issues
-- Zero high severity issues
+- Zero blocker severity issues (no critical/high security findings)
 
 **Do NOT approve** (`approved: false`) when:
-- Any critical or high severity issues exist
+- Any blocker severity issues exist (critical or high security findings)
 
 ## What You MUST NOT Do
 

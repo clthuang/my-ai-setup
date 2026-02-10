@@ -99,3 +99,7 @@ This indicates an architectural problem, not a bug.
 | Business logic | Ensure data makes sense for operation |
 | Environment guards | Prevent dangerous ops in test/prod |
 | Debug instrumentation | Capture context for forensics |
+
+## Related Skills
+
+- [root-cause-analysis](../root-cause-analysis/SKILL.md) - Formal 6-phase RCA with 3+ hypotheses, verification scripts, and causal DAG. Use when 3+ fix attempts have failed.

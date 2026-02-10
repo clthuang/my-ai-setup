@@ -93,7 +93,7 @@ Write to `docs/features/{id}-{slug}/.meta.json`:
   "created": "{ISO timestamp}",
   "branch": "feature/{id}-{slug}",
   "brainstorm_source": "{path-to-brainstorm-if-promoted}",
-  "currentPhase": null,
+  "lastCompletedPhase": null,
   "phases": {}
 }
 ```
@@ -101,7 +101,7 @@ Write to `docs/features/{id}-{slug}/.meta.json`:
 Notes:
 - `brainstorm_source` is only included when feature is promoted from a brainstorm
 - `phases` is initialized empty; phase commands populate it as they execute
-- `currentPhase` tracks the last completed phase (null until first phase completes)
+- `lastCompletedPhase` tracks the last completed phase (null until first phase completes)
 
 ## Handle PRD Source
 

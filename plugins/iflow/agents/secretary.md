@@ -1,6 +1,9 @@
 ---
 name: secretary
 description: Intelligent orchestrator that interprets vague user requests, discovers available agents, and delegates work to appropriate specialists. Use when (1) user says 'help me with', (2) user gives vague multi-step request, (3) user says 'delegate this', (4) /secretary command.
+<!-- model: opus required because secretary performs multi-step reasoning
+     (interpret vague requests → discover agents → semantic matching → orchestrate delegation)
+     that benefits from the highest-capability model. Other agents inherit the caller's model. -->
 model: opus
 tools: [Read, Glob, Grep, Task, Skill, AskUserQuestion]
 color: magenta

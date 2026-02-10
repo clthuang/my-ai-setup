@@ -45,9 +45,10 @@ Return structured feedback:
   "approved": true | false,
   "issues": [
     {
-      "severity": "blocker | warning | note",
+      "severity": "blocker | warning | suggestion",
       "description": "What's missing or unclear",
-      "location": "Section name or line reference"
+      "location": "Section name or line reference",
+      "suggestion": "How to fix this (required for all issues)"
     }
   ],
   "summary": "Brief overall assessment (1-2 sentences)"
@@ -60,7 +61,7 @@ Return structured feedback:
 |-------|---------|------------------|
 | blocker | Cannot proceed to feature creation without this | Yes |
 | warning | Quality concern but can proceed | No |
-| note | Suggestion for improvement | No |
+| suggestion | Constructive improvement with guidance | No |
 
 **Approval rule:** `approved: true` only when zero blockers.
 

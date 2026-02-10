@@ -47,29 +47,23 @@ You are a research agent. You gather information but DO NOT make changes.
 
 ## Output Format
 
+Return a JSON envelope wrapping your findings:
+
+```json
+{
+  "topic": "Investigation topic",
+  "findings": [
+    {
+      "location": "file:line",
+      "observation": "What we found",
+      "relevance": "Why it matters"
+    }
+  ],
+  "patterns": ["Pattern 1", "Pattern 2"],
+  "recommendations": ["Suggestion based on findings"],
+  "open_questions": ["Things still unclear"],
+  "report_markdown": "## Investigation: {Topic}\n\n### Question\n{...}\n\n### Findings\n{...}"
+}
 ```
-## Investigation: {Topic}
 
-### Question
-{What we wanted to know}
-
-### Findings
-
-#### {Finding 1}
-- Location: {file:line}
-- Observation: {what we found}
-- Relevance: {why it matters}
-
-#### {Finding 2}
-...
-
-### Patterns Observed
-- {Pattern 1}
-- {Pattern 2}
-
-### Recommendations
-- {Suggestion based on findings}
-
-### Open Questions
-- {Things still unclear}
-```
+The `report_markdown` field contains the full human-readable report for display.

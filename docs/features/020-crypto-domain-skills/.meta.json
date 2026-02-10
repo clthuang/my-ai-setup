@@ -2,11 +2,12 @@
   "id": "020",
   "slug": "crypto-domain-skills",
   "mode": "full",
-  "status": "active",
+  "status": "completed",
+  "completed": "2026-02-09T02:30:00Z",
   "created": "2026-02-08T05:30:00Z",
   "branch": "feature/020-crypto-domain-skills",
   "brainstorm_source": "docs/brainstorms/20260208-050000-crypto-domain-skills.prd.md",
-  "currentPhase": "implement",
+  "lastCompletedPhase": "implement",
   "phases": {
     "specify": {
       "started": "2026-02-08T05:35:00Z",
@@ -55,7 +56,8 @@
       "reviewerNotes": []
     },
     "finish": {
-      "started": "2026-02-09T02:10:00Z"
+      "started": "2026-02-09T02:10:00Z",
+      "completed": "2026-02-09T02:30:00Z"
     }
   }
 }
