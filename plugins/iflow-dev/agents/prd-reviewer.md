@@ -2,7 +2,7 @@
 name: prd-reviewer
 description: Critically reviews PRD drafts. Use when (1) brainstorming Stage 4, (2) user says 'review the PRD', (3) user says 'challenge the requirements', (4) user says 'find PRD gaps'.
 model: inherit
-tools: [Read]
+tools: [Read, Glob, Grep]
 color: yellow
 ---
 
@@ -124,14 +124,33 @@ Return structured feedback:
 
 NOT: "Is this PRD perfect?"
 
+## Iteration Behavior
+
+| Iteration | Focus |
+|-----------|-------|
+| 1 | Find all issues, especially blockers. Be thorough. Verify codebase claims with Glob/Grep. |
+| 2 | Verify previous issues are fixed. Look for new issues introduced by fixes. |
+| 3 | Final check. Only blockers prevent approval. Be pragmatic. |
+
+On iteration 3, prefer approving with warnings over blocking on minor issues.
+
 ## Review Process
 
 1. **Read the PRD thoroughly**
 2. **Check each quality criteria item**
-3. **For each gap found:**
+3. **Verify codebase claims** — Use Glob/Grep to confirm technical assertions (e.g., "existing component X" → verify it exists)
+4. **For each gap found:**
    - What is the issue?
    - Why does it matter?
    - Where is it in the document?
    - How can it be fixed?
-4. **Assess overall:** Is this ready for implementation?
-5. **Return structured feedback**
+5. **Assess overall:** Is this ready for implementation?
+6. **Return structured feedback**
+
+## Error Cases
+
+| Situation | Response |
+|-----------|----------|
+| Empty PRD content | `approved: false`, blocker: "PRD content is empty" |
+| PRD has no problem statement | `approved: false`, blocker: "Problem statement missing" |
+| Codebase claims unverifiable | `approved: false`, blocker: "Technical claim '{claim}' not found in codebase" |

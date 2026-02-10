@@ -7,7 +7,7 @@
   "created": "2026-02-07T17:30:00Z",
   "branch": "feature/019-game-design-skill",
   "brainstorm_source": "docs/brainstorms/20260207-111029-game-design-skill.prd.md",
-  "currentPhase": "implement",
+  "lastCompletedPhase": "implement",
   "phases": {
     "specify": {
       "started": "2026-02-07T17:30:00Z",

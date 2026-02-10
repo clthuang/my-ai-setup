@@ -70,6 +70,11 @@ mkdir -p docs/rca
 - MUST write verification scripts for findings
 - MUST respect CLAUDE.md writing guidelines
 
+## Tool Scoping (Defense-in-Depth)
+
+- **Write/Edit:** ONLY for paths matching `agent_sandbox/**` or `docs/rca/**`. Reject any other target path.
+- **Bash:** ONLY read-only commands (grep, cat, ls, git log, git diff, test runners). NEVER rm/mv/cp/chmod on paths outside `agent_sandbox/`.
+
 ## Edge Cases
 
 - **Cannot reproduce:** Document attempts, mark as "intermittent", proceed with code analysis

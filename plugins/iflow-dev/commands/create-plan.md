@@ -1,5 +1,6 @@
 ---
 description: Create implementation plan for current feature
+argument-hint: "[--feature=<id-slug>]"
 ---
 
 Invoke the planning skill for the current feature context.
@@ -8,90 +9,9 @@ Read docs/features/ to find active feature, then follow the workflow below.
 
 ## Workflow Integration
 
-### 1. Validate Transition
+### 1-3. Validate, Branch Check, Partial Recovery, Mark Started
 
-Before executing, check prerequisites using workflow-state skill:
-- Read current `.meta.json` state
-- Apply validateTransition logic for target phase "create-plan"
-- If blocked: Show error, stop
-- If backward (re-running completed phase): Use AskUserQuestion:
-  ```
-  AskUserQuestion:
-    questions: [{
-      "question": "Phase 'create-plan' was already completed. Re-running will update timestamps but not undo previous work. Continue?",
-      "header": "Backward",
-      "options": [
-        {"label": "Continue", "description": "Re-run the phase"},
-        {"label": "Cancel", "description": "Stay at current phase"}
-      ],
-      "multiSelect": false
-    }]
-  ```
-  If "Cancel": Stop execution.
-- If warning (skipping phases like design): Show warning via AskUserQuestion:
-  ```
-  AskUserQuestion:
-    questions: [{
-      "question": "Skipping {skipped phases}. This may reduce artifact quality. Continue anyway?",
-      "header": "Skip",
-      "options": [
-        {"label": "Continue", "description": "Proceed despite skipping phases"},
-        {"label": "Stop", "description": "Return to complete skipped phases"}
-      ],
-      "multiSelect": false
-    }]
-  ```
-  If "Continue": Record skipped phases in `.meta.json` skippedPhases array, then proceed.
-  If "Stop": Stop execution.
-
-### 1b. Check Branch
-
-If feature has a branch defined in `.meta.json`:
-- Get current branch: `git branch --show-current`
-- If current branch != expected branch, use AskUserQuestion:
-  ```
-  AskUserQuestion:
-    questions: [{
-      "question": "You're on '{current}', but feature uses '{expected}'. Switch branches?",
-      "header": "Branch",
-      "options": [
-        {"label": "Switch", "description": "Run: git checkout {expected}"},
-        {"label": "Continue", "description": "Stay on {current}"}
-      ],
-      "multiSelect": false
-    }]
-  ```
-- Skip this check if branch is null (legacy feature)
-
-### 2. Check for Partial Phase
-
-If `phases.create-plan.started` exists but `phases.create-plan.completed` is null, use AskUserQuestion:
-```
-AskUserQuestion:
-  questions: [{
-    "question": "Detected partial planning work. How to proceed?",
-    "header": "Recovery",
-    "options": [
-      {"label": "Continue", "description": "Resume from draft"},
-      {"label": "Start Fresh", "description": "Discard and begin new"},
-      {"label": "Review First", "description": "View existing before deciding"}
-    ],
-    "multiSelect": false
-  }]
-```
-
-### 3. Mark Phase Started
-
-Update `.meta.json`:
-```json
-{
-  "phases": {
-    "create-plan": {
-      "started": "{ISO timestamp}"
-    }
-  }
-}
-```
+Follow `validateAndSetup("create-plan")` from the **workflow-transitions** skill.
 
 ### 4. Execute with Two-Stage Reviewer Loop
 
@@ -177,50 +97,9 @@ g. **Branch on result:**
 
 h. **Complete phase:** Proceed to auto-commit, then update state.
 
-### 4b. Auto-Commit Phase Artifact
+### 4b. Auto-Commit and Update State
 
-After chain-reviewer approval (Stage 2 step h):
-
-```bash
-git add docs/features/{id}-{slug}/plan.md docs/features/{id}-{slug}/.meta.json docs/features/{id}-{slug}/.review-history.md
-git commit -m "phase(plan): {slug} - approved"
-git push
-```
-
-**Error handling:**
-- On commit failure: Display error, do NOT mark phase completed, allow retry
-- On push failure: Commit succeeds locally, warn user with "Run: git push" instruction, mark phase completed
-
-**Review History Entry Format** (append to `.review-history.md`):
-```markdown
-## {Stage 1: Plan Review | Stage 2: Chain Review} - Iteration {n} - {ISO timestamp}
-
-**Decision:** {Approved / Needs Revision}
-
-**Issues:**
-- [{severity}] {description} (at: {location})
-
-**Changes Made:**
-{Summary of revisions made to address issues}
-
----
-```
-
-### 5. Update State on Completion
-
-Update `.meta.json`:
-```json
-{
-  "phases": {
-    "create-plan": {
-      "completed": "{ISO timestamp}",
-      "iterations": {count},
-      "reviewerNotes": ["any unresolved concerns"]
-    }
-  },
-  "currentPhase": "create-plan"
-}
-```
+Follow `commitAndComplete("create-plan", ["plan.md"])` from the **workflow-transitions** skill.
 
 ### 6. User Prompt for Next Step
 

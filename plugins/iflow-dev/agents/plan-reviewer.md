@@ -48,11 +48,12 @@ Return structured feedback:
   "approved": true | false,
   "issues": [
     {
-      "severity": "blocker | warning | note",
+      "severity": "blocker | warning | suggestion",
       "category": "failure-mode | assumption | dependency | tdd-order | feasibility",
       "description": "What's wrong or risky",
       "location": "Section name or line reference",
-      "challenge": "The specific question that needs answering"
+      "challenge": "The specific question that needs answering",
+      "suggestion": "How to fix this (required for all issues)"
     }
   ],
   "summary": "Brief overall assessment (1-2 sentences)"
@@ -65,7 +66,7 @@ Return structured feedback:
 |-------|---------|------------------|
 | blocker | Plan cannot be implemented as-is | Yes |
 | warning | Concern that may cause problems | No |
-| note | Suggestion for clarity | No |
+| suggestion | Constructive improvement with guidance | No |
 
 **Approval rule:** `approved: true` only when zero blockers.
 
@@ -219,6 +220,14 @@ NOT: "Can we approve this and figure it out later?"
 | 3 | Final check. Only blockers prevent approval. Be pragmatic. |
 
 On iteration 3, prefer approving with warnings over blocking on minor issues. The review loop should not become infinite.
+
+## Tool Fallback
+
+If Context7 tools are unavailable:
+1. Use WebSearch as fallback for library/API verification
+2. If both Context7 and WebSearch are unavailable, flag claims as "Unable to verify — external tools unavailable"
+3. Do NOT block approval solely due to tool unavailability — note it in summary
+4. Include tool availability status in review output
 
 ## Error Cases
 
