@@ -40,6 +40,9 @@ b. **Invoke task-reviewer:** Use the Task tool:
      prompt: |
        Review the task breakdown for quality and executability.
 
+       ## PRD (original requirements)
+       {content of prd.md, or "None - feature created without brainstorm"}
+
        ## Spec (requirements)
        {content of spec.md}
 
@@ -70,14 +73,16 @@ b. **Invoke task-reviewer:** Use the Task tool:
 c. **Parse response:** Extract the `approved` field from reviewer's JSON response.
    - If response is not valid JSON, ask reviewer to retry with correct format.
 
-d. **Branch on result:**
-   - If `approved: true` → Proceed to Stage 2 (step 5)
-   - If `approved: false` AND iteration < max:
+d. **Branch on result (strict threshold):**
+   - **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
+   - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
+   - If PASS → Proceed to Stage 2 (step 5)
+   - If FAIL AND iteration < max:
      - Append iteration to `.review-history.md` using format below
      - Increment iteration counter
-     - Address the issues by revising tasks.md
-     - Return to step 4b
-   - If `approved: false` AND iteration == max:
+     - Address all blocker AND warning issues by revising tasks.md
+     - Return to step 4b (always a NEW Task tool dispatch per iteration)
+   - If FAIL AND iteration == max:
      - Note concerns in `.meta.json` taskReview.concerns
      - Proceed to Stage 2 (step 5)
 
@@ -96,9 +101,13 @@ d. **Branch on result:**
 ---
 ```
 
-### 5. Stage 2: Chain Validation
+### 5. Stage 2: Chain Validation (Handoff Gate)
 
-After Stage 1 completes, invoke phase-reviewer for final validation:
+Phase-reviewer iteration budget: max 3 (independent of Stage 1).
+
+Set `phase_iteration = 0`.
+
+After Stage 1 completes, invoke phase-reviewer (always a NEW Task tool dispatch per iteration):
 
 ```
 Task tool call:
@@ -106,6 +115,9 @@ Task tool call:
   subagent_type: iflow-dev:phase-reviewer
   prompt: |
     Validate this task breakdown is ready for implementation.
+
+    ## PRD (original requirements)
+    {content of prd.md, or "None - feature created without brainstorm"}
 
     ## Spec (requirements)
     {content of spec.md}
@@ -123,6 +135,8 @@ Task tool call:
     Implement needs: Small actionable tasks (<15 min each),
     clear acceptance criteria per task, dependency graph for parallel execution.
 
+    This is phase-review iteration {phase_iteration}/3.
+
     Return your assessment as JSON:
     {
       "approved": true/false,
@@ -131,9 +145,18 @@ Task tool call:
     }
 ```
 
-**Branch on result:**
-- If `approved: true` → Proceed to step 5b
-- If `approved: false` → Note concerns in `.meta.json` chainReview.concerns, proceed to step 5b
+**Branch on result (strict threshold):**
+- **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
+- **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
+- If PASS → Proceed to step 5b
+- If FAIL AND phase_iteration < 3:
+  - Append to `.review-history.md` with "Stage 2: Chain Review" marker
+  - Increment phase_iteration
+  - Address all blocker AND warning issues
+  - Return to phase-reviewer invocation (new agent instance)
+- If FAIL AND phase_iteration == 3:
+  - Store concerns in `.meta.json` chainReview.concerns
+  - Proceed to step 5b with warning
 
 ### 5b. Auto-Commit and Update State
 
@@ -143,19 +166,20 @@ Create-tasks additionally records taskReview and chainReview sub-objects in the 
 
 ### 7. Completion Message and Next Step
 
-Show completion message:
-"Tasks created. {n} tasks across {m} phases, {p} parallel groups."
+Output: "Tasks created. {n} tasks across {m} phases, {p} parallel groups."
 
-Then use AskUserQuestion:
 ```
 AskUserQuestion:
   questions: [{
-    "question": "Run /iflow-dev:implement next?",
-    "header": "Next",
+    "question": "Tasks complete. Continue to next phase?",
+    "header": "Next Step",
     "options": [
-      {"label": "Yes (Recommended)", "description": "Start implementation"},
-      {"label": "Review tasks first", "description": "Read tasks.md"}
+      {"label": "Continue to /implement (Recommended)", "description": "Start implementation"},
+      {"label": "Review tasks.md first", "description": "Inspect the tasks before continuing"}
     ],
     "multiSelect": false
   }]
 ```
+
+If "Continue to /implement (Recommended)": Invoke `/iflow-dev:implement`
+If "Review tasks.md first": Show "Tasks at {path}/tasks.md. Run /iflow-dev:implement when ready." → STOP
