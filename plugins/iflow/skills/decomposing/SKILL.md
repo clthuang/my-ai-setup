@@ -110,7 +110,10 @@ Parse reviewer response as JSON. If non-JSON, treat as `approved: false` with a 
 
 Max 3 iterations. After Step 3 returns `review_result`:
 
-1. **If `review_result.approved == true`** -> proceed to Step 5.
+1. **Determine pass/fail:**
+   - **PASS:** `review_result.approved == true` AND zero issues with severity "blocker" or "warning"
+   - **FAIL:** otherwise
+   If PASS -> proceed to Step 5.
 
 2. **If `review_result.approved == false` AND `iteration < 3`:**
    - Increment `iteration`.
@@ -132,7 +135,7 @@ Max 3 iterations. After Step 3 returns `review_result`:
 
        ## Constraints
        - Expected lifetime: {expected_lifetime}
-       - Address all blocker issues
+       - Address all blocker AND warning issues
        - Preserve structure that was not flagged
        - Return the complete revised JSON (same schema)
      ```

@@ -52,7 +52,15 @@ Task tool call:
     Review the implementation for unnecessary complexity.
 
     Feature: {feature name}
-    Files changed: {list of files created/modified}
+
+    ## Spec (acceptance criteria)
+    {content of spec.md}
+
+    ## Design (architecture to follow)
+    {content of design.md}
+
+    ## Files changed
+    {list of files created/modified}
 
     Look for:
     - Unnecessary abstractions
@@ -91,6 +99,9 @@ Task tool call:
     ## Design (architecture to follow)
     {content of design.md}
 
+    ## Plan (implementation plan)
+    {content of plan.md}
+
     ## Tasks (what should be done)
     {content of tasks.md}
 
@@ -114,7 +125,23 @@ Task tool call:
   prompt: |
     Review implementation quality.
 
-    Files changed: {list of files}
+    ## PRD (original requirements)
+    {content of prd.md or brainstorm file}
+
+    ## Spec (acceptance criteria)
+    {content of spec.md}
+
+    ## Design (architecture to follow)
+    {content of design.md}
+
+    ## Plan (implementation plan)
+    {content of plan.md}
+
+    ## Tasks (what should be done)
+    {content of tasks.md}
+
+    ## Files changed
+    {list of files}
 
     Check:
     - Readability
@@ -134,7 +161,23 @@ Task tool call:
   prompt: |
     Review implementation for security vulnerabilities.
 
-    Files changed: {list of files}
+    ## PRD (original requirements)
+    {content of prd.md or brainstorm file}
+
+    ## Spec (acceptance criteria)
+    {content of spec.md}
+
+    ## Design (architecture to follow)
+    {content of design.md}
+
+    ## Plan (implementation plan)
+    {content of plan.md}
+
+    ## Tasks (what should be done)
+    {content of tasks.md}
+
+    ## Files changed
+    {list of files}
 
     Check:
     - Input validation
@@ -149,7 +192,11 @@ Task tool call:
 
 Collect results from all three reviewers (implementation, quality, security).
 
-IF all three approved:
+**Apply strict threshold to each reviewer result:**
+- **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
+- **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
+
+IF all three PASS:
   → Mark phase completed
   → Proceed to step 7
 
@@ -163,6 +210,25 @@ ELSE (any issues found):
       prompt: |
         Fix the following review issues:
 
+        ## PRD (original requirements)
+        {content of prd.md or brainstorm file}
+
+        ## Spec (acceptance criteria)
+        {content of spec.md}
+
+        ## Design (architecture to follow)
+        {content of design.md}
+
+        ## Plan (implementation plan)
+        {content of plan.md}
+
+        ## Tasks (what should be done)
+        {content of tasks.md}
+
+        ## Implementation files
+        {list of files with code}
+
+        ## Issues to fix
         {consolidated issue list from all reviewers}
 
         After fixing, return summary of changes made.
@@ -215,16 +281,20 @@ Follow the state update step from `commitAndComplete("implement", [])` in the **
 
 ### 8. Completion Message
 
-Use AskUserQuestion:
+Output: "Implementation complete."
+
 ```
 AskUserQuestion:
   questions: [{
-    "question": "Implementation complete. Run /iflow-dev:finish next?",
-    "header": "Next",
+    "question": "Implementation complete. Continue to next phase?",
+    "header": "Next Step",
     "options": [
-      {"label": "Yes (Recommended)", "description": "Complete the feature"},
+      {"label": "Continue to /finish (Recommended)", "description": "Complete the feature"},
       {"label": "Review implementation first", "description": "Inspect the code before finishing"}
     ],
     "multiSelect": false
   }]
 ```
+
+If "Continue to /finish (Recommended)": Invoke `/iflow-dev:finish`
+If "Review implementation first": Show "Run /iflow-dev:finish when ready." → STOP

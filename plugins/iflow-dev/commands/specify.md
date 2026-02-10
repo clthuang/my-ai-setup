@@ -74,20 +74,26 @@ b. **Invoke spec-reviewer:** Use the Task tool to spawn spec-reviewer (the skept
 c. **Parse response:** Extract the `approved` field from reviewer's JSON response.
    - If response is not valid JSON, ask reviewer to retry with correct format.
 
-d. **Branch on result:**
-   - If `approved: true` → Proceed to Stage 2
-   - If `approved: false` AND iteration < max:
+d. **Branch on result (strict threshold):**
+   - **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
+   - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
+   - If PASS → Proceed to Stage 2
+   - If FAIL AND iteration < max:
      - Append iteration to `.review-history.md` with "Stage 1: Spec-Reviewer Review" marker
      - Increment iteration counter
-     - Address the issues by revising spec.md
-     - Return to step 4b
-   - If `approved: false` AND iteration == max:
+     - Address all blocker AND warning issues by revising spec.md
+     - Return to step 4b (always a NEW Task tool dispatch per iteration)
+   - If FAIL AND iteration == max:
      - Note concerns in `.meta.json` reviewerNotes
      - Proceed to Stage 2 with warning
 
 #### Stage 2: Phase-Reviewer Validation (Handoff Gate)
 
-e. **Invoke phase-reviewer:** Use the Task tool to spawn phase-reviewer (the gatekeeper):
+Phase-reviewer iteration budget: max 3 (independent of Stage 1).
+
+Set `phase_iteration = 0`.
+
+e. **Invoke phase-reviewer** (always a NEW Task tool dispatch per iteration):
    ```
    Task tool call:
      description: "Validate spec ready for design"
@@ -105,6 +111,8 @@ e. **Invoke phase-reviewer:** Use the Task tool to spawn phase-reviewer (the gat
        Design needs: All requirements listed, acceptance criteria defined,
        scope boundaries clear, no ambiguities.
 
+       This is phase-review iteration {phase_iteration}/3.
+
        Return your assessment as JSON:
        {
          "approved": true/false,
@@ -113,13 +121,20 @@ e. **Invoke phase-reviewer:** Use the Task tool to spawn phase-reviewer (the gat
        }
    ```
 
-f. **Single pass - no loop.** The spec-reviewer already validated spec quality.
+f. **Branch on result (strict threshold):**
+   - **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
+   - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
+   - If PASS → Proceed to auto-commit
+   - If FAIL AND phase_iteration < 3:
+     - Append to `.review-history.md` with "Stage 2: Phase Review" marker
+     - Increment phase_iteration
+     - Address all blocker AND warning issues
+     - Return to step e (new agent instance)
+   - If FAIL AND phase_iteration == 3:
+     - Store concerns in `.meta.json` phaseReview.reviewerNotes
+     - Proceed to auto-commit with warning
 
-g. **Record result:**
-   - If `approved: false`: Store concerns in `.meta.json` phaseReview.reviewerNotes
-   - Note concerns but do NOT block (spec-reviewer already validated)
-
-h. **Complete phase:** Proceed to auto-commit, then update state.
+g. **Complete phase:** Proceed to auto-commit, then update state.
 
 ### 4b. Auto-Commit and Update State
 
@@ -149,15 +164,15 @@ Output: "Specification complete."
 ```
 AskUserQuestion:
   questions: [{
-    "question": "Ready for the next phase?",
+    "question": "Specification complete. Continue to next phase?",
     "header": "Next Step",
     "options": [
-      {"label": "Continue to /design", "description": "Create architecture design"},
-      {"label": "Stop here", "description": "End session"}
+      {"label": "Continue to /design (Recommended)", "description": "Create architecture design"},
+      {"label": "Review spec.md first", "description": "Inspect the spec before continuing"}
     ],
     "multiSelect": false
   }]
 ```
 
-If "Continue to /design": Invoke `/iflow-dev:design`
-If "Stop here": STOP
+If "Continue to /design (Recommended)": Invoke `/iflow-dev:design`
+If "Review spec.md first": Show "Spec at {path}/spec.md. Run /iflow-dev:design when ready." → STOP

@@ -1,11 +1,11 @@
 ---
 name: brainstorming
-description: Guides a 7-stage process producing evidence-backed PRDs. Use when the user says 'brainstorm this idea', 'explore options for', 'start ideation', or 'create a PRD'.
+description: Guides a 6-stage process producing evidence-backed PRDs. Use when the user says 'brainstorm this idea', 'explore options for', 'start ideation', or 'create a PRD'.
 ---
 
 # Brainstorming Phase
 
-Guide divergent thinking through a structured 7-stage process that produces a PRD.
+Guide divergent thinking through a structured 6-stage process that produces a PRD.
 
 ## Getting Started
 
@@ -21,24 +21,24 @@ Guide divergent thinking through a structured 7-stage process that produces a PR
 - Create file: `docs/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`
   - Example: `docs/brainstorms/20260129-143052-api-caching.prd.md`
 
-### 2. Run 7-Stage Process
+### 2. Run 6-Stage Process
 
 Follow the Process below, writing content to the PRD file as you go.
 
 ## Process
 
-The brainstorm follows 7 stages in sequence:
+The brainstorm follows 6 stages in sequence:
 
 ```
 Stage 1: CLARIFY → Stage 2: RESEARCH → Stage 3: DRAFT PRD
                                                     ↓
-                                        Stage 4: CRITICAL REVIEW (prd-reviewer)
+                                        Stage 4: CRITICAL REVIEW AND CORRECTION
+                                                    (prd-reviewer + auto-correct loop, max 3)
                                                     ↓
-                                        Stage 5: AUTO-CORRECT
+                                        Stage 5: READINESS CHECK
+                                                    (brainstorm-reviewer + auto-correct loop, max 3)
                                                     ↓
-                                        Stage 6: READINESS CHECK (brainstorm-reviewer)
-                                                    ↓
-                                        Stage 7: USER DECISION
+                                        Stage 6: USER DECISION
 ```
 
 ---
@@ -100,7 +100,7 @@ AskUserQuestion:
 
 **If "Skip":** Set type to "none", skip Step 7 body entirely.
 
-**Loop-back behavior:** If `## Structured Analysis` already exists in the PRD (from a previous Stage 7 → Stage 1 loop), delete it entirely before re-running Steps 6-8. Do NOT duplicate.
+**Loop-back behavior:** If `## Structured Analysis` already exists in the PRD (from a previous Stage 6 → Stage 1 loop), delete it entirely before re-running Steps 6-8. Do NOT duplicate.
 
 #### Step 8: Store Problem Type
 - Add `- Problem Type: {type}` to PRD Status section (or `none` if skipped)
@@ -140,7 +140,7 @@ If "None": skip Step 10, proceed to Stage 2.
 7. Store domain review criteria (from skill output) for Stage 6 dispatch
 8. Store `domain: {Skill Dir}` context for Stage 2 query enhancement
 
-**Loop-back behavior:** If `## {Analysis Heading}` already exists in the PRD (from a previous Stage 7 → Stage 1 loop), delete it entirely, clear domain context, and re-prompt Step 9.
+**Loop-back behavior:** If `## {Analysis Heading}` already exists in the PRD (from a previous Stage 6 → Stage 1 loop), delete it entirely, clear domain context, and re-prompt Step 9.
 
 ---
 ### Stage 2: RESEARCH
@@ -187,60 +187,61 @@ If "None": skip Step 10, proceed to Stage 2.
 **Exit condition:** PRD file written with all sections populated.
 
 ---
-### Stage 4: CRITICAL REVIEW
+### Stage 4: CRITICAL REVIEW AND CORRECTION
 
-**Goal:** Challenge PRD quality using prd-reviewer agent.
+**Goal:** Challenge PRD quality and auto-correct issues in a review-correct loop (max 3 iterations).
 
-**Action:** Dispatch Task tool:
+Set `review_iteration = 0`.
+
+**a. Dispatch prd-reviewer** (always a NEW Task tool instance per iteration):
 - Tool: `Task`
 - subagent_type: `iflow-dev:prd-reviewer`
-- prompt: Full PRD content + request for JSON response
+- prompt: Full PRD content + request for JSON response + "This is review iteration {review_iteration}/3"
 
 **Expected response:**
 ```json
 { "approved": true/false, "issues": [...], "summary": "..." }
 ```
 
-**Fallback:** If reviewer unavailable, show warning and proceed to Stage 5 with empty issues array.
+**b. Apply strict threshold:**
+- **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
+- **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
 
-**Exit condition:** Reviewer response received and parsed.
+**c. Branch on result:**
+- If PASS → Proceed to Stage 5
+- If FAIL AND review_iteration < 3:
+  - Auto-correct: For each issue with severity "blocker" or "warning":
+    - If has `suggested_fix`: Apply the fix to PRD content
+    - Record: `Changed: {what} — Reason: {issue description}`
+  - For "suggestion" severity: Consider but don't require action
+  - Update PRD file with all corrections
+  - Add to Review History section:
+    ```markdown
+    ### Review {review_iteration} ({date})
+    **Findings:**
+    - [{severity}] {description} (at: {location})
 
----
-### Stage 5: AUTO-CORRECT
+    **Corrections Applied:**
+    - {what changed} — Reason: {reference to finding}
+    ```
+  - Increment review_iteration
+  - Return to step a (new prd-reviewer instance verifies corrections)
+- If FAIL AND review_iteration == 3:
+  - Record unresolved issues in Review History
+  - Proceed to Stage 5 with warning
 
-**Goal:** Apply actionable improvements from the review.
+**Fallback:** If reviewer unavailable on any iteration, show warning and proceed to Stage 5 with empty issues array.
 
-**For each issue in the issues array:**
-
-1. If `severity: "blocker"` or `severity: "warning"`:
-   - Determine if fix is actionable (has `suggested_fix`)
-   - Apply the fix to the PRD content
-   - Record: `Changed: {what} — Reason: {issue description}`
-
-2. If `severity: "suggestion"`:
-   - Consider but don't require action
-   - Record if applied
-
-**Update the PRD file** with all corrections.
-
-**Add to Review History section:**
-```markdown
-### Review 1 ({date})
-**Findings:**
-- [{severity}] {description} (at: {location})
-
-**Corrections Applied:**
-- {what changed} — Reason: {reference to finding}
-```
-
-**Exit condition:** All actionable issues addressed and PRD file updated.
+**Exit condition:** PASS achieved or 3 iterations exhausted.
 
 ---
-### Stage 6: READINESS CHECK
+### Stage 5: READINESS CHECK
 
-**Goal:** Validate brainstorm is ready for feature promotion (first quality gate).
+**Goal:** Validate brainstorm is ready for feature promotion (quality gate with auto-correction loop, max 3 iterations).
 
-**Action:** Dispatch Task tool:
+Set `readiness_iteration = 0`.
+
+**a. Dispatch brainstorm-reviewer** (always a NEW Task tool instance per iteration):
 - Tool: `Task`
 - subagent_type: `iflow-dev:brainstorm-reviewer`
 - prompt: |
@@ -256,6 +257,8 @@ If "None": skip Step 10, proceed to Stage 2.
     Domain Review Criteria:
     {stored criteria list from Step 10}
 
+    This is readiness-check iteration {readiness_iteration}/3.
+
     Return your assessment as JSON:
     { "approved": true/false, "issues": [...], "summary": "..." }
 
@@ -264,14 +267,27 @@ If "None": skip Step 10, proceed to Stage 2.
 { "approved": true/false, "issues": [...], "summary": "..." }
 ```
 
-**Store result:** Keep `approved` status and `issues` for Stage 7.
+**b. Apply strict threshold:**
+- **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
+- **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
+
+**c. Branch on result:**
+- If PASS → Store `approved: true`, proceed to Stage 6
+- If FAIL AND readiness_iteration < 3:
+  - Auto-correct PRD to address all blocker AND warning issues
+  - Record corrections in Review History
+  - Increment readiness_iteration
+  - Return to step a (new brainstorm-reviewer instance verifies)
+- If FAIL AND readiness_iteration == 3:
+  - Store unresolved issues
+  - Proceed to Stage 6 with BLOCKED status (user must decide)
 
 **Fallback:** If reviewer unavailable, show warning and proceed with `approved: unknown`.
 
-**Exit condition:** Readiness status determined.
+**Exit condition:** PASS achieved, or 3 iterations exhausted (BLOCKED).
 
 ---
-### Stage 7: USER DECISION
+### Stage 6: USER DECISION
 
 **Goal:** Present readiness status and let user decide next action.
 
@@ -335,7 +351,7 @@ AskUserQuestion:
     "question": "PRD has blockers. What would you like to do?",
     "header": "Decision",
     "options": [
-      {"label": "Address Issues", "description": "Loop back to clarify and fix blockers"},
+      {"label": "Address Issues", "description": "Auto-correction failed after 3 attempts. Loop back to clarify and fix manually."},
       {"label": "Promote Anyway", "description": "Create feature despite blockers"},
       {"label": "Save and Exit", "description": "Keep PRD, end session"}
     ],
@@ -379,12 +395,12 @@ Write PRD using template from [references/prd-template.md](references/prd-templa
 - **WebSearch Unavailable:** Skip internet research with warning, proceed with codebase and skills research only
 - **Agent Unavailable:** Show warning "{agent} unavailable, proceeding without", continue with available agents
 - **All Research Fails:** Proceed with user input only, mark all claims as "Assumption: needs verification"
-- **PRD Reviewer Unavailable:** Show warning, proceed directly to Stage 5 with empty issues array
-- **Brainstorm Reviewer Unavailable:** Show warning, proceed directly to Stage 7 with `approved: unknown`
+- **PRD Reviewer Unavailable:** Show warning, proceed to Stage 5 with empty issues array
+- **Brainstorm Reviewer Unavailable:** Show warning, proceed directly to Stage 6 with `approved: unknown`
 
 ---
 ## Completion
-After Stage 7:
+After Stage 6:
 - If "Promote to Project": Invoke `/iflow-dev:create-project --prd={prd-file-path}` directly (no mode prompt)
 - If "Promote to Feature": Ask for workflow mode (Standard/Full), then invoke `/iflow-dev:create-feature --prd={prd-file-path}`
 
@@ -397,5 +413,5 @@ When executing the brainstorming skill, you MUST NOT:
 - Continue with any action after user says "Save and Exit"
 - Skip the research stage (Stage 2)
 - Skip the critical review stage (Stage 4)
-- Skip the readiness check stage (Stage 6)
-- Skip the AskUserQuestion decision gate (Stage 7)
+- Skip the readiness check stage (Stage 5)
+- Skip the AskUserQuestion decision gate (Stage 6)

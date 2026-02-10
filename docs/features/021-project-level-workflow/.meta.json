@@ -2,7 +2,8 @@
   "id": "021",
   "slug": "project-level-workflow",
   "mode": "full",
-  "status": "active",
+  "status": "completed",
+  "completed": "2026-02-10T09:45:00Z",
   "created": "2026-02-10T11:40:52Z",
   "branch": "feature/021-project-level-workflow",
   "brainstorm_source": "docs/brainstorms/20260210-114052-project-level-workflow.prd.md",
@@ -52,7 +53,8 @@
       "reviewerNotes": []
     },
     "finish": {
-      "started": "2026-02-10T09:15:00Z"
+      "started": "2026-02-10T09:15:00Z",
+      "completed": "2026-02-10T09:45:00Z"
     }
   }
 }
