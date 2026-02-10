@@ -71,7 +71,8 @@
 ### Step 2.1: Create project-decomposer agent
 
 - **File:** `plugins/iflow-dev/agents/project-decomposer.md` (new)
-- **What:** Agent with YAML frontmatter following existing agent pattern (see `spec-reviewer.md`, `prd-reviewer.md`). System prompt instructs the LLM to:
+- **Template:** Use `plugins/iflow-dev/agents/spec-reviewer.md` as structural template for YAML frontmatter format and agent file conventions.
+- **What:** Agent with YAML frontmatter following existing agent pattern. System prompt instructs the LLM to:
   - Accept full PRD markdown + expected_lifetime
   - Produce JSON matching the decomposition output schema (design C3)
   - Follow vertical slicing principle (each feature = end-to-end value)
@@ -88,6 +89,7 @@
 ### Step 2.2: Create project-decomposition-reviewer agent
 
 - **File:** `plugins/iflow-dev/agents/project-decomposition-reviewer.md` (new)
+- **Template:** Use `plugins/iflow-dev/agents/spec-reviewer.md` as structural template for YAML frontmatter format and review-cycle agent conventions.
 - **What:** Skeptical reviewer agent with YAML frontmatter. System prompt instructs the LLM to:
   - Accept decomposition JSON + original PRD + expected_lifetime + iteration number
   - Evaluate against 5 criteria: organisational cohesion, engineering best practices, goal alignment, lifetime-appropriate complexity, 100% coverage
@@ -129,8 +131,9 @@
   10. Generate `roadmap.md` in project directory (mermaid graph, execution order, milestones, cross-cutting)
   11. Update project `.meta.json` with features[] and milestones[] arrays
 - **Why this order:** Depends on agents (Phase 2). Must exist before create-project command (Phase 4) can invoke it.
-- **Deliverable:** SKILL.md under 500 lines with complete orchestration flow
+- **Deliverable:** SKILL.md under 500 lines with complete orchestration flow. Use terse numbered-step format from the start (like existing skills) rather than verbose prose — this is the primary strategy for staying under the token budget.
 - **Complexity:** Complex
+- **Task breakdown guidance:** This step should become 3-5 tasks during `/create-tasks`: (a) agent dispatch + reviewer cycle, (b) name-to-ID mapping + cycle detection + tsort, (c) user approval gate, (d) feature creation + roadmap generation + project update. Risk R1's line count breakdown provides natural split points.
 - **Verification:** `./validate.sh` passes. SKILL.md is under 500 lines. Manual read confirms all 11 steps are documented. Token count < 5,000.
 
 ### Phase 3 Checkpoint
@@ -209,7 +212,7 @@ wc -l plugins/iflow-dev/skills/decomposing/SKILL.md  # Must be < 500
   6. Update .meta.json: status→active, mode→selected, branch→"feature/{id}-{slug}", lastCompletedPhase→"brainstorm"
   7. Create git branch: `git checkout -b feature/{id}-{slug}`
   8. Continue normal phase execution
-  - Add note about brainstorm-skip suppression: lastCompletedPhase="brainstorm" makes specify a normal forward transition.
+  - Add note about brainstorm-skip suppression: `lastCompletedPhase` set to `"brainstorm"` makes specify a normal forward transition. **Verified:** workflow-state SKILL.md line 82 defines the phase sequence as `[brainstorm, specify, design, create-plan, create-tasks, implement, finish]` — the string `"brainstorm"` is the exact value used at index 0.
   - Add note about targeting planned features with `--feature` argument. **Important:** All phase commands (specify, design, create-plan, create-tasks, implement) already support `--feature=<id-slug>` via their YAML frontmatter `argument-hint` field. The routing mechanism is already implemented: e.g., `specify.md` line 10-13 reads `--feature` and resolves to `docs/features/{feature}/` directly, then reads `.meta.json`. When validateAndSetup reads that `.meta.json` and finds `status: "planned"`, it triggers the new planned→active transition logic. No command modifications needed.
 - **Why this order:** Must be in place for any planned feature to be activated.
 - **Deliverable:** Updated SKILL.md with transition logic
