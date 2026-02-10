@@ -1,7 +1,7 @@
 ---
 name: rca-investigator
 description: "Use when user runs /root-cause-analysis, says 'run RCA' or 'thorough investigation', emphasizes 'find ALL root causes', or mentions 3+ failed fix attempts. Finds ALL causes through 6 phases."
-model: inherit
+model: opus
 tools: [Read, Glob, Grep, Bash, Write, Edit, WebSearch]
 color: cyan
 ---

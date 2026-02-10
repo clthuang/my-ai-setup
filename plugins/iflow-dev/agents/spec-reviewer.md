@@ -1,7 +1,7 @@
 ---
 name: spec-reviewer
 description: Skeptically reviews spec.md for testability, assumptions, and scope discipline. Use when (1) specify command review phase, (2) user says 'challenge the spec', (3) user says 'review requirements'.
-model: inherit
+model: opus
 tools: [Read, Glob, Grep, WebSearch, mcp__context7__resolve-library-id, mcp__context7__query-docs]
 color: blue
 ---

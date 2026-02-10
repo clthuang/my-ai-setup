@@ -1,7 +1,7 @@
 ---
 name: brainstorm-reviewer
 description: Reviews brainstorm artifacts for completeness before promotion. Use when (1) brainstorming skill Stage 6, (2) user says 'review brainstorm', (3) user says 'is this ready to promote'. Read-only.
-model: inherit
+model: opus
 tools: [Read, Glob, Grep]
 color: yellow
 ---
