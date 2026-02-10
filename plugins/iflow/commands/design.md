@@ -231,16 +231,18 @@ b. **Invoke design-reviewer:** Use the Task tool to spawn design-reviewer (the s
 c. **Parse response:** Extract the `approved` field from reviewer's JSON response.
    - If response is not valid JSON, ask reviewer to retry with correct format.
 
-d. **Branch on result:**
-   - If `approved: true` → Proceed to Stage 4
-   - If `approved: false` AND iteration < max:
+d. **Branch on result (strict threshold):**
+   - **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
+   - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
+   - If PASS → Proceed to Stage 4
+   - If FAIL AND iteration < max:
      - Append iteration to `.review-history.md` using format below
      - Increment iteration counter in state
-     - Address the issues by revising design.md
-     - Return to step b
-   - If `approved: false` AND iteration == max:
+     - Address all blocker AND warning issues by revising design.md
+     - Return to step b (always a NEW Task tool dispatch per iteration)
+   - If FAIL AND iteration == max:
      - Store unresolved concerns in `stages.designReview.reviewerNotes`
-     - Proceed to Stage 4
+     - Proceed to Stage 4 with warning
 
 e. **Mark stage completed:**
    ```json
@@ -272,14 +274,18 @@ e. **Mark stage completed:**
 
 **Purpose:** Ensure plan phase has everything it needs.
 
+Phase-reviewer iteration budget: max 3 (independent of Stage 3).
+
+Set `phase_iteration = 0`.
+
 a. **Mark stage started:**
    ```json
    "stages": {
-     "handoffReview": { "started": "{ISO timestamp}" }
+     "handoffReview": { "started": "{ISO timestamp}", "iterations": 0 }
    }
    ```
 
-b. **Invoke phase-reviewer:** Use the Task tool to spawn phase-reviewer (the gatekeeper):
+b. **Invoke phase-reviewer** (always a NEW Task tool dispatch per iteration):
    ```
    Task tool call:
      description: "Review design for phase sufficiency"
@@ -300,6 +306,8 @@ b. **Invoke phase-reviewer:** Use the Task tool to spawn phase-reviewer (the gat
        Plan needs: Components defined, interfaces specified,
        dependencies identified, risks noted.
 
+       This is phase-review iteration {phase_iteration}/3.
+
        Return your assessment as JSON:
        {
          "approved": true/false,
@@ -308,28 +316,38 @@ b. **Invoke phase-reviewer:** Use the Task tool to spawn phase-reviewer (the gat
        }
    ```
 
-c. **Single pass - no loop.** The design-reviewer already validated design quality.
+c. **Branch on result (strict threshold):**
+   - **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
+   - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
+   - If PASS → Proceed to auto-commit
+   - If FAIL AND phase_iteration < 3:
+     - Append to `.review-history.md` with "Stage 4: Handoff Review" marker
+     - Increment phase_iteration
+     - Address all blocker AND warning issues by revising design.md
+     - Return to step b (new agent instance)
+   - If FAIL AND phase_iteration == 3:
+     - Store concerns in `stages.handoffReview.reviewerNotes`
+     - Proceed to auto-commit with warning
 
-d. **Record result:**
-   - If `approved: false`: Store concerns in `stages.handoffReview.reviewerNotes`
-   - Note concerns but do NOT block (design-reviewer already validated)
-
-e. **Mark stage completed:**
+d. **Mark stage completed:**
    ```json
    "stages": {
-     "handoffReview": { "started": "...", "completed": "{ISO timestamp}", "approved": true/false, "reviewerNotes": [...] }
+     "handoffReview": { "started": "...", "completed": "{ISO timestamp}", "iterations": {phase_iteration}, "approved": true/false, "reviewerNotes": [...] }
    }
    ```
 
-f. **Append to review history:**
+e. **Append to review history:**
    ```markdown
-   ## Handoff Review - {ISO timestamp}
+   ## Handoff Review - Iteration {n} - {ISO timestamp}
 
    **Reviewer:** phase-reviewer (gatekeeper)
-   **Decision:** {Approved / Concerns Noted}
+   **Decision:** {Approved / Needs Revision}
 
    **Issues:**
    - [{severity}] {description} (at: {location})
+
+   **Changes Made:**
+   {Summary of revisions made to address issues}
 
    ---
    ```
@@ -344,36 +362,20 @@ Design additionally records stage-level tracking in `.meta.json` phases.design.s
 
 ### 6. Completion Message
 
-"Design complete. Saved to design.md."
-
-Present planning options via AskUserQuestion:
+Output: "Design complete."
 
 ```
 AskUserQuestion:
   questions: [{
-    "question": "How would you like to create your implementation plan?",
-    "header": "Planning",
+    "question": "Design complete. Continue to next phase?",
+    "header": "Next Step",
     "options": [
-      {"label": "iflow create-plan (Recommended)", "description": "Creates plan.md with dependency graphs and workflow tracking"},
-      {"label": "Claude Code Plan Mode", "description": "Read-only analysis mode with approval workflow (Shift+Tab)"}
+      {"label": "Continue to /create-plan (Recommended)", "description": "Creates plan.md with dependency graphs and workflow tracking"},
+      {"label": "Review design.md first", "description": "Inspect the design before continuing"}
     ],
     "multiSelect": false
   }]
 ```
 
-**If Option 1 (Claude Code Plan Mode):**
-- Inform: "To enter plan mode:"
-- Show instructions:
-  ```
-  1. Press Shift+Tab until you see "⏸ plan mode on" indicator
-  2. Provide: "Create implementation plan based on docs/features/{id}-{slug}/design.md. Output to docs/features/{id}-{slug}/plan.md"
-  3. Refine the plan interactively
-  4. Press Ctrl+G to edit plan in your editor
-  5. Say "proceed with the plan" when ready
-  ```
-- Note: "Phase tracking won't be updated until you run /iflow:create-tasks"
-- Do NOT auto-continue (user switches modes manually)
-
-**If Option 2 (iflow /iflow:create-plan):**
-- Inform: "Continuing with /iflow:create-plan..."
-- Auto-invoke `/iflow:create-plan`
+If "Continue to /create-plan (Recommended)": Invoke `/iflow:create-plan`
+If "Review design.md first": Show "Design at {path}/design.md. Run /iflow:create-plan when ready." → STOP
