@@ -47,7 +47,7 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
    - New `/create-project` command, invocable two ways:
      - Automatically from brainstorm Stage 7 when user selects "Promote to Project"
      - Standalone: `/create-project --prd={path}` (fallback for scale detection misses; also prompts for `expected_lifetime` via AskUserQuestion)
-   - **Command flow:** Prompt expected_lifetime → create `docs/projects/{id}-{slug}/` directory → write `.meta.json` and `prd.md` → invoke decomposing skill
+   - **Command flow (both invocation paths):** Prompt expected_lifetime via AskUserQuestion → create `docs/projects/{id}-{slug}/` directory → write `.meta.json` and `prd.md` → invoke decomposing skill
    - P-prefixed project IDs with 3-digit zero-padding (P001, P002, ... P999) — sequential, derived from highest existing ID in `docs/projects/`
    - **Project slug derivation:** Same sanitization as `create-feature` — lowercase, replace spaces/special chars with hyphens, max 30 chars, trim trailing hyphens. Derived from the PRD title.
    - Project statuses: `active`, `completed`, `abandoned`
@@ -114,7 +114,14 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
      3. Goal alignment — decomposition serves PRD goals without premature generalisation
      4. Lifetime-appropriate complexity — complexity calibrated to `expected_lifetime`
      5. 100% coverage — every PRD requirement maps to at least one feature
-   - Review-fix cycle: reviewer returns JSON with `approved`, `issues[]`, `criteria_evaluated[]`; decomposer revises on rejection; max 3 iterations
+   - Review-fix cycle: reviewer returns JSON with `approved`, `issues[]`, `criteria_evaluated[]`; decomposer revises on rejection; max 3 iterations. **Reviewer output schema:**
+     ```json
+     {
+       "approved": false,
+       "issues": [{"criterion": "organisational_cohesion", "description": "...", "severity": "blocker|warning"}],
+       "criteria_evaluated": ["organisational_cohesion", "engineering_best_practices", "goal_alignment", "lifetime_appropriate_complexity", "coverage"]
+     }
+     ```
    - `roadmap.md` artifact (plain markdown, no YAML front-matter — it is a project content artifact, not a plugin component; the PRD suggested YAML front-matter for machine parsing, but this is dropped because roadmap.md is injected as markdown context into LLM prompts, making structured front-matter unnecessary for Phase 1) with mermaid dependency graph and topologically-sorted execution order
    - User approval gate via AskUserQuestion after reviewer approves (max 3 user refinement iterations)
    - Milestone groupings based on dependency layers (features sharing same dependency depth grouped together); delegated to LLM decomposer via `suggested_milestones` output
@@ -145,7 +152,7 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
      2. User selects workflow mode (Standard/Full) via AskUserQuestion
      3. System updates `.meta.json`: `status` → `"active"`, `mode` → selected mode, `branch` → `"feature/{id}-{slug}"`
      4. System creates git branch
-     5. Phase 1 enforces single-active-feature: if another active feature exists, show existing active-feature-exists warning via AskUserQuestion (same as current `create-feature` behavior)
+     5. Phase 1 enforces single-active-feature: if another active feature exists, show existing active-feature-exists warning via AskUserQuestion (same as current `create-feature` behavior; relaxed in Phase 2 per PRD Goal 3)
    - **Brainstorm skip suppression:** When `status` is `planned` and `project_id` is set, `validateTransition` treats the feature as if the brainstorm phase was completed (the project PRD serves as the brainstorm artifact). This prevents a misleading "skipping brainstorm" warning.
    - **Create-feature side effects:** Planned features created by the decomposing skill skip the detecting-kanban state tracking and do not auto-invoke `/specify`. These side effects only apply when a feature transitions to active status.
    - `depends_on_features` is stored and used for roadmap generation and context injection but NOT enforced at runtime in Phase 1 (enforcement deferred to Phase 2)
@@ -237,7 +244,7 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
 - Given the decomposition subagent returns features with circular dependencies (A depends on B, B depends on A)
 - When cycle detection runs
 - Then the system blocks approval and displays the cycle path as text (e.g., "Circular dependency detected: A → B → A")
-- And the user can refine (up to 3 iterations)
+- And the cycle detection failure is presented at the user approval gate (AC-12), where the user can refine (consuming one of the 3 refinement iterations)
 
 ### AC-6: Roadmap Generation
 - Given an approved decomposition with 4 modules and 10 features
@@ -348,7 +355,7 @@ The iflow-dev plugin has no mechanism to decompose a large product vision into m
 ### Assessment
 **Overall:** Confirmed
 
-**Reasoning:** Every component maps directly to existing patterns in the codebase:
+**Reasoning:** Every component maps directly to existing patterns in the codebase (line numbers are approximate and may drift):
 - Scale detection: LLM analysis of PRD text — same approach as brainstorm Stage 4 reviewer analysis. Location: `plugins/iflow-dev/skills/brainstorming/SKILL.md:200-270`
 - Project creation: Mirrors feature creation (directory + .meta.json + artifact). Location: `plugins/iflow-dev/commands/create-feature.md`
 - Decomposition agent: Follows existing agent pattern (YAML frontmatter + system prompt + JSON output). Location: `plugins/iflow-dev/agents/prd-reviewer.md` (same input/output pattern)
