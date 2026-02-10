@@ -167,6 +167,10 @@ Quality criteria and review checklists for workflow artifacts.
 - [ ] Blockers identified
 - [ ] Contingencies noted
 
+### 6. No Time Estimates
+
+- [ ] No time or LOC estimates (deliverables and complexity only)
+
 ---
 
 ## Tasks Quality Criteria
@@ -174,7 +178,7 @@ Quality criteria and review checklists for workflow artifacts.
 ### 1. Task Size
 
 - [ ] Each task 5-15 minutes
-- [ ] No multi-hour tasks
+- [ ] No time estimates (use complexity level, not minutes/hours)
 - [ ] Single responsibility per task
 - [ ] Clear stopping point
 
