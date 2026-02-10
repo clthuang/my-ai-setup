@@ -31,6 +31,24 @@ Keep cross-skill dependencies to read-only access of reference files only.
 - Two levels of fallback adds complexity without proportional reliability gain
 - Source: Feature #018
 
+### Graph-Text Consistency as First-Pass Check
+When reviewing plans with dependency graphs, validate graph-text consistency before deeper review.
+- 4 of 6 plan iterations in Feature #021 were caused by graph-text mismatches
+- Check: Every dependency mentioned in text appears as an edge in the graph, and vice versa
+- Source: Feature #021
+
+### Read Target Files During Task Creation
+When creating tasks for file modifications, read the target file first and include exact line numbers.
+- Tasks without this specificity (7.1, 7.2, 7.3) were the ones blocked in task review
+- Investment in precision during task creation pays off with lower implementation iteration count
+- Source: Feature #021
+
+### Reviewer Iteration Count as Complexity Signal
+Reviewer iteration counts suggest complexity: 2 = straightforward, 3 = moderate, 4+ = initially underspecified.
+- Feature #021 plan had 6 iterations (highest), mostly from dependency graph contradictions
+- If plan iterations exceed 3, check for structural issues (dual representations, missing test cases)
+- Source: Feature #021
+
 <!-- Example format:
 ### When to Create a New Service
 Create a new service when:
