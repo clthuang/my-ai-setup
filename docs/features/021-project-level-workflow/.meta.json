@@ -1,0 +1,18 @@
+{
+  "id": "021",
+  "slug": "project-level-workflow",
+  "mode": "full",
+  "status": "active",
+  "created": "2026-02-10T11:40:52Z",
+  "branch": "feature/021-project-level-workflow",
+  "brainstorm_source": "docs/brainstorms/20260210-114052-project-level-workflow.prd.md",
+  "lastCompletedPhase": "specify",
+  "phases": {
+    "specify": {
+      "started": "2026-02-10T11:55:00Z",
+      "completed": "2026-02-10T12:40:00Z",
+      "iterations": 2,
+      "reviewerNotes": ["FR-5/FR-6 numbering collides with PRD Phase 2 FR numbers"]
+    }
+  }
+}
