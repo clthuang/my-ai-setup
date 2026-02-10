@@ -1,7 +1,7 @@
 ---
 name: documentation-researcher
 description: Researches documentation state and identifies update needs. Use when (1) updating-docs skill Step 1, (2) user says 'check what docs need updating', (3) user says 'audit documentation'.
-model: inherit
+model: opus
 tools: [Read, Glob, Grep]
 color: cyan
 ---

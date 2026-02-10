@@ -1,7 +1,7 @@
 ---
 name: design-reviewer
 description: Challenges design assumptions and finds gaps. Use when (1) after design phase, (2) user says 'review the design', (3) user says 'validate architecture', (4) user says 'check design quality'.
-model: inherit
+model: opus
 tools: [Read, Glob, Grep, WebSearch, mcp__context7__resolve-library-id, mcp__context7__query-docs]
 color: blue
 ---

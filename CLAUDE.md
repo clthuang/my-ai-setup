@@ -57,7 +57,7 @@ AskUserQuestion:
 | Document | Use When |
 |----------|----------|
 | [Component Authoring Guide](docs/dev_guides/component-authoring.md) | Creating skills, agents, plugins, commands, or hooks |
-| [Architecture Design](docs/prds/claude_code_special_force_design.md) | Understanding the three-tier config hierarchy |
+| [Developer Guide](README_FOR_DEV.md) | Architecture, release process, design principles |
 
 ## Quick Reference
 
@@ -67,5 +67,11 @@ AskUserQuestion:
 - Plugins: noun (`datascience-team`)
 
 **Token budget:** SKILL.md <500 lines, <5,000 tokens
+
+**Documentation sync:** When adding, removing, or renaming skills, commands, or agents in `plugins/iflow-dev/`, update:
+- `README.md` and `README_FOR_DEV.md` — skill/agent/command tables and counts
+- `plugins/iflow-dev/skills/workflow-state/SKILL.md` — Workflow Map section (if phase sequence or prerequisites change)
+
+A hookify rule (`.claude/hookify.docs-sync.local.md`) will remind you on plugin component edits.
 
 **Backlog:** Capture ad-hoc ideas with `/iflow:add-to-backlog <description>`. Review at [docs/backlog.md](docs/backlog.md).

@@ -1,7 +1,7 @@
 ---
 name: code-simplifier
 description: Identifies unnecessary complexity and suggests simplifications. Use when (1) after implementation phase, (2) user says 'simplify the code', (3) user says 'remove complexity'.
-model: inherit
+model: opus
 tools: [Read, Glob, Grep]
 color: red
 ---

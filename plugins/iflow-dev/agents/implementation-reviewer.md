@@ -1,7 +1,7 @@
 ---
 name: implementation-reviewer
 description: Validates implementation against full requirements chain (Tasks → Spec → Design → PRD). Use when (1) implement command review phase, (2) user says 'check implementation', (3) user says 'verify against requirements'.
-model: inherit
+model: opus
 tools: [Read, Glob, Grep]
 color: magenta
 ---

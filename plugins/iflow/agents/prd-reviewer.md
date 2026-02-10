@@ -1,7 +1,7 @@
 ---
 name: prd-reviewer
 description: Critically reviews PRD drafts. Use when (1) brainstorming Stage 4, (2) user says 'review the PRD', (3) user says 'challenge the requirements', (4) user says 'find PRD gaps'.
-model: inherit
+model: opus
 tools: [Read, Glob, Grep]
 color: yellow
 ---

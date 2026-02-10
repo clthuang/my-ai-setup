@@ -370,12 +370,12 @@ AskUserQuestion:
     "question": "Design complete. Continue to next phase?",
     "header": "Next Step",
     "options": [
-      {"label": "Continue to /create-plan (Recommended)", "description": "Creates plan.md with dependency graphs and workflow tracking"},
+      {"label": "Continue to /iflow-dev:create-plan (Recommended)", "description": "Creates plan.md with dependency graphs and workflow tracking"},
       {"label": "Review design.md first", "description": "Inspect the design before continuing"}
     ],
     "multiSelect": false
   }]
 ```
 
-If "Continue to /create-plan (Recommended)": Invoke `/iflow-dev:create-plan`
+If "Continue to /iflow-dev:create-plan (Recommended)": Invoke `/iflow-dev:create-plan`
 If "Review design.md first": Show "Design at {path}/design.md. Run /iflow-dev:create-plan when ready." → STOP

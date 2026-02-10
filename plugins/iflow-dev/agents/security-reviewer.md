@@ -1,7 +1,7 @@
 ---
 name: security-reviewer
 description: Reviews for security vulnerabilities. Use when (1) implement command review phase, (2) user says 'security review', (3) user says 'check for vulnerabilities', (4) user says 'audit security'.
-model: inherit
+model: opus
 tools: [Read, Glob, Grep]
 color: magenta
 ---

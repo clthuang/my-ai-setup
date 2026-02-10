@@ -80,6 +80,7 @@ Skills are internal capabilities that Claude uses automatically during the workf
 | reviewing-artifacts | Comprehensive quality criteria for PRD, spec, design, plan, and tasks |
 | implementing-with-tdd | Enforces RED-GREEN-REFACTOR cycle with rationalization prevention |
 | workflow-state | Defines phase sequence and validates transitions |
+| workflow-transitions | Shared workflow boilerplate for phase commands (validation, branch check, commit, state update) |
 
 ### Investigation
 
@@ -173,7 +174,9 @@ docs/
 │   ├── spec.md, design.md, plan.md, tasks.md
 │   └── .meta.json         # Phase tracking
 ├── projects/{id}-{name}/  # From /iflow:create-project
-│   └── project.md         # Decomposition, milestones, feature links
+│   ├── prd.md             # Project PRD
+│   └── roadmap.md         # Dependency graph, milestones
+├── retrospectives/        # From /iflow:retrospect
 └── knowledge-bank/        # Accumulated learnings
 ```
 

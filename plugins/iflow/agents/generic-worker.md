@@ -1,7 +1,7 @@
 ---
 name: generic-worker
 description: General-purpose implementation agent. Use when (1) mixed-domain tasks, (2) no specialist fits, (3) user says 'just do the task', (4) fallback when specific agent unavailable.
-model: inherit
+model: opus
 tools: [Read, Write, Edit, Bash, Glob, Grep]
 color: green
 ---

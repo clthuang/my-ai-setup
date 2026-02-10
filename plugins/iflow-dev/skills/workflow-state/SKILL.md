@@ -25,6 +25,24 @@ brainstorm → specify → design → create-plan → create-tasks → implement
 | implement | code changes | finish |
 | finish | (terminal) | — |
 
+## Workflow Map
+
+Visual overview for "you are here" positioning and skip/return path awareness.
+
+```
+  brainstorm ─► specify ─► design ─► create-plan ─► create-tasks ─► implement ─► finish
+     │            │           │           │               │             │
+   prd.md      spec.md   design.md    plan.md         tasks.md    code changes
+```
+
+**Hard prerequisites** (blocked without artifact):
+- `create-tasks` requires `plan.md`
+- `implement` requires `spec.md`
+
+**Soft prerequisites** (warn but allow skip): all other forward jumps.
+
+**Return paths:** Any completed phase can be re-run. Backward transitions trigger a confirmation prompt but do not undo previous work — artifacts are regenerated, timestamps update.
+
 ## Transition Validation
 
 Before executing any phase command, validate the transition.
