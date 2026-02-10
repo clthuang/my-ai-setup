@@ -125,12 +125,12 @@ AskUserQuestion:
     "question": "Plan complete. Continue to next phase?",
     "header": "Next Step",
     "options": [
-      {"label": "Continue to /create-tasks (Recommended)", "description": "Break plan into actionable tasks"},
+      {"label": "Continue to /iflow:create-tasks (Recommended)", "description": "Break plan into actionable tasks"},
       {"label": "Review plan.md first", "description": "Inspect the plan before continuing"}
     ],
     "multiSelect": false
   }]
 ```
 
-If "Continue to /create-tasks (Recommended)": Invoke `/iflow:create-tasks`
+If "Continue to /iflow:create-tasks (Recommended)": Invoke `/iflow:create-tasks`
 If "Review plan.md first": Show "Plan at {path}/plan.md. Run /iflow:create-tasks when ready." → STOP

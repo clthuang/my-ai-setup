@@ -289,12 +289,12 @@ AskUserQuestion:
     "question": "Implementation complete. Continue to next phase?",
     "header": "Next Step",
     "options": [
-      {"label": "Continue to /finish (Recommended)", "description": "Complete the feature"},
+      {"label": "Continue to /iflow:finish (Recommended)", "description": "Complete the feature"},
       {"label": "Review implementation first", "description": "Inspect the code before finishing"}
     ],
     "multiSelect": false
   }]
 ```
 
-If "Continue to /finish (Recommended)": Invoke `/iflow:finish`
+If "Continue to /iflow:finish (Recommended)": Invoke `/iflow:finish`
 If "Review implementation first": Show "Run /iflow:finish when ready." → STOP
