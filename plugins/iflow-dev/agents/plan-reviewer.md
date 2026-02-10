@@ -129,7 +129,7 @@ Return structured feedback:
 ### Feasibility
 
 - [ ] Can each step actually be implemented?
-- [ ] Are time/complexity estimates realistic?
+- [ ] Are complexity levels realistic? (No time estimates — use Simple/Medium/Complex)
 - [ ] Are there hidden complexities not addressed?
 - [ ] Is the technical approach sound?
 

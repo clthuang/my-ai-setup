@@ -54,6 +54,7 @@ Each task must be immediately actionable:
 - [ ] Each task completable in 5-15 minutes
 - [ ] Single responsibility (one thing done well)
 - [ ] Clear stopping point (not "start implementing X")
+- [ ] No time estimates on individual tasks (use complexity level, not minutes)
 
 ### 4. Dependency Accuracy
 - [ ] All dependencies explicitly listed
@@ -90,6 +91,7 @@ When you see this → Challenge with this:
 | Task > 15 min | "Can this be split? What's the natural boundary?" | "Split at [specific point]" |
 | No test specified | "How do we know this task is done?" | "Add verification: [specific check]" |
 | Missing dependency graph | "Which tasks can run in parallel? Which are sequential?" | "Add dependency section with blocking tasks" |
+| "Estimated: X min" on task | "Remove time estimate — use complexity level instead" | "Replace `Estimated: 10 min` with `Complexity: Simple`" |
 
 ## Engineering Quality Checks
 

@@ -84,6 +84,14 @@ Organize tasks into parallel groups:
 - Observable output (file exists, test passes, UI shows X)
 - No subjective judgments ("code is clean", "works well")
 
+### No Time Estimates
+
+Do NOT include time estimates on tasks. The "5-15 minutes" guideline is a sizing constraint for breaking tasks down, not a prediction to attach to each task.
+
+- BAD: `- **Estimated:** 10 min`
+- BAD: `Critical path: 45 min total`
+- GOOD: Use complexity level (Simple/Medium/Complex) if needed
+
 ## Output: tasks.md
 
 Write to `docs/features/{id}-{slug}/tasks.md`:
@@ -130,7 +138,6 @@ graph TD
   3. {Exact step 3}
 - **Test:** `npm test -- path/to/file.test.ts`
 - **Done when:** {Observable, binary criteria}
-- **Estimated:** 10 min
 
 #### Task 1.2: {Verb + Object + Context}
 - **Why:** Implements Plan {X.Y} / Design Component {Name}
@@ -142,7 +149,6 @@ graph TD
   2. {Exact step 2}
 - **Test:** {Specific verification command or steps}
 - **Done when:** {Binary criteria}
-- **Estimated:** 15 min
 
 ### Phase 2: Core Implementation
 
@@ -156,7 +162,6 @@ graph TD
   2. {Exact step 2}
 - **Test:** {Specific verification}
 - **Done when:** {Binary criteria}
-- **Estimated:** 15 min
 
 ...
 
@@ -164,7 +169,7 @@ graph TD
 
 - Total tasks: {n}
 - Parallel groups: {m}
-- Critical path: Task 1.1 → Task 2.1 → Task 3.1 ({estimated total} min)
+- Critical path: Task 1.1 → Task 2.1 → Task 3.1
 - Max parallelism: {number of tasks in largest parallel group}
 ```
 
