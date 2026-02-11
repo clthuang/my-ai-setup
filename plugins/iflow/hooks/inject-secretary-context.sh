@@ -24,7 +24,7 @@ if [ "$MODE" = "yolo" ]; then
 {
   "hookSpecificOutput": {
     "hookEventName": "SessionStart",
-    "additionalContext": "Secretary in YOLO MODE. All feature requests processed autonomously: brainstorm -> specify -> design -> plan -> tasks -> implement -> finish -> merge. Use: /secretary <request>"
+    "additionalContext": "Secretary in YOLO MODE. Use: /secretary orchestrate <desc> for full autonomous workflow, or /secretary <request> for intelligent routing."
   }
 }
 EOF
