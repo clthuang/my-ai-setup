@@ -217,7 +217,7 @@ Agents are isolated subprocesses spawned by the workflow. Located in `plugins/if
 - `skill-searcher` — Finds relevant existing skills for a given topic
 
 **Orchestration (2):**
-- `secretary` — Routes user requests to appropriate specialist agents
+- `secretary` — Routes user requests to appropriate specialist agents; drives autonomous workflow in YOLO mode with gap detection and auto-creation
 - `rca-investigator` — Finds all root causes through 6-phase systematic investigation
 
 ## Hooks
@@ -277,6 +277,69 @@ The `/implement` command uses a multi-phase execution flow:
 2. **Simplification**: `code-simplifier` removes unnecessary complexity
 3. **Review** (iterative): `implementation-reviewer` -> `code-quality-reviewer` -> `security-reviewer` (up to 2-3 iterations)
 4. **Completion**: Prompts user to run `/finish`
+
+## YOLO Mode (Autonomous Workflow)
+
+The secretary agent supports a `[YOLO_MODE]` flag that enables fully autonomous feature development.
+
+### How It Works
+
+1. User sets mode: `/secretary mode yolo`
+2. User invokes: `/secretary build X`
+3. Secretary command reads `.claude/secretary.local.md`, detects `activation_mode: yolo`
+4. Dispatches secretary agent with `[YOLO_MODE]` prefix
+5. Secretary agent detects workflow state and invokes the starting command with `[YOLO_MODE]`
+6. Each command auto-selects through AskUserQuestion prompts and chains to the next command
+7. The `[YOLO_MODE]` flag propagates through args at every phase transition
+
+### Flag Propagation
+
+Each phase command includes `[YOLO_MODE]` in the args when invoking the next command. This ensures the flag survives context compaction (it appears in the most recent Skill invocation args rather than only in early conversation messages).
+
+### What Gets Bypassed
+
+- User confirmation at phase transitions
+- Interactive Q&A in brainstorm Stage 1
+- Manual spec review loop (auto-selects "Looks good" on first draft)
+- Research findings review in design Stage 0
+- Mode selection prompts (auto-selects "Standard")
+- Self-generation confirmation (auto-creates when no specialist matches)
+
+### What Still Runs
+
+- All reviewer subagents (spec-reviewer, design-reviewer, plan-reviewer, etc.)
+- All phase-reviewer handoff gates
+- Implementation 3-reviewer validation (implementation, quality, security)
+- Pre-merge validation checks
+- Research stages in brainstorm (internet-researcher, codebase-explorer, skill-searcher)
+
+### Hard Stop Points
+
+YOLO mode stops and reports to user (does not force through):
+1. Implementation circuit breaker — 5 review iterations without approval
+2. Git merge conflict — cannot auto-resolve
+3. Pre-merge validation failure — 3 fix attempts exhausted
+4. Hard prerequisite failures — spec.md or plan.md missing/invalid
+5. Git push failure — network or auth issues
+
+### Files Modified for YOLO Support
+
+| File | Change |
+|------|--------|
+| `skills/workflow-transitions/SKILL.md` | YOLO overrides for shared validateAndSetup |
+| `skills/brainstorming/SKILL.md` | Skip Q&A, auto-select promote/mode |
+| `skills/specifying/SKILL.md` | Auto-select "Looks good", infer requirements |
+| `skills/workflow-state/SKILL.md` | Planned→Active auto-selection |
+| `commands/create-feature.md` | Auto-select conflict resolution and mode |
+| `commands/specify.md` | Auto-select feature, auto-chain to design |
+| `commands/design.md` | Auto-proceed research, auto-chain to create-plan |
+| `commands/create-plan.md` | Auto-chain to create-tasks |
+| `commands/create-tasks.md` | Auto-chain to implement |
+| `commands/implement.md` | Circuit breaker STOP, auto-chain to finish |
+| `commands/finish.md` | Auto-continue, auto-merge, STOP on conflict |
+| `agents/secretary.md` | Workflow orchestration + gap detection modules |
+| `commands/secretary.md` | Yolo mode config + [YOLO_MODE] prefix |
+| `hooks/inject-secretary-context.sh` | Yolo mode session context |
 
 ## Knowledge Bank
 

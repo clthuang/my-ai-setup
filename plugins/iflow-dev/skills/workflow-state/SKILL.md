@@ -86,6 +86,11 @@ Transitions following the sequence proceed without warnings.
 
 ### Planned→Active Transition
 
+**YOLO Mode:** If `[YOLO_MODE]` is active, auto-select through all Planned→Active prompts:
+- "Start working?" → auto "Yes"
+- Mode selection → auto "Standard (Recommended)"
+- Active feature conflict → auto "Continue"
+
 When a phase command targets a feature with `status: "planned"`, handle the transition before normal validation:
 
 1. Detect `status: "planned"` in feature `.meta.json`
