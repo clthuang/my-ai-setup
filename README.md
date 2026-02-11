@@ -51,7 +51,8 @@ Then follow the phases:
 | `/iflow:retrospect` | Run retrospective on a feature |
 | `/iflow:add-to-backlog` | Capture ad-hoc ideas and todos |
 | `/iflow:cleanup-brainstorms` | Delete old brainstorm scratch files |
-| `/iflow:secretary` | Intelligent task routing to agents (supports YOLO mode for fully autonomous workflow) |
+| `/iflow:secretary` | Intelligent task routing to agents (supports YOLO mode with orchestrate subcommand) |
+| `/iflow:create-specialist-team` | Create ephemeral specialist teams for complex tasks |
 | `/iflow:root-cause-analysis` | Investigate bugs systematically |
 | `/iflow:sync-cache` | Sync plugin source files to cache |
 
@@ -96,11 +97,17 @@ Skills are internal capabilities that Claude uses automatically during the workf
 | game-design | Game design frameworks, engagement/retention analysis, aesthetic direction, and feasibility evaluation |
 | crypto-analysis | Crypto/Web3 frameworks for protocol comparison, DeFi taxonomy, tokenomics, trading strategies, MEV classification, market structure, and risk assessment |
 
+### Specialist Teams
+
+| Skill | Purpose |
+|-------|---------|
+| creating-specialist-teams | Creates ephemeral specialist teams via template injection into generic-worker |
+
 ### Maintenance
 
 | Skill | Purpose |
 |-------|---------|
-| retrospecting | Captures learnings using subagents after feature completion |
+| retrospecting | Runs data-driven AORTA retrospective using retro-facilitator agent |
 | updating-docs | Automatically updates documentation using agents |
 | writing-skills | Applies TDD approach to skill documentation |
 | detecting-kanban | Detects Vibe-Kanban and provides TodoWrite fallback |
@@ -149,8 +156,10 @@ Agents run as specialized subprocesses delegated by the workflow. They operate a
 
 | Agent | Purpose |
 |-------|---------|
-| secretary | Routes user requests to appropriate specialist agents; drives autonomous workflow in YOLO mode |
+| secretary | Routes user requests to appropriate specialist agents via triage and independent review |
+| secretary-reviewer | Validates secretary routing recommendations before presenting to user |
 | rca-investigator | Finds all root causes through 6-phase systematic investigation |
+| retro-facilitator | Runs data-driven AORTA retrospective with full intermediate context |
 
 ## Task Output Format
 
@@ -189,10 +198,13 @@ The secretary agent can drive the entire feature workflow autonomously:
 /iflow:secretary mode yolo
 
 # Build a feature end-to-end without pausing
-/iflow:secretary build a validation helper for email format
+/iflow:secretary orchestrate build a validation helper for email format
+
+# Resume from last completed phase
+/iflow:secretary continue
 ```
 
-In YOLO mode, the secretary chains all phases automatically:
+In YOLO mode, the orchestrate subcommand chains all phases automatically:
 `brainstorm -> specify -> design -> create-plan -> create-tasks -> implement -> finish -> merge`
 
 All quality gates (reviewers, phase validators) still run. YOLO mode only bypasses user confirmation prompts at phase transitions.

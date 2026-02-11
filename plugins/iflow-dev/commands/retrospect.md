@@ -6,3 +6,7 @@ argument-hint: [feature-id]
 Invoke the retrospecting skill for the specified or current feature.
 
 Read docs/features/ to find feature, then follow retrospecting skill instructions.
+
+Note: Best results when run after implementation phase completes
+(when .review-history.md and full .meta.json are available).
+Can also run on partially completed features with reduced data.

@@ -177,10 +177,15 @@ Skills are instructions Claude follows for specific development practices. Locat
 | `game-design` | Game design frameworks, engagement/retention analysis, aesthetic direction, and feasibility evaluation |
 | `crypto-analysis` | Crypto/Web3 frameworks for protocol comparison, DeFi taxonomy, tokenomics, trading strategies, MEV classification, market structure, and risk assessment |
 
+### Specialist Teams
+| Skill | Purpose |
+|-------|---------|
+| `creating-specialist-teams` | Creates ephemeral specialist teams via template injection into generic-worker |
+
 ### Maintenance
 | Skill | Purpose |
 |-------|---------|
-| `retrospecting` | Captures learnings using subagents after feature completion |
+| `retrospecting` | Runs data-driven AORTA retrospective using retro-facilitator agent |
 | `updating-docs` | Automatically updates documentation using agents |
 | `writing-skills` | Applies TDD approach to skill documentation |
 | `detecting-kanban` | Detects Vibe-Kanban and provides TodoWrite fallback |
@@ -216,9 +221,11 @@ Agents are isolated subprocesses spawned by the workflow. Located in `plugins/if
 - `investigation-agent` — Read-only research agent for context gathering
 - `skill-searcher` — Finds relevant existing skills for a given topic
 
-**Orchestration (2):**
-- `secretary` — Routes user requests to appropriate specialist agents; drives autonomous workflow in YOLO mode with gap detection and auto-creation
+**Orchestration (4):**
+- `secretary` — Routes user requests to appropriate specialist agents via triage, independent review, and mode recommendation
+- `secretary-reviewer` — Validates secretary routing recommendations before presenting to user
 - `rca-investigator` — Finds all root causes through 6-phase systematic investigation
+- `retro-facilitator` — Runs data-driven AORTA retrospective with full intermediate context
 
 ## Hooks
 
@@ -337,8 +344,10 @@ YOLO mode stops and reports to user (does not force through):
 | `commands/create-tasks.md` | Auto-chain to implement |
 | `commands/implement.md` | Circuit breaker STOP, auto-chain to finish |
 | `commands/finish.md` | Auto-continue, auto-merge, STOP on conflict |
-| `agents/secretary.md` | Workflow orchestration + gap detection modules |
-| `commands/secretary.md` | Yolo mode config + [YOLO_MODE] prefix |
+| `agents/secretary.md` | Triage + reviewer gate + mode recommendation |
+| `agents/secretary-reviewer.md` | Validates routing before user sees recommendation |
+| `commands/secretary.md` | Yolo mode config + orchestrate subcommand + [YOLO_MODE] prefix |
+| `commands/create-specialist-team.md` | Ephemeral specialist teams via template injection |
 | `hooks/inject-secretary-context.sh` | Yolo mode session context |
 
 ## Knowledge Bank
