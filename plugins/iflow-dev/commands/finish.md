@@ -139,73 +139,18 @@ git push
 
 Run retrospective automatically without asking permission.
 
-### Step 3a: Gather Context via Subagent
+### Step 3a: Run Retrospective
 
-Dispatch investigation-agent:
+Follow the `retrospecting` skill, which handles:
+1. Context bundle assembly (.meta.json, .review-history.md, git summary, artifact stats)
+2. retro-facilitator agent dispatch (AORTA framework analysis)
+3. retro.md generation
+4. Knowledge bank updates
+5. Commit
 
-```
-Task tool call:
-  description: "Gather feature learnings"
-  subagent_type: iflow-dev:investigation-agent
-  prompt: |
-    Gather retrospective data for feature {id}-{slug}.
+The skill includes graceful degradation — if retro-facilitator fails, it falls back to investigation-agent.
 
-    Read:
-    - Feature folder contents (docs/features/{id}-{slug}/)
-    - Git log for this branch
-    - .review-history.md if exists
-    - Any blockers/issues encountered
-
-    Identify:
-    - What went well
-    - What could improve
-    - Patterns worth documenting
-    - Anti-patterns to avoid
-
-    Return structured findings as JSON:
-    {
-      "what_went_well": [...],
-      "what_could_improve": [...],
-      "patterns": [...],
-      "anti_patterns": [...],
-      "heuristics": [...]
-    }
-```
-
-### Step 3b: Generate Retrospective
-
-Based on gathered context:
-
-1. Identify learnings (patterns, anti-patterns, heuristics)
-2. Write `docs/features/{id}-{slug}/retro.md`:
-
-```markdown
-# Retrospective: {Feature Name}
-
-## What Went Well
-- {From investigation findings}
-
-## What Could Improve
-- {From investigation findings}
-
-## Learnings Captured
-- {Patterns/anti-patterns identified}
-
-## Knowledge Bank Updates
-- {If any patterns added to knowledge-bank/}
-```
-
-3. Update knowledge bank files if appropriate patterns identified
-
-### Step 3c: Commit Retrospective
-
-```bash
-git add docs/features/{id}-{slug}/retro.md docs/features/{id}-{slug}/.meta.json docs/knowledge-bank/
-git commit -m "docs: add retrospective for feature {id}-{slug}"
-git push
-```
-
-### Step 3d: CLAUDE.md Update
+### Step 3b: CLAUDE.md Update
 
 Capture session learnings into project CLAUDE.md.
 
