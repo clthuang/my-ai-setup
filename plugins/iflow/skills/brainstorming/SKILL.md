@@ -7,6 +7,22 @@ description: Guides a 6-stage process producing evidence-backed PRDs. Use when t
 
 Guide divergent thinking through a structured 6-stage process that produces a PRD.
 
+## YOLO Mode Overrides
+
+If `[YOLO_MODE]` is active in the execution context:
+
+- **Stage 1 (CLARIFY):** Skip Q&A. Infer all 5 required items from the user's description.
+  Use reasonable defaults for anything not inferable. Do NOT ask any questions.
+- **Step 6 (Problem Type):** Auto-select "Product/Feature"
+- **Step 9 (Domain):** Auto-select "None"
+- **Stages 2-5:** Run normally (research, drafting, and reviews still execute for quality)
+- **Stage 6 (Decision):** Auto-select "Promote to Feature" regardless of variant
+  (project-recommended, non-project, or blocked — always choose feature, not project)
+- **Mode selection:** Auto-select "Standard"
+- **Context propagation:** When invoking create-feature, include `[YOLO_MODE]` in args
+
+These overrides take precedence over the PROHIBITED section for YOLO mode only.
+
 ## Getting Started
 
 ### 1. Create Scratch File

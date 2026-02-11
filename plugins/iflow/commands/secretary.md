@@ -1,6 +1,6 @@
 ---
 description: Intelligent task routing - discover agents and delegate work
-argument-hint: [help|mode [manual|aware|proactive]|<request>]
+argument-hint: [help|mode [manual|aware|yolo]|<request>]
 ---
 
 # /iflow:secretary Command
@@ -19,12 +19,13 @@ Secretary Agent - Intelligent Task Routing
 Usage:
   /iflow:secretary help              Show this help
   /iflow:secretary mode              Show current activation mode
-  /iflow:secretary mode <mode>       Set activation mode (manual|aware)
+  /iflow:secretary mode <mode>       Set activation mode (manual|aware|yolo)
   /iflow:secretary <request>         Route request to best agent
 
 Modes:
   manual   - Only activates via explicit /secretary command (default)
   aware    - Injects routing hints at session start
+  yolo     - Fully autonomous: runs entire workflow without pausing
 
 Examples:
   /iflow:secretary review auth for security issues
@@ -54,23 +55,10 @@ Current mode: {mode}
 Available modes:
   manual - Only activates via explicit /secretary command
   aware  - Injects routing hints at session start
+  yolo   - Fully autonomous: runs entire workflow without pausing
 ```
 
-If argument is `mode proactive`:
-
-Report that proactive mode is not yet available:
-```
-Proactive mode is planned for Phase 2.
-
-Currently available modes:
-  manual - Only activates via explicit /secretary command
-  aware  - Injects routing hints at session start
-
-Use: /iflow:secretary mode manual
- or: /iflow:secretary mode aware
-```
-
-If argument is `mode <value>` where value is `manual` or `aware`:
+If argument is `mode <value>` where value is `manual`, `aware`, or `yolo`:
 
 1. Check if `.claude/secretary.local.md` exists
 2. If exists:
@@ -95,19 +83,28 @@ Invalid mode: {invalid}
 Valid modes are:
   manual - Only activates via explicit /secretary command
   aware  - Injects routing hints at session start
+  yolo   - Fully autonomous: runs entire workflow without pausing
 ```
 
 ## Subcommand: <request>
 
 If argument is anything other than `help` or `mode`:
 
-This is a user request to route. Invoke the secretary agent:
+This is a user request to route.
+
+**Before dispatching**, read `.claude/secretary.local.md`. If `activation_mode: yolo`, prefix the Task prompt with `[YOLO_MODE]`:
 
 ```
+# Read config
+config = read(".claude/secretary.local.md")
+yolo = config contains "activation_mode: yolo"
+
 Task({
   subagent_type: "iflow:secretary",
   description: "Route user request to appropriate agent",
-  prompt: "User request: {full argument string}"
+  prompt: yolo
+    ? "[YOLO_MODE] User request: {full argument string}"
+    : "User request: {full argument string}"
 })
 ```
 

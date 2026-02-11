@@ -168,6 +168,9 @@ Create-tasks additionally records taskReview and chainReview sub-objects in the 
 
 Output: "Tasks created. {n} tasks across {m} phases, {p} parallel groups."
 
+**YOLO Mode:** If `[YOLO_MODE]` is active, skip the AskUserQuestion and directly invoke
+`/iflow:implement` with `[YOLO_MODE]` in args.
+
 ```
 AskUserQuestion:
   questions: [{
