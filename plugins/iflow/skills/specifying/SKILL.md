@@ -7,6 +7,17 @@ description: Creates precise specifications. Use when the user says 'write the s
 
 Create precise, testable requirements.
 
+## YOLO Mode Overrides
+
+If `[YOLO_MODE]` is active:
+
+- **"No PRD found" prompt:** Auto-select "Describe feature now" — use the YOLO description
+  from the original user request as the feature description
+- **"Review this spec" loop (both PRD and no-PRD paths):** Auto-select "Looks good" on first draft.
+  The spec-reviewer and phase-reviewer stages (in specify.md) provide quality assurance.
+- **No-PRD path requirement gathering:** Infer problem, success criteria, scope, and acceptance
+  criteria from user description + any available context. Do not ask interactive questions.
+
 ## Prerequisites
 
 Check for feature context:

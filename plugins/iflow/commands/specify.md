@@ -5,6 +5,12 @@ argument-hint: [--feature=<id-slug>]
 
 Invoke the specifying skill for the current feature context.
 
+## YOLO Mode Overrides
+
+If `[YOLO_MODE]` is active:
+- Multiple active features → auto-select most recently created (highest ID)
+- Completion prompt → skip AskUserQuestion, directly invoke `/iflow:design` with `[YOLO_MODE]`
+
 ## Determine Target Feature
 
 **If `--feature` argument provided:**

@@ -51,7 +51,7 @@ Then follow the phases:
 | `/iflow:retrospect` | Run retrospective on a feature |
 | `/iflow:add-to-backlog` | Capture ad-hoc ideas and todos |
 | `/iflow:cleanup-brainstorms` | Delete old brainstorm scratch files |
-| `/iflow:secretary` | Intelligent task routing to agents |
+| `/iflow:secretary` | Intelligent task routing to agents (supports YOLO mode for fully autonomous workflow) |
 | `/iflow:root-cause-analysis` | Investigate bugs systematically |
 | `/iflow:sync-cache` | Sync plugin source files to cache |
 
@@ -149,7 +149,7 @@ Agents run as specialized subprocesses delegated by the workflow. They operate a
 
 | Agent | Purpose |
 |-------|---------|
-| secretary | Routes user requests to appropriate specialist agents |
+| secretary | Routes user requests to appropriate specialist agents; drives autonomous workflow in YOLO mode |
 | rca-investigator | Finds all root causes through 6-phase systematic investigation |
 
 ## Task Output Format
@@ -179,6 +179,33 @@ docs/
 ├── retrospectives/        # From /iflow:retrospect
 └── knowledge-bank/        # Accumulated learnings
 ```
+
+## Autonomous Operation (YOLO Mode)
+
+The secretary agent can drive the entire feature workflow autonomously:
+
+```bash
+# Enable YOLO mode
+/iflow:secretary mode yolo
+
+# Build a feature end-to-end without pausing
+/iflow:secretary build a validation helper for email format
+```
+
+In YOLO mode, the secretary chains all phases automatically:
+`brainstorm -> specify -> design -> create-plan -> create-tasks -> implement -> finish -> merge`
+
+All quality gates (reviewers, phase validators) still run. YOLO mode only bypasses user confirmation prompts at phase transitions.
+
+**Safety boundaries** (YOLO mode stops and reports):
+- Implementation review fails after 5 iterations
+- Git merge conflict on develop
+- Pre-merge validation fails after 3 fix attempts
+- Hard prerequisite failures (missing spec.md or plan.md)
+
+Resume after a stop: `/iflow:secretary continue`
+
+**Modes:** `manual` (default) | `aware` (session hints) | `yolo` (fully autonomous)
 
 ## For Developers
 

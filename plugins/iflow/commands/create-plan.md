@@ -119,6 +119,9 @@ Follow `commitAndComplete("create-plan", ["plan.md"])` from the **workflow-trans
 
 Output: "Plan complete."
 
+**YOLO Mode:** If `[YOLO_MODE]` is active, skip the AskUserQuestion and directly invoke
+`/iflow:create-tasks` with `[YOLO_MODE]` in args.
+
 ```
 AskUserQuestion:
   questions: [{

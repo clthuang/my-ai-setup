@@ -7,6 +7,17 @@ argument-hint: [feature-id]
 
 Complete a feature and clean up.
 
+## YOLO Mode Overrides
+
+If `[YOLO_MODE]` is active:
+- Step 2a (tasks incomplete) → auto "Continue anyway"
+- Step 2b (docs no update needed) → auto "Skip"
+- Step 2b (docs updates found) → proceed with documentation-writer (no prompt needed)
+- Phase 4 (completion decision) → auto "Merge & Release (Recommended)"
+- **Git merge failure:** STOP and report. Do NOT attempt to resolve merge conflicts
+  autonomously. Output: "YOLO MODE STOPPED: Merge conflict on develop. Resolve manually,
+  then run /secretary continue"
+
 ## Determine Feature
 
 Same logic as /iflow:show-status command.

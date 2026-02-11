@@ -18,6 +18,19 @@ fi
 # Read activation_mode (default: manual)
 MODE=$(grep "^activation_mode:" "$CONFIG_FILE" 2>/dev/null | head -1 | sed 's/^[^:]*: *//' | tr -d ' ' || echo "manual")
 
+# Output for yolo mode
+if [ "$MODE" = "yolo" ]; then
+  cat << 'EOF'
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Secretary in YOLO MODE. All feature requests processed autonomously: brainstorm -> specify -> design -> plan -> tasks -> implement -> finish -> merge. Use: /secretary <request>"
+  }
+}
+EOF
+  exit 0
+fi
+
 # Only output for aware mode
 if [ "$MODE" != "aware" ]; then
   exit 0

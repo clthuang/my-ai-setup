@@ -7,6 +7,17 @@ Invoke the implementing skill for the current feature context.
 
 Read docs/features/ to find active feature, then follow the workflow below.
 
+## YOLO Mode Overrides
+
+If `[YOLO_MODE]` is active:
+- **Circuit breaker (5 iterations):** STOP execution and report failure to user.
+  Do NOT force-approve. This is a safety boundary — autonomous operation should not
+  merge code that fails review 5 times. Output:
+  "YOLO MODE STOPPED: Implementation review failed after 5 iterations.
+   Unresolved issues: {issue list}
+   Resume with: /secretary continue"
+- Completion prompt → skip AskUserQuestion, directly invoke `/iflow:finish` with `[YOLO_MODE]`
+
 ## Workflow Integration
 
 ### 1-3. Validate, Branch Check, Partial Recovery, Mark Started

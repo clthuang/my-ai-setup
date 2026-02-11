@@ -10,6 +10,13 @@ argument-hint: <feature-description> [--prd=<path>]
 Recommended flow: `/iflow:brainstorm` → (promotion) → `/iflow:specify` → ...
 This command: `/iflow:create-feature` → `/iflow:specify` → ... (skips exploration)
 
+## YOLO Mode Overrides
+
+If `[YOLO_MODE]` is active:
+- Active feature conflict → auto "Create new anyway"
+- Mode selection → auto "Standard (Recommended)"
+- Context propagation: when auto-invoking specify, include `[YOLO_MODE]` in args
+
 ## Check for Active Feature
 
 Before creating, check if a feature is already active:

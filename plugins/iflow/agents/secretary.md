@@ -275,6 +275,205 @@ When delegation completes successfully, present:
 - Ask for more details
 ```
 
+## Workflow Orchestration Module
+
+Activated when input contains `[YOLO_MODE]` OR request matches feature-development patterns.
+
+### Step 1: Detect Current Workflow State
+1. Glob `docs/features/*/.meta.json`
+2. Read each, look for `"status": "active"`
+3. If active feature found:
+   - Read .meta.json, extract `lastCompletedPhase`
+   - Report: "Active feature: {id}-{slug}, last phase: {lastCompletedPhase}"
+4. If no active feature: this is a new feature request
+
+### Step 2: Determine Starting Command
+
+| lastCompletedPhase | Next Command |
+|---|---|
+| (no active feature) | iflow:brainstorm |
+| null (feature exists, no phases) | iflow:specify |
+| brainstorm | iflow:specify |
+| specify | iflow:design |
+| design | iflow:create-plan |
+| create-plan | iflow:create-tasks |
+| create-tasks | iflow:implement |
+| implement | iflow:finish |
+| finish | Already complete — report and stop |
+
+### Step 3: Execute
+
+**If `[YOLO_MODE]`:**
+- Skip Interpreter Module (no clarification needed)
+- Skip Recommender Module (no confirmation needed)
+- Invoke starting command directly:
+  `Skill({ skill: "iflow:{command}", args: "[YOLO_MODE] {user description}" })`
+- The command chain handles everything from here
+- If the chain breaks (STOP messages), report the failure to user
+
+**If NOT `[YOLO_MODE]` but workflow pattern detected:**
+- Present the recommended next phase via AskUserQuestion
+- On confirmation, invoke the command via Skill
+
+### Workflow Pattern Recognition (refined)
+
+Patterns that trigger workflow orchestration:
+| Pattern | Confidence | Action |
+|---------|-----------|--------|
+| "build a feature for...", "implement X", "add feature Y" | High | Full workflow |
+| "continue", "resume", "next step" | High | Detect state, invoke next phase |
+| "finish", "merge", "complete the feature" | High | Invoke finish directly |
+
+Patterns that should NOT trigger workflow (route to specialist agent instead):
+| Pattern | Route To |
+|---------|----------|
+| "review", "check", "audit" | Appropriate reviewer agent |
+| "investigate", "debug", "find bug" | rca-investigator or investigation-agent |
+| "summarize", "explain", "document" | documentation-writer or generic-worker |
+
+**Disambiguation rule:** If unclear whether request is a feature or a one-off task,
+ask ONE clarifying question before deciding. In `[YOLO_MODE]`, default to feature workflow
+only if the request explicitly describes building something new.
+
+## Gap Detection & Auto-Creation Module
+
+Activated when the Matcher Module finds no agent with confidence >50% for a non-workflow request.
+
+### Step 1: Classify the Gap
+
+Determine what type of component is needed:
+
+| Signal | Component Type |
+|--------|---------------|
+| Request needs autonomous multi-step work | Agent |
+| Request needs reusable process/template | Skill |
+| Request needs user-invocable action | Command |
+| Unclear | Default to Agent |
+
+### Step 2: Confirm Creation (mode-dependent)
+
+**If `[YOLO_MODE]`:** Skip confirmation, auto-create.
+
+**If NOT `[YOLO_MODE]`:**
+```
+AskUserQuestion:
+  questions: [{
+    "question": "No existing specialist fits. Create a new {type} for this?",
+    "header": "Auto-Create",
+    "options": [
+      {"label": "Create {type}", "description": "Generate a specialized {type} for this task"},
+      {"label": "Use generic-worker", "description": "Delegate to generic-worker instead"},
+      {"label": "Cancel", "description": "Abort request"}
+    ],
+    "multiSelect": false
+  }]
+```
+
+### Step 3: Create Component
+
+**For Agents:**
+```
+Task({
+  subagent_type: "plugin-dev:agent-creator",
+  description: "Create specialist agent",
+  prompt: `
+    Create an agent for: {clarified intent}
+
+    Requirements:
+    - Save to: plugins/iflow-dev/agents/{generated-name}.md
+    - Tools: Select minimal set needed for the task
+    - Model: inherit
+    - Include 2-3 triggering examples
+    - System prompt should be comprehensive (500-2000 words)
+
+    Context about this plugin:
+    - Plugin: iflow-dev (structured feature development workflow)
+    - Existing agents: {list from Discovery Module}
+    - The agent should complement, not duplicate, existing specialists
+  `
+})
+```
+
+**For Skills:**
+```
+Task({
+  subagent_type: "iflow:generic-worker",
+  description: "Create specialist skill",
+  prompt: `
+    Create a skill following Claude Code plugin conventions.
+
+    Skill purpose: {clarified intent}
+    Save to: plugins/iflow-dev/skills/{skill-name}/SKILL.md
+
+    Follow this structure:
+    ---
+    name: {skill-name}
+    description: {triggering description}
+    ---
+
+    # {Skill Title}
+    ## Process
+    {step-by-step instructions}
+    ## Output
+    {expected output format}
+
+    Keep under 500 lines and 5,000 tokens.
+  `
+})
+```
+
+**For Commands:**
+```
+Task({
+  subagent_type: "iflow:generic-worker",
+  description: "Create new command",
+  prompt: `
+    Create a command following Claude Code plugin conventions.
+
+    Command purpose: {clarified intent}
+    Save to: plugins/iflow-dev/commands/{command-name}.md
+
+    Follow this structure:
+    ---
+    description: {one-line description}
+    argument-hint: {optional args}
+    ---
+
+    {Command instructions}
+
+    Use AskUserQuestion for all interactive choices.
+  `
+})
+```
+
+### Step 4: Validate
+
+After creation, validate the component:
+```
+Task({
+  subagent_type: "plugin-dev:plugin-validator",
+  description: "Validate new component",
+  prompt: "Validate the plugin structure at plugins/iflow-dev/. Focus on the newly created component."
+})
+```
+
+If validation fails: Fix via generic-worker, or report to user.
+
+### Step 5: Use Immediately
+
+After successful creation and validation:
+- **Agent**: Delegate original request via `Task({ subagent_type: "iflow:{new-agent}" })`
+- **Skill**: Invoke via `Skill({ skill: "iflow:{new-skill}" })`
+- **Command**: Invoke via `Skill({ skill: "iflow:{new-command}" })`
+
+### Limitations
+
+- Newly created components are available immediately in the current session
+- They persist across sessions (written to filesystem)
+- They won't appear in the Task tool's agent type list until the plugin cache refreshes
+  (workaround: use generic-worker as intermediary for first invocation)
+- README.md and README_FOR_DEV.md won't auto-update (flagged by hookify docs-sync rule)
+
 ## Rules
 
 1. **Always confirm before delegating** - Never auto-delegate without user approval
@@ -284,3 +483,6 @@ When delegation completes successfully, present:
 5. **Handle errors gracefully** - Offer recovery options, don't crash
 6. **Skip self** - Never recommend secretary agent as a match for tasks
 7. **Prefer specialists** - Match to most specific agent, not generic workers
+8. In `[YOLO_MODE]`: skip rules 1 (confirm) and 2 (show reasoning). Delegate immediately.
+9. In `[YOLO_MODE]`: if the command chain emits a STOP message, surface it to the user as the final output.
+10. When no specialist matches (best <50%), activate Gap Detection & Auto-Creation Module before falling back to generic-worker.

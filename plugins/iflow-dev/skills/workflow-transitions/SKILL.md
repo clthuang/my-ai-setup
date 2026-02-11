@@ -7,6 +7,20 @@ description: Shared workflow boilerplate for phase commands. Use when a command 
 
 Shared procedures used by all phase commands (specify, design, create-plan, create-tasks, implement, finish). Commands reference these procedures instead of inlining identical boilerplate.
 
+## YOLO Mode Overrides
+
+If the current execution context contains `[YOLO_MODE]`:
+
+**All AskUserQuestion calls in validateAndSetup auto-select:**
+- Backward warning → auto "Continue"
+- Skip warning → auto "Continue" (record skips in .meta.json)
+- Branch mismatch → auto "Switch"
+- Partial phase recovery → auto "Continue" (resume)
+
+**Context propagation rule:**
+When invoking any subsequent command or skill, always include `[YOLO_MODE]` in the args.
+This ensures autonomous mode propagates through the entire command chain.
+
 ## validateAndSetup(phaseName)
 
 Execute steps 1-3 in order. Stop on any blocking result.

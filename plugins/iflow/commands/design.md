@@ -7,6 +7,13 @@ Invoke the designing skill for the current feature context.
 
 Read docs/features/ to find active feature, then follow the workflow below.
 
+## YOLO Mode Overrides
+
+If `[YOLO_MODE]` is active:
+- Stage 0 research findings prompt → auto "Proceed"
+- Stage 0 partial recovery → auto "Resume"
+- Completion prompt → skip AskUserQuestion, directly invoke `/iflow:create-plan` with `[YOLO_MODE]`
+
 ## Workflow Integration
 
 ### 1-3. Validate, Branch Check, Partial Recovery, Mark Started
