@@ -37,20 +37,12 @@ Stop execution. Do not proceed.
 
 ### 4. Implementation Phase
 
-Execute the implementing skill with phased approach:
-
-a. **Deploy subagents** - Select relevant implementer agents based on task domain
-
-b. **Interface Phase** - Build type definitions, function signatures, module structure
-
-c. **RED-GREEN Loop** - For each piece of functionality:
-   - RED: Write failing test
-   - GREEN: Write minimal code to pass
-   - Loop until all functionality covered
-
-d. **REFACTOR Phase** - Clean up while keeping tests green
-
-e. **Return to main agent** with implementation report
+Execute the implementing skill which:
+- Parses tasks.md for all task headings
+- Dispatches implementer agent per task with scoped context
+- Collects structured reports (files changed, decisions, deviations, concerns)
+- Appends per-task entries to implementation-log.md
+- Returns aggregate summary (files changed, completion status)
 
 ### 5. Code Simplification Phase
 

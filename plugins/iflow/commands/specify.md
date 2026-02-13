@@ -113,6 +113,11 @@ e. **Invoke phase-reviewer** (always a NEW Task tool dispatch per iteration):
        ## Spec (what you're reviewing)
        {content of spec.md}
 
+       ## Domain Reviewer Outcome
+       - Reviewer: spec-reviewer
+       - Result: {APPROVED at iteration {n}/{max} | FAILED at iteration cap ({max}/{max})}
+       - Unresolved issues: {list of remaining blocker/warning descriptions, or "none"}
+
        ## Next Phase Expectations
        Design needs: All requirements listed, acceptance criteria defined,
        scope boundaries clear, no ambiguities.
