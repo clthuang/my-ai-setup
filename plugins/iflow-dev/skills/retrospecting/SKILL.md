@@ -190,6 +190,49 @@ If a knowledge-bank file doesn't exist, create it with a header:
 Accumulated learnings from feature retrospectives.
 ```
 
+### Step 4b: Validate Knowledge Bank (Pre-Existing Entries)
+
+Performed by the orchestrating agent inline (not a sub-agent dispatch). Only validates `anti-patterns.md` and `heuristics.md` (not `patterns.md`).
+
+**a. Read all entries** from `docs/knowledge-bank/anti-patterns.md` and `docs/knowledge-bank/heuristics.md` (~15 entries total).
+
+**b. Identify pre-existing entries** — exclude entries just added in Step 4 by comparing entry names against the retro-facilitator's `act.anti_patterns` and `act.heuristics` output. Only pre-existing entries proceed to validation.
+
+**c. Determine relevance** for each pre-existing entry:
+- **RELEVANT** if the entry's domain (file patterns, coding practices, workflow steps) overlaps with this feature's git diff files, implementation-log decisions/deviations, or review-history issues (all already in context from Step 1)
+- **NOT RELEVANT** if the entry's domain has no overlap — skip, no update needed
+
+**d. Evaluate relevant entries** against this feature's experience:
+
+| Verdict | Condition | Action |
+|---------|-----------|--------|
+| CONFIRMED | Feature experience aligns with entry's guidance | Update `Last observed: Feature #{id}`, increment `Observation count` |
+| CONTRADICTED | Feature experience contradicts the entry | Append `- Challenged: Feature #{id} — {specific contradiction}` to the entry |
+
+**e. Staleness check** (mechanical, not LLM-judgment):
+
+1. For each pre-existing entry, extract the feature number NNN from `Last observed: Feature #{NNN}`
+2. Glob `docs/features/` directories, extract numeric prefix (pattern: `/^(\d+)-/`), count directories with numeric ID > NNN
+3. If count >= 10: flag entry as STALE
+4. Surface all stale entries to user via AskUserQuestion:
+   ```
+   AskUserQuestion:
+     questions: [{
+       "question": "The following entries haven't been observed in 10+ features:\n{list with entry names and last-observed feature numbers}\n\nFor each entry, choose an action.",
+       "header": "Stale Knowledge Bank Entries",
+       "options": [
+         {"label": "Keep", "description": "Remove stale marker, update Last observed to current feature"},
+         {"label": "Update", "description": "Provide new text, modify in-place, reset Observation count to 1"},
+         {"label": "Retire", "description": "Delete entry from file, note in retro.md"}
+       ],
+       "multiSelect": false
+     }]
+   ```
+5. Apply user's choice per entry:
+   - **Keep**: Remove stale marker, update `Last observed` to current feature, `Observation count` unchanged
+   - **Update**: User provides new text, modify entry in-place, update `Last observed`, reset `Observation count` to 1
+   - **Retire**: Delete entry from file, append to `retro.md`: `Retired: {entry name} — {user's reason}`
+
 ### Step 5: Commit
 
 ```bash
