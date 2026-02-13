@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# Stop hook: Enforce YOLO mode phase transitions (Ralph Wiggum pattern)
+# Control 1: Sends Claude back if reviews aren't approved yet
+# Control 2: Forces phase transition when reviews pass but Claude stops
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+source "${SCRIPT_DIR}/lib/common.sh"
+PROJECT_ROOT="$(detect_project_root)"
+
+IFLOW_CONFIG="${PROJECT_ROOT}/.claude/iflow-dev.local.md"
+STATE_FILE="${PROJECT_ROOT}/.claude/.yolo-hook-state"
+
+# Read stdin
+INPUT=$(cat)
+
+# Check YOLO mode
+YOLO=$(read_local_md_field "$IFLOW_CONFIG" "yolo_mode" "false")
+if [[ "$YOLO" != "true" ]]; then
+    exit 0
+fi
+
+# Find active feature: scan docs/features/*/.meta.json for status="active"
+FEATURES_DIR="${PROJECT_ROOT}/docs/features"
+if [[ ! -d "$FEATURES_DIR" ]]; then
+    exit 0
+fi
+
+ACTIVE_META=""
+ACTIVE_META_MTIME=0
+
+for meta_file in "${FEATURES_DIR}"/*/.meta.json; do
+    [[ -f "$meta_file" ]] || continue
+    status=$(python3 -c "
+import json, sys
+try:
+    with open('$meta_file') as f:
+        d = json.load(f)
+    print(d.get('status', ''))
+except:
+    print('')
+" 2>/dev/null)
+    if [[ "$status" == "active" ]]; then
+        # Get mtime for most-recently-modified tiebreak
+        mtime=$(stat -f "%m" "$meta_file" 2>/dev/null || stat -c "%Y" "$meta_file" 2>/dev/null || echo "0")
+        if [[ "$mtime" -gt "$ACTIVE_META_MTIME" ]]; then
+            ACTIVE_META="$meta_file"
+            ACTIVE_META_MTIME="$mtime"
+        fi
+    fi
+done
+
+if [[ -z "$ACTIVE_META" ]]; then
+    exit 0
+fi
+
+# Read feature state
+FEATURE_STATE=$(python3 -c "
+import json, sys
+try:
+    with open('$ACTIVE_META') as f:
+        d = json.load(f)
+    feature_id = d.get('id', '???')
+    slug = d.get('slug', 'unknown')
+    status = d.get('status', '')
+    last_phase = d.get('lastCompletedPhase', 'null')
+    if last_phase is None:
+        last_phase = 'null'
+    print(f'{feature_id}|{slug}|{status}|{last_phase}')
+except Exception as e:
+    print('|||')
+" 2>/dev/null)
+
+IFS='|' read -r FEATURE_ID FEATURE_SLUG FEATURE_STATUS LAST_COMPLETED_PHASE <<< "$FEATURE_STATE"
+
+if [[ -z "$FEATURE_ID" ]]; then
+    exit 0
+fi
+
+# Completion check: workflow is done
+if [[ "$LAST_COMPLETED_PHASE" == "finish" ]] || [[ "$FEATURE_STATUS" == "completed" ]]; then
+    exit 0
+fi
+
+# Check stop_hook_active from stdin
+STOP_HOOK_ACTIVE=$(echo "$INPUT" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    print(str(data.get('stop_hook_active', False)).lower())
+except:
+    print('false')
+" 2>/dev/null)
+
+# Stuck detection: if stop_hook_active (we blocked before), check for progress
+if [[ "$STOP_HOOK_ACTIVE" == "true" ]]; then
+    PREV_PHASE=$(read_hook_state "$STATE_FILE" "last_phase" "null")
+    if [[ "$PREV_PHASE" == "$LAST_COMPLETED_PHASE" ]]; then
+        # No progress since last block -- stuck, let user take over
+        exit 0
+    fi
+fi
+
+# Update last_phase in state
+write_hook_state "$STATE_FILE" "last_phase" "$LAST_COMPLETED_PHASE"
+
+# Max iterations check
+STOP_COUNT=$(read_hook_state "$STATE_FILE" "stop_count" "0")
+STOP_COUNT=$((STOP_COUNT + 1))
+write_hook_state "$STATE_FILE" "stop_count" "$STOP_COUNT"
+
+MAX_BLOCKS=$(read_local_md_field "$IFLOW_CONFIG" "yolo_max_stop_blocks" "50")
+if [[ "$STOP_COUNT" -gt "$MAX_BLOCKS" ]]; then
+    exit 0
+fi
+
+# Determine next phase
+NEXT_PHASE=$(python3 -c "
+phase_map = {
+    'null': 'specify',
+    'brainstorm': 'specify',
+    'specify': 'design',
+    'design': 'create-plan',
+    'create-plan': 'create-tasks',
+    'create-tasks': 'implement',
+    'implement': 'finish',
+}
+last = '${LAST_COMPLETED_PHASE}'
+print(phase_map.get(last, ''))
+" 2>/dev/null)
+
+if [[ -z "$NEXT_PHASE" ]]; then
+    # Unknown phase -- allow stop
+    exit 0
+fi
+
+FEATURE_REF="${FEATURE_ID}-${FEATURE_SLUG}"
+REASON=$(escape_json "[YOLO_MODE] Feature ${FEATURE_REF} in progress. Last completed: ${LAST_COMPLETED_PHASE}. Invoke /iflow-dev:${NEXT_PHASE} --feature=${FEATURE_REF} with [YOLO_MODE].")
+
+cat <<EOF
+{
+  "decision": "block",
+  "reason": "${REASON}"
+}
+EOF
+exit 0

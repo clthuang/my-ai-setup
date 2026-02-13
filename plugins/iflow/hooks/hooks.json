@@ -47,6 +47,25 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-commit-guard.sh"
           }
         ]
+      },
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/yolo-guard.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/yolo-stop.sh"
+          }
+        ]
       }
     ]
   }

@@ -33,7 +33,7 @@ Stage 1: ARCHITECTURE DESIGN
     ↓
 Stage 2: INTERFACE DESIGN
     ↓
-Stage 3: DESIGN REVIEW LOOP (design-reviewer, 1-3 iterations)
+Stage 3: DESIGN REVIEW LOOP (design-reviewer, up to 5 iterations)
     ↓
 Stage 4: HANDOFF REVIEW (phase-reviewer)
 ```
@@ -189,7 +189,7 @@ d. **No review at this stage** - validated holistically in Stage 3.
 
 **Purpose:** Challenge assumptions, find gaps, ensure robustness.
 
-Get max iterations from mode: Standard=1, Full=3.
+Max iterations: 5.
 
 a. **Mark stage started:**
    ```json
@@ -281,7 +281,7 @@ e. **Mark stage completed:**
 
 **Purpose:** Ensure plan phase has everything it needs.
 
-Phase-reviewer iteration budget: max 3 (independent of Stage 3).
+Phase-reviewer iteration budget: max 5 (independent of Stage 3).
 
 Set `phase_iteration = 0`.
 
@@ -313,7 +313,7 @@ b. **Invoke phase-reviewer** (always a NEW Task tool dispatch per iteration):
        Plan needs: Components defined, interfaces specified,
        dependencies identified, risks noted.
 
-       This is phase-review iteration {phase_iteration}/3.
+       This is phase-review iteration {phase_iteration}/5.
 
        Return your assessment as JSON:
        {
@@ -327,12 +327,12 @@ c. **Branch on result (strict threshold):**
    - **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
    - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
    - If PASS → Proceed to auto-commit
-   - If FAIL AND phase_iteration < 3:
+   - If FAIL AND phase_iteration < 5:
      - Append to `.review-history.md` with "Stage 4: Handoff Review" marker
      - Increment phase_iteration
      - Address all blocker AND warning issues by revising design.md
      - Return to step b (new agent instance)
-   - If FAIL AND phase_iteration == 3:
+   - If FAIL AND phase_iteration == 5:
      - Store concerns in `stages.handoffReview.reviewerNotes`
      - Proceed to auto-commit with warning
 
@@ -378,7 +378,8 @@ AskUserQuestion:
     "header": "Next Step",
     "options": [
       {"label": "Continue to /iflow:create-plan (Recommended)", "description": "Creates plan.md with dependency graphs and workflow tracking"},
-      {"label": "Review design.md first", "description": "Inspect the design before continuing"}
+      {"label": "Review design.md first", "description": "Inspect the design before continuing"},
+      {"label": "Fix and rerun reviews", "description": "Apply fixes then rerun Stage 3 + Stage 4 review cycle"}
     ],
     "multiSelect": false
   }]
@@ -386,3 +387,4 @@ AskUserQuestion:
 
 If "Continue to /iflow:create-plan (Recommended)": Invoke `/iflow:create-plan`
 If "Review design.md first": Show "Design at {path}/design.md. Run /iflow:create-plan when ready." → STOP
+If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to design.md, then return to Stage 3 (design-reviewer) with iteration counters reset to 0.
