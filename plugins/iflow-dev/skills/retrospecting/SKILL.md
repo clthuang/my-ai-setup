@@ -28,7 +28,11 @@ Read and collect all intermediate data:
 - If file exists: capture full content
 - If file doesn't exist: note "No review history available"
 
-**c. Git Summary** — Run via Bash:
+**c. Implementation Log** — Read `implementation-log.md`:
+- If file exists: capture full content
+- If file doesn't exist: note "No implementation log available"
+
+**d. Git Summary** — Run via Bash:
 ```bash
 git log --oneline develop..HEAD | wc -l
 ```
@@ -36,11 +40,11 @@ git log --oneline develop..HEAD | wc -l
 git diff --stat develop..HEAD
 ```
 
-**d. Artifact Stats** — Read and count lines for each artifact:
+**e. Artifact Stats** — Read and count lines for each artifact:
 - `spec.md`, `design.md`, `plan.md`, `tasks.md`
 - Note which artifacts exist vs missing
 
-**e. AORTA Framework** — Read `references/aorta-framework.md` from this skill's directory.
+**f. AORTA Framework** — Read `references/aorta-framework.md` from this skill's directory.
 
 ### Step 2: Dispatch retro-facilitator
 
@@ -58,6 +62,9 @@ Task tool call:
 
     ### Review History
     {.review-history.md content, or "No review history available"}
+
+    ### Implementation Log
+    {implementation-log.md content, or "No implementation log available"}
 
     ### Git Summary
     Commits: {commit count}
@@ -170,7 +177,11 @@ Each entry format:
 {Text}
 - Observed in: {provenance}
 - Confidence: {confidence}
+- Last observed: Feature #{NNN}
+- Observation count: 1
 ```
+
+> **Note:** Use `Observed in:` for anti-patterns.md, `Source:` for heuristics.md to maintain per-file consistency.
 
 If a knowledge-bank file doesn't exist, create it with a header:
 ```markdown
