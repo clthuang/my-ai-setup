@@ -1,0 +1,16 @@
+{
+  "id": "022",
+  "slug": "context-and-review-hardening",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-02-13T12:45:00Z",
+  "branch": "feature/022-context-and-review-hardening",
+  "brainstorm_source": "docs/brainstorms/20260213-102414-artifact-context-layer.prd.md",
+  "lastCompletedPhase": "specify",
+  "phases": {
+    "specify": {
+      "started": "2026-02-13T12:46:00Z",
+      "completed": "2026-02-13T14:15:00Z"
+    }
+  }
+}
