@@ -84,3 +84,52 @@ escape_json() {
     done
     printf '%s' "$output"
 }
+
+# Read a YAML frontmatter field from a .local.md file
+# Usage: read_local_md_field "$file" "field_name" "default_value"
+read_local_md_field() {
+    local file="$1" field="$2" default="${3:-}"
+    if [[ ! -f "$file" ]]; then
+        echo "$default"
+        return
+    fi
+    local value
+    value=$(grep "^${field}:" "$file" 2>/dev/null | head -1 | sed 's/^[^:]*: *//' | tr -d ' ' || echo "")
+    if [[ -z "$value" || "$value" == "null" ]]; then
+        echo "$default"
+    else
+        echo "$value"
+    fi
+}
+
+# Read a key from a hook state file (key=value format)
+# Usage: read_hook_state "$file" "key" "default"
+read_hook_state() {
+    local file="$1" key="$2" default="${3:-}"
+    if [[ ! -f "$file" ]]; then
+        echo "$default"
+        return
+    fi
+    local value
+    value=$(grep "^${key}=" "$file" 2>/dev/null | head -1 | cut -d'=' -f2- || echo "")
+    if [[ -z "$value" || "$value" == "null" ]]; then
+        echo "$default"
+    else
+        echo "$value"
+    fi
+}
+
+# Write a key=value to a hook state file (create or update)
+# Usage: write_hook_state "$file" "key" "value"
+write_hook_state() {
+    local file="$1" key="$2" value="$3"
+    local dir
+    dir=$(dirname "$file")
+    [[ -d "$dir" ]] || mkdir -p "$dir"
+    if [[ -f "$file" ]] && grep -q "^${key}=" "$file" 2>/dev/null; then
+        local tmp="${file}.tmp"
+        sed "s/^${key}=.*/${key}=${value}/" "$file" > "$tmp" && mv "$tmp" "$file"
+    else
+        echo "${key}=${value}" >> "$file"
+    fi
+}

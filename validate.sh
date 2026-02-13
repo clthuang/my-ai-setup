@@ -191,9 +191,11 @@ validate_hooks_schema() {
         for (( j=0; j<entry_count; j++ )); do
             local entry_path=".hooks[\"$event_name\"][$j]"
 
-            # Check matcher field
-            if ! jq -e "$entry_path.matcher" "$file" > /dev/null 2>&1; then
-                log_error "$file: $event_name[$j] missing 'matcher' field"
+            # Check matcher field (not required for Stop/SubagentStop events)
+            if [[ "$event_name" != "Stop" ]] && [[ "$event_name" != "SubagentStop" ]]; then
+                if ! jq -e "$entry_path.matcher" "$file" > /dev/null 2>&1; then
+                    log_error "$file: $event_name[$j] missing 'matcher' field"
+                fi
             fi
 
             # Check hooks array

@@ -269,6 +269,388 @@ test_sync_cache_missing_source() {
     rm -rf "$tmpdir"
 }
 
+# === YOLO Hook Tests ===
+
+# Helper: create temp YOLO config
+setup_yolo_test() {
+    YOLO_TMPDIR=$(mktemp -d)
+    mkdir -p "${YOLO_TMPDIR}/.claude"
+    mkdir -p "${YOLO_TMPDIR}/docs/features"
+    mkdir -p "${YOLO_TMPDIR}/.git"
+}
+
+teardown_yolo_test() {
+    rm -rf "$YOLO_TMPDIR"
+    cd "${PROJECT_ROOT}"
+}
+
+# Test: read_local_md_field reads existing value
+test_read_local_md_field() {
+    log_test "read_local_md_field reads existing value"
+
+    source "${HOOKS_DIR}/lib/common.sh"
+    setup_yolo_test
+
+    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+---
+yolo_mode: true
+yolo_max_stop_blocks: 25
+---
+TMPL
+
+    local val
+    val=$(read_local_md_field "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" "yolo_mode" "false")
+    if [[ "$val" == "true" ]]; then
+        log_pass
+    else
+        log_fail "Expected 'true', got '$val'"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: read_local_md_field returns default for missing file
+test_read_local_md_field_missing() {
+    log_test "read_local_md_field returns default for missing file"
+
+    source "${HOOKS_DIR}/lib/common.sh"
+
+    local val
+    val=$(read_local_md_field "/nonexistent/file.md" "yolo_mode" "false")
+    if [[ "$val" == "false" ]]; then
+        log_pass
+    else
+        log_fail "Expected 'false', got '$val'"
+    fi
+}
+
+# Test: read/write_hook_state round-trip
+test_hook_state_roundtrip() {
+    log_test "read/write_hook_state round-trip"
+
+    source "${HOOKS_DIR}/lib/common.sh"
+    setup_yolo_test
+
+    local state_file="${YOLO_TMPDIR}/.claude/.yolo-hook-state"
+
+    write_hook_state "$state_file" "stop_count" "0"
+    write_hook_state "$state_file" "last_phase" "specify"
+
+    local count phase
+    count=$(read_hook_state "$state_file" "stop_count" "")
+    phase=$(read_hook_state "$state_file" "last_phase" "")
+
+    if [[ "$count" == "0" ]] && [[ "$phase" == "specify" ]]; then
+        # Test update
+        write_hook_state "$state_file" "stop_count" "5"
+        count=$(read_hook_state "$state_file" "stop_count" "")
+        if [[ "$count" == "5" ]]; then
+            log_pass
+        else
+            log_fail "Update failed: expected '5', got '$count'"
+        fi
+    else
+        log_fail "Expected count=0, phase=specify; got count=$count, phase=$phase"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: yolo-guard allows when yolo_mode=false
+test_yolo_guard_allows_when_disabled() {
+    log_test "yolo-guard allows when yolo_mode=false"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+---
+yolo_mode: false
+---
+TMPL
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$(echo '{"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Continue?","options":[{"label":"Yes"},{"label":"No"}]}]}}' | "${HOOKS_DIR}/yolo-guard.sh" 2>/dev/null)
+
+    # Should produce no output (exit 0 with no JSON = allow)
+    if [[ -z "$output" ]]; then
+        log_pass
+    else
+        log_fail "Expected empty output (allow), got: $output"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: yolo-guard blocks and auto-selects (Recommended) option
+test_yolo_guard_blocks_with_recommended() {
+    log_test "yolo-guard blocks and auto-selects (Recommended) option"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+---
+yolo_mode: true
+---
+TMPL
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$(echo '{"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Specification complete. What next?","options":[{"label":"Design (Recommended)","description":"Move to design"},{"label":"Revise","description":"Revise spec"}]}]}}' | "${HOOKS_DIR}/yolo-guard.sh" 2>/dev/null)
+
+    if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['hookSpecificOutput']['permissionDecision'] == 'deny'; assert 'Design (Recommended)' in d['hookSpecificOutput']['permissionDecisionReason']" 2>/dev/null; then
+        log_pass
+    else
+        log_fail "Expected deny with '(Recommended)' selection, got: $output"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: yolo-guard falls back to first option when no (Recommended)
+test_yolo_guard_fallback_first_option() {
+    log_test "yolo-guard falls back to first option when no (Recommended)"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+---
+yolo_mode: true
+---
+TMPL
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$(echo '{"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Pick one","options":[{"label":"Alpha"},{"label":"Beta"}]}]}}' | "${HOOKS_DIR}/yolo-guard.sh" 2>/dev/null)
+
+    if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['hookSpecificOutput']['permissionDecision'] == 'deny'; assert 'Alpha' in d['hookSpecificOutput']['permissionDecisionReason']" 2>/dev/null; then
+        log_pass
+    else
+        log_fail "Expected deny with 'Alpha' selection, got: $output"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: yolo-guard passes through safety keywords
+test_yolo_guard_safety_passthrough() {
+    log_test "yolo-guard passes through circuit breaker keywords"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+---
+yolo_mode: true
+---
+TMPL
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$(echo '{"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"YOLO MODE STOPPED due to circuit breaker. Continue?","options":[{"label":"Yes"},{"label":"No"}]}]}}' | "${HOOKS_DIR}/yolo-guard.sh" 2>/dev/null)
+
+    # Should produce no output (allow through)
+    if [[ -z "$output" ]]; then
+        log_pass
+    else
+        log_fail "Expected empty output (allow safety keyword), got: $output"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: yolo-guard ignores non-AskUserQuestion tools
+test_yolo_guard_ignores_other_tools() {
+    log_test "yolo-guard ignores non-AskUserQuestion tools"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+---
+yolo_mode: true
+---
+TMPL
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$(echo '{"tool_name":"Bash","tool_input":{"command":"ls"}}' | "${HOOKS_DIR}/yolo-guard.sh" 2>/dev/null)
+
+    if [[ -z "$output" ]]; then
+        log_pass
+    else
+        log_fail "Expected empty output for non-AskUserQuestion, got: $output"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: yolo-stop allows when yolo_mode=false
+test_yolo_stop_allows_when_disabled() {
+    log_test "yolo-stop allows when yolo_mode=false"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+---
+yolo_mode: false
+---
+TMPL
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$(echo '{}' | "${HOOKS_DIR}/yolo-stop.sh" 2>/dev/null)
+
+    if [[ -z "$output" ]]; then
+        log_pass
+    else
+        log_fail "Expected empty output (allow stop), got: $output"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: yolo-stop allows when no active feature
+test_yolo_stop_allows_no_feature() {
+    log_test "yolo-stop allows when no active feature"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+---
+yolo_mode: true
+---
+TMPL
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$(echo '{}' | "${HOOKS_DIR}/yolo-stop.sh" 2>/dev/null)
+
+    if [[ -z "$output" ]]; then
+        log_pass
+    else
+        log_fail "Expected empty output (no active feature), got: $output"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: yolo-stop allows when feature completed
+test_yolo_stop_allows_completed_feature() {
+    log_test "yolo-stop allows when feature completed"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+---
+yolo_mode: true
+---
+TMPL
+    mkdir -p "${YOLO_TMPDIR}/docs/features/099-test-feature"
+    cat > "${YOLO_TMPDIR}/docs/features/099-test-feature/.meta.json" << 'META'
+{"id":"099","slug":"test-feature","status":"completed","lastCompletedPhase":"finish"}
+META
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$(echo '{"stop_hook_active":false}' | "${HOOKS_DIR}/yolo-stop.sh" 2>/dev/null)
+
+    if [[ -z "$output" ]]; then
+        log_pass
+    else
+        log_fail "Expected empty output (completed feature), got: $output"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: yolo-stop blocks and returns correct next phase
+test_yolo_stop_blocks_with_next_phase() {
+    log_test "yolo-stop blocks and returns correct next phase"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+---
+yolo_mode: true
+yolo_max_stop_blocks: 50
+---
+TMPL
+    mkdir -p "${YOLO_TMPDIR}/docs/features/099-test-feature"
+    cat > "${YOLO_TMPDIR}/docs/features/099-test-feature/.meta.json" << 'META'
+{"id":"099","slug":"test-feature","status":"active","lastCompletedPhase":"specify"}
+META
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$(echo '{"stop_hook_active":false}' | "${HOOKS_DIR}/yolo-stop.sh" 2>/dev/null)
+
+    if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['decision'] == 'block'; assert 'design' in d['reason']" 2>/dev/null; then
+        log_pass
+    else
+        log_fail "Expected block with 'design' next phase, got: $output"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: yolo-stop detects stuck (no progress) and allows exit
+test_yolo_stop_detects_stuck() {
+    log_test "yolo-stop detects stuck and allows exit"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+---
+yolo_mode: true
+yolo_max_stop_blocks: 50
+---
+TMPL
+    mkdir -p "${YOLO_TMPDIR}/docs/features/099-test-feature"
+    cat > "${YOLO_TMPDIR}/docs/features/099-test-feature/.meta.json" << 'META'
+{"id":"099","slug":"test-feature","status":"active","lastCompletedPhase":"specify"}
+META
+    # Simulate prior block at same phase
+    cat > "${YOLO_TMPDIR}/.claude/.yolo-hook-state" << 'STATE'
+stop_count=1
+last_phase=specify
+STATE
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$(echo '{"stop_hook_active":true}' | "${HOOKS_DIR}/yolo-stop.sh" 2>/dev/null)
+
+    if [[ -z "$output" ]]; then
+        log_pass
+    else
+        log_fail "Expected empty output (stuck detection), got: $output"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: yolo-stop respects max stop blocks
+test_yolo_stop_max_blocks() {
+    log_test "yolo-stop respects max stop blocks limit"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+---
+yolo_mode: true
+yolo_max_stop_blocks: 3
+---
+TMPL
+    mkdir -p "${YOLO_TMPDIR}/docs/features/099-test-feature"
+    cat > "${YOLO_TMPDIR}/docs/features/099-test-feature/.meta.json" << 'META'
+{"id":"099","slug":"test-feature","status":"active","lastCompletedPhase":"specify"}
+META
+    # Set counter at max already
+    cat > "${YOLO_TMPDIR}/.claude/.yolo-hook-state" << 'STATE'
+stop_count=3
+last_phase=null
+STATE
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$(echo '{"stop_hook_active":false}' | "${HOOKS_DIR}/yolo-stop.sh" 2>/dev/null)
+
+    if [[ -z "$output" ]]; then
+        log_pass
+    else
+        log_fail "Expected empty output (max blocks exceeded), got: $output"
+    fi
+
+    teardown_yolo_test
+}
+
 # Run all tests
 main() {
     echo "=========================================="
@@ -289,6 +671,25 @@ main() {
     test_pre_commit_guard_from_subdirectory
     test_sync_cache_json
     test_sync_cache_missing_source
+
+    echo ""
+    echo "--- YOLO Hook Tests ---"
+    echo ""
+
+    test_read_local_md_field
+    test_read_local_md_field_missing
+    test_hook_state_roundtrip
+    test_yolo_guard_allows_when_disabled
+    test_yolo_guard_blocks_with_recommended
+    test_yolo_guard_fallback_first_option
+    test_yolo_guard_safety_passthrough
+    test_yolo_guard_ignores_other_tools
+    test_yolo_stop_allows_when_disabled
+    test_yolo_stop_allows_no_feature
+    test_yolo_stop_allows_completed_feature
+    test_yolo_stop_blocks_with_next_phase
+    test_yolo_stop_detects_stuck
+    test_yolo_stop_max_blocks
 
     echo ""
     echo "=========================================="

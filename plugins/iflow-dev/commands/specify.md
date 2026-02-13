@@ -43,7 +43,7 @@ Follow `validateAndSetup("specify")` from the **workflow-transitions** skill.
 
 ### 4. Execute with Two-Stage Reviewer Loop
 
-Get max iterations from mode: Standard=1, Full=3.
+Max iterations: 5.
 
 #### Stage 1: Spec-Reviewer Review (Quality Gate)
 
@@ -95,7 +95,7 @@ d. **Branch on result (strict threshold):**
 
 #### Stage 2: Phase-Reviewer Validation (Handoff Gate)
 
-Phase-reviewer iteration budget: max 3 (independent of Stage 1).
+Phase-reviewer iteration budget: max 5 (independent of Stage 1).
 
 Set `phase_iteration = 0`.
 
@@ -117,7 +117,7 @@ e. **Invoke phase-reviewer** (always a NEW Task tool dispatch per iteration):
        Design needs: All requirements listed, acceptance criteria defined,
        scope boundaries clear, no ambiguities.
 
-       This is phase-review iteration {phase_iteration}/3.
+       This is phase-review iteration {phase_iteration}/5.
 
        Return your assessment as JSON:
        {
@@ -131,12 +131,12 @@ f. **Branch on result (strict threshold):**
    - **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
    - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
    - If PASS → Proceed to auto-commit
-   - If FAIL AND phase_iteration < 3:
+   - If FAIL AND phase_iteration < 5:
      - Append to `.review-history.md` with "Stage 2: Phase Review" marker
      - Increment phase_iteration
      - Address all blocker AND warning issues
      - Return to step e (new agent instance)
-   - If FAIL AND phase_iteration == 3:
+   - If FAIL AND phase_iteration == 5:
      - Store concerns in `.meta.json` phaseReview.reviewerNotes
      - Proceed to auto-commit with warning
 
@@ -174,7 +174,8 @@ AskUserQuestion:
     "header": "Next Step",
     "options": [
       {"label": "Continue to /iflow-dev:design (Recommended)", "description": "Create architecture design"},
-      {"label": "Review spec.md first", "description": "Inspect the spec before continuing"}
+      {"label": "Review spec.md first", "description": "Inspect the spec before continuing"},
+      {"label": "Fix and rerun reviews", "description": "Apply fixes then rerun Stage 1 + Stage 2 review cycle"}
     ],
     "multiSelect": false
   }]
@@ -182,3 +183,4 @@ AskUserQuestion:
 
 If "Continue to /iflow-dev:design (Recommended)": Invoke `/iflow-dev:design`
 If "Review spec.md first": Show "Spec at {path}/spec.md. Run /iflow-dev:design when ready." → STOP
+If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to spec.md, then return to Step 4 (Stage 1 spec-reviewer) with iteration counters reset to 0.

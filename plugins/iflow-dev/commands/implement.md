@@ -301,7 +301,8 @@ AskUserQuestion:
     "header": "Next Step",
     "options": [
       {"label": "Continue to /iflow-dev:finish (Recommended)", "description": "Complete the feature"},
-      {"label": "Review implementation first", "description": "Inspect the code before finishing"}
+      {"label": "Review implementation first", "description": "Inspect the code before finishing"},
+      {"label": "Fix and rerun reviews", "description": "Apply fixes then rerun the 3-reviewer review cycle"}
     ],
     "multiSelect": false
   }]
@@ -309,3 +310,4 @@ AskUserQuestion:
 
 If "Continue to /iflow-dev:finish (Recommended)": Invoke `/iflow-dev:finish`
 If "Review implementation first": Show "Run /iflow-dev:finish when ready." → STOP
+If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to the implementation, then return to Step 6 (3-reviewer loop) with the iteration counter reset to 0.
