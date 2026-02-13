@@ -8,6 +8,9 @@
   "brainstorm_source": "docs/brainstorms/20260213-102414-artifact-context-layer.prd.md",
   "lastCompletedPhase": "implement",
   "phases": {
+    "finish": {
+      "started": "2026-02-14T00:00:00Z"
+    },
     "implement": {
       "started": "2026-02-13T20:25:00Z",
       "completed": "2026-02-13T23:45:00Z",

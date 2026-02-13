@@ -151,6 +151,20 @@ When a workflow has nested iteration loops, make budgets independent.
 - Benefit: Reviewer-decomposer cycle (max 3) doesn't consume user refinement cycle (max 3) budget
 - Key: Each cycle has its own counter and max, preventing one from starving the other
 
+### Pattern: Heavy Upfront Review Investment
+Heavy upfront review investment (30+ pre-implementation review iterations) correlates with clean implementation (0 deviations, 0 concerns across all tasks). Front-loading review effort shifts risk discovery to phases where changes are cheap (text edits) rather than expensive (code changes).
+- Observed in: Feature #022, implementation phase
+- Confidence: high
+- Last observed: Feature #022
+- Observation count: 1
+
+### Pattern: Template Indentation Matching
+When inserting blocks into existing prompt templates, read the target file first and match its specific indentation level (which may differ per file). Prevents downstream formatting issues.
+- Observed in: Feature #022, Task 1.5
+- Confidence: medium
+- Last observed: Feature #022
+- Observation count: 1
+
 <!-- Example format:
 ### Pattern: Early Interface Definition
 Define interfaces before implementation. Enables parallel work.
