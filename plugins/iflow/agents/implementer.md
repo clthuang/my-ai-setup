@@ -35,6 +35,8 @@ If you have questions about:
 
 ## Your Job
 
+**Before implementing, check if the task's done criteria are already met** (e.g., files already exist, tests already pass). If so, report "Task already complete" with files already present, and skip implementation.
+
 1. **Implement** exactly what the task specifies
 2. **Write tests** following TDD (test first, watch fail, implement, watch pass)
 3. **Verify** implementation works
@@ -78,5 +80,7 @@ When done, report:
 - What you implemented
 - What you tested and test results
 - Files changed
+- Decisions: implementation choices with rationale (or "none")
+- Deviations: changes from plan/design with reason (or "none")
 - Self-review findings (if any)
 - Any issues or concerns

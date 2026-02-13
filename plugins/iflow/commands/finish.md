@@ -281,10 +281,11 @@ Run automatically after Phase 5 completes.
 }
 ```
 
-### Step 6b: Delete .review-history.md
+### Step 6b: Delete temporary files
 
 ```bash
 rm docs/features/{id}-{slug}/.review-history.md 2>/dev/null || true
+rm docs/features/{id}-{slug}/implementation-log.md 2>/dev/null || true
 ```
 
 ### Step 6c: Delete Feature Branch

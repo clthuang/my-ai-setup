@@ -1,11 +1,11 @@
 ---
 name: implementing
-description: Guides phased TDD implementation (Interface → RED-GREEN → REFACTOR). Use when the user says 'implement the feature', 'start coding', 'write the code', or 'execute tasks'.
+description: Dispatches per-task implementer agents from tasks.md, collecting reports into implementation-log.md. Use when the user says 'implement the feature', 'start coding', 'write the code', or 'execute tasks'.
 ---
 
 # Implementation Phase
 
-Execute the implementation plan with a structured phased approach.
+Execute the implementation plan with a structured per-task dispatch approach.
 
 ## Prerequisites
 
@@ -27,83 +27,142 @@ For complex implementations:
 
 ## Process
 
-### Phase 1: Deploy Implementation Subagents
+### Step 1: Read Task List
 
-Select and dispatch relevant implementer agents based on:
-- Task domain (UI, API, DB, etc.)
-- Technology stack
-- Complexity level
+1. Read `tasks.md` from the active feature directory
+2. Parse all task headings using regex: `/^(#{3,4})\s+Task\s+(\d+(?:\.\d+)*):?\s*(.+)$/`
+3. For each match, extract:
+   - **Task number** (string, e.g., "1.1")
+   - **Task title**
+   - **Task body** (from heading through next same-or-higher-level heading, or EOF)
+   - **Why/Source** field value (from `**Why:**` or `**Source:**`, if present)
+   - **Done when** criteria (from `**Done when:**`, if present)
+4. If no task headings found: log error, surface to user, STOP
 
-Use `Task` tool with appropriate `subagent_type`:
-- `implementer` for general implementation with TDD
-- `generic-worker` for mixed-domain tasks
+### Step 2: Per-Task Dispatch Loop
 
-### Phase 2: Interface Phase (Scaffold)
+For each task (in document order, top to bottom):
 
-Before writing implementation:
+**a. Prepare context**
 
-1. **Define type definitions / interfaces**
-   - Create types for all data structures
-   - Define function signatures with documentation
+**Parse traceability references** from the task's `**Why:**` or `**Source:**` field value:
 
-2. **Set up module structure**
-   - Create file/folder organization
-   - Establish imports/exports
+1. If the field is present, split its value on comma and trim each reference.
+2. Match each reference against these patterns:
+   - Plan reference: `/Plan (?:Step )?(\w+\.\w+)/i` — captures plan identifier (e.g., "1A.2")
+   - Design reference: `/Design (?:Component )?(\w+[-\w]*)/i` — captures design identifier (e.g., "event-bus")
+   - Spec reference: `/Spec (\w+\.\w+)/i` — informational only; spec is always loaded in full
+3. Collect matched plan identifiers and design identifiers into separate lists.
 
-3. **Establish contracts between components**
-   - Define how modules interact
-   - Document expected inputs/outputs
+**Extract scoped sections** using heading extraction:
 
-This creates the "skeleton" that tests can target.
+For each plan identifier, extract its section from `plan.md`. For each design identifier, extract its section from `design.md`. Use this procedure:
 
-### Phase 3: RED-GREEN Loop
+To extractSection(markdown, identifier): scan all headings in the markdown. Find the first heading whose text contains the identifier as a case-insensitive substring. Extract everything from that heading through (but not including) the next heading at the same level, or through EOF if no same-level heading follows.
 
-For each piece of functionality:
+To extractSectionWithFallback(markdown, identifier): first try extractSection with the full identifier. If no heading matches and the identifier contains a dot, strip everything after the last dot (e.g., "1A.1" becomes "1A") and retry with that prefix. Return the matched section text, or null if still not found.
 
-**RED Phase:**
-1. Write ONE failing test
-2. Test must fail for the expected reason
-3. Test targets the interface defined in Phase 2
-4. Run test - confirm it FAILS
+Apply extractSectionWithFallback for each identifier. If any extraction returns null, discard all partial results for that artifact and load the full file instead.
 
-**GREEN Phase:**
-1. Write MINIMAL code to pass the test
-2. No more than necessary
-3. Run test - confirm it PASSES
+**Fallback: load full artifacts when traceability is unavailable.** If the Why/Source field is absent, empty, or none of its references match the patterns above, load design.md and plan.md in full. Log a warning: "No parseable traceability references — loading full artifacts." Known fallback scenarios:
+- Feature 018 uses a `§` separator format that the regexes will not match
+- Feature 020 has no traceability fields
+- Features 002-016 predate the traceability template
 
-**Loop:** Continue RED-GREEN until functionality complete.
+**Assemble context for dispatch:**
+- `spec.md`: always loaded in full
+- `design.md`: scoped sections joined in order (or full file if any extraction failed or fallback triggered)
+- `plan.md`: scoped sections joined in order (or full file if any extraction failed or fallback triggered)
+- `prd.md`: extract `## Problem Statement` and `## Goals` sections only
 
-### Phase 4: REFACTOR Phase
+**Load project context (conditional):**
 
-After all tests pass:
+Check the feature's `.meta.json` for a `project_id` field. If absent or null, skip this entire block — no error, no warning (AC-10).
 
-1. Remove duplication
-2. Improve naming
-3. Extract helpers if needed
-4. Keep all tests green throughout
+If `project_id` is present (non-null):
 
-### Phase 5: Return to Main Agent
+1. **Resolve project directory:** Glob `docs/projects/{project_id}-*/`. If not found, log warning and skip project context entirely.
+2. **Load project goals:** Read the project's `prd.md`. Extract `## Problem Statement` and `## Goals` sections (heading through next `##`). Summarize to 2-3 bullet points (~100 tokens).
+3. **Load feature dependency status:** Read this feature's `.meta.json` `depends_on_features` list. If absent or empty, omit dependencies from the block. For each reference: glob `docs/features/{ref}-*/`, read its `.meta.json` `status` field. Categorize into completed[], in-progress[], blocked[].
+4. **Load priority signal:** Read the project's `roadmap.md` if it exists. Find the milestone containing this feature's ID or slug. Extract milestone name and position (~50 tokens). If `roadmap.md` missing, omit priority signal.
+5. **Format the block** (~200-500 tokens total):
 
-Report back with:
-- What was implemented
-- Test results
-- Files changed
-- Any concerns or blockers
+```markdown
+## Project Context
+**Project:** {project name} | **This feature:** {feature name}
+**Project goals:** {2-3 bullet summary from project PRD}
+**Feature dependencies:** completed: {names} | in-progress: {names} | blocked: {names}
+**Priority signal:** {milestone name, or "not on roadmap"}
+```
 
-## Task Selection
+6. **Token budget enforcement:** If the formatted block exceeds ~500 tokens (e.g., many dependencies), truncate dependency details to counts only ("3 completed, 1 in-progress") and trim goal bullets.
 
-From tasks.md, find first incomplete task:
-- Check Vibe-Kanban/TodoWrite for status
-- Or ask user which task to work on
+**Graceful degradation:** Project dir not found: skip block. `roadmap.md` missing: omit priority line. `depends_on_features` absent: omit dependencies line. Any individual dependency glob fails: skip that dependency, continue with others.
 
-Read task details:
-- What files are involved?
-- What's the expected outcome?
-- What tests verify completion?
+**b. Dispatch implementer agent**
+
+```
+Task tool call:
+  subagent_type: iflow-dev:implementer
+  prompt: |
+    {task description with done-when criteria}
+
+    {## Project Context block, if prepared above — omit entirely if not project-linked}
+
+    ## Spec
+    {spec.md content}
+
+    ## Design
+    {design.md content}
+
+    ## Plan
+    {plan.md content}
+
+    ## PRD Context
+    {Problem Statement + Goals from prd.md}
+```
+
+**c. Collect report**
+
+Extract from the agent's text response:
+- **Files changed** — required
+- **Decisions** — optional, default "none"
+- **Deviations** — optional, default "none"
+- **Concerns** — optional, default "none"
+
+Use substring match (case-insensitive) for field headers.
+
+**d. Append implementation-log.md entry**
+
+Write to `implementation-log.md` in the active feature directory.
+Create with `# Implementation Log` header if this is the first task.
+
+```markdown
+## Task {number}: {title}
+- **Files changed:** {from report}
+- **Decisions:** {from report, or "none"}
+- **Deviations:** {from report, or "none"}
+- **Concerns:** {from report, or "none"}
+```
+
+**e. Error handling per task**
+
+- **Dispatch failure (AC-20):** Log the error, then ask the user whether to retry or skip via AskUserQuestion.
+- **Malformed report (AC-21):** Write a partial log entry with whatever fields are available, then proceed to the next task.
+
+**f. Proceed to next task**
+
+### Step 3: Return Results
+
+After all tasks dispatched:
+
+1. Report summary: N tasks completed, M skipped/blocked
+2. Return deduplicated list of all files changed
+3. `implementation-log.md` is on disk for retro to read later
 
 ## Commit Pattern
 
-After completing each task:
+After all tasks dispatched:
 ```
 git add {files}
 git commit -m "feat: {brief description}"
@@ -116,10 +175,12 @@ If implementation is stuck:
 2. Break into smaller pieces
 3. Ask user for guidance
 
+See Step 2e for per-task dispatch failure (AC-20) and malformed report (AC-21) handling.
+
 Never spin endlessly. Ask when stuck.
 
 ## Completion
 
 After all tasks:
-"Implementation complete. {n} tasks done."
+"Implementation complete. {N} tasks completed, {M} skipped."
 "Proceeding to code simplification and review phases."

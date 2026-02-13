@@ -154,7 +154,7 @@ Skills are instructions Claude follows for specific development practices. Locat
 | `decomposing` | Orchestrates project decomposition pipeline (AI decomposition, review, feature creation) |
 | `planning` | Produces plan.md with dependencies and ordering |
 | `breaking-down-tasks` | Breaks plans into small, actionable tasks with dependency tracking |
-| `implementing` | Guides phased TDD implementation (Interface → RED-GREEN → REFACTOR) |
+| `implementing` | Dispatches per-task implementer agents with selective context loading; produces implementation-log.md |
 | `finishing-branch` | Guides branch completion with PR or merge options |
 
 ### Quality & Review
@@ -185,7 +185,7 @@ Skills are instructions Claude follows for specific development practices. Locat
 ### Maintenance
 | Skill | Purpose |
 |-------|---------|
-| `retrospecting` | Runs data-driven AORTA retrospective using retro-facilitator agent |
+| `retrospecting` | Runs data-driven AORTA retrospective using retro-facilitator agent; reads implementation-log.md; validates knowledge bank entries |
 | `updating-docs` | Automatically updates documentation using agents |
 | `writing-skills` | Applies TDD approach to skill documentation |
 | `detecting-kanban` | Detects Vibe-Kanban and provides TodoWrite fallback |
@@ -198,13 +198,13 @@ Agents are isolated subprocesses spawned by the workflow. Located in `plugins/if
 - `brainstorm-reviewer` — Reviews brainstorm artifacts with universal + type-specific criteria before promotion
 - `code-quality-reviewer` — Reviews implementation quality after spec compliance is confirmed
 - `design-reviewer` — Challenges design assumptions and finds gaps
-- `implementation-reviewer` — Validates implementation against full requirements chain (Tasks → Spec → Design → PRD)
-- `phase-reviewer` — Validates artifact completeness for next phase transition
+- `implementation-reviewer` — Validates implementation against full requirements chain (Tasks → Spec → Design → PRD); uses WebSearch + Context7 for external claim verification
+- `phase-reviewer` — Validates artifact completeness for next phase transition; receives Domain Reviewer Outcome from upstream reviewer
 - `plan-reviewer` — Skeptically reviews plans for failure modes and feasibility
 - `prd-reviewer` — Critically reviews PRD drafts for quality and completeness
 - `project-decomposition-reviewer` — Validates project decomposition quality (coverage, sizing, dependencies)
 - `spec-reviewer` — Reviews spec.md for testability, assumptions, and scope discipline
-- `security-reviewer` — Reviews implementation for security vulnerabilities
+- `security-reviewer` — Reviews implementation for security vulnerabilities; uses WebSearch + Context7 for external claim verification
 - `task-reviewer` — Validates task breakdown quality for immediate executability
 
 **Workers (5):**
@@ -233,12 +233,14 @@ Hooks execute automatically at lifecycle points.
 
 | Hook | Trigger | Purpose |
 |------|---------|---------|
-| `sync-cache` | SessionStart | Syncs plugin source to Claude cache |
-| `cleanup-locks` | SessionStart | Removes stale lock files |
-| `session-start` | SessionStart | Injects active feature context |
-| `inject-secretary-context` | SessionStart | Injects available agent/command context for secretary |
+| `sync-cache` | SessionStart (startup\|resume\|clear) | Syncs plugin source to Claude cache |
+| `cleanup-locks` | SessionStart (startup\|resume\|clear) | Removes stale lock files |
+| `session-start` | SessionStart (startup\|resume\|clear) | Injects active feature context |
+| `inject-secretary-context` | SessionStart (startup\|resume\|clear) | Injects available agent/command context for secretary |
 | `cleanup-sandbox` | (utility) | Cleans up agent_sandbox/ temporary files |
 | `pre-commit-guard` | PreToolUse (Bash) | Branch protection and iflow directory protection |
+
+SessionStart hooks match `startup|resume|clear` only -- they do not fire on `compact` events, preserving context window savings from compaction.
 
 Defined in `plugins/iflow-dev/hooks/hooks.json`.
 
@@ -278,12 +280,18 @@ The `/create-tasks` command uses a two-stage review process:
 
 ### Implement Workflow
 
-The `/implement` command uses a multi-phase execution flow:
+The `/implement` command uses a per-task dispatch architecture:
 
-1. **Implementation**: Subagents -> Interface scaffold -> RED-GREEN loop -> REFACTOR
+1. **Per-task dispatch loop**: Each task in `tasks.md` gets its own `implementer` agent call with selectively scoped context:
+   - Parses `Why/Source` traceability fields to extract only referenced `design.md`/`plan.md` sections
+   - Falls back to full artifact loading when traceability fields are absent or unparseable
+   - Includes project context block (~200-500 tokens) for project-linked features
+   - Produces `implementation-log.md` with per-task decisions, deviations, and concerns
 2. **Simplification**: `code-simplifier` removes unnecessary complexity
 3. **Review** (iterative): `implementation-reviewer` -> `code-quality-reviewer` -> `security-reviewer` (up to 2-3 iterations)
 4. **Completion**: Prompts user to run `/finish`
+
+The `implementation-log.md` artifact is read by the retro skill during `/finish` and then deleted alongside `.review-history.md`.
 
 ## YOLO Mode (Autonomous Workflow)
 
