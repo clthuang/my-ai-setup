@@ -175,13 +175,11 @@ Each entry format:
 ```markdown
 ### {Type}: {Name}
 {Text}
-- Observed in: {provenance}
+- Observed in: {provenance}      ← use "Source:" instead for heuristics.md
 - Confidence: {confidence}
 - Last observed: Feature #{NNN}
 - Observation count: 1
 ```
-
-> **Note:** Use `Observed in:` for anti-patterns.md, `Source:` for heuristics.md to maintain per-file consistency.
 
 If a knowledge-bank file doesn't exist, create it with a header:
 ```markdown

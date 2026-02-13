@@ -131,6 +131,11 @@ Task tool call:
     ## Tasks (what you're reviewing)
     {content of tasks.md}
 
+    ## Domain Reviewer Outcome
+    - Reviewer: task-reviewer
+    - Result: {APPROVED at iteration {n}/{max} | FAILED at iteration cap ({max}/{max})}
+    - Unresolved issues: {list of remaining blocker/warning descriptions, or "none"}
+
     ## Next Phase Expectations
     Implement needs: Small actionable tasks (<15 min each),
     clear acceptance criteria per task, dependency graph for parallel execution.

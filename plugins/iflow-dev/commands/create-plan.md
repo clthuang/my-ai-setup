@@ -85,6 +85,11 @@ e. **Invoke phase-reviewer** (always a NEW Task tool dispatch per iteration):
        ## Plan (what you're reviewing)
        {content of plan.md}
 
+       ## Domain Reviewer Outcome
+       - Reviewer: plan-reviewer
+       - Result: {APPROVED at iteration {n}/{max} | FAILED at iteration cap ({max}/{max})}
+       - Unresolved issues: {list of remaining blocker/warning descriptions, or "none"}
+
        ## Next Phase Expectations
        Tasks needs: Ordered steps with dependencies,
        all design items covered, clear sequencing.
