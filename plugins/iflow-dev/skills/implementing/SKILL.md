@@ -1,11 +1,11 @@
 ---
 name: implementing
-description: Guides phased TDD implementation (Interface → RED-GREEN → REFACTOR). Use when the user says 'implement the feature', 'start coding', 'write the code', or 'execute tasks'.
+description: Dispatches per-task implementer agents from tasks.md, collecting reports into implementation-log.md. Use when the user says 'implement the feature', 'start coding', 'write the code', or 'execute tasks'.
 ---
 
 # Implementation Phase
 
-Execute the implementation plan with a structured phased approach.
+Execute the implementation plan with a structured per-task dispatch approach.
 
 ## Prerequisites
 
@@ -27,83 +27,92 @@ For complex implementations:
 
 ## Process
 
-### Phase 1: Deploy Implementation Subagents
+### Step 1: Read Task List
 
-Select and dispatch relevant implementer agents based on:
-- Task domain (UI, API, DB, etc.)
-- Technology stack
-- Complexity level
+1. Read `tasks.md` from the active feature directory
+2. Parse all task headings using regex: `/^(#{3,4})\s+Task\s+(\d+(?:\.\d+)*):?\s*(.+)$/`
+3. For each match, extract:
+   - **Task number** (string, e.g., "1.1")
+   - **Task title**
+   - **Task body** (from heading through next same-or-higher-level heading, or EOF)
+   - **Why/Source** field value (from `**Why:**` or `**Source:**`, if present)
+   - **Done when** criteria (from `**Done when:**`, if present)
+4. If no task headings found: log error, surface to user, STOP
 
-Use `Task` tool with appropriate `subagent_type`:
-- `implementer` for general implementation with TDD
-- `generic-worker` for mixed-domain tasks
+### Step 2: Per-Task Dispatch Loop
 
-### Phase 2: Interface Phase (Scaffold)
+For each task (in document order, top to bottom):
 
-Before writing implementation:
+**a. Prepare context**
 
-1. **Define type definitions / interfaces**
-   - Create types for all data structures
-   - Define function signatures with documentation
+Load feature artifacts from the active feature directory:
+- `spec.md`: always in full
+- `design.md`: in full (selective loading deferred to future task)
+- `plan.md`: in full (selective loading deferred to future task)
+- `prd.md`: extract `## Problem Statement` and `## Goals` sections only
 
-2. **Set up module structure**
-   - Create file/folder organization
-   - Establish imports/exports
+**b. Dispatch implementer agent**
 
-3. **Establish contracts between components**
-   - Define how modules interact
-   - Document expected inputs/outputs
+```
+Task tool call:
+  subagent_type: iflow-dev:implementer
+  prompt: |
+    {task description with done-when criteria}
 
-This creates the "skeleton" that tests can target.
+    ## Spec
+    {spec.md content}
 
-### Phase 3: RED-GREEN Loop
+    ## Design
+    {design.md content}
 
-For each piece of functionality:
+    ## Plan
+    {plan.md content}
 
-**RED Phase:**
-1. Write ONE failing test
-2. Test must fail for the expected reason
-3. Test targets the interface defined in Phase 2
-4. Run test - confirm it FAILS
+    ## PRD Context
+    {Problem Statement + Goals from prd.md}
+```
 
-**GREEN Phase:**
-1. Write MINIMAL code to pass the test
-2. No more than necessary
-3. Run test - confirm it PASSES
+**c. Collect report**
 
-**Loop:** Continue RED-GREEN until functionality complete.
+Extract from the agent's text response:
+- **Files changed** — required
+- **Decisions** — optional, default "none"
+- **Deviations** — optional, default "none"
+- **Concerns** — optional, default "none"
 
-### Phase 4: REFACTOR Phase
+Use substring match (case-insensitive) for field headers.
 
-After all tests pass:
+**d. Append implementation-log.md entry**
 
-1. Remove duplication
-2. Improve naming
-3. Extract helpers if needed
-4. Keep all tests green throughout
+Write to `implementation-log.md` in the active feature directory.
+Create with `# Implementation Log` header if this is the first task.
 
-### Phase 5: Return to Main Agent
+```markdown
+## Task {number}: {title}
+- **Files changed:** {from report}
+- **Decisions:** {from report, or "none"}
+- **Deviations:** {from report, or "none"}
+- **Concerns:** {from report, or "none"}
+```
 
-Report back with:
-- What was implemented
-- Test results
-- Files changed
-- Any concerns or blockers
+**e. Error handling per task**
 
-## Task Selection
+- **Dispatch failure (AC-20):** Log the error, then ask the user whether to retry or skip via AskUserQuestion.
+- **Malformed report (AC-21):** Write a partial log entry with whatever fields are available, then proceed to the next task.
 
-From tasks.md, find first incomplete task:
-- Check Vibe-Kanban/TodoWrite for status
-- Or ask user which task to work on
+**f. Proceed to next task**
 
-Read task details:
-- What files are involved?
-- What's the expected outcome?
-- What tests verify completion?
+### Step 3: Return Results
+
+After all tasks dispatched:
+
+1. Report summary: N tasks completed, M skipped/blocked
+2. Return deduplicated list of all files changed
+3. `implementation-log.md` is on disk for retro to read later
 
 ## Commit Pattern
 
-After completing each task:
+After all tasks dispatched:
 ```
 git add {files}
 git commit -m "feat: {brief description}"
@@ -116,10 +125,14 @@ If implementation is stuck:
 2. Break into smaller pieces
 3. Ask user for guidance
 
+**Dispatch failure (AC-20):** If the Task tool call fails or the agent errors out, log the failure and present the user with retry/skip options via AskUserQuestion.
+
+**Malformed report (AC-21):** If the agent response is missing expected fields, write a partial log entry using whatever fields were returned, default missing fields to "none", and continue to the next task.
+
 Never spin endlessly. Ask when stuck.
 
 ## Completion
 
 After all tasks:
-"Implementation complete. {n} tasks done."
+"Implementation complete. {N} tasks completed, {M} skipped."
 "Proceeding to code simplification and review phases."
