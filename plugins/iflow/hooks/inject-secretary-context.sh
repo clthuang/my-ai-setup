@@ -8,18 +8,12 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 # detect_project_root returns PWD if no project markers found
 PROJECT_ROOT="$(detect_project_root)"
+IFLOW_CONFIG="${PROJECT_ROOT}/.claude/iflow-dev.local.md"
 CONFIG_FILE="${PROJECT_ROOT}/.claude/secretary.local.md"
 
-# Default to manual if no config - silent exit
-if [ ! -f "$CONFIG_FILE" ]; then
-  exit 0
-fi
-
-# Read activation_mode (default: manual)
-MODE=$(grep "^activation_mode:" "$CONFIG_FILE" 2>/dev/null | head -1 | sed 's/^[^:]*: *//' | tr -d ' ' || echo "manual")
-
-# Output for yolo mode
-if [ "$MODE" = "yolo" ]; then
+# Check YOLO mode from iflow-dev config
+YOLO=$(read_local_md_field "$IFLOW_CONFIG" "yolo_mode" "false")
+if [ "$YOLO" = "true" ]; then
   cat << 'EOF'
 {
   "hookSpecificOutput": {
@@ -31,7 +25,11 @@ EOF
   exit 0
 fi
 
-# Only output for aware mode
+# Check secretary aware mode from secretary config
+if [ ! -f "$CONFIG_FILE" ]; then
+  exit 0
+fi
+MODE=$(grep "^activation_mode:" "$CONFIG_FILE" 2>/dev/null | head -1 | sed 's/^[^:]*: *//' | tr -d ' ' || echo "manual")
 if [ "$MODE" != "aware" ]; then
   exit 0
 fi

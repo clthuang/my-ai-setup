@@ -26,7 +26,7 @@ Stop execution. Do not proceed.
 
 ### 4. Stage 1: Task Breakdown with Review Loop
 
-Get max iterations from mode: Standard=1, Full=3.
+Max iterations: 5.
 
 Execute this loop:
 
@@ -103,7 +103,7 @@ d. **Branch on result (strict threshold):**
 
 ### 5. Stage 2: Chain Validation (Handoff Gate)
 
-Phase-reviewer iteration budget: max 3 (independent of Stage 1).
+Phase-reviewer iteration budget: max 5 (independent of Stage 1).
 
 Set `phase_iteration = 0`.
 
@@ -135,7 +135,7 @@ Task tool call:
     Implement needs: Small actionable tasks (<15 min each),
     clear acceptance criteria per task, dependency graph for parallel execution.
 
-    This is phase-review iteration {phase_iteration}/3.
+    This is phase-review iteration {phase_iteration}/5.
 
     Return your assessment as JSON:
     {
@@ -149,12 +149,12 @@ Task tool call:
 - **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
 - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
 - If PASS → Proceed to step 5b
-- If FAIL AND phase_iteration < 3:
+- If FAIL AND phase_iteration < 5:
   - Append to `.review-history.md` with "Stage 2: Chain Review" marker
   - Increment phase_iteration
   - Address all blocker AND warning issues
   - Return to phase-reviewer invocation (new agent instance)
-- If FAIL AND phase_iteration == 3:
+- If FAIL AND phase_iteration == 5:
   - Store concerns in `.meta.json` chainReview.concerns
   - Proceed to step 5b with warning
 
@@ -178,7 +178,8 @@ AskUserQuestion:
     "header": "Next Step",
     "options": [
       {"label": "Continue to /iflow:implement (Recommended)", "description": "Start implementation"},
-      {"label": "Review tasks.md first", "description": "Inspect the tasks before continuing"}
+      {"label": "Review tasks.md first", "description": "Inspect the tasks before continuing"},
+      {"label": "Fix and rerun reviews", "description": "Apply fixes then rerun Stage 1 + Stage 2 review cycle"}
     ],
     "multiSelect": false
   }]
@@ -186,3 +187,4 @@ AskUserQuestion:
 
 If "Continue to /iflow:implement (Recommended)": Invoke `/iflow:implement`
 If "Review tasks.md first": Show "Tasks at {path}/tasks.md. Run /iflow:implement when ready." → STOP
+If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to tasks.md, then return to Step 4 (Stage 1 task-reviewer) with iteration counters reset to 0.

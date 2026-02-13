@@ -15,7 +15,7 @@ Follow `validateAndSetup("create-plan")` from the **workflow-transitions** skill
 
 ### 4. Execute with Two-Stage Reviewer Loop
 
-Get max iterations from mode: Standard=1, Full=3.
+Max iterations: 5.
 
 #### Stage 1: Plan-Reviewer Cycle (Skeptical Review)
 
@@ -60,7 +60,7 @@ d. **Branch on result (strict threshold):**
 
 #### Stage 2: Chain-Reviewer Validation (Execution Readiness)
 
-Phase-reviewer iteration budget: max 3 (independent of Stage 1).
+Phase-reviewer iteration budget: max 5 (independent of Stage 1).
 
 Set `phase_iteration = 0`.
 
@@ -89,7 +89,7 @@ e. **Invoke phase-reviewer** (always a NEW Task tool dispatch per iteration):
        Tasks needs: Ordered steps with dependencies,
        all design items covered, clear sequencing.
 
-       This is phase-review iteration {phase_iteration}/3.
+       This is phase-review iteration {phase_iteration}/5.
 
        Return JSON: {"approved": bool, "issues": [{"severity": "blocker|warning|suggestion", "description": "...", "location": "...", "suggestion": "..."}], "summary": "..."}
    ```
@@ -100,12 +100,12 @@ g. **Branch on result (strict threshold):**
    - **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
    - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
    - If PASS → Proceed to step 4h
-   - If FAIL AND phase_iteration < 3:
+   - If FAIL AND phase_iteration < 5:
      - Append to `.review-history.md` with "Stage 2: Chain Review" marker
      - Increment phase_iteration
      - Address all blocker AND warning issues
      - Return to 4e (new agent instance)
-   - If FAIL AND phase_iteration == 3:
+   - If FAIL AND phase_iteration == 5:
      - Note concerns in `.meta.json` phaseReview.reviewerNotes
      - Proceed to 4h with warning
 
@@ -129,7 +129,8 @@ AskUserQuestion:
     "header": "Next Step",
     "options": [
       {"label": "Continue to /iflow:create-tasks (Recommended)", "description": "Break plan into actionable tasks"},
-      {"label": "Review plan.md first", "description": "Inspect the plan before continuing"}
+      {"label": "Review plan.md first", "description": "Inspect the plan before continuing"},
+      {"label": "Fix and rerun reviews", "description": "Apply fixes then rerun Stage 1 + Stage 2 review cycle"}
     ],
     "multiSelect": false
   }]
@@ -137,3 +138,4 @@ AskUserQuestion:
 
 If "Continue to /iflow:create-tasks (Recommended)": Invoke `/iflow:create-tasks`
 If "Review plan.md first": Show "Plan at {path}/plan.md. Run /iflow:create-tasks when ready." → STOP
+If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to plan.md, then return to Step 4 (Stage 1 plan-reviewer) with iteration counters reset to 0.
