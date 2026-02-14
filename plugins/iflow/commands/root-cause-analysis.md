@@ -32,7 +32,7 @@ After selection, ask for details: "Please describe the specific error or behavio
 ## Load Skill
 
 Reference the RCA methodology:
-@plugins/iflow-dev/skills/root-cause-analysis/SKILL.md
+@plugins/iflow/skills/root-cause-analysis/SKILL.md
 
 ## Dispatch Agent
 

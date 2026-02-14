@@ -13,7 +13,7 @@ Argument: `$ARGUMENTS`
 
 ## Config File
 
-Path: `{project_root}/.claude/iflow-dev.local.md`
+Path: `{project_root}/.claude/iflow.local.md`
 
 If the file doesn't exist, create it with this exact content:
 ```
@@ -31,7 +31,7 @@ Path: `{project_root}/.claude/.yolo-hook-state`
 
 ### If argument is "on":
 
-1. Read `{project_root}/.claude/iflow-dev.local.md`. Create from template if missing.
+1. Read `{project_root}/.claude/iflow.local.md`. Create from template if missing.
 2. Set `yolo_mode: true` in the YAML frontmatter (use Edit tool).
 3. Reset the state file by writing this exact content to `{project_root}/.claude/.yolo-hook-state`:
 ```
@@ -47,7 +47,7 @@ Use /iflow:yolo off or press Escape to return to interactive mode.
 
 ### If argument is "off":
 
-1. Read `{project_root}/.claude/iflow-dev.local.md`. Create from template if missing.
+1. Read `{project_root}/.claude/iflow.local.md`. Create from template if missing.
 2. Set `yolo_mode: false` in the YAML frontmatter (use Edit tool).
 3. Output:
 ```
@@ -57,7 +57,7 @@ AskUserQuestions will be shown. Session can stop between phases.
 
 ### If no argument (status check):
 
-1. Read `yolo_mode` from `{project_root}/.claude/iflow-dev.local.md` (default: false).
+1. Read `yolo_mode` from `{project_root}/.claude/iflow.local.md` (default: false).
 2. Read `stop_count` from `{project_root}/.claude/.yolo-hook-state` (default: 0).
 3. Read `yolo_max_stop_blocks` from config (default: 50).
 4. Find active feature: scan `docs/features/*/.meta.json` for `status: "active"`.

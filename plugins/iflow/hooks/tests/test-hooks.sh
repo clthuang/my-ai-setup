@@ -291,7 +291,7 @@ test_read_local_md_field() {
     source "${HOOKS_DIR}/lib/common.sh"
     setup_yolo_test
 
-    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
 ---
 yolo_mode: true
 yolo_max_stop_blocks: 25
@@ -299,7 +299,7 @@ yolo_max_stop_blocks: 25
 TMPL
 
     local val
-    val=$(read_local_md_field "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" "yolo_mode" "false")
+    val=$(read_local_md_field "${YOLO_TMPDIR}/.claude/iflow.local.md" "yolo_mode" "false")
     if [[ "$val" == "true" ]]; then
         log_pass
     else
@@ -361,7 +361,7 @@ test_yolo_guard_allows_when_disabled() {
     log_test "yolo-guard allows when yolo_mode=false"
 
     setup_yolo_test
-    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
 ---
 yolo_mode: false
 ---
@@ -386,7 +386,7 @@ test_yolo_guard_blocks_with_recommended() {
     log_test "yolo-guard blocks and auto-selects (Recommended) option"
 
     setup_yolo_test
-    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
 ---
 yolo_mode: true
 ---
@@ -410,7 +410,7 @@ test_yolo_guard_fallback_first_option() {
     log_test "yolo-guard falls back to first option when no (Recommended)"
 
     setup_yolo_test
-    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
 ---
 yolo_mode: true
 ---
@@ -434,7 +434,7 @@ test_yolo_guard_safety_passthrough() {
     log_test "yolo-guard passes through circuit breaker keywords"
 
     setup_yolo_test
-    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
 ---
 yolo_mode: true
 ---
@@ -459,7 +459,7 @@ test_yolo_guard_ignores_other_tools() {
     log_test "yolo-guard ignores non-AskUserQuestion tools"
 
     setup_yolo_test
-    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
 ---
 yolo_mode: true
 ---
@@ -483,7 +483,7 @@ test_yolo_stop_allows_when_disabled() {
     log_test "yolo-stop allows when yolo_mode=false"
 
     setup_yolo_test
-    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
 ---
 yolo_mode: false
 ---
@@ -507,7 +507,7 @@ test_yolo_stop_allows_no_feature() {
     log_test "yolo-stop allows when no active feature"
 
     setup_yolo_test
-    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
 ---
 yolo_mode: true
 ---
@@ -531,7 +531,7 @@ test_yolo_stop_allows_completed_feature() {
     log_test "yolo-stop allows when feature completed"
 
     setup_yolo_test
-    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
 ---
 yolo_mode: true
 ---
@@ -559,7 +559,7 @@ test_yolo_stop_blocks_with_next_phase() {
     log_test "yolo-stop blocks and returns correct next phase"
 
     setup_yolo_test
-    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
 ---
 yolo_mode: true
 yolo_max_stop_blocks: 50
@@ -588,7 +588,7 @@ test_yolo_stop_detects_stuck() {
     log_test "yolo-stop detects stuck and allows exit"
 
     setup_yolo_test
-    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
 ---
 yolo_mode: true
 yolo_max_stop_blocks: 50
@@ -622,7 +622,7 @@ test_yolo_stop_max_blocks() {
     log_test "yolo-stop respects max stop blocks limit"
 
     setup_yolo_test
-    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
 ---
 yolo_mode: true
 yolo_max_stop_blocks: 3

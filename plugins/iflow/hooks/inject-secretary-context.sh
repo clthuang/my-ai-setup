@@ -8,10 +8,10 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 # detect_project_root returns PWD if no project markers found
 PROJECT_ROOT="$(detect_project_root)"
-IFLOW_CONFIG="${PROJECT_ROOT}/.claude/iflow-dev.local.md"
+IFLOW_CONFIG="${PROJECT_ROOT}/.claude/iflow.local.md"
 CONFIG_FILE="${PROJECT_ROOT}/.claude/secretary.local.md"
 
-# Check YOLO mode from iflow-dev config
+# Check YOLO mode from iflow config
 YOLO=$(read_local_md_field "$IFLOW_CONFIG" "yolo_mode" "false")
 if [ "$YOLO" = "true" ]; then
   cat << 'EOF'
@@ -39,7 +39,7 @@ cat << 'EOF'
 {
   "hookSpecificOutput": {
     "hookEventName": "SessionStart",
-    "additionalContext": "Secretary agent available for orchestrating complex requests. For vague or multi-step tasks, consider: Task({ subagent_type: 'iflow-dev:secretary', prompt: <user_request> })"
+    "additionalContext": "Secretary agent available for orchestrating complex requests. For vague or multi-step tasks, consider: Task({ subagent_type: 'iflow:secretary', prompt: <user_request> })"
   }
 }
 EOF

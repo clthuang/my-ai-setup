@@ -93,7 +93,7 @@ If no relevant findings:
 
 Primary search locations:
 - `plugins/iflow/skills/*/SKILL.md`
-- `plugins/iflow-dev/skills/*/SKILL.md`
+- `plugins/iflow/skills/*/SKILL.md`
 
 Also check:
 - Agent definitions that skills might invoke
