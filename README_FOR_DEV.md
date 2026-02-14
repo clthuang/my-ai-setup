@@ -176,6 +176,11 @@ Skills are instructions Claude follows for specific development practices. Locat
 |-------|---------|
 | `game-design` | Game design frameworks, engagement/retention analysis, aesthetic direction, and feasibility evaluation |
 | `crypto-analysis` | Crypto/Web3 frameworks for protocol comparison, DeFi taxonomy, tokenomics, trading strategies, MEV classification, market structure, and risk assessment |
+| `data-science-analysis` | Data science frameworks for methodology assessment, pitfall analysis, and modeling approach recommendations (brainstorming domain) |
+| `writing-ds-python` | Clean DS Python code: anti-patterns, pipeline rules, type hints, testing strategy, dependency management |
+| `structuring-ds-projects` | Cookiecutter v2 project layout, notebook conventions, data immutability, the 3-use rule |
+| `spotting-analysis-pitfalls` | 15 common statistical pitfalls with diagnostic decision tree and mitigation checklists |
+| `choosing-modeling-approach` | Predictive vs causal modeling, method selection flowchart, Rubin/Pearl frameworks, hybrid approaches |
 
 ### Specialist Teams
 | Skill | Purpose |
@@ -194,7 +199,7 @@ Skills are instructions Claude follows for specific development practices. Locat
 
 Agents are isolated subprocesses spawned by the workflow. Located in `plugins/iflow-dev/agents/{name}.md`.
 
-**Reviewers (11):**
+**Reviewers (13):**
 - `brainstorm-reviewer` — Reviews brainstorm artifacts with universal + type-specific criteria before promotion
 - `code-quality-reviewer` — Reviews implementation quality after spec compliance is confirmed
 - `design-reviewer` — Challenges design assumptions and finds gaps
@@ -206,6 +211,8 @@ Agents are isolated subprocesses spawned by the workflow. Located in `plugins/if
 - `spec-reviewer` — Reviews spec.md for testability, assumptions, and scope discipline
 - `security-reviewer` — Reviews implementation for security vulnerabilities; uses WebSearch + Context7 for external claim verification
 - `task-reviewer` — Validates task breakdown quality for immediate executability
+- `analysis-reviewer` — Reviews data analysis for statistical pitfalls, methodology issues, and conclusion validity; uses WebSearch + Context7
+- `ds-code-reviewer` — Reviews DS Python code for anti-patterns, pipeline quality, and best practices; uses Context7 for API verification
 
 **Workers (5):**
 - `implementer` — Implements tasks with TDD and self-review discipline

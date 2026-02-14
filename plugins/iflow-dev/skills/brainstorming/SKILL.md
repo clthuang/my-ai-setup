@@ -129,6 +129,7 @@ AskUserQuestion:
 |-------|-----------|------------------|
 | Game Design | game-design | Game Design Analysis |
 | Crypto/Web3 | crypto-analysis | Crypto Analysis |
+| Data Science | data-science-analysis | Data Science Analysis |
 
 Present domain options via AskUserQuestion:
 ```
@@ -139,6 +140,7 @@ AskUserQuestion:
     "options": [
       {"label": "Game Design", "description": "Apply game design frameworks (core loop, engagement, aesthetics, viability)"},
       {"label": "Crypto/Web3", "description": "Apply crypto analysis frameworks (protocol, tokenomics, market, risk)"},
+      {"label": "Data Science", "description": "Apply data science frameworks (methodology, pitfalls, modeling approach)"},
       {"label": "None", "description": "No domain-specific analysis"}
     ],
     "multiSelect": false

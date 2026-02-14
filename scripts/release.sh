@@ -159,10 +159,28 @@ copy_dev_to_prod() {
     success "Syncing iflow-dev to iflow (with deletions)..."
     rsync -av --delete --exclude='.claude-plugin/plugin.json' plugins/iflow-dev/ plugins/iflow/
 
-    # Convert plugin references from iflow-dev to iflow
-    # This handles both command refs (/iflow-dev:verify → /iflow:verify)
-    # and subagent refs (iflow-dev:prd-reviewer → iflow:prd-reviewer)
-    find plugins/iflow -name "*.md" -exec sed -i '' 's|iflow-dev:|iflow:|g' {} \;
+    # Blanket convert iflow-dev → iflow in all markdown files
+    # Handles all separators: colon (iflow-dev:cmd), dot (iflow-dev.local.md),
+    # slash (plugins/iflow-dev/skills/...), and any future patterns
+    find plugins/iflow -name "*.md" -exec sed -i '' 's/iflow-dev/iflow/g' {} \;
+
+    # Blanket convert in shell scripts, excluding cross-plugin scripts
+    # that legitimately reference both iflow and iflow-dev directories
+    find plugins/iflow -name "*.sh" \
+        ! -name "pre-commit-guard.sh" \
+        ! -name "sync-cache.sh" \
+        -exec sed -i '' 's/iflow-dev/iflow/g' {} \;
+
+    # Verification gate: fail release if unconverted references leak through
+    local remaining
+    remaining=$(grep -rn "iflow-dev" plugins/iflow/ --include="*.md" --include="*.sh" \
+        | grep -v "pre-commit-guard.sh" \
+        | grep -v "sync-cache.sh" || true)
+    if [[ -n "$remaining" ]]; then
+        error "Unconverted iflow-dev references found in released plugin:"
+        echo "$remaining"
+        exit 1
+    fi
 
     success "Copied and converted plugin references"
 }
