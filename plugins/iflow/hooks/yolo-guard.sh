@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 PROJECT_ROOT="$(detect_project_root)"
 
-IFLOW_CONFIG="${PROJECT_ROOT}/.claude/iflow-dev.local.md"
+IFLOW_CONFIG="${PROJECT_ROOT}/.claude/iflow.local.md"
 
 # Read stdin
 INPUT=$(cat)

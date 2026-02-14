@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 PROJECT_ROOT="$(detect_project_root)"
 
-IFLOW_CONFIG="${PROJECT_ROOT}/.claude/iflow-dev.local.md"
+IFLOW_CONFIG="${PROJECT_ROOT}/.claude/iflow.local.md"
 STATE_FILE="${PROJECT_ROOT}/.claude/.yolo-hook-state"
 
 # Read stdin
@@ -136,7 +136,7 @@ if [[ -z "$NEXT_PHASE" ]]; then
 fi
 
 FEATURE_REF="${FEATURE_ID}-${FEATURE_SLUG}"
-REASON=$(escape_json "[YOLO_MODE] Feature ${FEATURE_REF} in progress. Last completed: ${LAST_COMPLETED_PHASE}. Invoke /iflow-dev:${NEXT_PHASE} --feature=${FEATURE_REF} with [YOLO_MODE].")
+REASON=$(escape_json "[YOLO_MODE] Feature ${FEATURE_REF} in progress. Last completed: ${LAST_COMPLETED_PHASE}. Invoke /iflow:${NEXT_PHASE} --feature=${FEATURE_REF} with [YOLO_MODE].")
 
 cat <<EOF
 {

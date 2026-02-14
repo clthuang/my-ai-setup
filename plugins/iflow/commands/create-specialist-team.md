@@ -38,7 +38,7 @@ Parse the task description to determine:
 
 ### Step 2: Select Templates and Confirm
 
-Available templates (in `plugins/iflow-dev/skills/creating-specialist-teams/references/`):
+Available templates (in `plugins/iflow/skills/creating-specialist-teams/references/`):
 
 | Template | Best For |
 |----------|----------|
@@ -90,7 +90,7 @@ For each selected template:
 
 1. Read the scaffold template:
    ```
-   Read(plugins/iflow-dev/skills/creating-specialist-teams/references/{type}.template.md)
+   Read(plugins/iflow/skills/creating-specialist-teams/references/{type}.template.md)
    ```
 
 2. Gather codebase context relevant to the task:
