@@ -14,6 +14,7 @@ If `[YOLO_MODE]` is active in the execution context:
 - **Stage 1 (CLARIFY):** Skip Q&A. Infer all 5 required items from the user's description.
   Use reasonable defaults for anything not inferable. Do NOT ask any questions.
 - **Step 6 (Problem Type):** Auto-select "Product/Feature"
+- **Step 10 (Clarity Gate):** Skip entirely
 - **Stages 2-5:** Run normally (research, drafting, and reviews still execute for quality)
 - **Stage 6 (Decision):** Auto-select "Promote to Feature" regardless of variant
   (project-recommended, non-project, or blocked — always choose feature, not project)
@@ -137,6 +138,34 @@ Parse advisory team configuration from skill args:
    - Store archetype definition (PRD sections, exit routes) for Stages 3 and 6
 
 **Loop-back behavior:** If returning from Stage 6, preserve stored values (no re-prompt since no user interaction).
+
+#### Step 10: Deliverable Clarity Gate
+
+**Skip if:** YOLO mode active, OR archetype `uncertainty_level` is `low` (per archetypes.md).
+
+**Applies to:** exploring-an-idea, deciding-between-options, new-product-or-business, crypto-web3-project, data-ml-project (all `high` uncertainty archetypes).
+
+**Check two items from Stage 1:**
+1. **Success criteria (item 3):** Are they measurable? Look for vague language like "works better", "is improved", "feels right" with no metric or threshold.
+2. **Deliverable concreteness (item 1 + 3 combined):** Can you describe what "done" looks like in one concrete sentence? If the problem + success criteria together don't paint a clear picture of the finished deliverable, flag it.
+
+**If either check fails:**
+```
+AskUserQuestion:
+  questions: [{
+    "question": "Your {success criteria / deliverable description} could be sharper. For example, '{quote vague part}' — what specific, measurable outcome would tell you this succeeded?",
+    "header": "Clarity",
+    "options": [
+      {"label": "Let me clarify", "description": "Refine the answer to be more specific and measurable"},
+      {"label": "Proceed as-is", "description": "Working Backwards advisor will address deliverable clarity in Stage 2"}
+    ],
+    "multiSelect": false
+  }]
+```
+
+- **"Let me clarify":** Accept refined answer, update stored item, run ONE re-check only (no infinite loop). If still vague after re-check, proceed silently.
+- **"Proceed as-is":** Continue — Working Backwards advisor handles clarity depth in Stage 2.
+- **Both checks pass on first run:** Proceed silently to Stage 2 (no user interaction).
 
 ---
 ### Stage 2: RESEARCH AND ADVISORY ANALYSIS

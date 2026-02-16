@@ -6,6 +6,7 @@ This file is the single source of truth for problem classification, advisory tea
 
 ### building-something-new
 - **Signal words:** build, create, add, new feature, implement, develop, make, ship
+- **Uncertainty level:** low
 - **Default advisory team:** pre-mortem, adoption-friction, flywheel, feasibility
 - **Additional PRD sections:** Standard (User Stories, Use Cases, etc.)
 - **Stage 6 exit routes:**
@@ -16,7 +17,8 @@ This file is the single source of truth for problem classification, advisory tea
 
 ### exploring-an-idea
 - **Signal words:** explore, think about, what if, consider, brainstorm, imagine, wonder
-- **Default advisory team:** first-principles, vision-horizon, opportunity-cost, pre-mortem
+- **Uncertainty level:** high
+- **Default advisory team:** first-principles, vision-horizon, opportunity-cost, pre-mortem, working-backwards
 - **Additional PRD sections:** Options Evaluated, Decision Matrix
 - **Stage 6 exit routes:**
   - Save as Decision Document
@@ -26,6 +28,7 @@ This file is the single source of truth for problem classification, advisory tea
 
 ### fixing-something-broken
 - **Signal words:** fix, bug, broken, error, crash, debug, investigate, failing, wrong, issue
+- **Uncertainty level:** low
 - **Default advisory team:** first-principles, pre-mortem, antifragility
 - **Additional PRD sections:** Symptoms, Reproduction Steps, Hypotheses, Evidence Map
 - **Stage 6 exit routes:**
@@ -36,6 +39,7 @@ This file is the single source of truth for problem classification, advisory tea
 
 ### improving-existing-work
 - **Signal words:** improve, refactor, optimize, enhance, upgrade, modernize, clean up, speed up
+- **Uncertainty level:** low
 - **Default advisory team:** self-cannibalization, flywheel, adoption-friction
 - **Additional PRD sections:** Current State Assessment, Change Impact, Migration Path
 - **Stage 6 exit routes:**
@@ -45,7 +49,8 @@ This file is the single source of truth for problem classification, advisory tea
 
 ### deciding-between-options
 - **Signal words:** decide, choose, compare, vs, or, trade-off, which, evaluate, assess
-- **Default advisory team:** first-principles, opportunity-cost, pre-mortem, vision-horizon
+- **Uncertainty level:** high
+- **Default advisory team:** first-principles, opportunity-cost, pre-mortem, vision-horizon, working-backwards
 - **Additional PRD sections:** Options Evaluated, Decision Matrix
 - **Stage 6 exit routes:**
   - Save as Decision Document
@@ -55,7 +60,8 @@ This file is the single source of truth for problem classification, advisory tea
 
 ### new-product-or-business
 - **Signal words:** product, business, startup, market, launch, venture, company, monetize, revenue
-- **Default advisory team:** first-principles, pre-mortem, opportunity-cost, flywheel, feasibility
+- **Uncertainty level:** high
+- **Default advisory team:** first-principles, pre-mortem, opportunity-cost, working-backwards, feasibility
 - **Additional PRD sections:** Market Context, Competitive Landscape, Risk Factors
 - **Stage 6 exit routes:**
   - Promote to Project (Recommended)
@@ -65,6 +71,7 @@ This file is the single source of truth for problem classification, advisory tea
 
 ### game-concept
 - **Signal words:** game, gameplay, player, level, quest, combat, rpg, platformer, puzzle, multiplayer
+- **Uncertainty level:** low
 - **Default advisory team:** game-design, adoption-friction, feasibility, vision-horizon
 - **Additional PRD sections:** Standard
 - **Stage 6 exit routes:**
@@ -75,6 +82,7 @@ This file is the single source of truth for problem classification, advisory tea
 
 ### crypto-web3-project
 - **Signal words:** crypto, blockchain, token, defi, nft, web3, smart contract, protocol, dao, wallet
+- **Uncertainty level:** high
 - **Default advisory team:** crypto, pre-mortem, antifragility, feasibility
 - **Additional PRD sections:** Standard
 - **Stage 6 exit routes:**
@@ -85,6 +93,7 @@ This file is the single source of truth for problem classification, advisory tea
 
 ### data-ml-project
 - **Signal words:** data, ml, machine learning, model, predict, classify, dataset, training, analytics, statistics
+- **Uncertainty level:** high
 - **Default advisory team:** data-science, pre-mortem, feasibility
 - **Additional PRD sections:** Standard
 - **Stage 6 exit routes:**
@@ -196,6 +205,7 @@ These advisors are self-contained `.advisor.md` templates that define an analyti
 | vision-horizon | `vision-horizon.advisor.md` | What time horizon is this optimized for? |
 | feasibility | `feasibility.advisor.md` | Can this actually be built, and what would prove it? |
 | first-principles | `first-principles.advisor.md` | Is this the right problem? Are the assumptions valid? |
+| working-backwards | `working-backwards.advisor.md` | What does the finished deliverable look like, and how does the customer experience it? |
 
 ### Domain Advisors (reference-file-backed)
 These advisors reference existing domain skill reference files for evidence-backed analysis:
