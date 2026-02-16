@@ -58,6 +58,13 @@ AskUserQuestion:
 |----------|----------|
 | [Component Authoring Guide](docs/dev_guides/component-authoring.md) | Creating skills, agents, plugins, commands, or hooks |
 | [Developer Guide](README_FOR_DEV.md) | Architecture, release process, design principles |
+| [Hook Development Guide](docs/dev_guides/hook-development.md) | Writing or modifying hooks — covers PROJECT_ROOT vs PLUGIN_ROOT, JSON output, shared libs |
+
+## Knowledge & Memory
+
+- **Knowledge bank:** `docs/knowledge-bank/{patterns,anti-patterns,heuristics}.md` — updated by retrospectives
+- **Global memory store:** `~/.claude/iflow/memory/` — cross-project entries injected at session start
+- **Hook subprocess safety:** Always suppress stderr (`2>/dev/null`) for Python/external calls in hooks to prevent corrupting JSON output
 
 ## Quick Reference
 
