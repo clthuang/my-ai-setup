@@ -252,7 +252,7 @@ Hooks execute automatically at lifecycle points.
 |------|---------|---------|
 | `sync-cache` | SessionStart (startup\|resume\|clear) | Syncs plugin source to Claude cache |
 | `cleanup-locks` | SessionStart (startup\|resume\|clear) | Removes stale lock files |
-| `session-start` | SessionStart (startup\|resume\|clear) | Injects active feature context |
+| `session-start` | SessionStart (startup\|resume\|clear) | Injects active feature context and knowledge bank memory |
 | `inject-secretary-context` | SessionStart (startup\|resume\|clear) | Injects available agent/command context for secretary |
 | `cleanup-sandbox` | (utility) | Cleans up agent_sandbox/ temporary files |
 | `pre-commit-guard` | PreToolUse (Bash) | Branch protection and iflow directory protection |
@@ -385,6 +385,10 @@ Learnings accumulate in `docs/knowledge-bank/`:
 - **heuristics.md** — Decision guides
 
 Updated via `/iflow:retrospect` after feature completion.
+
+### Cross-Project Memory
+
+Universal entries are promoted to a global store at `~/.claude/iflow/memory/` during retrospectives. The `session-start` hook injects top entries (project-local + global, deduplicated) into every session. Controlled by `memory_injection_enabled` and `memory_injection_limit` in `iflow-dev.local.md`.
 
 ## Creating Components
 
