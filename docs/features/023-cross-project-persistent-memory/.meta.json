@@ -1,0 +1,16 @@
+{
+  "id": "023",
+  "slug": "cross-project-persistent-memory",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-02-17T02:45:00Z",
+  "branch": "feature/023-cross-project-persistent-memory",
+  "brainstorm_source": "docs/brainstorms/20260217-011805-cross-project-persistent-memory.prd.md",
+  "lastCompletedPhase": null,
+  "phases": {
+    "specify": {
+      "status": "in-progress",
+      "startedAt": "2026-02-17T02:46:00Z"
+    }
+  }
+}
