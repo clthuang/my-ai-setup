@@ -10,3 +10,4 @@
 | 00009 | 2026-01-31T12:06:00Z | add executive (ceo, cto, cfo, coo, etc.) team (agents, skills) |
 | 00010 | 2026-01-31T12:07:00Z | add quant trader and researcher team (agents, skills) |
 | 00011 | 2026-01-31T12:08:00Z | add crypto team (agents, skills) |
+| 00012 | 2026-02-17T12:00:00Z | fix the secretary AskUserQuestion formatting. The user should be able to select the options directly and also continue to chat if desired. |
