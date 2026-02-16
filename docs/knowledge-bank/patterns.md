@@ -171,3 +171,17 @@ Define interfaces before implementation. Enables parallel work.
 - Used in: Feature #42
 - Benefit: Reduced integration issues by 50%
 -->
+
+### Pattern: Skeptic Design Reviewer Catches Feasibility Blockers Early
+When the design reviewer operates in 'skeptic' mode and challenges unverified assumptions (CLI mechanisms, parser complexity, file format handling), it prevents costly rework in later phases. Architectural pivots made during design (env var over CLI args, split-and-partition over state machine) are far cheaper than discovering these issues during implementation.
+- Observed in: Feature #023, design phase
+- Confidence: high
+- Last observed: Feature #023
+- Observation count: 1
+
+### Pattern: Detailed Rebuttals With Line-Number Evidence Resolve False Positives
+When the implementer provides exact line references, quotes from spec/design, and git-blame evidence for pre-existing code, false-positive review blockers are resolved without code churn. This preserves implementation quality while avoiding unnecessary changes.
+- Observed in: Feature #023, implement phase
+- Confidence: medium
+- Last observed: Feature #023
+- Observation count: 1

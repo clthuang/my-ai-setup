@@ -218,13 +218,53 @@ else:
     echo "$context"
 }
 
+# Build memory context from knowledge bank entries
+build_memory_context() {
+    local config_file="${PROJECT_ROOT}/.claude/iflow.local.md"
+    local enabled
+    enabled=$(read_local_md_field "$config_file" "memory_injection_enabled" "true")
+    if [[ "$enabled" != "true" ]]; then
+        return
+    fi
+
+    local limit
+    limit=$(read_local_md_field "$config_file" "memory_injection_limit" "20")
+    [[ "$limit" =~ ^-?[0-9]+$ ]] || limit="20"
+
+    local timeout_cmd=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        timeout_cmd="gtimeout 3"
+    elif command -v timeout >/dev/null 2>&1; then
+        timeout_cmd="timeout 3"
+    fi
+
+    # stderr suppressed: memory.py errors must not corrupt hook JSON output
+    local memory_output
+    memory_output=$($timeout_cmd python3 "${SCRIPT_DIR}/lib/memory.py" \
+        --project-root "$PROJECT_ROOT" \
+        --limit "$limit" \
+        --global-store "$HOME/.claude/iflow/memory" 2>/dev/null) || memory_output=""
+    echo "$memory_output"
+}
+
 # Main
 main() {
+    local memory_context=""
+    memory_context=$(build_memory_context)
+
     local context
     context=$(build_context)
 
+    # Prepend memory before workflow state
+    local full_context=""
+    if [[ -n "$memory_context" ]]; then
+        full_context="${memory_context}\n\n${context}"
+    else
+        full_context="$context"
+    fi
+
     local escaped_context
-    escaped_context=$(escape_json "$context")
+    escaped_context=$(escape_json "$full_context")
 
     cat <<EOF
 {

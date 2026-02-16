@@ -231,6 +231,25 @@ Performed by the orchestrating agent inline (not a sub-agent dispatch). Only val
    - **Update**: User provides new text, modify entry in-place, update `Last observed`, reset `Observation count` to 1
    - **Retire**: Delete entry from file, append to `retro.md`: `Retired: {entry name} — {user's reason}`
 
+### Step 4c: Promote to Global Store
+
+For each NEW entry written in Step 4 (not pre-existing entries from 4b):
+
+1. Classify as `universal` or `project-specific` with reasoning:
+   - Universal: "Always read target file before editing" (no project refs), "Break tasks into one-file-per-task" (general workflow)
+   - Project-specific: "Secretary routing table must match hooks.json" (iflow architecture), "session-start.sh Python subprocess adds ~200ms" (specific file)
+   - Default to `universal` — over-sharing is better than under-sharing
+
+2. For universal entries:
+   - Compute content hash: `echo "DESCRIPTION" | python3 -c "import sys,hashlib; print(hashlib.sha256(' '.join(sys.stdin.read().lower().strip().split()).encode()).hexdigest()[:16])"`
+   - Read global store file at `~/.claude/iflow/memory/{category}.md` (create dir with `mkdir -p` if needed)
+   - If hash match: increment `Observation count`, update `Last observed`, append project to `Source`
+   - If no match: append entry with full schema (Content-Hash, Source, Observation count: 1, Last observed, Tags: universal, Confidence)
+
+3. For project-specific entries: skip, log reason
+
+4. Output: "Memory promotion: N universal promoted, M project-specific kept local"
+
 ### Step 5: Commit
 
 ```bash
