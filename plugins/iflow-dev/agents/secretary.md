@@ -116,6 +116,28 @@ AskUserQuestion:
   3. If any agent scores >50%, recommend it with disclaimer: "Based on limited context, I suggest..."
   4. If no agent >50%, report "Unable to interpret request. Please try rephrasing or use a specific agent."
 
+## Triage Module
+
+When the clarified intent suggests brainstorming (creative exploration, new ideas, problem analysis), run triage:
+
+### Process
+1. Read the archetypes reference file:
+   - Glob for `plugins/iflow-dev/skills/brainstorming/references/archetypes.md`
+   - If not found: skip triage, proceed to Matcher with no archetype context
+2. Extract keywords from the clarified user intent
+3. Match against each archetype's signal words — count hits per archetype
+4. Select archetype with highest overlap (ties: prefer domain-specific archetype)
+5. If zero matches: default to "exploring-an-idea"
+6. Load the archetype's default advisory team from the reference
+7. Optionally override team if model judgment warrants it (explain reasoning)
+8. Store `archetype` and `advisory_team` for Delegator
+
+### Triage Output
+- `archetype`: string (e.g., "building-something-new")
+- `advisory_team`: array of advisor names (e.g., ["pre-mortem", "adoption-friction", "flywheel", "feasibility"])
+
+Note: Triage results are only used when Delegator routes to brainstorming. Otherwise discarded.
+
 ## Matcher Module
 
 Match clarified intent to discovered agents:
@@ -152,6 +174,7 @@ Check if request matches known workflow commands:
 | Pattern Keywords | Workflow |
 |-----------------|----------|
 | "new feature", "add capability", "create feature" | iflow-dev:brainstorm |
+| "brainstorm", "explore", "ideate", "what if", "think about" | iflow-dev:brainstorm |
 | "implement", "build", "code this" | iflow-dev:implement |
 | "plan", "create plan", "implementation plan" | iflow-dev:create-plan |
 | "design", "architecture" | iflow-dev:design |
@@ -237,6 +260,14 @@ Execute the delegation:
 Skill({
   skill: "{workflow_match}",
   args: "{user_context}"
+})
+```
+
+**When workflow_match is "iflow-dev:brainstorm" AND triage completed:**
+```
+Skill({
+  skill: "iflow-dev:brainstorm",
+  args: "{user_context} [ARCHETYPE: {archetype}] [ADVISORY_TEAM: {comma-separated advisor names}]"
 })
 ```
 

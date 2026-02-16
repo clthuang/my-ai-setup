@@ -68,12 +68,14 @@ Return structured feedback:
 - [ ] Constraints documented (behavioral + technical)
 - [ ] Non-goals explicitly stated
 - [ ] Scope is clearly bounded with trade-offs stated
+- [ ] Strategic Analysis section present with advisory perspectives (when archetype is not "none")
 
 ### 2. Intellectual Honesty
 - [ ] Unchecked assumptions are flagged as assumptions
 - [ ] Uncertainty is explicitly acknowledged (not hidden)
 - [ ] No false certainty — if we don't know, we say so
 - [ ] Judgment calls are labeled as such with reasoning
+- [ ] Foundational assumptions examined, not just accepted (look for: why-chain reasoning, counterexamples considered, "accepted because true" vs "accepted because familiar" distinction in Strategic Analysis)
 - [ ] Vague references are replaced with specifics
 
 ### 3. Evidence Standards
@@ -81,6 +83,7 @@ Return structured feedback:
 - [ ] External claims have sources/references
 - [ ] Research findings cite where they came from
 - [ ] "It should work" → replaced with "Verified at {location}" or "Assumption: needs verification"
+- [ ] Advisory analysis cites evidence or explicitly flags assumptions
 
 ### 4. Clarity
 - [ ] Success criteria are measurable

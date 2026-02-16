@@ -147,7 +147,7 @@ Skills are instructions Claude follows for specific development practices. Locat
 ### Workflow Phases
 | Skill | Purpose |
 |-------|---------|
-| `brainstorming` | Guides 7-stage process producing evidence-backed PRDs with optional structured problem-solving and domain skill enrichment |
+| `brainstorming` | Guides 6-stage process producing evidence-backed PRDs with advisory team analysis and structured problem-solving |
 | `structured-problem-solving` | Applies SCQA framing and type-specific decomposition to problems during brainstorming |
 | `specifying` | Creates precise specifications with acceptance criteria |
 | `designing` | Creates design.md with architecture and contracts |
@@ -221,6 +221,9 @@ Agents are isolated subprocesses spawned by the workflow. Located in `plugins/if
 - `documentation-writer` — Writes and updates documentation based on research findings
 - `code-simplifier` — Identifies unnecessary complexity and suggests simplifications
 
+**Advisory (1):**
+- `advisor` — Applies strategic or domain advisory lens to brainstorm problems via template injection
+
 **Researchers (5):**
 - `codebase-explorer` — Analyzes codebase to find relevant patterns and constraints
 - `documentation-researcher` — Researches documentation state and identifies update needs
@@ -233,6 +236,13 @@ Agents are isolated subprocesses spawned by the workflow. Located in `plugins/if
 - `secretary-reviewer` — Validates secretary routing recommendations before presenting to user
 - `rca-investigator` — Finds all root causes through 6-phase systematic investigation
 - `retro-facilitator` — Runs data-driven AORTA retrospective with full intermediate context
+
+### Advisory Team Architecture
+The brainstorm skill dispatches advisory agents alongside research agents in Stage 2.
+Advisors are `.advisor.md` template files in `skills/brainstorming/references/advisors/`.
+The secretary classifies problems by archetype (from `references/archetypes.md`) and assembles
+an advisory team of 2-5 advisors. Domain advisors reference existing domain skill reference files.
+New advisors are added by creating a `.advisor.md` file and listing it in the archetypes inventory.
 
 ## Hooks
 

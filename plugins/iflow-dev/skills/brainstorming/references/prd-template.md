@@ -10,6 +10,7 @@ Write to `docs/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`:
 - Last updated: {date}
 - Status: Draft
 - Problem Type: {type or "none" if skipped}
+- Archetype: {archetype or "none"}
 
 ## Problem Statement
 {What problem are we solving? Why does it matter?}
@@ -88,8 +89,24 @@ mindmap
       Sub-branch 2a
 ```
 
-## {Domain} Analysis
-*(Only included when a domain is active. Section structure defined by the domain skill's SKILL.md output template.)*
+## Strategic Analysis
+*(Advisory team perspectives. Each subsection is one advisor's analysis field, with evidence quality appended by Stage 3.)*
+
+### {Advisor Name}
+- **Core Finding:** {one-sentence summary}
+- **Analysis:** {2-3 paragraphs from advisor's perspective}
+- **Key Risks:** {risks identified}
+- **Recommendation:** {what to do about findings}
+- **Evidence Quality:** {strong/moderate/weak/speculative}
+
+*(Repeat for each advisor in the team)*
+
+<!-- Archetype-specific sections (include based on archetype from archetypes.md):
+  - fixing-something-broken: Symptoms, Reproduction Steps, Hypotheses, Evidence Map
+  - exploring-an-idea / deciding-between-options: Options Evaluated, Decision Matrix
+  - improving-existing-work: Current State Assessment, Change Impact, Migration Path
+  - new-product-or-business: Market Context, Competitive Landscape, Risk Factors
+-->
 
 ## Review History
 {Added by Stage 5 auto-correct}
