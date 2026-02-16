@@ -60,14 +60,14 @@ Reviewer iteration counts suggest complexity: 2 = straightforward, 3 = moderate,
 - Feature #021 plan had 6 iterations (highest), mostly from dependency graph contradictions
 - If plan iterations exceed 3, check for structural issues (dual representations, missing test cases)
 - Source: Feature #021
-- Last observed: Feature #022
-- Observation count: 2
+- Last observed: Feature #023
+- Observation count: 3
 
 ### Circuit Breaker Hits as Assumption Signals
 Circuit breaker hits in design review indicate a fundamental assumption mismatch, not incremental quality issues. When design review hits 5 iterations, the root cause is typically a wrong foundational assumption (e.g., wrong file format) rather than accumulated small issues.
 - Source: Feature #022, design phase
-- Last observed: Feature #022
-- Observation count: 1
+- Last observed: Feature #023
+- Observation count: 2
 
 ### Per-File Anchor Verification for Cross-Cutting Changes
 Cross-cutting changes touching 14+ files benefit from explicit per-file insertion anchor verification in the plan phase. Every insertion point needs unique verification when files have different structures.
@@ -84,3 +84,24 @@ Create a new service when:
 
 Otherwise: Keep it as a module within existing service.
 -->
+
+### Read Real File Samples During Design When Parsing Existing Files
+When a feature involves parsing existing files, the designer should read at least one real instance of each input file and note structural quirks (HTML comment blocks, template examples, empty sections) that the parser must handle. These quirks are invisible from spec descriptions alone and will surface as blockers in later phases.
+- Source: Feature #023 — Plan review iter 2 discovered HTML comment blocks in knowledge bank files that design did not account for
+- Confidence: high
+- Last observed: Feature #023
+- Observation count: 1
+
+### Comprehensive Brainstorm PRDs Correlate With Fast Specify Phases
+When a brainstorm PRD exists and is comprehensive (300+ lines with explicit success criteria), the specify phase acts as a scoping/structuring pass rather than a discovery pass, typically completing in under 30 minutes with minimal review iterations.
+- Source: Feature #023 — 404-line brainstorm PRD led to 29-minute specify phase with zero review iterations
+- Confidence: medium
+- Last observed: Feature #023
+- Observation count: 1
+
+### Expect Extra Task Review Iterations When Plan Leaves Format Details Ambiguous
+If the plan describes 'what' a format contains but not the exact 'shape' (all fields, ordering, delimiters), task review will iterate until the format is unambiguous enough for implementation. Budget 2-3 extra iterations for this.
+- Source: Feature #023 — 3 of 5 taskReview iterations were format back-fill (missing dependency, unspecified synthetic format, missing metadata field)
+- Confidence: high
+- Last observed: Feature #023
+- Observation count: 1

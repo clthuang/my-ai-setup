@@ -74,16 +74,16 @@ Using `${VARIABLE}` inside Python strings embedded in bash scripts enables injec
 - Cost: Security reviewer flagged session-start.sh line 169 using `${PROJECT_ROOT}` in Python glob
 - Root cause: Bash expands variables before Python sees the string; special characters in paths could break or inject
 - Instead: Pass external values via `sys.argv` or environment variables; never string interpolation
-- Last observed: Feature #021
-- Observation count: 1
+- Last observed: Feature #023
+- Observation count: 2
 
 ### Anti-Pattern: Parser Against Assumed Format
 Designing parsers against assumed format without verifying against actual files. Writing regex patterns or format specifications based on what the format "should be" rather than reading actual files to confirm.
 - Observed in: Feature #022, design phase iteration 3
 - Cost: Design circuit breaker hit (5 iterations); task parser regex was checkbox-based but actual tasks.md uses heading-based format
 - Instead: Read actual target files before writing parsers; add "verified against: <file path>" annotation to design documents
-- Last observed: Feature #022
-- Observation count: 1
+- Last observed: Feature #023
+- Observation count: 2
 
 ### Anti-Pattern: Post-Approval Informational Iterations
 Continuing review iterations after approval when all remaining issues are informational ("no change needed"). Adds wall-clock time without producing artifact changes.
@@ -100,3 +100,21 @@ Optimizing before measuring actual performance.
 - Cost: 2 days wasted on unnecessary caching
 - Instead: Measure first, optimize bottlenecks only
 -->
+
+### Anti-Pattern: Specifying a Parser Without a Complete Round-Trip Example
+When design describes a parser (fields extracted, splitting logic, metadata structure) but does not include a fully worked example showing input text and resulting data structure with ALL fields populated, downstream phases repeatedly discover missing fields or format gaps, causing cascading review iterations.
+- Observed in: Feature #023, design through create-tasks phases
+- Cost: 3+ extra review iterations across 3 phases as format was refined piecemeal
+- Instead: Include at least one complete input→output example with all parser fields in the design
+- Confidence: high
+- Last observed: Feature #023
+- Observation count: 1
+
+### Anti-Pattern: Implementation Reviewer Flagging Pre-Existing Code as Blockers
+When the quality reviewer flags code quality issues on lines not introduced by the current feature (e.g., a bare except clause in a function written months ago), it wastes review iterations on rebuttals and creates noise that obscures genuine issues in the new code.
+- Observed in: Feature #023, implement phase
+- Cost: 2 wasted review iterations (iterations 3-4 produced zero code changes)
+- Instead: Reviewer should check git diff to verify flagged code is from the current feature before classifying as blocker
+- Confidence: high
+- Last observed: Feature #023
+- Observation count: 1
