@@ -14,7 +14,6 @@ If `[YOLO_MODE]` is active in the execution context:
 - **Stage 1 (CLARIFY):** Skip Q&A. Infer all 5 required items from the user's description.
   Use reasonable defaults for anything not inferable. Do NOT ask any questions.
 - **Step 6 (Problem Type):** Auto-select "Product/Feature"
-- **Step 9 (Domain):** Auto-select "None"
 - **Stages 2-5:** Run normally (research, drafting, and reviews still execute for quality)
 - **Stage 6 (Decision):** Auto-select "Promote to Feature" regardless of variant
   (project-recommended, non-project, or blocked — always choose feature, not project)
@@ -121,73 +120,82 @@ AskUserQuestion:
 #### Step 8: Store Problem Type
 - Add `- Problem Type: {type}` to PRD Status section (or `none` if skipped)
 
-#### Step 9: Domain Selection
+#### Step 9: Parse Advisory Team Config
 
-**Domain-to-skill mapping:**
+Parse advisory team configuration from skill args:
 
-| Label | Skill Dir | Analysis Heading |
-|-------|-----------|------------------|
-| Game Design | game-design | Game Design Analysis |
-| Crypto/Web3 | crypto-analysis | Crypto Analysis |
-| Data Science | data-science-analysis | Data Science Analysis |
+1. Look for `[ARCHETYPE: {value}]` in args
+   - If found: store as `archetype`
+   - If not found: set `archetype = "exploring-an-idea"`
 
-Present domain options via AskUserQuestion:
-```
-AskUserQuestion:
-  questions: [{
-    "question": "Does this concept have a specific domain?",
-    "header": "Domain",
-    "options": [
-      {"label": "Game Design", "description": "Apply game design frameworks (core loop, engagement, aesthetics, viability)"},
-      {"label": "Crypto/Web3", "description": "Apply crypto analysis frameworks (protocol, tokenomics, market, risk)"},
-      {"label": "Data Science", "description": "Apply data science frameworks (methodology, pitfalls, modeling approach)"},
-      {"label": "None", "description": "No domain-specific analysis"}
-    ],
-    "multiSelect": false
-  }]
-```
-If "None": skip Step 10, proceed to Stage 2.
+2. Look for `[ADVISORY_TEAM: {csv}]` in args
+   - If found: parse comma-separated names, store as `advisory_team` array
+   - If not found: set `advisory_team = ["pre-mortem", "opportunity-cost"]`
 
-#### Step 10: Domain Loading
-1. Look up user's selection in the domain-to-skill mapping table (Step 9) to get **Skill Dir** and **Analysis Heading**
-2. Derive sibling skill path: replace `skills/brainstorming` in Base directory with `skills/{Skill Dir}`
-3. Read `{derived path}/SKILL.md` via Read tool
-4. If file not found: warn "{Skill Dir} skill not found, skipping domain enrichment" → skip to Stage 2
-5. Execute the domain skill inline (read reference files, apply frameworks to concept)
-6. **Two-phase write:** Hold analysis in memory — do NOT write to PRD yet. Stage 3 writes it during PRD drafting.
-7. Store domain review criteria (from skill output) for Stage 6 dispatch
-8. Store `domain: {Skill Dir}` context for Stage 2 query enhancement
+3. Read `references/archetypes.md` via Read tool (derive path from skill base directory)
+   - If not found: warn "Archetypes reference not found, using defaults" and continue
+   - Store archetype definition (PRD sections, exit routes) for Stages 3 and 6
 
-**Loop-back behavior:** If `## {Analysis Heading}` already exists in the PRD (from a previous Stage 6 → Stage 1 loop), delete it entirely, clear domain context, and re-prompt Step 9.
+**Loop-back behavior:** If returning from Stage 6, preserve stored values (no re-prompt since no user interaction).
 
 ---
-### Stage 2: RESEARCH
+### Stage 2: RESEARCH AND ADVISORY ANALYSIS
 
-**Goal:** Gather evidence from 3 sources in parallel.
+**Goal:** Gather evidence and strategic analysis in parallel batches of 3.
 
-**Action:** Dispatch 3 Task tool calls in a single response:
+**Build dispatch queue:**
 
-1. **Internet research:**
-   - Tool: `Task`
-   - subagent_type: `iflow:internet-researcher`
-   - prompt: Query about the topic with context
-   - **If a domain is active:** Append the domain skill's `## Stage 2 Research Context` prompt lines to the internet-researcher dispatch
+1. **Research agents (always present):**
+   - `{ type: "research", agent: "iflow:internet-researcher", prompt: topic query }`
+   - `{ type: "research", agent: "iflow:codebase-explorer", prompt: patterns query }`
+   - `{ type: "research", agent: "iflow:skill-searcher", prompt: capabilities query }`
 
-2. **Codebase exploration:**
-   - Tool: `Task`
-   - subagent_type: `iflow:codebase-explorer`
-   - prompt: Query about existing patterns/constraints
+2. **Advisory agents (from Step 9):**
+   For each name in `advisory_team`:
+   a. Derive path: `references/advisors/{name}.advisor.md`
+   b. Read file via Read tool
+   c. If not found: warn "Advisor '{name}' template not found, skipping" → remove from queue
+   d. If found: add `{ type: "advisor", agent: "iflow:advisor", template: file_content }`
 
-3. **Skills search:**
-   - Tool: `Task`
-   - subagent_type: `iflow:skill-searcher`
-   - prompt: Query about related capabilities
+**Dispatch in batches of 3:**
 
-**Collect results:** Each agent returns JSON with `findings` array and `source` references.
+```
+while queue is not empty:
+  batch = take up to 3 items from front of queue
+  For each item in batch, issue a Task call:
+    If type == "research":
+      Task({ subagent_type: item.agent, description: "Research: {brief}", prompt: item.prompt })
+    If type == "advisor":
+      Task({ subagent_type: "iflow:advisor", description: "Advisory: {advisor name}", prompt: see below })
+  Collect results from all batch items before next batch
+```
 
-**Fallback:** If an agent fails, note warning and proceed with available results.
+**Advisory agent prompt construction:**
+```
+{full content of the .advisor.md template file}
 
-**Exit condition:** All 3 agents have returned (success or failure).
+---
+
+## Problem Context
+
+1. **Problem:** {from Stage 1 item 1}
+2. **Target user:** {from Stage 1 item 2}
+3. **Success criteria:** {from Stage 1 item 3}
+4. **Constraints:** {from Stage 1 item 4}
+5. **Approaches considered:** {from Stage 1 item 5}
+
+**Archetype:** {archetype name}
+
+Analyze this problem from your advisory perspective. Return JSON per the advisor agent output format.
+```
+
+**Collect results:**
+- Research: JSON with `findings[]` and `source` refs (existing format)
+- Advisory: JSON with `advisor_name`, `perspective`, `analysis`, `key_findings[]`, `risk_flags[]`, `evidence_quality`
+
+**Fallback:** If any agent fails, warn and proceed with available results.
+
+**Exit condition:** All batches dispatched and results collected.
 
 ---
 ### Stage 3: DRAFT PRD
@@ -201,6 +209,22 @@ If "None": skip Step 10, proceed to Stage 2.
 - `— Evidence: {file:line}` (from codebase)
 - `— Evidence: User input` (from Stage 1)
 - `— Assumption: needs verification` (unverified)
+
+**Strategic Analysis and archetype-aware sections:**
+
+1. Add `- Archetype: {archetype}` to PRD Status section
+2. Write `## Strategic Analysis` section:
+   - For each advisory agent that returned results:
+     - Extract `analysis` field from the advisor's JSON response (already contains `### {Advisor Name}` heading and structured content)
+     - Append the `analysis` markdown directly under `## Strategic Analysis` (do NOT add another heading — the analysis field includes its own `###` heading)
+     - Append `- **Evidence Quality:** {evidence_quality from JSON}` at the end of each advisor's subsection
+   - If zero advisors returned: write `## Strategic Analysis\n\nNo advisory analysis available.`
+3. Read stored archetype definition from `archetypes.md`
+4. If archetype defines additional PRD sections (e.g., fixing: Symptoms, Reproduction Steps; exploring: Options Evaluated, Decision Matrix):
+   - Read the section templates from the archetypes reference
+   - Add those sections after Strategic Analysis, before Review History
+   - Leave section content as template placeholders for the drafter to fill based on research + advisory outputs
+5. Write all remaining universal sections (Review History, Open Questions, Next Steps)
 
 **Exit condition:** PRD file written with all sections populated.
 
@@ -270,10 +294,7 @@ Set `readiness_iteration = 0`.
 
     ## Context
     Problem Type: {type from Step 8, or "none" if skipped/absent}
-    {If domain context exists, add:}
-    Domain: {stored domain name from Step 10}
-    Domain Review Criteria:
-    {stored criteria list from Step 10}
+    Archetype: {archetype from Step 9, or "none" if absent}
 
     This is readiness-check iteration {readiness_iteration}/3.
 
@@ -330,14 +351,38 @@ Count matches. Store as `scale_signal_count`.
 - If `scale_signal_count >= 3`: set `project_recommended = true`
 - Otherwise: set `project_recommended = false`
 
-**Step 2: Present options based on status**
-If PASSED or SKIPPED AND `project_recommended == true`:
+**Step 1.7: Load Archetype Exit Routes**
+
+Read stored archetype definition from archetypes.md. Extract the exit routes for this archetype. These replace the hardcoded option sets in Step 2.
+
+Default exit routes (when archetype unknown or archetypes.md unavailable):
+- Promote to Feature, Promote to Project (if scale detected), Refine Further, Save and Exit
+
+**Step 2: Present archetype-aware options**
+
+Build AskUserQuestion options from archetype exit routes:
+- Map each exit route to an option label + description
+- For BLOCKED status: replace promotion routes with "Address Issues" + "Promote Anyway"
+- For `project_recommended`: ensure "Promote to Project" appears with "(Recommended)" suffix
+
+**Special route handling:**
+- "Route to /root-cause-analysis" → Invoke `Skill({ skill: "iflow:root-cause-analysis" })`
+- "Create fix task" → Invoke `Skill({ skill: "iflow:create-feature", args: "--prd={path}" })` with Standard mode
+- "Save as Decision Document" → Output "Decision document saved to {filepath}." and STOP
+- "Promote if crystallised" → Same as "Promote to Feature" flow
+
+If PASSED or SKIPPED — build options dynamically from archetype exit routes:
 ```
 AskUserQuestion:
   questions: [{
-    "question": "PRD complete ({scale_signal_count}/6 project-scale signals detected). What would you like to do?",
+    "question": "PRD complete. What would you like to do?",
     "header": "Decision",
     "options": [
+      // Map archetype exit routes to options:
+      // - "Promote to Project" gets "(Recommended)" suffix when project_recommended == true
+      // - "Promote to Project" only included when project_recommended OR archetype explicitly lists it
+      // - All other routes mapped 1:1
+      // Example for building-something-new with project_recommended:
       {"label": "Promote to Project (Recommended)", "description": "Create project with AI-driven decomposition into features"},
       {"label": "Promote to Feature", "description": "Create single feature and continue workflow"},
       {"label": "Refine Further", "description": "Loop back to clarify and improve"},
@@ -347,22 +392,7 @@ AskUserQuestion:
   }]
 ```
 
-If PASSED or SKIPPED AND `project_recommended == false`:
-```
-AskUserQuestion:
-  questions: [{
-    "question": "PRD complete. What would you like to do?",
-    "header": "Decision",
-    "options": [
-      {"label": "Promote to Feature", "description": "Create feature and continue workflow"},
-      {"label": "Refine Further", "description": "Loop back to clarify and improve"},
-      {"label": "Save and Exit", "description": "Keep PRD, end session"}
-    ],
-    "multiSelect": false
-  }]
-```
-
-If BLOCKED:
+If BLOCKED (any archetype):
 ```
 AskUserQuestion:
   questions: [{
@@ -382,9 +412,11 @@ AskUserQuestion:
 | Response | Action |
 |----------|--------|
 | Promote to Project | Skip mode prompt → Invoke `/iflow:create-project --prd={current-prd-path}` → STOP |
-| Promote to Feature / Promote Anyway | Ask for mode → Invoke `/iflow:create-feature --prd={current-prd-path}` → STOP |
+| Promote to Feature / Promote Anyway / Promote if crystallised | Ask for mode → Invoke `/iflow:create-feature --prd={current-prd-path}` → STOP |
 | Refine Further / Address Issues | Loop back to Stage 1 with issue context |
-| Save and Exit | Output "PRD saved to {filepath}." → STOP |
+| Save and Exit / Save as Decision Document | Output "PRD saved to {filepath}." → STOP |
+| Route to /root-cause-analysis | Invoke `Skill({ skill: "iflow:root-cause-analysis" })` → STOP |
+| Create fix task | Invoke `Skill({ skill: "iflow:create-feature", args: "--prd={current-prd-path}" })` with Standard mode → STOP |
 
 **Mode prompt bypass:** "Promote to Project" skips the mode selection below. Projects have no mode — modes are per-feature, set during planned→active transition when a user starts working on a decomposed feature.
 
