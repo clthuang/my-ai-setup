@@ -16,8 +16,6 @@ from semantic_memory import content_hash
 
 if TYPE_CHECKING:
     from semantic_memory.database import MemoryDatabase
-    from semantic_memory.embedding import EmbeddingProvider
-    from semantic_memory.keywords import KeywordGenerator
 
 
 # Category filename -> category name mapping.
@@ -35,21 +33,10 @@ class MarkdownImporter:
     ----------
     db:
         The MemoryDatabase instance to upsert entries into.
-    provider:
-        Embedding provider (unused during import; embeddings are deferred).
-    keyword_gen:
-        Keyword generator (unused during import; keywords are deferred).
     """
 
-    def __init__(
-        self,
-        db: MemoryDatabase,
-        provider: EmbeddingProvider | None,
-        keyword_gen: KeywordGenerator | None,
-    ) -> None:
+    def __init__(self, db: MemoryDatabase) -> None:
         self._db = db
-        self._provider = provider
-        self._keyword_gen = keyword_gen
 
     def import_all(self, project_root: str, global_store: str) -> int:
         """Import entries from local and global knowledge bank files.
@@ -155,7 +142,6 @@ class MarkdownImporter:
             # Extract metadata with defaults
             obs_count = 1
             confidence = "medium"
-            last_observed = None
 
             for ml in meta_lines:
                 ml_lower = ml.lower().strip()
@@ -168,8 +154,6 @@ class MarkdownImporter:
                     val = ml.split(":", 1)[1].strip().lower()
                     if val in {"high", "medium", "low"}:
                         confidence = val
-                elif ml_lower.startswith("- last observed:"):
-                    last_observed = ml.split(":", 1)[1].strip()
 
             entries.append({
                 "name": name,
@@ -177,7 +161,6 @@ class MarkdownImporter:
                 "description": description,
                 "observation_count": obs_count,
                 "confidence": confidence,
-                "last_observed": last_observed,
                 "content_hash": content_hash(description),
             })
 

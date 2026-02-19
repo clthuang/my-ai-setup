@@ -5,6 +5,8 @@ import hashlib
 
 __version__ = "0.1.0"
 
+VALID_CATEGORIES = frozenset({"anti-patterns", "patterns", "heuristics"})
+
 
 class EmbeddingError(Exception):
     """Raised when embedding generation fails."""

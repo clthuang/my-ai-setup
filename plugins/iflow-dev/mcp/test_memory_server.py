@@ -333,8 +333,8 @@ class TestEmbeddings:
         entry = db.get_entry(expected_hash)
         assert entry["embedding"] is None
 
-    def test_embedding_text_is_name_space_description(self, db: MemoryDatabase):
-        """Embedding should be computed from '{name} {description}'."""
+    def test_embedding_text_includes_name_description_reasoning(self, db: MemoryDatabase):
+        """Embedding should include name, description, and reasoning via _embed_text_for_entry."""
         call_log: list[str] = []
 
         class LoggingProvider(FakeEmbeddingProvider):
@@ -353,8 +353,8 @@ class TestEmbeddings:
             category="patterns",
             references=[],
         )
-        # The first embed call should be for the entry itself
-        assert "MyName MyDescription" in call_log
+        # The embed call should use _embed_text_for_entry which includes reasoning
+        assert any("MyName" in c and "MyDescription" in c and "Reason" in c for c in call_log)
 
 
 # ---------------------------------------------------------------------------

@@ -292,8 +292,7 @@ class TestInjectorEmptyDbImport:
                            "--global-store", "/tmp/store"])
 
         # import_all should have been called
-        mock_importer_cls.assert_called_once_with(mock_db, provider=None,
-                                                   keyword_gen=None)
+        mock_importer_cls.assert_called_once_with(mock_db)
         mock_importer_cls.return_value.import_all.assert_called_once_with(
             "/tmp/test", "/tmp/store"
         )

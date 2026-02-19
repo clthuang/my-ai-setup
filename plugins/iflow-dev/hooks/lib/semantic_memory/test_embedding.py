@@ -11,7 +11,6 @@ from semantic_memory.embedding import (
     EmbeddingProvider,
     GeminiProvider,
     NormalizingWrapper,
-    OllamaProvider,
     create_provider,
 )
 from semantic_memory import EmbeddingError
@@ -344,41 +343,6 @@ class TestGeminiProviderProtocolConformance:
 
 
 # ---------------------------------------------------------------------------
-# OllamaProvider stub tests
-# ---------------------------------------------------------------------------
-
-
-class TestOllamaProvider:
-    def test_embed_raises_not_implemented(self):
-        """OllamaProvider.embed() should raise NotImplementedError."""
-        provider = OllamaProvider()
-        with pytest.raises(NotImplementedError, match="Ollama provider not yet implemented"):
-            provider.embed("test")
-
-    def test_embed_batch_raises_not_implemented(self):
-        """OllamaProvider.embed_batch() should raise NotImplementedError."""
-        provider = OllamaProvider()
-        with pytest.raises(NotImplementedError, match="Ollama provider not yet implemented"):
-            provider.embed_batch(["test"])
-
-    def test_dimensions_raises_not_implemented(self):
-        """OllamaProvider.dimensions should raise NotImplementedError."""
-        provider = OllamaProvider()
-        with pytest.raises(NotImplementedError, match="Ollama provider not yet implemented"):
-            _ = provider.dimensions
-
-    def test_provider_name(self):
-        """OllamaProvider.provider_name should return 'ollama'."""
-        provider = OllamaProvider()
-        assert provider.provider_name == "ollama"
-
-    def test_model_name(self):
-        """OllamaProvider.model_name should return 'not-configured'."""
-        provider = OllamaProvider()
-        assert provider.model_name == "not-configured"
-
-
-# ---------------------------------------------------------------------------
 # EmbeddingError re-export test
 # ---------------------------------------------------------------------------
 
@@ -605,15 +569,11 @@ class TestCreateProvider:
             result = create_provider(config)
         assert result is None
 
-    @patch("semantic_memory.embedding.OllamaProvider")
-    def test_returns_normalizing_wrapper_for_ollama(self, mock_ollama_cls):
-        """create_provider should return NormalizingWrapper for ollama (no API key needed)."""
-        mock_ollama_cls.return_value = _FakeProvider()
+    def test_returns_none_for_ollama_no_constructor(self):
+        """create_provider should return None for ollama (no constructor yet)."""
         config = {
             "memory_embedding_provider": "ollama",
             "memory_embedding_model": "nomic-embed-text",
         }
         result = create_provider(config)
-
-        assert isinstance(result, NormalizingWrapper)
-        mock_ollama_cls.assert_called_once_with(model="nomic-embed-text")
+        assert result is None

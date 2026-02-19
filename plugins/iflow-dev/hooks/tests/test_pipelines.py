@@ -404,8 +404,8 @@ def memdb():
 
 @pytest.fixture
 def importer_no_keywords(memdb):
-    """MarkdownImporter with in-memory DB and keyword_gen=None."""
-    return MarkdownImporter(db=memdb, provider=None, keyword_gen=None)
+    """MarkdownImporter with in-memory DB."""
+    return MarkdownImporter(db=memdb)
 
 
 class TestImporterParseRealFormat:

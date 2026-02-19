@@ -159,7 +159,7 @@ def main(argv: list[str] | None = None) -> None:
 
         # If DB is empty, run initial import
         if db.count_entries() == 0:
-            importer = MarkdownImporter(db, provider=None, keyword_gen=None)
+            importer = MarkdownImporter(db)
             importer.import_all(project_root, global_store)
 
         # Create embedding provider (may return None)

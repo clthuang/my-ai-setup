@@ -25,8 +25,8 @@ def db():
 
 @pytest.fixture
 def importer(db):
-    """MarkdownImporter with in-memory DB and no keyword generator."""
-    return MarkdownImporter(db=db, provider=None, keyword_gen=None)
+    """MarkdownImporter with in-memory DB."""
+    return MarkdownImporter(db=db)
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +151,7 @@ class TestParseMarkdownEntries:
         assert entries[0]["name"] == "Real Entry"
 
     def test_entry_metadata_extracted(self, importer, tmp_path):
-        """Observation count, confidence, and last_observed are extracted."""
+        """Observation count and confidence are extracted."""
         filepath = tmp_path / "anti-patterns.md"
         filepath.write_text(ANTI_PATTERNS_MD)
 
@@ -159,7 +159,6 @@ class TestParseMarkdownEntries:
         first = entries[0]  # Premature Optimisation
         assert first["observation_count"] == 5
         assert first["confidence"] == "high"
-        assert first["last_observed"] == "2026-01-15"
 
     def test_entry_description_extracted(self, importer, tmp_path):
         """Description text is extracted (body before metadata lines)."""

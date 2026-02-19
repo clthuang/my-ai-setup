@@ -69,59 +69,7 @@ class KeywordGenerator(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Stub providers (actual LLM calls implemented later)
-# ---------------------------------------------------------------------------
-
-class HaikuKeywordProvider:
-    """Keyword generation via Claude Haiku API.
-
-    Stub -- raises NotImplementedError until LLM integration is built.
-    """
-
-    def generate(
-        self,
-        name: str,
-        description: str,
-        reasoning: str,
-        category: str,
-    ) -> list[str]:
-        raise NotImplementedError("HaikuKeywordProvider not yet implemented")
-
-
-class OllamaKeywordProvider:
-    """Keyword generation via local Ollama instance.
-
-    Stub -- raises NotImplementedError until LLM integration is built.
-    """
-
-    def generate(
-        self,
-        name: str,
-        description: str,
-        reasoning: str,
-        category: str,
-    ) -> list[str]:
-        raise NotImplementedError("OllamaKeywordProvider not yet implemented")
-
-
-class InSessionClaudeProvider:
-    """Keyword generation using the in-session Claude model.
-
-    Stub -- raises NotImplementedError until LLM integration is built.
-    """
-
-    def generate(
-        self,
-        name: str,
-        description: str,
-        reasoning: str,
-        category: str,
-    ) -> list[str]:
-        raise NotImplementedError("InSessionClaudeProvider not yet implemented")
-
-
-# ---------------------------------------------------------------------------
-# SkipKeywordGenerator (tier 4 / "off" mode)
+# SkipKeywordGenerator (no-op / "off" mode)
 # ---------------------------------------------------------------------------
 
 class SkipKeywordGenerator:
@@ -141,15 +89,6 @@ class SkipKeywordGenerator:
 # TieredKeywordGenerator
 # ---------------------------------------------------------------------------
 
-# Tier configurations keyed by memory_keyword_provider config value.
-_TIER_BUILDERS: dict[str, list[type]] = {
-    "auto": [HaikuKeywordProvider, OllamaKeywordProvider, SkipKeywordGenerator],
-    "claude": [InSessionClaudeProvider, SkipKeywordGenerator],
-    "haiku": [HaikuKeywordProvider, SkipKeywordGenerator],
-    "ollama": [OllamaKeywordProvider, SkipKeywordGenerator],
-    "off": [SkipKeywordGenerator],
-}
-
 
 class TieredKeywordGenerator:
     """Keyword generator that tries providers in priority order.
@@ -159,9 +98,9 @@ class TieredKeywordGenerator:
     """
 
     def __init__(self, config: dict) -> None:
-        provider = config.get("memory_keyword_provider", "auto")
-        tier_classes = _TIER_BUILDERS.get(provider, _TIER_BUILDERS["auto"])
-        self._tiers: list[KeywordGenerator] = [cls() for cls in tier_classes]
+        # Currently only SkipKeywordGenerator is available.
+        # When real LLM providers are added, extend this mapping.
+        self._tiers: list[KeywordGenerator] = [SkipKeywordGenerator()]
 
     def generate(
         self,

@@ -223,47 +223,6 @@ class GeminiProvider:
             raise EmbeddingError(f"Gemini batch embedding failed: {e}") from e
 
 
-class OllamaProvider:
-    """Stub embedding provider for Ollama.
-
-    Not yet implemented -- all embedding methods raise
-    ``NotImplementedError``.
-
-    Parameters
-    ----------
-    model:
-        Ollama model name (stored for future use).
-    """
-
-    def __init__(self, model: str = "not-configured") -> None:
-        self._model = model
-
-    @property
-    def dimensions(self) -> int:
-        """Not implemented."""
-        raise NotImplementedError("Ollama provider not yet implemented")
-
-    @property
-    def provider_name(self) -> str:
-        """Short identifier for the provider."""
-        return "ollama"
-
-    @property
-    def model_name(self) -> str:
-        """Name of the embedding model (or placeholder)."""
-        return self._model
-
-    def embed(self, text: str, task_type: str = "query") -> np.ndarray:
-        """Not implemented."""
-        raise NotImplementedError("Ollama provider not yet implemented")
-
-    def embed_batch(
-        self, texts: list[str], task_type: str = "document"
-    ) -> list[np.ndarray]:
-        """Not implemented."""
-        raise NotImplementedError("Ollama provider not yet implemented")
-
-
 class NormalizingWrapper:
     """Wrapper that L2-normalizes vectors from any EmbeddingProvider.
 
@@ -363,7 +322,6 @@ _PROVIDER_ENV_KEYS: dict[str, str | None] = {
     "gemini": "GEMINI_API_KEY",
     "voyage": "VOYAGE_API_KEY",
     "openai": "OPENAI_API_KEY",
-    "ollama": None,  # Ollama runs locally, no API key needed
 }
 
 
@@ -409,8 +367,6 @@ def create_provider(config: dict) -> EmbeddingProvider | None:
     try:
         if provider_name == "gemini":
             inner = GeminiProvider(api_key=api_key, model=model)
-        elif provider_name == "ollama":
-            inner = OllamaProvider(model=model)
         else:
             # Provider is in the env-key map but has no constructor yet
             # (e.g. voyage, openai -- future implementations)

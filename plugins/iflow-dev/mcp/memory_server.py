@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "hooks", "lib")
 
 # Smoke test: ensure the package is importable at startup.
 import semantic_memory  # noqa: F401
-from semantic_memory import content_hash
+from semantic_memory import VALID_CATEGORIES, content_hash
 from semantic_memory.config import read_config
 from semantic_memory.database import MemoryDatabase
 from semantic_memory.embedding import EmbeddingProvider, create_provider
@@ -25,14 +25,9 @@ from semantic_memory.keywords import (
     SkipKeywordGenerator,
     TieredKeywordGenerator,
 )
+from semantic_memory.writer import _embed_text_for_entry, _process_pending_embeddings
 
 from mcp.server.fastmcp import FastMCP
-
-# ---------------------------------------------------------------------------
-# Valid categories (matches DB CHECK constraint)
-# ---------------------------------------------------------------------------
-
-_VALID_CATEGORIES = frozenset({"anti-patterns", "patterns", "heuristics"})
 
 # ---------------------------------------------------------------------------
 # Core processing function (testable without MCP)
@@ -61,10 +56,10 @@ def _process_store_memory(
         return "Error: description must be non-empty"
     if not reasoning or not reasoning.strip():
         return "Error: reasoning must be non-empty"
-    if category not in _VALID_CATEGORIES:
+    if category not in VALID_CATEGORIES:
         return (
             f"Error: invalid category '{category}'. "
-            f"Must be one of: {', '.join(sorted(_VALID_CATEGORIES))}"
+            f"Must be one of: {', '.join(sorted(VALID_CATEGORIES))}"
         )
 
     # -- Compute content hash (id) --
@@ -72,19 +67,6 @@ def _process_store_memory(
 
     # -- Source is always 'session-capture' per spec D6 --
     source = "session-capture"
-
-    # -- Generate embedding if provider available --
-    embedding_blob: bytes | None = None
-    if provider is not None:
-        try:
-            embed_text = f"{name} {description}"
-            vector = provider.embed(embed_text, task_type="document")
-            embedding_blob = vector.tobytes()
-        except Exception as exc:
-            print(
-                f"memory-server: embedding failed: {exc}",
-                file=sys.stderr,
-            )
 
     # -- Generate keywords if keyword_gen available --
     keywords_json: str | None = None
@@ -110,7 +92,6 @@ def _process_store_memory(
         "keywords": keywords_json,
         "source": source,
         "references": json.dumps(references),
-        "embedding": embedding_blob,
         "created_at": now,
         "updated_at": now,
     }
@@ -118,23 +99,24 @@ def _process_store_memory(
     # -- Upsert into DB --
     db.upsert_entry(entry)
 
-    # -- Process pending embeddings (up to 50 entries without embeddings) --
+    # -- Generate embedding using shared helper (consistent with writer) --
+    if provider is not None:
+        stored = db.get_entry(entry_id)
+        if stored:
+            embed_text = _embed_text_for_entry(stored)
+            try:
+                vec = provider.embed(embed_text, task_type="document")
+                db.update_embedding(entry_id, vec.tobytes())
+            except Exception as exc:
+                print(
+                    f"memory-server: embedding failed: {exc}",
+                    file=sys.stderr,
+                )
+
+    # -- Process pending embeddings batch --
     if provider is not None:
         try:
-            pending = db.get_entries_without_embedding(limit=50)
-            for pending_entry in pending:
-                embed_text = (
-                    f"{pending_entry['name']} {pending_entry['description']}"
-                )
-                try:
-                    vec = provider.embed(embed_text, task_type="document")
-                    db.update_embedding(pending_entry["id"], vec.tobytes())
-                except Exception as exc:
-                    print(
-                        f"memory-server: pending embedding failed for "
-                        f"{pending_entry['id']}: {exc}",
-                        file=sys.stderr,
-                    )
+            _process_pending_embeddings(db, provider)
         except Exception as exc:
             print(
                 f"memory-server: pending embedding scan failed: {exc}",

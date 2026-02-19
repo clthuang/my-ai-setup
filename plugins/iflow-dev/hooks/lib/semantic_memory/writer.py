@@ -20,7 +20,7 @@ from semantic_memory.config import read_config
 from semantic_memory.database import MemoryDatabase
 from semantic_memory.embedding import create_provider
 
-VALID_CATEGORIES = {"anti-patterns", "patterns", "heuristics"}
+from semantic_memory import VALID_CATEGORIES
 
 
 def _validate_entry(entry: dict) -> str | None:

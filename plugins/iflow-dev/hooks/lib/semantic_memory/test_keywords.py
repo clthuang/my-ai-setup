@@ -258,52 +258,23 @@ class TestTieredGenerate:
 class TestTierConfiguration:
     """Tests for tier list construction based on config value."""
 
-    def test_off_config_has_skip_only(self):
+    def test_always_has_skip_generator(self):
         config = {"memory_keyword_provider": "off"}
         gen = TieredKeywordGenerator(config)
         assert len(gen._tiers) == 1
         assert isinstance(gen._tiers[0], SkipKeywordGenerator)
 
-    def test_auto_config_has_three_tiers(self):
-        config = {"memory_keyword_provider": "auto"}
-        gen = TieredKeywordGenerator(config)
-        # auto -> [Haiku, Ollama, Skip]
-        assert len(gen._tiers) == 3
-        assert isinstance(gen._tiers[-1], SkipKeywordGenerator)
+    def test_any_config_value_uses_skip(self):
+        """All config values currently resolve to SkipKeywordGenerator."""
+        for provider in ["auto", "claude", "haiku", "ollama", "off", "unknown"]:
+            gen = TieredKeywordGenerator({"memory_keyword_provider": provider})
+            assert len(gen._tiers) == 1
+            assert isinstance(gen._tiers[0], SkipKeywordGenerator)
 
-    def test_claude_config_has_two_tiers(self):
-        config = {"memory_keyword_provider": "claude"}
-        gen = TieredKeywordGenerator(config)
-        # claude -> [InSessionClaude, Skip]
-        assert len(gen._tiers) == 2
-        assert isinstance(gen._tiers[-1], SkipKeywordGenerator)
-
-    def test_haiku_config_has_two_tiers(self):
-        config = {"memory_keyword_provider": "haiku"}
-        gen = TieredKeywordGenerator(config)
-        # haiku -> [Haiku, Skip]
-        assert len(gen._tiers) == 2
-        assert isinstance(gen._tiers[-1], SkipKeywordGenerator)
-
-    def test_ollama_config_has_two_tiers(self):
-        config = {"memory_keyword_provider": "ollama"}
-        gen = TieredKeywordGenerator(config)
-        # ollama -> [Ollama, Skip]
-        assert len(gen._tiers) == 2
-        assert isinstance(gen._tiers[-1], SkipKeywordGenerator)
-
-    def test_unknown_config_defaults_to_auto(self):
-        config = {"memory_keyword_provider": "unknown-value"}
-        gen = TieredKeywordGenerator(config)
-        # Should default to auto behavior
-        assert len(gen._tiers) == 3
-        assert isinstance(gen._tiers[-1], SkipKeywordGenerator)
-
-    def test_missing_config_defaults_to_auto(self):
-        config = {}
-        gen = TieredKeywordGenerator(config)
-        assert len(gen._tiers) == 3
-        assert isinstance(gen._tiers[-1], SkipKeywordGenerator)
+    def test_missing_config_uses_skip(self):
+        gen = TieredKeywordGenerator({})
+        assert len(gen._tiers) == 1
+        assert isinstance(gen._tiers[0], SkipKeywordGenerator)
 
 
 # ---------------------------------------------------------------------------

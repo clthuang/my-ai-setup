@@ -267,16 +267,14 @@ class TestCreateProvider:
             api_key="test-key", model="gemini-embedding-001"
         )
 
-    @patch("semantic_memory.embedding.OllamaProvider")
-    def test_ollama_needs_no_api_key(self, mock_ollama_cls):
-        """Ollama provider requires no API key and returns NormalizingWrapper."""
-        mock_ollama_cls.return_value = _FakeEmbeddingProvider()
+    def test_ollama_returns_none_no_constructor(self):
+        """Ollama provider returns None (no constructor yet)."""
         config = {
             "memory_embedding_provider": "ollama",
             "memory_embedding_model": "nomic-embed-text",
         }
         result = create_provider(config)
-        assert isinstance(result, NormalizingWrapper)
+        assert result is None
 
     def test_returns_none_for_empty_api_key(self):
         """An empty API key env var should still return None."""
