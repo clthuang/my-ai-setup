@@ -1,0 +1,16 @@
+[project]
+name = "iflow-dev-hooks"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0"]
+gemini = ["google-genai>=1.0"]
+voyage = ["voyageai>=0.3"]
+openai = ["openai>=1.0"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

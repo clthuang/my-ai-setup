@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Semantic memory system with embedding-based retrieval using cosine similarity and hybrid ranking
+- `store_memory` MCP tool for mid-session memory capture
+- Memory toggle configuration: `memory_semantic_enabled`, `memory_embedding_provider`, `memory_embedding_model`
+- SQLite-backed memory database (`memory.db`) with legacy fallback support
 - Project-level workflow with `/iflow:create-project` command for AI-driven PRD decomposition into ordered features
 - Scale detection in brainstorming Stage 7 using 6 signals with "Promote to Project" option
 - `decomposing` skill orchestrating project decomposition pipeline (decompose, review, create features)

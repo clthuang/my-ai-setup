@@ -188,6 +188,38 @@ If a knowledge-bank file doesn't exist, create it with a header:
 Accumulated learnings from feature retrospectives.
 ```
 
+#### Step 4a: Semantic Memory Dual-Write
+
+If `memory_semantic_enabled` is `true` in config (read via `read_local_md_field` from `.claude/iflow-dev.local.md`, default `true`):
+
+For each entry written in Step 4, also write to semantic memory:
+1. Extract from agent response: `keywords` (default `[]`), `reasoning` (default `""`)
+2. Build entry JSON:
+   ```json
+   {
+     "name": "{entry name}",
+     "description": "{text from agent}",
+     "reasoning": "{reasoning from agent, or empty string}",
+     "category": "{patterns|anti-patterns|heuristics}",
+     "keywords": {keywords array from agent, or []},
+     "references": ["{provenance}"],
+     "confidence": "{confidence}",
+     "source": "retro",
+     "source_project": "{PROJECT_ROOT}"
+   }
+   ```
+3. Invoke writer CLI:
+   ```bash
+   ${plugin_dir}/.venv/bin/python ${plugin_dir}/hooks/lib/semantic_memory/writer.py \
+     --action upsert \
+     --global-store "$HOME/.claude/iflow/memory" \
+     --project-root "$PROJECT_ROOT" \
+     --entry-json '{...escaped JSON...}'
+   ```
+4. On writer failure: log to stderr, continue (do not block retro completion)
+
+If `memory_semantic_enabled` is `false`: skip this step entirely.
+
 ### Step 4b: Validate Knowledge Bank (Pre-Existing Entries)
 
 Performed by the orchestrating agent inline (not a sub-agent dispatch). Only validates `anti-patterns.md` and `heuristics.md` (not `patterns.md`).

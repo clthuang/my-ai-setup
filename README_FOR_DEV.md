@@ -388,7 +388,16 @@ Updated via `/iflow:retrospect` after feature completion.
 
 ### Cross-Project Memory
 
-Universal entries are promoted to a global store at `~/.claude/iflow/memory/` during retrospectives. The `session-start` hook injects top entries (project-local + global, deduplicated) into every session. Controlled by `memory_injection_enabled` and `memory_injection_limit` in `iflow-dev.local.md`.
+Universal entries are promoted to a global store at `~/.claude/iflow/memory/` during retrospectives. The `session-start` hook injects top entries (project-local + global, deduplicated) into every session.
+
+**Semantic Retrieval:** Memory uses embedding-based retrieval with cosine similarity and hybrid ranking. SQLite database (`memory.db`) stores embeddings for semantic search. Legacy fallback (observation-count ranking) activates when semantic memory is disabled.
+
+**Configuration:**
+- `memory_semantic_enabled` — Enable semantic retrieval (default: true)
+- `memory_embedding_provider` — Provider for embeddings (default: openai)
+- `memory_embedding_model` — Model for embeddings (default: text-embedding-3-small)
+- `memory_injection_enabled` — Enable memory injection at session start
+- `memory_injection_limit` — Max entries to inject per session
 
 ## Creating Components
 
