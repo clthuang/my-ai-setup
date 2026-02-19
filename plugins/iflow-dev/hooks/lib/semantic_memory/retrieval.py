@@ -252,7 +252,7 @@ class RetrievalPipeline:
                     capture_output=True,
                     text=True,
                     cwd=project_root,
-                    timeout=10,
+                    timeout=2,
                 )
                 if result.returncode == 0:
                     stdout = result.stdout.strip()
@@ -260,6 +260,6 @@ class RetrievalPipeline:
                         return stdout.split("\n")[:20]
                     return []
             except Exception:
-                return []
+                continue
 
         return []

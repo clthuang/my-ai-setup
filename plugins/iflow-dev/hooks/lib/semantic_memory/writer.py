@@ -144,7 +144,9 @@ def _embed_text_for_entry(entry: dict) -> str:
 def _process_pending_embeddings(db: MemoryDatabase, provider: object) -> int:
     """Generate embeddings for entries that don't have one yet.
 
-    Returns the number of entries processed.
+    Returns the number of entries processed.  Also updates the
+    ``pending_embeddings`` metadata key so the injector diagnostic
+    line reflects the true count.
     """
     pending = db.get_entries_without_embedding(limit=50)
     count = 0
@@ -159,6 +161,11 @@ def _process_pending_embeddings(db: MemoryDatabase, provider: object) -> int:
                 f"Warning: embedding failed for {entry['id']}: {exc}",
                 file=sys.stderr,
             )
+
+    # Update pending count so the injector diagnostic is accurate.
+    remaining = len(db.get_entries_without_embedding(limit=1))
+    db.set_metadata("pending_embeddings", str(remaining))
+
     return count
 
 

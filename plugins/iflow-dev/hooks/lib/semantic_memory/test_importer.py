@@ -238,7 +238,9 @@ class TestImportIntoDB:
         importer.import_all(str(tmp_path), str(tmp_path / "global"))
 
         for entry in db.get_all_entries():
-            assert entry["embedding"] is None
+            # get_all_entries() excludes the embedding BLOB column;
+            # verify keywords are NULL (embeddings tested via get_entry).
+            assert "embedding" not in entry
             assert entry["keywords"] is None
 
     def test_import_all_scans_local_and_global(self, db, importer, tmp_path):

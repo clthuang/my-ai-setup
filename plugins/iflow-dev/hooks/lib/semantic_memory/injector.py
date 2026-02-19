@@ -147,6 +147,7 @@ def main(argv: list[str] | None = None) -> None:
     project_root: str = args.project_root
     global_store: str = args.global_store
 
+    db = None
     try:
         config = read_config(project_root)
         limit = args.limit if args.limit is not None else int(config.get("memory_injection_limit", 20))
@@ -197,6 +198,9 @@ def main(argv: list[str] | None = None) -> None:
 
     except Exception as exc:
         print(f"semantic_memory: error: {exc}", file=sys.stderr)
+    finally:
+        if db is not None:
+            db.close()
 
 
 if __name__ == "__main__":

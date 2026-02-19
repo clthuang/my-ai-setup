@@ -234,9 +234,12 @@ class MemoryDatabase:
             return None
         return dict(row)
 
+    # Columns returned by get_all_entries (everything except the embedding BLOB).
+    _ALL_ENTRY_COLS = ", ".join(c for c in _COLUMNS if c != "embedding")
+
     def get_all_entries(self) -> list[dict]:
-        """Return all entries as a list of dicts."""
-        cur = self._conn.execute("SELECT * FROM entries")
+        """Return all entries as a list of dicts (excludes embedding BLOBs)."""
+        cur = self._conn.execute(f"SELECT {self._ALL_ENTRY_COLS} FROM entries")
         return [dict(row) for row in cur.fetchall()]
 
     def count_entries(self) -> int:
