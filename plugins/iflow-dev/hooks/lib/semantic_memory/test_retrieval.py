@@ -1,0 +1,491 @@
+"""Tests for semantic_memory.retrieval module."""
+from __future__ import annotations
+
+import json
+import textwrap
+from unittest import mock
+
+import numpy as np
+import pytest
+
+from semantic_memory.types import CandidateScores, RetrievalResult
+from semantic_memory.retrieval import RetrievalPipeline
+
+
+# ---------------------------------------------------------------------------
+# Mock helpers
+# ---------------------------------------------------------------------------
+
+
+class MockProvider:
+    """Minimal mock embedding provider for testing."""
+
+    def __init__(self, dimensions: int = 768):
+        self._dimensions = dimensions
+
+    @property
+    def dimensions(self) -> int:
+        return self._dimensions
+
+    def embed(self, text: str, task_type: str = "query") -> np.ndarray:
+        """Return a deterministic unit vector based on text hash."""
+        rng = np.random.RandomState(hash(text) % (2**31))
+        vec = rng.randn(self._dimensions).astype(np.float32)
+        vec /= np.linalg.norm(vec)
+        return vec
+
+
+class MockDatabase:
+    """Minimal mock database for testing retrieval."""
+
+    def __init__(
+        self,
+        *,
+        fts5_available: bool = True,
+        embeddings: tuple[list[str], np.ndarray] | None = None,
+        fts5_results: list[tuple[str, float]] | None = None,
+    ):
+        self._fts5_available = fts5_available
+        self._embeddings = embeddings
+        self._fts5_results = fts5_results if fts5_results is not None else []
+
+    @property
+    def fts5_available(self) -> bool:
+        return self._fts5_available
+
+    def get_all_embeddings(
+        self, expected_dims: int = 768
+    ) -> tuple[list[str], np.ndarray] | None:
+        return self._embeddings
+
+    def fts5_search(
+        self, query: str, limit: int = 100
+    ) -> list[tuple[str, float]]:
+        return self._fts5_results
+
+
+def _make_normalized_matrix(ids: list[str], dims: int = 768) -> tuple[list[str], np.ndarray]:
+    """Create a matrix of normalized vectors for testing."""
+    n = len(ids)
+    rng = np.random.RandomState(42)
+    matrix = rng.randn(n, dims).astype(np.float32)
+    # L2-normalize each row
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    matrix = matrix / norms
+    return ids, matrix
+
+
+# ---------------------------------------------------------------------------
+# Tests: retrieve()
+# ---------------------------------------------------------------------------
+
+
+class TestRetrieveBothSignals:
+    """retrieve with both vector and FTS5 signals."""
+
+    def test_entries_found_by_both_carry_both_scores(self):
+        """When an entry appears in both vector and FTS5 results,
+        its CandidateScores should have both vector_score and bm25_score."""
+        ids = ["entry-a", "entry-b", "entry-c"]
+        emb_ids, matrix = _make_normalized_matrix(ids)
+        provider = MockProvider(dimensions=768)
+
+        fts5_results = [
+            ("entry-b", 5.0),
+            ("entry-c", 3.0),
+            ("entry-d", 1.0),
+        ]
+
+        db = MockDatabase(
+            fts5_available=True,
+            embeddings=(emb_ids, matrix),
+            fts5_results=fts5_results,
+        )
+
+        pipeline = RetrievalPipeline(db=db, provider=provider, config={})
+        result = pipeline.retrieve("test query")
+
+        assert isinstance(result, RetrievalResult)
+        # entry-b and entry-c should have both scores
+        assert "entry-b" in result.candidates
+        assert result.candidates["entry-b"].vector_score != 0.0
+        assert result.candidates["entry-b"].bm25_score == 5.0
+
+        assert "entry-c" in result.candidates
+        assert result.candidates["entry-c"].vector_score != 0.0
+        assert result.candidates["entry-c"].bm25_score == 3.0
+
+        # entry-a: vector only
+        assert "entry-a" in result.candidates
+        assert result.candidates["entry-a"].vector_score != 0.0
+        assert result.candidates["entry-a"].bm25_score == 0.0
+
+        # entry-d: FTS5 only
+        assert "entry-d" in result.candidates
+        assert result.candidates["entry-d"].vector_score == 0.0
+        assert result.candidates["entry-d"].bm25_score == 1.0
+
+    def test_metadata_counts(self):
+        """vector_candidate_count and fts5_candidate_count are populated."""
+        ids = ["entry-a", "entry-b"]
+        emb_ids, matrix = _make_normalized_matrix(ids)
+        provider = MockProvider(dimensions=768)
+
+        fts5_results = [("entry-b", 5.0), ("entry-c", 3.0)]
+
+        db = MockDatabase(
+            fts5_available=True,
+            embeddings=(emb_ids, matrix),
+            fts5_results=fts5_results,
+        )
+
+        pipeline = RetrievalPipeline(db=db, provider=provider, config={})
+        result = pipeline.retrieve("test query")
+
+        assert result.vector_candidate_count == 2
+        assert result.fts5_candidate_count == 2
+        assert result.context_query == "test query"
+
+
+class TestRetrieveVectorOnly:
+    """retrieve with vector-only (fts5_available=False)."""
+
+    def test_vector_only_retrieval(self):
+        ids = ["entry-a", "entry-b"]
+        emb_ids, matrix = _make_normalized_matrix(ids)
+        provider = MockProvider(dimensions=768)
+
+        db = MockDatabase(
+            fts5_available=False,
+            embeddings=(emb_ids, matrix),
+        )
+
+        pipeline = RetrievalPipeline(db=db, provider=provider, config={})
+        result = pipeline.retrieve("test query")
+
+        assert result.vector_candidate_count == 2
+        assert result.fts5_candidate_count == 0
+        assert len(result.candidates) == 2
+        for cid, scores in result.candidates.items():
+            assert scores.vector_score != 0.0
+            assert scores.bm25_score == 0.0
+
+
+class TestRetrieveFTS5Only:
+    """retrieve with FTS5-only (provider=None)."""
+
+    def test_fts5_only_retrieval(self):
+        fts5_results = [("entry-a", 5.0), ("entry-b", 3.0)]
+
+        db = MockDatabase(
+            fts5_available=True,
+            fts5_results=fts5_results,
+        )
+
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+        result = pipeline.retrieve("test query")
+
+        assert result.vector_candidate_count == 0
+        assert result.fts5_candidate_count == 2
+        assert len(result.candidates) == 2
+        for cid, scores in result.candidates.items():
+            assert scores.vector_score == 0.0
+            assert scores.bm25_score > 0.0
+
+
+class TestRetrieveNeither:
+    """retrieve with neither (provider=None, fts5_available=False)."""
+
+    def test_returns_empty(self):
+        db = MockDatabase(fts5_available=False)
+
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+        result = pipeline.retrieve("test query")
+
+        assert result.candidates == {}
+        assert result.vector_candidate_count == 0
+        assert result.fts5_candidate_count == 0
+
+
+class TestRetrieveNoneQuery:
+    """retrieve with None context_query."""
+
+    def test_returns_empty(self):
+        ids = ["entry-a"]
+        emb_ids, matrix = _make_normalized_matrix(ids)
+        provider = MockProvider(dimensions=768)
+
+        db = MockDatabase(
+            fts5_available=True,
+            embeddings=(emb_ids, matrix),
+            fts5_results=[("entry-a", 5.0)],
+        )
+
+        pipeline = RetrievalPipeline(db=db, provider=provider, config={})
+        result = pipeline.retrieve(None)
+
+        assert result.candidates == {}
+        assert result.vector_candidate_count == 0
+        assert result.fts5_candidate_count == 0
+        assert result.context_query is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: collect_context()
+# ---------------------------------------------------------------------------
+
+
+class TestCollectContextWithMetaJson:
+    """collect_context with mock .meta.json showing active feature."""
+
+    def test_collects_from_active_feature(self, tmp_path):
+        """Should find the active feature and compose a context string."""
+        # Create feature directory structure
+        feature_dir = tmp_path / "docs" / "features" / "024-memory-semantic-search"
+        feature_dir.mkdir(parents=True)
+
+        meta = {
+            "slug": "memory-semantic-search",
+            "status": "active",
+            "lastCompletedPhase": "design",
+        }
+        (feature_dir / ".meta.json").write_text(json.dumps(meta))
+
+        spec_content = textwrap.dedent("""\
+            # Memory Semantic Search
+
+            This feature adds semantic memory retrieval to the development workflow.
+
+            ## Requirements
+
+            More details here.
+        """)
+        (feature_dir / "spec.md").write_text(spec_content)
+
+        # Mock git diff
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+
+        with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+            mock_result = mock.Mock()
+            mock_result.returncode = 0
+            mock_result.stdout = "src/foo.py\nsrc/bar.py"
+            mock_subprocess.run.return_value = mock_result
+
+            context = pipeline.collect_context(str(tmp_path))
+
+        assert context is not None
+        assert "memory-semantic-search" in context
+        assert "design" in context
+        assert "src/foo.py" in context or "foo.py" in context
+
+    def test_picks_highest_numeric_id_among_active(self, tmp_path):
+        """When multiple active features exist, pick highest numeric ID."""
+        docs = tmp_path / "docs" / "features"
+
+        # Feature 020 (active)
+        f020 = docs / "020-older-feature"
+        f020.mkdir(parents=True)
+        (f020 / ".meta.json").write_text(json.dumps({
+            "slug": "older-feature",
+            "status": "active",
+            "lastCompletedPhase": "implement",
+        }))
+        (f020 / "spec.md").write_text("# Older Feature\n\nOlder desc.")
+
+        # Feature 024 (active)
+        f024 = docs / "024-newer-feature"
+        f024.mkdir(parents=True)
+        (f024 / ".meta.json").write_text(json.dumps({
+            "slug": "newer-feature",
+            "status": "active",
+            "lastCompletedPhase": "design",
+        }))
+        (f024 / "spec.md").write_text("# Newer Feature\n\nNewer desc.")
+
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+
+        with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+            mock_result = mock.Mock()
+            mock_result.returncode = 0
+            mock_result.stdout = ""
+            mock_subprocess.run.return_value = mock_result
+
+            context = pipeline.collect_context(str(tmp_path))
+
+        assert context is not None
+        assert "newer-feature" in context
+        assert "older-feature" not in context
+
+    def test_uses_prd_fallback_when_no_spec(self, tmp_path):
+        """Should fall back to prd.md when spec.md is absent."""
+        feature_dir = tmp_path / "docs" / "features" / "024-feature"
+        feature_dir.mkdir(parents=True)
+
+        meta = {
+            "slug": "fallback-feature",
+            "status": "active",
+            "lastCompletedPhase": "brainstorm",
+        }
+        (feature_dir / ".meta.json").write_text(json.dumps(meta))
+        (feature_dir / "prd.md").write_text("# PRD\n\nPRD description here.")
+
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+
+        with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+            mock_result = mock.Mock()
+            mock_result.returncode = 0
+            mock_result.stdout = ""
+            mock_subprocess.run.return_value = mock_result
+
+            context = pipeline.collect_context(str(tmp_path))
+
+        assert context is not None
+        assert "fallback-feature" in context
+
+    def test_meta_json_parse_error_logged(self, tmp_path, capsys):
+        """Malformed .meta.json should log to stderr and be skipped."""
+        feature_dir = tmp_path / "docs" / "features" / "024-bad"
+        feature_dir.mkdir(parents=True)
+        (feature_dir / ".meta.json").write_text("{invalid json!!!")
+
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+
+        with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+            mock_result = mock.Mock()
+            mock_result.returncode = 0
+            mock_result.stdout = "somefile.py"
+            mock_subprocess.run.return_value = mock_result
+
+            context = pipeline.collect_context(str(tmp_path))
+
+        captured = capsys.readouterr()
+        assert "meta.json" in captured.err.lower() or ".meta.json" in captured.err
+
+
+class TestCollectContextGitDiffOnly:
+    """collect_context with no active feature but git diff files."""
+
+    def test_returns_context_from_git_diff_only(self, tmp_path):
+        """When no .meta.json found, git diff files should still produce context."""
+        # Create docs/features dir but no .meta.json files
+        (tmp_path / "docs" / "features").mkdir(parents=True)
+
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+
+        with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+            mock_result = mock.Mock()
+            mock_result.returncode = 0
+            mock_result.stdout = "src/main.py\nsrc/utils.py\ntests/test_main.py"
+            mock_subprocess.run.return_value = mock_result
+
+            context = pipeline.collect_context(str(tmp_path))
+
+        assert context is not None
+        assert "src/main.py" in context
+
+
+class TestCollectContextNoSignals:
+    """collect_context with no signals at all."""
+
+    def test_returns_none(self, tmp_path):
+        """When no .meta.json and git diff returns nothing, return None."""
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+
+        with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+            mock_result = mock.Mock()
+            mock_result.returncode = 0
+            mock_result.stdout = ""
+            mock_subprocess.run.return_value = mock_result
+
+            context = pipeline.collect_context(str(tmp_path))
+
+        assert context is None
+
+    def test_returns_none_on_git_error(self, tmp_path):
+        """When git diff fails entirely, return None if no other signals."""
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+
+        with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+            mock_subprocess.run.side_effect = Exception("git not found")
+
+            context = pipeline.collect_context(str(tmp_path))
+
+        assert context is None
+
+
+class TestCollectContextGitFallback:
+    """collect_context git diff fallback behavior."""
+
+    def test_falls_back_to_head1_on_head3_failure(self, tmp_path):
+        """When HEAD~3 fails, should fall back to HEAD~1."""
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+
+        call_count = 0
+
+        def mock_run(cmd, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            result = mock.Mock()
+            if "HEAD~3..HEAD" in cmd:
+                result.returncode = 128  # git error
+                result.stdout = ""
+            else:
+                result.returncode = 0
+                result.stdout = "fallback_file.py"
+            return result
+
+        with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+            mock_subprocess.run.side_effect = mock_run
+
+            context = pipeline.collect_context(str(tmp_path))
+
+        assert context is not None
+        assert "fallback_file.py" in context
+
+
+class TestCollectContextWordLimit:
+    """collect_context respects the 100-word limit for spec description."""
+
+    def test_description_truncated_to_100_words(self, tmp_path):
+        """Spec first paragraph should be truncated to 100 words."""
+        feature_dir = tmp_path / "docs" / "features" / "024-feature"
+        feature_dir.mkdir(parents=True)
+
+        meta = {
+            "slug": "long-feature",
+            "status": "active",
+            "lastCompletedPhase": "design",
+        }
+        (feature_dir / ".meta.json").write_text(json.dumps(meta))
+
+        # Create a spec with a very long first paragraph (150 words)
+        words = ["word" + str(i) for i in range(150)]
+        long_para = " ".join(words)
+        spec_content = f"# Title\n\n{long_para}\n\n## Requirements\n\nMore."
+        (feature_dir / "spec.md").write_text(spec_content)
+
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+
+        with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+            mock_result = mock.Mock()
+            mock_result.returncode = 0
+            mock_result.stdout = ""
+            mock_subprocess.run.return_value = mock_result
+
+            context = pipeline.collect_context(str(tmp_path))
+
+        assert context is not None
+        # The first paragraph (before "## ") is "# Title\n\nword0 word1 ...".
+        # When split by whitespace: "#", "Title", "word0" ... = 2 title words.
+        # So 100-word limit gives: #, Title, word0..word97 (100 total).
+        assert "word97" in context
+        assert "word98" not in context
