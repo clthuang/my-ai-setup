@@ -5,7 +5,7 @@
   "status": "active",
   "created": "2026-02-20T10:00:00Z",
   "branch": "feature/024-memory-semantic-search",
-  "lastCompletedPhase": "specify",
+  "lastCompletedPhase": "design",
   "phases": {
     "specify": {
       "status": "completed",
@@ -13,6 +13,18 @@
       "completedAt": "2026-02-20T15:00:00Z",
       "reworked": true,
       "reworkReason": "Embeddings-first approach replacing FTS5-only spec"
+    },
+    "design": {
+      "status": "completed",
+      "startedAt": "2026-02-20T15:30:00Z",
+      "completedAt": "2026-02-20T18:30:00Z",
+      "stages": {
+        "research": { "started": "2026-02-20T15:30:00Z", "completed": "2026-02-20T15:45:00Z", "skipped": false },
+        "architecture": { "started": "2026-02-20T15:45:00Z", "completed": "2026-02-20T16:15:00Z" },
+        "interface": { "started": "2026-02-20T16:15:00Z", "completed": "2026-02-20T16:30:00Z" },
+        "designReview": { "started": "2026-02-20T16:30:00Z", "completed": "2026-02-20T17:45:00Z", "iterations": 5, "reviewerNotes": ["TD6 retro skill Step 4 SQLite write interface unspecified", "C3/TD6 keyword generation responsibility overlap ambiguous", "Diagnostic line generation unspecified (which component, how computed)", "FTS5 availability not guaranteed on all systems", "TD9 re-embedding mentions only retro not all write-paths", "Silent .meta.json parse failure no stderr logging", "All-or-nothing keyword rejection vs per-keyword filtering"] },
+        "handoffReview": { "started": "2026-02-20T17:50:00Z", "completed": "2026-02-20T18:30:00Z", "iterations": 4, "approved": true, "reviewerNotes": [] }
+      }
     }
   }
 }
