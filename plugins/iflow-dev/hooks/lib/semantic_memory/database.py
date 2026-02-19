@@ -2,11 +2,27 @@
 from __future__ import annotations
 
 import sqlite3
+import sys
 from typing import Callable
 
+try:
+    import numpy as np
+    _numpy_available = True
+except ImportError:  # pragma: no cover
+    _numpy_available = False
 
-def _create_initial_schema(conn: sqlite3.Connection) -> None:
-    """Migration 1: create entries and _metadata tables."""
+
+def _create_initial_schema(
+    conn: sqlite3.Connection,
+    *,
+    fts5_available: bool = False,
+) -> None:
+    """Migration 1: create entries and _metadata tables.
+
+    When *fts5_available* is True, also creates the ``entries_fts``
+    virtual table and three triggers (INSERT/DELETE/UPDATE) to keep
+    it in sync.
+    """
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS entries (
             id                TEXT PRIMARY KEY,
@@ -31,6 +47,61 @@ def _create_initial_schema(conn: sqlite3.Connection) -> None:
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+    """)
+
+    if fts5_available:
+        _create_fts5_objects(conn)
+
+
+# JSON-stripping REPLACE chain used in FTS5 triggers.
+# Converts '["a","b"]' -> 'a b' for better tokenisation.
+_KEYWORDS_STRIP = (
+    "REPLACE(REPLACE(REPLACE(REPLACE("
+    "COALESCE(new.keywords, ''), "
+    "'[\"', ''), '\"]', ''), '\",\"', ' '), '\"', '')"
+)
+_KEYWORDS_STRIP_OLD = (
+    "REPLACE(REPLACE(REPLACE(REPLACE("
+    "COALESCE(old.keywords, ''), "
+    "'[\"', ''), '\"]', ''), '\",\"', ' '), '\"', '')"
+)
+
+
+def _create_fts5_objects(conn: sqlite3.Connection) -> None:
+    """Create the FTS5 virtual table and sync triggers."""
+    conn.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
+            name, description, keywords, reasoning,
+            content='entries',
+            content_rowid='rowid'
+        )
+    """)
+
+    conn.executescript(f"""
+        CREATE TRIGGER IF NOT EXISTS entries_ai AFTER INSERT ON entries BEGIN
+            INSERT INTO entries_fts(rowid, name, description, keywords, reasoning)
+            VALUES (new.rowid, new.name, new.description,
+                    {_KEYWORDS_STRIP},
+                    new.reasoning);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS entries_ad AFTER DELETE ON entries BEGIN
+            INSERT INTO entries_fts(entries_fts, rowid, name, description, keywords, reasoning)
+            VALUES ('delete', old.rowid, old.name, old.description,
+                    {_KEYWORDS_STRIP_OLD},
+                    old.reasoning);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS entries_au AFTER UPDATE ON entries BEGIN
+            INSERT INTO entries_fts(entries_fts, rowid, name, description, keywords, reasoning)
+            VALUES ('delete', old.rowid, old.name, old.description,
+                    {_KEYWORDS_STRIP_OLD},
+                    old.reasoning);
+            INSERT INTO entries_fts(rowid, name, description, keywords, reasoning)
+            VALUES (new.rowid, new.name, new.description,
+                    {_KEYWORDS_STRIP},
+                    new.reasoning);
+        END;
     """)
 
 
@@ -66,11 +137,17 @@ class MemoryDatabase:
         self._conn = sqlite3.connect(db_path)
         self._conn.row_factory = sqlite3.Row
         self._set_pragmas()
+        self._fts5_available = self._detect_fts5()
         self._migrate()
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+
+    @property
+    def fts5_available(self) -> bool:
+        """Whether FTS5 full-text search is available."""
+        return self._fts5_available
 
     def close(self) -> None:
         """Close the database connection."""
@@ -168,6 +245,141 @@ class MemoryDatabase:
         return cur.fetchone()[0]
 
     # ------------------------------------------------------------------
+    # FTS5 full-text search
+    # ------------------------------------------------------------------
+
+    def fts5_search(
+        self, query: str, limit: int = 100
+    ) -> list[tuple[str, float]]:
+        """Search entries using FTS5 full-text search.
+
+        Returns a list of ``(entry_id, score)`` tuples ordered by
+        relevance (highest score first).  BM25 scores are negated so
+        that higher values mean more relevant.
+
+        Returns an empty list when FTS5 is unavailable or the query
+        matches nothing.
+        """
+        if not self._fts5_available:
+            return []
+
+        cur = self._conn.execute(
+            "SELECT e.id, -rank AS score "
+            "FROM entries_fts f "
+            "JOIN entries e ON e.rowid = f.rowid "
+            "WHERE entries_fts MATCH ? "
+            "ORDER BY score DESC "
+            "LIMIT ?",
+            (query, limit),
+        )
+        return [(row[0], float(row[1])) for row in cur.fetchall()]
+
+    # ------------------------------------------------------------------
+    # Embedding helpers
+    # ------------------------------------------------------------------
+
+    def get_all_embeddings(
+        self, expected_dims: int = 768
+    ) -> tuple[list[str], object] | None:
+        """Return all valid embeddings as ``(ids, matrix)`` or ``None``.
+
+        *matrix* is a ``numpy.ndarray`` of shape ``(n, expected_dims)``
+        with dtype ``float32``.  Entries whose BLOB length does not
+        equal ``expected_dims * 4`` are silently skipped (with a
+        warning on stderr).
+
+        Returns ``None`` when there are no valid embeddings.
+        """
+        if not _numpy_available:  # pragma: no cover
+            print(
+                "semantic_memory: numpy not available, cannot load embeddings",
+                file=sys.stderr,
+            )
+            return None
+
+        cur = self._conn.execute(
+            "SELECT id, embedding FROM entries WHERE embedding IS NOT NULL"
+        )
+
+        ids: list[str] = []
+        vectors: list[object] = []
+        expected_bytes = expected_dims * 4
+
+        for row in cur.fetchall():
+            blob = row[1]
+            if len(blob) != expected_bytes:
+                print(
+                    f"semantic_memory: skipping entry {row[0]!r} — "
+                    f"embedding BLOB is {len(blob)} bytes, "
+                    f"expected {expected_bytes}",
+                    file=sys.stderr,
+                )
+                continue
+            ids.append(row[0])
+            vectors.append(np.frombuffer(blob, dtype=np.float32))
+
+        if not ids:
+            return None
+
+        matrix = np.stack(vectors)
+        return ids, matrix
+
+    def update_embedding(self, entry_id: str, embedding: bytes) -> None:
+        """Set the embedding BLOB for a single entry."""
+        self._conn.execute(
+            "UPDATE entries SET embedding = ? WHERE id = ?",
+            (embedding, entry_id),
+        )
+        self._conn.commit()
+
+    def clear_all_embeddings(self) -> None:
+        """Set the embedding column to NULL for every entry."""
+        self._conn.execute("UPDATE entries SET embedding = NULL")
+        self._conn.commit()
+
+    def get_entries_without_embedding(
+        self, limit: int = 50
+    ) -> list[dict]:
+        """Return entries that have no embedding yet.
+
+        Returns a list of dicts with the fields needed for embedding
+        generation (id, name, description, keywords, reasoning).
+        """
+        cur = self._conn.execute(
+            "SELECT id, name, description, keywords, reasoning "
+            "FROM entries "
+            "WHERE embedding IS NULL "
+            "LIMIT ?",
+            (limit,),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+    def update_recall(
+        self, entry_ids: list[str], timestamp: str
+    ) -> None:
+        """Increment recall_count and set last_recalled_at for entries.
+
+        Parameters
+        ----------
+        entry_ids:
+            List of entry IDs to update.
+        timestamp:
+            ISO-8601 timestamp to set as ``last_recalled_at``.
+        """
+        if not entry_ids:
+            return
+
+        placeholders = ", ".join(["?"] * len(entry_ids))
+        self._conn.execute(
+            f"UPDATE entries "
+            f"SET recall_count = recall_count + 1, "
+            f"    last_recalled_at = ? "
+            f"WHERE id IN ({placeholders})",
+            [timestamp, *entry_ids],
+        )
+        self._conn.commit()
+
+    # ------------------------------------------------------------------
     # Metadata helpers
     # ------------------------------------------------------------------
 
@@ -196,6 +408,27 @@ class MemoryDatabase:
     # Internal
     # ------------------------------------------------------------------
 
+    def _detect_fts5(self) -> bool:
+        """Probe whether the SQLite build supports FTS5.
+
+        Creates and immediately drops a throwaway virtual table.
+        Returns ``True`` if successful, ``False`` otherwise (with a
+        warning on stderr).
+        """
+        try:
+            self._conn.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS _fts5_test USING fts5(x)"
+            )
+            self._conn.execute("DROP TABLE IF EXISTS _fts5_test")
+            return True
+        except Exception:
+            print(
+                "semantic_memory: FTS5 is not available in this SQLite build; "
+                "full-text search will be disabled",
+                file=sys.stderr,
+            )
+            return False
+
     def _set_pragmas(self) -> None:
         """Set connection-level PRAGMAs for performance and safety."""
         self._conn.execute("PRAGMA journal_mode = WAL")
@@ -217,7 +450,8 @@ class MemoryDatabase:
 
         for version in range(current + 1, target + 1):
             migration_fn = MIGRATIONS[version]
-            migration_fn(self._conn)
+            # Pass fts5_available to migrations that accept it.
+            migration_fn(self._conn, fts5_available=self._fts5_available)
             self._conn.execute(
                 "INSERT INTO _metadata (key, value) VALUES (?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
