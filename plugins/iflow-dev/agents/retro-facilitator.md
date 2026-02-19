@@ -104,6 +104,8 @@ Each entry includes:
 - **Text:** The pattern, anti-pattern, or heuristic statement
 - **Provenance:** Feature ID, phase where observed, supporting evidence
 - **Confidence:** high / medium / low
+- **Keywords:** 3-10 lowercase keyword labels for search indexing (e.g., ["sqlite", "wal-mode", "concurrency"]). Use only `[a-z0-9-]` characters. Avoid generic words like "code", "system", "feature".
+- **Reasoning:** 1-2 sentences explaining WHY this matters — the underlying cause or principle, not just what to do
 
 Only propose entries with medium or high confidence. Prefer fewer high-quality entries over many speculative ones.
 
@@ -146,21 +148,27 @@ Return structured JSON:
       {
         "text": "Pattern statement",
         "provenance": "Feature X, specify phase — reviewer noted...",
-        "confidence": "high"
+        "confidence": "high",
+        "keywords": ["review-loop", "iteration-cap", "convergence"],
+        "reasoning": "Without a convergence mechanism, review loops can cycle indefinitely when reviewers disagree on subjective quality criteria."
       }
     ],
     "anti_patterns": [
       {
         "text": "Anti-pattern statement",
         "provenance": "Feature X, design phase — caused...",
-        "confidence": "medium"
+        "confidence": "medium",
+        "keywords": ["schema-migration", "sqlite", "backwards-compat"],
+        "reasoning": "Schema changes without migration support force users to delete and recreate the database, losing accumulated learning data."
       }
     ],
     "heuristics": [
       {
         "text": "Heuristic statement",
         "provenance": "Feature X — observed that...",
-        "confidence": "high"
+        "confidence": "high",
+        "keywords": ["task-sizing", "parallel-execution", "dependency"],
+        "reasoning": "Tasks under 15 minutes are small enough to hold entirely in working memory, reducing context-switching overhead."
       }
     ]
   },
