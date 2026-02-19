@@ -4,6 +4,7 @@ Defines the EmbeddingProvider protocol and concrete implementations.
 """
 from __future__ import annotations
 
+import os
 from typing import Protocol, runtime_checkable
 
 import numpy as np
@@ -227,7 +228,15 @@ class OllamaProvider:
 
     Not yet implemented -- all embedding methods raise
     ``NotImplementedError``.
+
+    Parameters
+    ----------
+    model:
+        Ollama model name (stored for future use).
     """
+
+    def __init__(self, model: str = "not-configured") -> None:
+        self._model = model
 
     @property
     def dimensions(self) -> int:
@@ -241,8 +250,8 @@ class OllamaProvider:
 
     @property
     def model_name(self) -> str:
-        """Placeholder model name."""
-        return "not-configured"
+        """Name of the embedding model (or placeholder)."""
+        return self._model
 
     def embed(self, text: str, task_type: str = "query") -> np.ndarray:
         """Not implemented."""
@@ -253,3 +262,160 @@ class OllamaProvider:
     ) -> list[np.ndarray]:
         """Not implemented."""
         raise NotImplementedError("Ollama provider not yet implemented")
+
+
+class NormalizingWrapper:
+    """Wrapper that L2-normalizes vectors from any EmbeddingProvider.
+
+    Pre-normalized vectors make cosine similarity equivalent to a dot
+    product, which is important for fast matmul-based retrieval.
+
+    Parameters
+    ----------
+    inner:
+        The underlying embedding provider to wrap.
+    """
+
+    _ZERO_THRESHOLD = 1e-9
+
+    def __init__(self, inner: EmbeddingProvider) -> None:
+        self._inner = inner
+
+    @property
+    def dimensions(self) -> int:
+        """Number of dimensions in the embedding vectors."""
+        return self._inner.dimensions
+
+    @property
+    def provider_name(self) -> str:
+        """Short identifier for the provider."""
+        return self._inner.provider_name
+
+    @property
+    def model_name(self) -> str:
+        """Name of the embedding model being used."""
+        return self._inner.model_name
+
+    def _normalize(self, vec: np.ndarray) -> np.ndarray:
+        """L2-normalize a single vector.
+
+        Raises
+        ------
+        EmbeddingError
+            If the vector norm is below the zero threshold.
+        """
+        norm = float(np.linalg.norm(vec))
+        if norm < self._ZERO_THRESHOLD:
+            raise EmbeddingError("Zero vector detected")
+        return vec / norm
+
+    def embed(self, text: str, task_type: str = "query") -> np.ndarray:
+        """Generate a unit-length embedding vector for a single text.
+
+        Parameters
+        ----------
+        text:
+            The text to embed.
+        task_type:
+            Either ``"query"`` or ``"document"``.
+
+        Returns
+        -------
+        numpy.ndarray
+            A float32 unit vector of length :attr:`dimensions`.
+
+        Raises
+        ------
+        EmbeddingError
+            If the inner provider returns a zero vector.
+        """
+        raw = self._inner.embed(text, task_type)
+        return self._normalize(raw)
+
+    def embed_batch(
+        self, texts: list[str], task_type: str = "document"
+    ) -> list[np.ndarray]:
+        """Generate unit-length embedding vectors for multiple texts.
+
+        Parameters
+        ----------
+        texts:
+            List of texts to embed.
+        task_type:
+            Either ``"query"`` or ``"document"``.
+
+        Returns
+        -------
+        list[numpy.ndarray]
+            A list of float32 unit vectors, one per input text.
+
+        Raises
+        ------
+        EmbeddingError
+            If any vector in the batch is a zero vector.
+        """
+        raw_batch = self._inner.embed_batch(texts, task_type)
+        return [self._normalize(vec) for vec in raw_batch]
+
+
+# Provider name -> environment variable name for API key
+_PROVIDER_ENV_KEYS: dict[str, str | None] = {
+    "gemini": "GEMINI_API_KEY",
+    "voyage": "VOYAGE_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "ollama": None,  # Ollama runs locally, no API key needed
+}
+
+
+def create_provider(config: dict) -> EmbeddingProvider | None:
+    """Create an embedding provider from configuration.
+
+    Reads ``memory_embedding_provider`` and ``memory_embedding_model``
+    from *config*, checks for the required API key in the environment,
+    and returns a :class:`NormalizingWrapper`-wrapped provider instance.
+
+    Returns ``None`` if:
+    - The required API key environment variable is not set.
+    - The provider name is not recognized.
+    - Provider construction fails (e.g. missing SDK).
+
+    Parameters
+    ----------
+    config:
+        Dictionary with ``memory_embedding_provider`` and
+        ``memory_embedding_model`` keys.
+
+    Returns
+    -------
+    EmbeddingProvider | None
+        A NormalizingWrapper-wrapped provider, or None.
+    """
+    provider_name = config.get("memory_embedding_provider", "")
+    model = config.get("memory_embedding_model", "")
+
+    # Look up required env var
+    env_key = _PROVIDER_ENV_KEYS.get(provider_name)
+    # For providers not in the map, return None (unknown provider)
+    if provider_name not in _PROVIDER_ENV_KEYS:
+        return None
+
+    # Check API key if one is required
+    api_key: str | None = None
+    if env_key is not None:
+        api_key = os.environ.get(env_key)
+        if not api_key:
+            return None
+
+    try:
+        if provider_name == "gemini":
+            inner = GeminiProvider(api_key=api_key, model=model)
+        elif provider_name == "ollama":
+            inner = OllamaProvider(model=model)
+        else:
+            # Provider is in the env-key map but has no constructor yet
+            # (e.g. voyage, openai -- future implementations)
+            return None
+
+        return NormalizingWrapper(inner)
+    except Exception:
+        return None
