@@ -1,0 +1,10 @@
+{
+  "id": "024",
+  "slug": "memory-semantic-search",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-02-20T10:00:00Z",
+  "branch": "feature/024-memory-semantic-search",
+  "lastCompletedPhase": null,
+  "phases": {}
+}
