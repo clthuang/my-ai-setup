@@ -54,6 +54,10 @@
         "approved": true,
         "reviewerNotes": []
       }
+    },
+    "implement": {
+      "status": "in_progress",
+      "startedAt": "2026-02-20T22:00:00Z"
     }
   }
 }
