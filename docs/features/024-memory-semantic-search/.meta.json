@@ -2,7 +2,8 @@
   "id": "024",
   "slug": "memory-semantic-search",
   "mode": "standard",
-  "status": "active",
+  "status": "completed",
+  "completed": "2026-02-20T16:30:00Z",
   "created": "2026-02-20T10:00:00Z",
   "branch": "feature/024-memory-semantic-search",
   "lastCompletedPhase": "implement",
@@ -61,6 +62,10 @@
       "completedAt": "2026-02-20T15:45:00Z",
       "reviewIterations": 4,
       "reviewResult": "approved"
+    },
+    "finish": {
+      "status": "completed",
+      "completedAt": "2026-02-20T16:30:00Z"
     }
   }
 }
