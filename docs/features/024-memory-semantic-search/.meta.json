@@ -5,6 +5,12 @@
   "status": "active",
   "created": "2026-02-20T10:00:00Z",
   "branch": "feature/024-memory-semantic-search",
-  "lastCompletedPhase": null,
-  "phases": {}
+  "lastCompletedPhase": "specify",
+  "phases": {
+    "specify": {
+      "status": "completed",
+      "startedAt": "2026-02-20T10:15:00Z",
+      "completedAt": "2026-02-20T11:30:00Z"
+    }
+  }
 }
