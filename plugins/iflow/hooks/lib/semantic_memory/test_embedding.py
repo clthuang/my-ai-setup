@@ -1,0 +1,607 @@
+"""Tests for semantic_memory.embedding module."""
+from __future__ import annotations
+
+import os
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pytest
+
+from semantic_memory.embedding import (
+    EmbeddingProvider,
+    GeminiProvider,
+    NormalizingWrapper,
+    create_provider,
+)
+from semantic_memory import EmbeddingError
+
+
+# ---------------------------------------------------------------------------
+# EmbeddingProvider Protocol tests
+# ---------------------------------------------------------------------------
+
+
+class TestEmbeddingProviderProtocol:
+    def test_protocol_is_runtime_checkable(self):
+        """EmbeddingProvider should be decorated with @runtime_checkable."""
+        assert hasattr(EmbeddingProvider, "__protocol_attrs__") or hasattr(
+            EmbeddingProvider, "__abstractmethods__"
+        ) or isinstance(EmbeddingProvider, type)
+        # A class implementing all methods should pass isinstance check
+        class _FakeProvider:
+            @property
+            def dimensions(self) -> int:
+                return 768
+
+            @property
+            def provider_name(self) -> str:
+                return "fake"
+
+            @property
+            def model_name(self) -> str:
+                return "fake-model"
+
+            def embed(self, text: str, task_type: str = "query") -> np.ndarray:
+                return np.zeros(768, dtype=np.float32)
+
+            def embed_batch(
+                self, texts: list[str], task_type: str = "document"
+            ) -> list[np.ndarray]:
+                return [np.zeros(768, dtype=np.float32)]
+
+        assert isinstance(_FakeProvider(), EmbeddingProvider)
+
+    def test_non_conforming_class_fails_isinstance(self):
+        """A class missing required methods should NOT match the protocol."""
+        class _Incomplete:
+            pass
+
+        assert not isinstance(_Incomplete(), EmbeddingProvider)
+
+    def test_protocol_has_embed_method(self):
+        """Protocol should declare an embed method."""
+        assert hasattr(EmbeddingProvider, "embed")
+
+    def test_protocol_has_embed_batch_method(self):
+        """Protocol should declare an embed_batch method."""
+        assert hasattr(EmbeddingProvider, "embed_batch")
+
+    def test_protocol_has_dimensions_property(self):
+        """Protocol should declare a dimensions property."""
+        assert hasattr(EmbeddingProvider, "dimensions")
+
+    def test_protocol_has_provider_name_property(self):
+        """Protocol should declare a provider_name property."""
+        assert hasattr(EmbeddingProvider, "provider_name")
+
+    def test_protocol_has_model_name_property(self):
+        """Protocol should declare a model_name property."""
+        assert hasattr(EmbeddingProvider, "model_name")
+
+
+# ---------------------------------------------------------------------------
+# GeminiProvider tests (all using mocks -- no real API calls)
+# ---------------------------------------------------------------------------
+
+
+def _make_embed_response(values: list[float]) -> MagicMock:
+    """Create a mock Gemini embed_content response."""
+    embedding = MagicMock()
+    embedding.values = values
+    response = MagicMock()
+    response.embeddings = [embedding]
+    return response
+
+
+def _make_batch_embed_response(batch_values: list[list[float]]) -> MagicMock:
+    """Create a mock Gemini embed_content response for batch calls."""
+    embeddings = []
+    for values in batch_values:
+        emb = MagicMock()
+        emb.values = values
+        embeddings.append(emb)
+    response = MagicMock()
+    response.embeddings = embeddings
+    return response
+
+
+class TestGeminiProviderInit:
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_creates_client_with_api_key(self, mock_genai, _mock_types):
+        """GeminiProvider should create a genai.Client with the given API key."""
+        provider = GeminiProvider(api_key="test-key-123")
+        mock_genai.Client.assert_called_once_with(api_key="test-key-123")
+
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_default_model(self, mock_genai, _mock_types):
+        """Default model should be gemini-embedding-001."""
+        provider = GeminiProvider(api_key="key")
+        assert provider.model_name == "gemini-embedding-001"
+
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_custom_model(self, mock_genai, _mock_types):
+        """Should accept a custom model name."""
+        provider = GeminiProvider(api_key="key", model="custom-embed-model")
+        assert provider.model_name == "custom-embed-model"
+
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_default_dimensions(self, mock_genai, _mock_types):
+        """Default dimensions should be 768."""
+        provider = GeminiProvider(api_key="key")
+        assert provider.dimensions == 768
+
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_custom_dimensions(self, mock_genai, _mock_types):
+        """Should accept custom dimensions."""
+        provider = GeminiProvider(api_key="key", dimensions=384)
+        assert provider.dimensions == 384
+
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_provider_name(self, mock_genai, _mock_types):
+        """provider_name should return 'gemini'."""
+        provider = GeminiProvider(api_key="key")
+        assert provider.provider_name == "gemini"
+
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_raises_runtime_error_on_old_sdk(self, mock_genai, mock_types):
+        """Should raise RuntimeError if SDK doesn't support task_type."""
+        mock_types.EmbedContentConfig.side_effect = TypeError("no task_type")
+        with pytest.raises(RuntimeError, match="google-genai SDK does not support task_type"):
+            GeminiProvider(api_key="key")
+
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_task_type_map_has_document_and_query(self, mock_genai, _mock_types):
+        """TASK_TYPE_MAP should map 'document' and 'query'."""
+        assert GeminiProvider.TASK_TYPE_MAP == {
+            "document": "RETRIEVAL_DOCUMENT",
+            "query": "RETRIEVAL_QUERY",
+        }
+
+
+class TestGeminiProviderEmbed:
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_embed_returns_ndarray(self, mock_genai, _mock_types):
+        """embed() should return a numpy float32 array."""
+        mock_client = mock_genai.Client.return_value
+        mock_client.models.embed_content.return_value = _make_embed_response(
+            [0.1, 0.2, 0.3]
+        )
+
+        provider = GeminiProvider(api_key="key", dimensions=3)
+        result = provider.embed("test text")
+        assert isinstance(result, np.ndarray)
+        assert result.dtype == np.float32
+
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_embed_returns_correct_values(self, mock_genai, _mock_types):
+        """embed() should return the values from the API response."""
+        mock_client = mock_genai.Client.return_value
+        mock_client.models.embed_content.return_value = _make_embed_response(
+            [1.0, 2.0, 3.0]
+        )
+
+        provider = GeminiProvider(api_key="key", dimensions=3)
+        result = provider.embed("hello")
+        np.testing.assert_array_almost_equal(result, [1.0, 2.0, 3.0])
+
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_embed_default_task_type_is_query(self, mock_genai, mock_types):
+        """embed() default task_type should be 'query' -> RETRIEVAL_QUERY."""
+        mock_types.EmbedContentConfig = lambda **kw: SimpleNamespace(**kw)
+        mock_client = mock_genai.Client.return_value
+        mock_client.models.embed_content.return_value = _make_embed_response(
+            [0.1]
+        )
+
+        provider = GeminiProvider(api_key="key", dimensions=1)
+        provider.embed("test")
+
+        call_kwargs = mock_client.models.embed_content.call_args
+        config = call_kwargs.kwargs.get("config") or call_kwargs[1].get("config")
+        assert config.task_type == "RETRIEVAL_QUERY"
+
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_embed_document_task_type(self, mock_genai, mock_types):
+        """embed(task_type='document') should use RETRIEVAL_DOCUMENT."""
+        mock_types.EmbedContentConfig = lambda **kw: SimpleNamespace(**kw)
+        mock_client = mock_genai.Client.return_value
+        mock_client.models.embed_content.return_value = _make_embed_response(
+            [0.1]
+        )
+
+        provider = GeminiProvider(api_key="key", dimensions=1)
+        provider.embed("test", task_type="document")
+
+        call_kwargs = mock_client.models.embed_content.call_args
+        config = call_kwargs.kwargs.get("config") or call_kwargs[1].get("config")
+        assert config.task_type == "RETRIEVAL_DOCUMENT"
+
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_embed_passes_model_name(self, mock_genai, _mock_types):
+        """embed() should pass the configured model name to the API."""
+        mock_client = mock_genai.Client.return_value
+        mock_client.models.embed_content.return_value = _make_embed_response(
+            [0.1]
+        )
+
+        provider = GeminiProvider(api_key="key", model="my-model", dimensions=1)
+        provider.embed("test")
+
+        call_kwargs = mock_client.models.embed_content.call_args
+        assert call_kwargs.kwargs.get("model") or call_kwargs[1].get("model") == "my-model"
+
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_embed_passes_output_dimensionality(self, mock_genai, mock_types):
+        """embed() should pass output_dimensionality in the config."""
+        mock_types.EmbedContentConfig = lambda **kw: SimpleNamespace(**kw)
+        mock_client = mock_genai.Client.return_value
+        mock_client.models.embed_content.return_value = _make_embed_response(
+            [0.1] * 384
+        )
+
+        provider = GeminiProvider(api_key="key", dimensions=384)
+        provider.embed("test")
+
+        call_kwargs = mock_client.models.embed_content.call_args
+        config = call_kwargs.kwargs.get("config") or call_kwargs[1].get("config")
+        assert config.output_dimensionality == 384
+
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_embed_wraps_api_errors_in_embedding_error(self, mock_genai, _mock_types):
+        """embed() should wrap API exceptions in EmbeddingError."""
+        mock_client = mock_genai.Client.return_value
+        mock_client.models.embed_content.side_effect = Exception("API failure")
+
+        provider = GeminiProvider(api_key="key")
+        with pytest.raises(EmbeddingError, match="Gemini embedding failed"):
+            provider.embed("test")
+
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_embed_invalid_task_type_raises_embedding_error(self, mock_genai, _mock_types):
+        """embed() with an unknown task_type should raise EmbeddingError."""
+        provider = GeminiProvider(api_key="key")
+        with pytest.raises(EmbeddingError, match="Unknown task_type"):
+            provider.embed("test", task_type="invalid")
+
+
+class TestGeminiProviderEmbedBatch:
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_embed_batch_returns_list_of_ndarrays(self, mock_genai, _mock_types):
+        """embed_batch() should return a list of numpy arrays."""
+        mock_client = mock_genai.Client.return_value
+        mock_client.models.embed_content.return_value = _make_batch_embed_response(
+            [[0.1, 0.2], [0.3, 0.4]]
+        )
+
+        provider = GeminiProvider(api_key="key", dimensions=2)
+        result = provider.embed_batch(["text1", "text2"])
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert all(isinstance(v, np.ndarray) for v in result)
+
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_embed_batch_returns_correct_values(self, mock_genai, _mock_types):
+        """embed_batch() should return correct values for each text."""
+        mock_client = mock_genai.Client.return_value
+        mock_client.models.embed_content.return_value = _make_batch_embed_response(
+            [[1.0, 2.0], [3.0, 4.0]]
+        )
+
+        provider = GeminiProvider(api_key="key", dimensions=2)
+        result = provider.embed_batch(["a", "b"])
+        np.testing.assert_array_almost_equal(result[0], [1.0, 2.0])
+        np.testing.assert_array_almost_equal(result[1], [3.0, 4.0])
+
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_embed_batch_default_task_type_is_document(self, mock_genai, mock_types):
+        """embed_batch() default task_type should be 'document'."""
+        mock_types.EmbedContentConfig = lambda **kw: SimpleNamespace(**kw)
+        mock_client = mock_genai.Client.return_value
+        mock_client.models.embed_content.return_value = _make_batch_embed_response(
+            [[0.1]]
+        )
+
+        provider = GeminiProvider(api_key="key", dimensions=1)
+        provider.embed_batch(["text"])
+
+        call_kwargs = mock_client.models.embed_content.call_args
+        config = call_kwargs.kwargs.get("config") or call_kwargs[1].get("config")
+        assert config.task_type == "RETRIEVAL_DOCUMENT"
+
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_embed_batch_wraps_api_errors(self, mock_genai, _mock_types):
+        """embed_batch() should wrap API errors in EmbeddingError."""
+        mock_client = mock_genai.Client.return_value
+        mock_client.models.embed_content.side_effect = Exception("batch fail")
+
+        provider = GeminiProvider(api_key="key")
+        with pytest.raises(EmbeddingError, match="Gemini batch embedding failed"):
+            provider.embed_batch(["a", "b"])
+
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_embed_batch_invalid_task_type_raises(self, mock_genai, _mock_types):
+        """embed_batch() with unknown task_type should raise EmbeddingError."""
+        provider = GeminiProvider(api_key="key")
+        with pytest.raises(EmbeddingError, match="Unknown task_type"):
+            provider.embed_batch(["test"], task_type="bogus")
+
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_embed_batch_float32_dtype(self, mock_genai, _mock_types):
+        """embed_batch() results should be float32."""
+        mock_client = mock_genai.Client.return_value
+        mock_client.models.embed_content.return_value = _make_batch_embed_response(
+            [[0.5, 0.6]]
+        )
+
+        provider = GeminiProvider(api_key="key", dimensions=2)
+        result = provider.embed_batch(["text"])
+        assert result[0].dtype == np.float32
+
+
+class TestGeminiProviderProtocolConformance:
+    @patch("semantic_memory.embedding.types")
+    @patch("semantic_memory.embedding.genai")
+    def test_isinstance_check(self, mock_genai, _mock_types):
+        """GeminiProvider should satisfy the EmbeddingProvider protocol."""
+        provider = GeminiProvider(api_key="key")
+        assert isinstance(provider, EmbeddingProvider)
+
+
+# ---------------------------------------------------------------------------
+# EmbeddingError re-export test
+# ---------------------------------------------------------------------------
+
+
+class TestEmbeddingErrorReExport:
+    def test_embedding_error_importable_from_init(self):
+        """EmbeddingError should be importable from semantic_memory."""
+        from semantic_memory import EmbeddingError as E
+        assert E is not None
+        assert issubclass(E, Exception)
+
+    def test_embedding_error_importable_from_embedding(self):
+        """EmbeddingError should be re-exported from embedding module."""
+        from semantic_memory.embedding import EmbeddingError as E
+        assert E is not None
+        assert issubclass(E, Exception)
+
+
+# ---------------------------------------------------------------------------
+# Helper: Fake provider for NormalizingWrapper tests
+# ---------------------------------------------------------------------------
+
+
+class _FakeProvider:
+    """Minimal EmbeddingProvider for testing NormalizingWrapper."""
+
+    def __init__(self, embed_result=None, batch_result=None):
+        self._embed_result = embed_result
+        self._batch_result = batch_result
+
+    @property
+    def dimensions(self) -> int:
+        return 5
+
+    @property
+    def provider_name(self) -> str:
+        return "fake"
+
+    @property
+    def model_name(self) -> str:
+        return "fake-model-v1"
+
+    def embed(self, text: str, task_type: str = "query") -> np.ndarray:
+        return self._embed_result
+
+    def embed_batch(
+        self, texts: list[str], task_type: str = "document"
+    ) -> list[np.ndarray]:
+        return self._batch_result
+
+
+# ---------------------------------------------------------------------------
+# NormalizingWrapper tests
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizingWrapperEmbed:
+    def test_normalizes_to_unit_length(self):
+        """NormalizingWrapper.embed() should L2-normalize the vector."""
+        # [3, 4, 0, 0, 0] has norm 5.0
+        raw = np.array([3.0, 4.0, 0.0, 0.0, 0.0], dtype=np.float32)
+        inner = _FakeProvider(embed_result=raw)
+        wrapper = NormalizingWrapper(inner)
+
+        result = wrapper.embed("hello")
+        norm = float(np.linalg.norm(result))
+        assert abs(norm - 1.0) < 1e-6, f"Expected unit norm, got {norm}"
+        np.testing.assert_array_almost_equal(
+            result, [0.6, 0.8, 0.0, 0.0, 0.0]
+        )
+
+    def test_zero_vector_raises_embedding_error(self):
+        """NormalizingWrapper.embed() should raise EmbeddingError for zero vectors."""
+        raw = np.zeros(5, dtype=np.float32)
+        inner = _FakeProvider(embed_result=raw)
+        wrapper = NormalizingWrapper(inner)
+
+        with pytest.raises(EmbeddingError, match="Zero vector detected"):
+            wrapper.embed("empty")
+
+    def test_near_zero_vector_raises_embedding_error(self):
+        """Vectors with norm < 1e-9 should be treated as zero vectors."""
+        raw = np.array([1e-10, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+        inner = _FakeProvider(embed_result=raw)
+        wrapper = NormalizingWrapper(inner)
+
+        with pytest.raises(EmbeddingError, match="Zero vector detected"):
+            wrapper.embed("tiny")
+
+
+class TestNormalizingWrapperEmbedBatch:
+    def test_normalizes_each_vector_independently(self):
+        """embed_batch() should normalize each vector independently."""
+        batch = [
+            np.array([3.0, 4.0, 0.0], dtype=np.float32),  # norm 5
+            np.array([0.0, 0.0, 2.0], dtype=np.float32),  # norm 2
+        ]
+        inner = _FakeProvider(batch_result=batch)
+        wrapper = NormalizingWrapper(inner)
+
+        results = wrapper.embed_batch(["a", "b"])
+        assert len(results) == 2
+
+        norm0 = float(np.linalg.norm(results[0]))
+        norm1 = float(np.linalg.norm(results[1]))
+        assert abs(norm0 - 1.0) < 1e-6
+        assert abs(norm1 - 1.0) < 1e-6
+        np.testing.assert_array_almost_equal(results[0], [0.6, 0.8, 0.0])
+        np.testing.assert_array_almost_equal(results[1], [0.0, 0.0, 1.0])
+
+    def test_zero_vector_in_batch_raises_embedding_error(self):
+        """embed_batch() should raise if any vector in the batch is zero."""
+        batch = [
+            np.array([1.0, 0.0, 0.0], dtype=np.float32),
+            np.zeros(3, dtype=np.float32),
+        ]
+        inner = _FakeProvider(batch_result=batch)
+        wrapper = NormalizingWrapper(inner)
+
+        with pytest.raises(EmbeddingError, match="Zero vector detected"):
+            wrapper.embed_batch(["ok", "zero"])
+
+
+class TestNormalizingWrapperProperties:
+    def test_dimensions_forwarded(self):
+        """dimensions should be forwarded from the inner provider."""
+        inner = _FakeProvider()
+        wrapper = NormalizingWrapper(inner)
+        assert wrapper.dimensions == 5
+
+    def test_provider_name_forwarded(self):
+        """provider_name should be forwarded from the inner provider."""
+        inner = _FakeProvider()
+        wrapper = NormalizingWrapper(inner)
+        assert wrapper.provider_name == "fake"
+
+    def test_model_name_forwarded(self):
+        """model_name should be forwarded from the inner provider."""
+        inner = _FakeProvider()
+        wrapper = NormalizingWrapper(inner)
+        assert wrapper.model_name == "fake-model-v1"
+
+    def test_satisfies_embedding_provider_protocol(self):
+        """NormalizingWrapper should satisfy EmbeddingProvider protocol."""
+        inner = _FakeProvider()
+        wrapper = NormalizingWrapper(inner)
+        assert isinstance(wrapper, EmbeddingProvider)
+
+
+# ---------------------------------------------------------------------------
+# create_provider tests
+# ---------------------------------------------------------------------------
+
+
+class TestCreateProvider:
+    def test_returns_none_when_env_var_missing(self):
+        """create_provider should return None when the required API key is missing."""
+        config = {
+            "memory_embedding_provider": "gemini",
+            "memory_embedding_model": "gemini-embedding-001",
+        }
+        # Ensure env var is NOT set
+        env = {k: v for k, v in os.environ.items() if k != "GEMINI_API_KEY"}
+        with patch.dict(os.environ, env, clear=True):
+            result = create_provider(config)
+        assert result is None
+
+    def test_returns_none_for_unknown_provider(self):
+        """create_provider should return None for an unknown provider name."""
+        config = {
+            "memory_embedding_provider": "unknown-provider",
+            "memory_embedding_model": "some-model",
+        }
+        with patch.dict(os.environ, {"UNKNOWN_API_KEY": "key"}, clear=False):
+            result = create_provider(config)
+        assert result is None
+
+    @patch("semantic_memory.embedding.GeminiProvider")
+    def test_returns_normalizing_wrapper_for_gemini(self, mock_gemini_cls):
+        """create_provider should return a NormalizingWrapper wrapping GeminiProvider."""
+        mock_gemini_cls.return_value = _FakeProvider()
+        config = {
+            "memory_embedding_provider": "gemini",
+            "memory_embedding_model": "gemini-embedding-001",
+        }
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=False):
+            result = create_provider(config)
+
+        assert isinstance(result, NormalizingWrapper)
+        mock_gemini_cls.assert_called_once_with(
+            api_key="test-key", model="gemini-embedding-001"
+        )
+
+    @patch("semantic_memory.embedding.GeminiProvider", side_effect=Exception("SDK error"))
+    def test_returns_none_on_construction_error(self, mock_gemini_cls):
+        """create_provider should return None if provider construction fails."""
+        config = {
+            "memory_embedding_provider": "gemini",
+            "memory_embedding_model": "gemini-embedding-001",
+        }
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=False):
+            result = create_provider(config)
+        assert result is None
+
+    def test_returns_none_for_voyage_without_key(self):
+        """create_provider should return None when VOYAGE_API_KEY is missing."""
+        config = {
+            "memory_embedding_provider": "voyage",
+            "memory_embedding_model": "voyage-3",
+        }
+        env = {k: v for k, v in os.environ.items() if k != "VOYAGE_API_KEY"}
+        with patch.dict(os.environ, env, clear=True):
+            result = create_provider(config)
+        assert result is None
+
+    def test_returns_none_for_openai_without_key(self):
+        """create_provider should return None when OPENAI_API_KEY is missing."""
+        config = {
+            "memory_embedding_provider": "openai",
+            "memory_embedding_model": "text-embedding-3-small",
+        }
+        env = {k: v for k, v in os.environ.items() if k != "OPENAI_API_KEY"}
+        with patch.dict(os.environ, env, clear=True):
+            result = create_provider(config)
+        assert result is None
+
+    def test_returns_none_for_ollama_no_constructor(self):
+        """create_provider should return None for ollama (no constructor yet)."""
+        config = {
+            "memory_embedding_provider": "ollama",
+            "memory_embedding_model": "nomic-embed-text",
+        }
+        result = create_provider(config)
+        assert result is None
