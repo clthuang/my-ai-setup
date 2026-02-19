@@ -9,3 +9,8 @@ mcp = ["mcp>=1.0"]
 gemini = ["google-genai>=1.0"]
 voyage = ["voyageai>=0.3"]
 openai = ["openai>=1.0"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
