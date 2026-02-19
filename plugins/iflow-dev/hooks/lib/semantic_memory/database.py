@@ -263,16 +263,20 @@ class MemoryDatabase:
         if not self._fts5_available:
             return []
 
-        cur = self._conn.execute(
-            "SELECT e.id, -rank AS score "
-            "FROM entries_fts f "
-            "JOIN entries e ON e.rowid = f.rowid "
-            "WHERE entries_fts MATCH ? "
-            "ORDER BY score DESC "
-            "LIMIT ?",
-            (query, limit),
-        )
-        return [(row[0], float(row[1])) for row in cur.fetchall()]
+        try:
+            cur = self._conn.execute(
+                "SELECT e.id, -rank AS score "
+                "FROM entries_fts f "
+                "JOIN entries e ON e.rowid = f.rowid "
+                "WHERE entries_fts MATCH ? "
+                "ORDER BY score DESC "
+                "LIMIT ?",
+                (query, limit),
+            )
+            return [(row[0], float(row[1])) for row in cur.fetchall()]
+        except sqlite3.OperationalError:
+            # FTS5 MATCH syntax error from special characters in query
+            return []
 
     # ------------------------------------------------------------------
     # Embedding helpers
@@ -353,6 +357,22 @@ class MemoryDatabase:
             (limit,),
         )
         return [dict(row) for row in cur.fetchall()]
+
+    def update_keywords(self, entry_id: str, keywords_json: str) -> None:
+        """Update the keywords for an existing entry.
+
+        Parameters
+        ----------
+        entry_id:
+            The entry ID to update.
+        keywords_json:
+            JSON-encoded keyword list.
+        """
+        self._conn.execute(
+            "UPDATE entries SET keywords = ? WHERE id = ?",
+            (keywords_json, entry_id),
+        )
+        self._conn.commit()
 
     def update_recall(
         self, entry_ids: list[str], timestamp: str

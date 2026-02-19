@@ -120,7 +120,14 @@ class RetrievalPipeline:
             Merged candidates with vector and/or BM25 scores populated.
         """
         if context_query is None:
-            return RetrievalResult(context_query=None)
+            # No signals — pass all entries to ranking with zero retrieval
+            # scores so prominence-only ranking can still select entries.
+            all_entries = self._db.get_all_entries()
+            candidates = {e["id"]: CandidateScores() for e in all_entries}
+            return RetrievalResult(
+                candidates=candidates,
+                context_query=None,
+            )
 
         candidates: dict[str, CandidateScores] = {}
         vector_count = 0
@@ -197,6 +204,9 @@ class RetrievalPipeline:
             match = _FEATURE_ID_RE.match(dir_name)
             numeric_id = int(match.group(1)) if match else -1
 
+            if meta.get("status") != "active":
+                continue
+
             if numeric_id > best_id:
                 best_id = numeric_id
                 best_meta = meta
@@ -215,7 +225,8 @@ class RetrievalPipeline:
             desc_path = os.path.join(feature_dir, filename)
             if os.path.isfile(desc_path):
                 try:
-                    text = open(desc_path, "r").read()
+                    with open(desc_path, "r") as fh:
+                        text = fh.read()
                 except OSError:
                     continue
 

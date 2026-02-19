@@ -95,12 +95,7 @@ def _merge_keywords(db: MemoryDatabase, entry_id: str, new_keywords: list | None
             seen.add(kw)
 
     if merged != existing_kw:
-        # Update via direct SQL to avoid re-triggering full upsert logic
-        db._conn.execute(
-            'UPDATE entries SET keywords = ? WHERE id = ?',
-            (json.dumps(merged), entry_id),
-        )
-        db._conn.commit()
+        db.update_keywords(entry_id, json.dumps(merged))
 
 
 def _check_provider_migration(

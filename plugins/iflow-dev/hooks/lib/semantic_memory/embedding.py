@@ -9,8 +9,12 @@ from typing import Protocol, runtime_checkable
 
 import numpy as np
 
-from google import genai
-from google.genai import types
+try:
+    from google import genai
+    from google.genai import types
+except ImportError:
+    genai = None  # type: ignore[assignment]
+    types = None  # type: ignore[assignment]
 
 from semantic_memory import EmbeddingError
 
@@ -100,6 +104,12 @@ class GeminiProvider:
         model: str = "gemini-embedding-001",
         dimensions: int = 768,
     ) -> None:
+        if genai is None:
+            raise RuntimeError(
+                "google-genai SDK is required for GeminiProvider. "
+                "Install: uv add google-genai"
+            )
+
         self._client = genai.Client(api_key=api_key)
         self._model = model
         self._dimensions = dimensions
@@ -317,9 +327,43 @@ class NormalizingWrapper:
         return [self._normalize(vec) for vec in raw_batch]
 
 
+class OllamaProvider:
+    """Stub for a future Ollama embedding provider.
+
+    Raises :class:`NotImplementedError` on all operations.
+    """
+
+    def __init__(self, **kwargs) -> None:
+        raise NotImplementedError(
+            "Ollama provider not yet implemented. "
+            "Use 'gemini' as the embedding provider."
+        )
+
+    @property
+    def dimensions(self) -> int:
+        raise NotImplementedError
+
+    @property
+    def provider_name(self) -> str:
+        return "ollama"
+
+    @property
+    def model_name(self) -> str:
+        raise NotImplementedError
+
+    def embed(self, text: str, task_type: str = "query") -> np.ndarray:
+        raise NotImplementedError
+
+    def embed_batch(
+        self, texts: list[str], task_type: str = "document"
+    ) -> list[np.ndarray]:
+        raise NotImplementedError
+
+
 # Provider name -> environment variable name for API key
 _PROVIDER_ENV_KEYS: dict[str, str | None] = {
     "gemini": "GEMINI_API_KEY",
+    "ollama": None,
     "voyage": "VOYAGE_API_KEY",
     "openai": "OPENAI_API_KEY",
 }
@@ -367,6 +411,8 @@ def create_provider(config: dict) -> EmbeddingProvider | None:
     try:
         if provider_name == "gemini":
             inner = GeminiProvider(api_key=api_key, model=model)
+        elif provider_name == "ollama":
+            inner = OllamaProvider()
         else:
             # Provider is in the env-key map but has no constructor yet
             # (e.g. voyage, openai -- future implementations)

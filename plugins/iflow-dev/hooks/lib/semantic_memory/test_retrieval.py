@@ -44,10 +44,12 @@ class MockDatabase:
         fts5_available: bool = True,
         embeddings: tuple[list[str], np.ndarray] | None = None,
         fts5_results: list[tuple[str, float]] | None = None,
+        all_entries: list[dict] | None = None,
     ):
         self._fts5_available = fts5_available
         self._embeddings = embeddings
         self._fts5_results = fts5_results if fts5_results is not None else []
+        self._all_entries = all_entries if all_entries is not None else []
 
     @property
     def fts5_available(self) -> bool:
@@ -62,6 +64,9 @@ class MockDatabase:
         self, query: str, limit: int = 100
     ) -> list[tuple[str, float]]:
         return self._fts5_results
+
+    def get_all_entries(self) -> list[dict]:
+        return self._all_entries
 
 
 def _make_normalized_matrix(ids: list[str], dims: int = 768) -> tuple[list[str], np.ndarray]:
@@ -208,9 +213,9 @@ class TestRetrieveNeither:
 
 
 class TestRetrieveNoneQuery:
-    """retrieve with None context_query."""
+    """retrieve with None context_query passes all entries for prominence-only ranking."""
 
-    def test_returns_empty(self):
+    def test_returns_all_entries_with_zero_scores(self):
         ids = ["entry-a"]
         emb_ids, matrix = _make_normalized_matrix(ids)
         provider = MockProvider(dimensions=768)
@@ -219,14 +224,31 @@ class TestRetrieveNoneQuery:
             fts5_available=True,
             embeddings=(emb_ids, matrix),
             fts5_results=[("entry-a", 5.0)],
+            all_entries=[{"id": "entry-a"}, {"id": "entry-b"}],
         )
 
         pipeline = RetrievalPipeline(db=db, provider=provider, config={})
         result = pipeline.retrieve(None)
 
-        assert result.candidates == {}
+        assert len(result.candidates) == 2
+        assert "entry-a" in result.candidates
+        assert "entry-b" in result.candidates
+        # All scores should be zero (no retrieval signals)
+        for cand in result.candidates.values():
+            assert cand.vector_score == 0.0
+            assert cand.bm25_score == 0.0
         assert result.vector_candidate_count == 0
         assert result.fts5_candidate_count == 0
+        assert result.context_query is None
+
+    def test_empty_db_returns_empty_candidates(self):
+        provider = MockProvider(dimensions=768)
+        db = MockDatabase(all_entries=[])
+
+        pipeline = RetrievalPipeline(db=db, provider=provider, config={})
+        result = pipeline.retrieve(None)
+
+        assert result.candidates == {}
         assert result.context_query is None
 
 

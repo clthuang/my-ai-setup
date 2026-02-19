@@ -60,6 +60,9 @@ class MockDB:
     ) -> list[tuple[str, float]]:
         return self._fts_results
 
+    def get_all_entries(self) -> list[dict]:
+        return []
+
 
 class MockProvider:
     """Minimal mock embedding provider for retrieval tests."""
@@ -271,9 +274,9 @@ class TestRetrieveNeither:
 
 
 class TestRetrieveNoneQuery:
-    """retrieve() with None context_query returns empty result immediately."""
+    """retrieve() with None context_query passes all entries for prominence-only ranking."""
 
-    def test_none_query_returns_empty(self):
+    def test_none_query_returns_empty_when_db_empty(self):
         ids = ["e1"]
         emb_ids, matrix = _make_normalized_matrix(ids, dims=3)
         query_vec = np.array([1.0, 0.0, 0.0], dtype=np.float32)
@@ -288,6 +291,7 @@ class TestRetrieveNoneQuery:
         pipeline = RetrievalPipeline(db=db, provider=provider, config={})
         result = pipeline.retrieve(None)
 
+        # MockDB.get_all_entries() returns [] by default
         assert result.candidates == {}
         assert result.vector_candidate_count == 0
         assert result.fts5_candidate_count == 0

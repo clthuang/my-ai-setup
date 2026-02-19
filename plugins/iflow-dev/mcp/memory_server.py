@@ -192,7 +192,7 @@ async def store_memory(
     description: str,
     reasoning: str,
     category: str,
-    references: list[str] = [],
+    references: list[str] | None = None,
 ) -> str:
     """Save a learning to long-term memory.
 
@@ -222,7 +222,7 @@ async def store_memory(
         description=description,
         reasoning=reasoning,
         category=category,
-        references=references,
+        references=references if references is not None else [],
     )
 
 
