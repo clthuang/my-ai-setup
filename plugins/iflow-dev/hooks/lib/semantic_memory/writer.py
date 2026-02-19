@@ -163,7 +163,7 @@ def _process_pending_embeddings(db: MemoryDatabase, provider: object) -> int:
             )
 
     # Update pending count so the injector diagnostic is accurate.
-    remaining = len(db.get_entries_without_embedding(limit=1))
+    remaining = db.count_entries_without_embedding()
     db.set_metadata("pending_embeddings", str(remaining))
 
     return count

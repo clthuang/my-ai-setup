@@ -16,6 +16,7 @@ def _create_initial_schema(
     conn: sqlite3.Connection,
     *,
     fts5_available: bool = False,
+    **_kwargs: object,
 ) -> None:
     """Migration 1: create entries and _metadata tables.
 
@@ -134,7 +135,7 @@ class MemoryDatabase:
     """
 
     def __init__(self, db_path: str) -> None:
-        self._conn = sqlite3.connect(db_path)
+        self._conn = sqlite3.connect(db_path, timeout=5.0)
         self._conn.row_factory = sqlite3.Row
         self._set_pragmas()
         self._fts5_available = self._detect_fts5()
@@ -168,22 +169,26 @@ class MemoryDatabase:
           otherwise the existing value is kept.
         - ``created_at`` is preserved (never overwritten).
 
-        Uses a check-then-act pattern within a transaction to correctly
-        handle NOT NULL columns that may be None on update (meaning
-        "keep existing") without triggering constraint violations.
+        Uses BEGIN IMMEDIATE to acquire a write lock before the
+        existence check, preventing TOCTOU races under concurrent access.
         """
-        entry_id = entry.get("id")
-        cur = self._conn.execute(
-            "SELECT 1 FROM entries WHERE id = ?", (entry_id,)
-        )
-        exists = cur.fetchone() is not None
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            entry_id = entry.get("id")
+            cur = self._conn.execute(
+                "SELECT 1 FROM entries WHERE id = ?", (entry_id,)
+            )
+            exists = cur.fetchone() is not None
 
-        if not exists:
-            self._insert_new(entry)
-        else:
-            self._update_existing(entry)
+            if not exists:
+                self._insert_new(entry)
+            else:
+                self._update_existing(entry)
 
-        self._conn.commit()
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
 
     def _insert_new(self, entry: dict) -> None:
         """Insert a brand-new entry row.
@@ -360,6 +365,13 @@ class MemoryDatabase:
             (limit,),
         )
         return [dict(row) for row in cur.fetchall()]
+
+    def count_entries_without_embedding(self) -> int:
+        """Return the number of entries that have no embedding yet."""
+        cur = self._conn.execute(
+            "SELECT COUNT(*) FROM entries WHERE embedding IS NULL"
+        )
+        return cur.fetchone()[0]
 
     def update_keywords(self, entry_id: str, keywords_json: str) -> None:
         """Update the keywords for an existing entry.
