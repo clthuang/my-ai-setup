@@ -10,7 +10,9 @@
     "specify": {
       "status": "completed",
       "startedAt": "2026-02-20T10:15:00Z",
-      "completedAt": "2026-02-20T11:30:00Z"
+      "completedAt": "2026-02-20T15:00:00Z",
+      "reworked": true,
+      "reworkReason": "Embeddings-first approach replacing FTS5-only spec"
     }
   }
 }
