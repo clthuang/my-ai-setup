@@ -11,7 +11,8 @@ Structured feature development workflow with skills, agents, and commands for me
 | Skills | 27 |
 | Agents | 28 |
 | Commands | 22 |
-| Hooks | 5 |
+| Hooks | 7 |
+| MCP Tools | 2 |
 
 ## Commands
 
@@ -144,6 +145,15 @@ The `/iflow-dev:implement` command uses three reviewers:
 | skill-searcher | Finds relevant existing skills |
 | spec-reviewer | Skeptically reviews spec.md for testability and assumptions |
 | task-reviewer | Validates task breakdown quality and executability |
+
+## MCP Tools
+
+The memory server (`mcp/memory_server.py`) exposes two tools for long-term semantic memory:
+
+| Tool | Purpose |
+|------|---------|
+| `store_memory` | Save a learning (pattern, anti-pattern, or heuristic) to long-term memory |
+| `search_memory` | Search long-term memory for relevant learnings by topic |
 
 ## Installation
 

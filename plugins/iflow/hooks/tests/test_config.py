@@ -25,6 +25,7 @@ class TestReadConfigDefaults:
 
     def test_missing_file_returns_defaults(self, tmp_path):
         result = read_config(str(tmp_path))
+        assert result["activation_mode"] == "manual"
         assert result["memory_semantic_enabled"] is True
         assert result["memory_vector_weight"] == 0.5
         assert result["memory_keyword_weight"] == 0.2
@@ -53,7 +54,7 @@ class TestReadConfigParsing:
         """Write a config file at the expected path."""
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir(parents=True, exist_ok=True)
-        config_file = claude_dir / "iflow-dev.local.md"
+        config_file = claude_dir / "iflow.local.md"
         config_file.write_text(content)
 
     def test_bool_true(self, tmp_path):
@@ -102,7 +103,7 @@ class TestReadConfigSpaceStripping:
     def _write_config(self, tmp_path, content: str):
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir(parents=True, exist_ok=True)
-        (claude_dir / "iflow-dev.local.md").write_text(content)
+        (claude_dir / "iflow.local.md").write_text(content)
 
     def test_spaces_stripped_from_string(self, tmp_path):
         self._write_config(tmp_path, "memory_embedding_model: gemini embedding 001\n")
@@ -127,7 +128,7 @@ class TestReadConfigEdgeCases:
     def _write_config(self, tmp_path, content: str):
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir(parents=True, exist_ok=True)
-        (claude_dir / "iflow-dev.local.md").write_text(content)
+        (claude_dir / "iflow.local.md").write_text(content)
 
     def test_yaml_frontmatter_parsed(self, tmp_path):
         """Fields inside --- delimiters are still parsed (no delimiter awareness)."""
@@ -176,17 +177,19 @@ class TestReadConfigEdgeCases:
         assert "indented_key" not in result
 
     def test_real_world_config(self, tmp_path):
-        """Matches real iflow-dev.local.md format with YAML frontmatter."""
+        """Matches real iflow.local.md format with YAML frontmatter."""
         self._write_config(
             tmp_path,
             "---\n"
             "yolo_mode: true\n"
             "yolo_max_stop_blocks: 50\n"
+            "activation_mode: aware\n"
             "memory_semantic_enabled: true\n"
             "memory_vector_weight: 0.6\n"
             "---\n",
         )
         result = read_config(str(tmp_path))
+        assert result["activation_mode"] == "aware"
         assert result["memory_semantic_enabled"] is True
         assert result["memory_vector_weight"] == 0.6
         assert result["yolo_mode"] is True
@@ -210,7 +213,7 @@ class TestReadConfigMatchesBash:
     def _write_config(self, tmp_path, content: str):
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir(parents=True, exist_ok=True)
-        (claude_dir / "iflow-dev.local.md").write_text(content)
+        (claude_dir / "iflow.local.md").write_text(content)
 
     def test_sed_extracts_after_first_colon_space(self, tmp_path):
         """sed 's/^[^:]*: *//' removes everything up to and including first ': '."""

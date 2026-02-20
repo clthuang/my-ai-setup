@@ -9,7 +9,6 @@ source "${SCRIPT_DIR}/lib/common.sh"
 # detect_project_root returns PWD if no project markers found
 PROJECT_ROOT="$(detect_project_root)"
 IFLOW_CONFIG="${PROJECT_ROOT}/.claude/iflow-dev.local.md"
-CONFIG_FILE="${PROJECT_ROOT}/.claude/secretary.local.md"
 
 # Check YOLO mode from iflow-dev config
 YOLO=$(read_local_md_field "$IFLOW_CONFIG" "yolo_mode" "false")
@@ -25,12 +24,8 @@ EOF
   exit 0
 fi
 
-# Check secretary aware mode from secretary config
-if [ ! -f "$CONFIG_FILE" ]; then
-  mkdir -p "$(dirname "$CONFIG_FILE")"
-  printf -- '---\nactivation_mode: manual\n---\n' > "$CONFIG_FILE"
-fi
-MODE=$(grep "^activation_mode:" "$CONFIG_FILE" 2>/dev/null | head -1 | sed 's/^[^:]*: *//' | tr -d ' ' || echo "manual")
+# Check secretary aware mode from unified config
+MODE=$(read_local_md_field "$IFLOW_CONFIG" "activation_mode" "manual")
 if [ "$MODE" != "aware" ]; then
   exit 0
 fi

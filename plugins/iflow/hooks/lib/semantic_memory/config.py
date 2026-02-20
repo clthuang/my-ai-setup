@@ -1,6 +1,6 @@
 """Configuration reader for semantic memory system.
 
-Reads config from .claude/iflow-dev.local.md, matching the bash
+Reads config from .claude/iflow.local.md, matching the bash
 read_local_md_field implementation in common.sh exactly:
 
     grep "^${field}:" "$file" | head -1 | sed 's/^[^:]*: *//' | tr -d ' '
@@ -13,6 +13,7 @@ import os
 import re
 
 DEFAULTS: dict[str, bool | int | float | str] = {
+    "activation_mode": "manual",
     "memory_semantic_enabled": True,
     "memory_vector_weight": 0.5,
     "memory_keyword_weight": 0.2,
@@ -49,7 +50,7 @@ def _coerce(raw: str) -> bool | int | float | str:
 
 
 def read_config(project_root: str) -> dict:
-    """Read config from .claude/iflow-dev.local.md.
+    """Read config from .claude/iflow.local.md.
 
     Matches bash read_local_md_field:
         grep "^${field}:" "$file" | head -1 | sed 's/^[^:]*: *//' | tr -d ' '
@@ -57,7 +58,7 @@ def read_config(project_root: str) -> dict:
     Scans ALL lines for ^key: patterns (no --- delimiter awareness).
     Returns merged defaults + parsed values.  Missing file returns all defaults.
     """
-    config_path = os.path.join(project_root, ".claude", "iflow-dev.local.md")
+    config_path = os.path.join(project_root, ".claude", "iflow.local.md")
 
     # Start with a copy of defaults.
     result: dict = dict(DEFAULTS)

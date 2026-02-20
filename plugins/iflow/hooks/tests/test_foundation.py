@@ -124,7 +124,7 @@ class TestConfigReaderTypes:
     def _write_config(self, tmp_path, content: str):
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir(parents=True, exist_ok=True)
-        (claude_dir / "iflow-dev.local.md").write_text(content)
+        (claude_dir / "iflow.local.md").write_text(content)
 
     def test_bool_true(self, tmp_path):
         self._write_config(tmp_path, "memory_semantic_enabled: true\n")
@@ -160,7 +160,7 @@ class TestConfigReaderSpaceStripping:
     def _write_config(self, tmp_path, content: str):
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir(parents=True, exist_ok=True)
-        (claude_dir / "iflow-dev.local.md").write_text(content)
+        (claude_dir / "iflow.local.md").write_text(content)
 
     def test_spaces_stripped_from_string(self, tmp_path):
         self._write_config(tmp_path, "memory_embedding_model: gemini embedding 001\n")
@@ -179,7 +179,7 @@ class TestConfigReaderEdgeCases:
     def _write_config(self, tmp_path, content: str):
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir(parents=True, exist_ok=True)
-        (claude_dir / "iflow-dev.local.md").write_text(content)
+        (claude_dir / "iflow.local.md").write_text(content)
 
     def test_empty_value_falls_back_to_default(self, tmp_path):
         self._write_config(tmp_path, "memory_injection_limit:\n")

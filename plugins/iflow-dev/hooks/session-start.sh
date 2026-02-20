@@ -268,6 +268,16 @@ build_memory_context() {
 
 # Main
 main() {
+    # Auto-provision config from template if missing
+    local config_file="${PROJECT_ROOT}/.claude/iflow-dev.local.md"
+    if [[ ! -f "$config_file" ]]; then
+        local template="${PLUGIN_ROOT}/templates/config.local.md"
+        if [[ -f "$template" ]]; then
+            mkdir -p "$(dirname "$config_file")"
+            cp "$template" "$config_file"
+        fi
+    fi
+
     local memory_context=""
     memory_context=$(build_memory_context)
 

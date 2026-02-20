@@ -59,7 +59,7 @@ The secretary will:
 
 If argument is `mode` (no value):
 
-1. Read config from `.claude/secretary.local.md`
+1. Read config from `.claude/iflow.local.md`
 2. If config not found: Report "Config not found. Using defaults (manual mode)."
 3. If config found: Extract and display `activation_mode` value
 
@@ -75,7 +75,7 @@ Available modes:
 
 If argument is `mode <value>` where value is `manual`, `aware`, or `yolo`:
 
-1. Check if `.claude/secretary.local.md` exists
+1. Check if `.claude/iflow.local.md` exists
 2. If exists:
    - Use Edit tool to update `activation_mode` line
    - Report "Mode updated to {value}"
@@ -87,7 +87,7 @@ If argument is `mode <value>` where value is `manual`, `aware`, or `yolo`:
      activation_mode: {value}
      ---
      ```
-   - Report "Config created at .claude/secretary.local.md with mode: {value}"
+   - Report "Config created at .claude/iflow.local.md with mode: {value}"
 
 If argument is `mode <invalid>`:
 
@@ -107,7 +107,7 @@ If argument starts with `orchestrate` or `continue`:
 
 ### Prerequisites
 
-1. Read `.claude/secretary.local.md`
+1. Read `.claude/iflow.local.md`
 2. Extract `activation_mode`
 3. If mode is NOT `yolo`:
    ```
@@ -196,7 +196,7 @@ If argument is anything other than `help`, `mode`, `orchestrate`, or `continue`:
 
 **Steps:**
 
-1. **Read config** — Read `.claude/secretary.local.md`. Extract `activation_mode`. If `yolo`, set YOLO prefix.
+1. **Read config** — Read `.claude/iflow.local.md`. Extract `activation_mode`. If `yolo`, set YOLO prefix.
 2. **Dispatch** — Immediately call Task:
    ```
    Task({
