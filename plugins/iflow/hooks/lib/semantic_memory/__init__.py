@@ -17,3 +17,8 @@ def content_hash(description: str) -> str:
     """SHA-256 of normalized description text, first 16 hex chars."""
     normalized = " ".join(description.lower().strip().split())
     return hashlib.sha256(normalized.encode()).hexdigest()[:16]
+
+
+def source_hash(raw_text: str) -> str:
+    """SHA-256 of raw markdown chunk, first 16 hex chars."""
+    return hashlib.sha256(raw_text.encode()).hexdigest()[:16]

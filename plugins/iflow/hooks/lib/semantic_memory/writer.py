@@ -66,6 +66,7 @@ def _build_db_entry(entry: dict, entry_id: str, now: str) -> dict:
         "confidence": entry.get("confidence", "medium"),
         "created_at": now,
         "updated_at": now,
+        "created_timestamp_utc": datetime.now(tz=timezone.utc).timestamp(),
     }
 
 

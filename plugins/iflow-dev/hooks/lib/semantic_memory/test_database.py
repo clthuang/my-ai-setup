@@ -71,13 +71,13 @@ class TestSchemaCreation:
         )
         assert cur.fetchone() is not None
 
-    def test_schema_version_is_1(self, db: MemoryDatabase):
-        assert db.get_schema_version() == 1
+    def test_schema_version_is_2(self, db: MemoryDatabase):
+        assert db.get_schema_version() == 2
 
-    def test_entries_has_16_columns(self, db: MemoryDatabase):
+    def test_entries_has_18_columns(self, db: MemoryDatabase):
         cur = db._conn.execute("PRAGMA table_info(entries)")
         columns = cur.fetchall()
-        assert len(columns) == 16
+        assert len(columns) == 18
 
     def test_entries_column_names(self, db: MemoryDatabase):
         cur = db._conn.execute("PRAGMA table_info(entries)")
@@ -87,6 +87,7 @@ class TestSchemaCreation:
             "keywords", "source", "source_project", "references",
             "observation_count", "confidence", "recall_count",
             "last_recalled_at", "embedding", "created_at", "updated_at",
+            "source_hash", "created_timestamp_utc",
         ]
         assert col_names == expected
 
@@ -94,21 +95,90 @@ class TestSchemaCreation:
 class TestMigrationIdempotency:
     def test_opening_twice_does_not_error(self):
         """Opening two MemoryDatabase instances on same in-memory DB should
-        still result in schema_version == 1 (migrations are idempotent)."""
+        still result in schema_version == 2 (migrations are idempotent)."""
         db1 = MemoryDatabase(":memory:")
-        assert db1.get_schema_version() == 1
+        assert db1.get_schema_version() == 2
         db1.close()
 
     def test_schema_version_persists(self, tmp_path):
         """Schema version survives close and reopen."""
         db_path = str(tmp_path / "test.db")
         db1 = MemoryDatabase(db_path)
-        assert db1.get_schema_version() == 1
+        assert db1.get_schema_version() == 2
         db1.close()
 
         db2 = MemoryDatabase(db_path)
-        assert db2.get_schema_version() == 1
+        assert db2.get_schema_version() == 2
         db2.close()
+
+
+# ---------------------------------------------------------------------------
+# source_hash / migration v2 tests
+# ---------------------------------------------------------------------------
+
+
+class TestGetSourceHash:
+    def test_returns_none_for_missing_entry(self, db: MemoryDatabase):
+        assert db.get_source_hash("nonexistent") is None
+
+    def test_returns_none_when_not_set(self, db: MemoryDatabase):
+        db.upsert_entry(_make_entry())
+        assert db.get_source_hash("abc123") is None
+
+    def test_returns_value_when_set(self, db: MemoryDatabase):
+        db.upsert_entry(_make_entry(source_hash="deadbeef12345678"))
+        assert db.get_source_hash("abc123") == "deadbeef12345678"
+
+
+class TestMigrationV2Backfill:
+    def test_migration_v2_backfills_created_timestamp_utc(self, tmp_path):
+        """Create a v1 DB manually, insert entry, reopen to trigger migration,
+        verify created_timestamp_utc is populated from created_at."""
+        db_path = str(tmp_path / "test.db")
+        # Create a v1-only database by hand
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS entries (
+                id                TEXT PRIMARY KEY,
+                name              TEXT NOT NULL,
+                description       TEXT NOT NULL,
+                reasoning         TEXT,
+                category          TEXT NOT NULL CHECK(category IN ('anti-patterns', 'patterns', 'heuristics')),
+                keywords          TEXT,
+                source            TEXT NOT NULL CHECK(source IN ('retro', 'session-capture', 'manual', 'import')),
+                source_project    TEXT,
+                "references"      TEXT,
+                observation_count INTEGER DEFAULT 1,
+                confidence        TEXT DEFAULT 'medium' CHECK(confidence IN ('high', 'medium', 'low')),
+                recall_count      INTEGER DEFAULT 0,
+                last_recalled_at  TEXT,
+                embedding         BLOB,
+                created_at        TEXT NOT NULL,
+                updated_at        TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS _metadata (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            INSERT INTO _metadata (key, value) VALUES ('schema_version', '1');
+        """)
+        conn.execute(
+            "INSERT INTO entries (id, name, description, category, source, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("test1", "Test", "Desc", "patterns", "manual", "2026-01-15T12:00:00Z", "2026-01-15T12:00:00Z"),
+        )
+        conn.commit()
+        conn.close()
+
+        # Reopen with MemoryDatabase to trigger migration v2
+        db = MemoryDatabase(db_path)
+        assert db.get_schema_version() == 2
+
+        entry = db.get_entry("test1")
+        assert entry is not None
+        assert entry["created_timestamp_utc"] is not None
+        assert isinstance(entry["created_timestamp_utc"], float)
+        db.close()
 
 
 # ---------------------------------------------------------------------------

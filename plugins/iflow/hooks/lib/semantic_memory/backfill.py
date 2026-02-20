@@ -29,17 +29,57 @@ def _read_registry(registry_path: str) -> list[str]:
     return paths
 
 
-def backfill(project_root: str, global_store: str, registry_path: str | None = None) -> dict:
+def _discover_knowledge_bank_projects(
+    base_dir: str | None = None,
+) -> list[str]:
+    """Scan for directories with docs/knowledge-bank/ under *base_dir*.
+
+    Defaults to ``~/projects`` when *base_dir* is ``None``.
+    """
+    if base_dir is None:
+        base_dir = os.path.expanduser("~/projects")
+    if not os.path.isdir(base_dir):
+        return []
+    found: list[str] = []
+    for name in sorted(os.listdir(base_dir)):
+        candidate = os.path.join(base_dir, name)
+        if os.path.isdir(candidate):
+            kb = os.path.join(candidate, "docs", "knowledge-bank")
+            if os.path.isdir(kb):
+                found.append(candidate)
+    return found
+
+
+def backfill(
+    project_root: str,
+    global_store: str,
+    registry_path: str | None = None,
+    *,
+    discover: bool = True,
+    reset_observation_counts: bool = False,
+) -> dict:
     """Run the full backfill pipeline. Returns stats dict."""
     db_path = os.path.join(global_store, "memory.db")
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     db = MemoryDatabase(db_path)
 
     try:
+        # 0. Optionally reset inflated observation counts
+        if reset_observation_counts:
+            db._conn.execute(
+                "UPDATE entries SET observation_count = 1 WHERE source = 'import'"
+            )
+            db._conn.commit()
+            print("  Reset observation_count to 1 for all imported entries")
+
         # 1. Determine which projects to scan
         project_roots: list[str] = []
         if registry_path:
             project_roots = _read_registry(registry_path)
+        if discover:
+            for p in _discover_knowledge_bank_projects():
+                if p not in project_roots:
+                    project_roots.append(p)
         if project_root not in project_roots:
             project_roots.append(project_root)
 
@@ -49,11 +89,15 @@ def backfill(project_root: str, global_store: str, registry_path: str | None = N
         # 3. Import from all registered projects
         importer = MarkdownImporter(db)
         total_imported = 0
+        total_skipped = 0
         for proj in project_roots:
-            count = importer.import_all(proj, global_store)
-            if count > 0:
-                print(f"  Imported from {proj}: {count} entries")
-            total_imported += count
+            result = importer.import_all(proj, global_store)
+            proj_imported = result["imported"]
+            proj_skipped = result["skipped"]
+            if proj_imported > 0 or proj_skipped > 0:
+                print(f"  {proj}: {proj_imported} imported, {proj_skipped} skipped")
+            total_imported += proj_imported
+            total_skipped += proj_skipped
 
         after = db.count_entries()
         new_entries = after - before
@@ -86,6 +130,7 @@ def backfill(project_root: str, global_store: str, registry_path: str | None = N
         return {
             "projects_scanned": len(project_roots),
             "imported": total_imported,
+            "skipped": total_skipped,
             "new_entries": new_entries,
             "embedded": embedded,
             "total": total,
@@ -115,17 +160,29 @@ def main() -> None:
         default=None,
         help="Path to projects.txt (optional; if omitted, only imports current project)",
     )
+    parser.add_argument(
+        "--no-discover",
+        action="store_true",
+        help="Skip auto-discovery of projects under ~/projects",
+    )
+    parser.add_argument(
+        "--reset-observation-counts",
+        action="store_true",
+        help="Reset observation_count to 1 for all imported entries (one-time fix)",
+    )
     args = parser.parse_args()
 
     stats = backfill(
         project_root=args.project_root,
         global_store=args.global_store,
         registry_path=args.registry,
+        discover=not args.no_discover,
+        reset_observation_counts=args.reset_observation_counts,
     )
 
     print()
     print(f"  Projects scanned: {stats['projects_scanned']}")
-    print(f"  Entries imported:  {stats['imported']} ({stats['new_entries']} new)")
+    print(f"  Entries imported:  {stats['imported']} ({stats['new_entries']} new, {stats['skipped']} skipped)")
     print(f"  Embeddings added:  {stats['embedded']}")
     print(f"  Total entries:     {stats['total']} ({stats['with_embedding']} with embeddings)")
     if stats["provider"]:
