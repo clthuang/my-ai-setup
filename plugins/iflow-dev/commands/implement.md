@@ -35,6 +35,17 @@ BLOCKED: Valid spec.md required before implementation.
 ```
 Stop execution. Do not proceed.
 
+**Hard prerequisite:** Additionally, validate tasks.md using `validateArtifact(path, "tasks.md")`. If validation fails:
+```
+BLOCKED: Valid tasks.md required before implementation.
+
+{Level 1}: tasks.md not found. Run /iflow-dev:create-tasks first.
+{Level 2}: tasks.md appears empty or stub. Run /iflow-dev:create-tasks to complete it.
+{Level 3}: tasks.md missing markdown structure. Run /iflow-dev:create-tasks to fix.
+{Level 4}: tasks.md missing required sections (Phase or Task). Run /iflow-dev:create-tasks to add them.
+```
+Stop execution. Do not proceed.
+
 ### 4. Implementation Phase
 
 Execute the implementing skill which:

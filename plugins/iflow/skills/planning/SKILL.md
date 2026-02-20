@@ -9,8 +9,7 @@ Create an ordered implementation plan.
 
 ## Prerequisites
 
-- If `design.md` exists: Read for architecture
-- If not: "No design found. Run /iflow:design first, or describe architecture now."
+- Read `design.md` for architecture (guaranteed present — hard prerequisite at command level)
 
 ## Read Feature Context
 

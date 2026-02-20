@@ -230,7 +230,7 @@ All quality gates (reviewers, phase validators) still run. YOLO mode only bypass
 - Implementation review fails after 5 iterations
 - Git merge conflict on develop
 - Pre-merge validation fails after 3 fix attempts
-- Hard prerequisite failures (missing spec.md or plan.md)
+- Hard prerequisite failures (missing design.md, plan.md, spec.md, or tasks.md)
 
 Resume after a stop: `/iflow:secretary continue`
 

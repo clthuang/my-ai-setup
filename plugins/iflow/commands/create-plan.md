@@ -13,6 +13,17 @@ Read docs/features/ to find active feature, then follow the workflow below.
 
 Follow `validateAndSetup("create-plan")` from the **workflow-transitions** skill.
 
+**Hard prerequisite:** Before standard validation, validate design.md using `validateArtifact(path, "design.md")`. If validation fails:
+```
+BLOCKED: Valid design.md required before planning.
+
+{Level 1}: design.md not found. Run /iflow:design first.
+{Level 2}: design.md appears empty or stub. Run /iflow:design to complete it.
+{Level 3}: design.md missing markdown structure. Run /iflow:design to fix.
+{Level 4}: design.md missing required sections (Components or Architecture). Run /iflow:design to add them.
+```
+Stop execution. Do not proceed.
+
 ### 4. Execute with Two-Stage Reviewer Loop
 
 Max iterations: 5.

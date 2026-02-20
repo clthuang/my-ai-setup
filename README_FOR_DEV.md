@@ -299,7 +299,9 @@ The `/create-tasks` command uses a two-stage review process:
 
 ### Implement Workflow
 
-The `/implement` command uses a per-task dispatch architecture:
+The `/implement` command uses a per-task dispatch architecture.
+
+Hard prerequisites: spec.md AND tasks.md must pass 4-level validation before implementation begins.
 
 1. **Per-task dispatch loop**: Each task in `tasks.md` gets its own `implementer` agent call with selectively scoped context:
    - Parses `Why/Source` traceability fields to extract only referenced `design.md`/`plan.md` sections
@@ -353,7 +355,7 @@ YOLO mode stops and reports to user (does not force through):
 1. Implementation circuit breaker — 5 review iterations without approval
 2. Git merge conflict — cannot auto-resolve
 3. Pre-merge validation failure — 3 fix attempts exhausted
-4. Hard prerequisite failures — spec.md or plan.md missing/invalid
+4. Hard prerequisite failures — design.md (for create-plan), plan.md (for create-tasks), spec.md or tasks.md (for implement) missing/invalid
 5. Git push failure — network or auth issues
 
 ### Files Modified for YOLO Support

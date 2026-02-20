@@ -36,8 +36,9 @@ Visual overview for "you are here" positioning and skip/return path awareness.
 ```
 
 **Hard prerequisites** (blocked without artifact):
+- `create-plan` requires `design.md`
 - `create-tasks` requires `plan.md`
-- `implement` requires `spec.md`
+- `implement` requires `spec.md` AND `tasks.md`
 
 **Soft prerequisites** (warn but allow skip): all other forward jumps.
 
@@ -53,8 +54,10 @@ These transitions are **blocked** if prerequisites are missing:
 
 | Target Phase | Required Artifact | Error Message |
 |--------------|-------------------|---------------|
-| /iflow:implement | spec.md | "spec.md required before implementation. Run /iflow:specify first." |
+| /iflow:create-plan | design.md | "design.md required before planning. Run /iflow:design first." |
 | /iflow:create-tasks | plan.md | "plan.md required before task creation. Run /iflow:create-plan first." |
+| /iflow:implement | spec.md | "spec.md required before implementation. Run /iflow:specify first." |
+| /iflow:implement | tasks.md | "tasks.md required before implementation. Run /iflow:create-tasks first." |
 
 If blocked: Show error message, do not proceed.
 
@@ -118,12 +121,18 @@ When a phase command targets a feature with `status: "planned"`, handle the tran
 ```
 function validateTransition(currentPhase, targetPhase, artifacts):
 
-  # Hard blocks
-  if targetPhase == "implement" and not artifacts.spec:
-    return { allowed: false, type: "blocked", message: "spec.md required..." }
+  # Hard blocks — checked first, in dependency order
+  if targetPhase == "create-plan" and not validateArtifact("design.md"):
+    return { allowed: false, type: "blocked", message: "design.md required before planning. Run /iflow:design first." }
 
-  if targetPhase == "create-tasks" and not artifacts.plan:
-    return { allowed: false, type: "blocked", message: "plan.md required..." }
+  if targetPhase == "create-tasks" and not validateArtifact("plan.md"):
+    return { allowed: false, type: "blocked", message: "plan.md required before task creation. Run /iflow:create-plan first." }
+
+  if targetPhase == "implement":
+    if not validateArtifact("spec.md"):
+      return { allowed: false, type: "blocked", message: "spec.md required before implementation. Run /iflow:specify first." }
+    if not validateArtifact("tasks.md"):
+      return { allowed: false, type: "blocked", message: "tasks.md required before implementation. Run /iflow:create-tasks first." }
 
   # Phase sequence for ordering
   sequence = [brainstorm, specify, design, create-plan, create-tasks, implement, finish]
@@ -132,11 +141,7 @@ function validateTransition(currentPhase, targetPhase, artifacts):
 
   # Backward transition detection
   if targetIndex < currentIndex AND currentIndex >= 0:
-    return {
-      allowed: true,
-      type: "backward",
-      message: "Phase '{targetPhase}' was already completed. Re-running will update timestamps but not undo previous work."
-    }
+    return { allowed: true, type: "backward", message: "Phase '{targetPhase}' was already completed. Re-running will update timestamps but not undo previous work." }
 
   # Check if skipping phases (forward jump)
   if targetIndex > currentIndex + 1:
@@ -222,8 +227,9 @@ function validateArtifact(path, type):
 
 **Usage in Commands:**
 Commands with hard prerequisites should call validateArtifact instead of just checking existence:
-- `/iflow:implement` validates spec.md
+- `/iflow:create-plan` validates design.md
 - `/iflow:create-tasks` validates plan.md
+- `/iflow:implement` validates spec.md AND tasks.md
 
 ---
 
