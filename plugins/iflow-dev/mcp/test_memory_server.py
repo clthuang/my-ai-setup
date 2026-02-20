@@ -397,3 +397,135 @@ class TestReferences:
         entry = db.get_entry(expected_hash)
         assert entry["references"] is not None
         assert json.loads(entry["references"]) == []
+
+
+# ---------------------------------------------------------------------------
+# Import _process_search_memory for direct testing
+# ---------------------------------------------------------------------------
+
+from memory_server import _process_search_memory  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# Test: search_memory
+# ---------------------------------------------------------------------------
+
+
+class TestSearchMemory:
+    def test_returns_matching_entries(self, db: MemoryDatabase):
+        """Search should find relevant entries by keyword."""
+        # Seed two entries
+        _process_store_memory(
+            db=db,
+            provider=None,
+            keyword_gen=None,
+            name="Hook patterns",
+            description="Always suppress stderr in hook subprocesses to prevent JSON corruption",
+            reasoning="Hooks output JSON and stderr corrupts the protocol",
+            category="patterns",
+            references=[],
+        )
+        _process_store_memory(
+            db=db,
+            provider=None,
+            keyword_gen=None,
+            name="Testing heuristic",
+            description="Run tests before committing to catch regressions early",
+            reasoning="Prevents broken commits",
+            category="heuristics",
+            references=[],
+        )
+
+        result = _process_search_memory(
+            db=db,
+            provider=None,
+            config={},
+            query="hook stderr JSON",
+            limit=10,
+        )
+
+        assert "Hook patterns" in result
+        assert "Found" in result
+
+    def test_empty_query_returns_error(self, db: MemoryDatabase):
+        """Empty query should return an error."""
+        result = _process_search_memory(
+            db=db,
+            provider=None,
+            config={},
+            query="",
+            limit=10,
+        )
+        assert "Error" in result
+
+    def test_whitespace_query_returns_error(self, db: MemoryDatabase):
+        """Whitespace-only query should return an error."""
+        result = _process_search_memory(
+            db=db,
+            provider=None,
+            config={},
+            query="   ",
+            limit=10,
+        )
+        assert "Error" in result
+
+    def test_no_entries_returns_no_matches(self, db: MemoryDatabase):
+        """Empty DB should return 'no matching memories'."""
+        result = _process_search_memory(
+            db=db,
+            provider=None,
+            config={},
+            query="anything",
+            limit=10,
+        )
+        assert "No matching memories found" in result
+
+    def test_limit_respected(self, db: MemoryDatabase):
+        """Should respect the limit parameter."""
+        # Seed many entries
+        for i in range(10):
+            _process_store_memory(
+                db=db,
+                provider=None,
+                keyword_gen=None,
+                name=f"Pattern {i}",
+                description=f"Pattern description number {i} about testing workflows",
+                reasoning=f"Reason {i}",
+                category="patterns",
+                references=[],
+            )
+
+        result = _process_search_memory(
+            db=db,
+            provider=None,
+            config={},
+            query="testing workflows",
+            limit=3,
+        )
+
+        assert "Found 3" in result
+
+    def test_includes_reasoning_and_confidence(self, db: MemoryDatabase):
+        """Search results should include reasoning and confidence."""
+        _process_store_memory(
+            db=db,
+            provider=None,
+            keyword_gen=None,
+            name="Test entry",
+            description="Always check permissions before file operations",
+            reasoning="Prevents permission-denied errors at runtime",
+            category="heuristics",
+            references=[],
+        )
+
+        result = _process_search_memory(
+            db=db,
+            provider=None,
+            config={},
+            query="file permissions check",
+            limit=10,
+        )
+
+        assert "Heuristic: Test entry" in result
+        assert "Prevents permission-denied errors" in result
+        assert "Confidence:" in result

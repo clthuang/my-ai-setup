@@ -64,10 +64,14 @@ class RetrievalPipeline:
     def collect_context(self, project_root: str) -> str | None:
         """Collect session context signals from the project.
 
-        Scans ``docs/features/*/.meta.json`` for the active feature with
-        the highest numeric ID, extracts its slug and description from
-        ``spec.md`` (falling back to ``prd.md``), reads the last
-        completed phase, and gathers recent git-changed files.
+        Gathers up to six signal types:
+
+        1. Active feature slug (from ``docs/features/*/.meta.json``)
+        2. Feature description (first paragraph of ``spec.md`` / ``prd.md``)
+        3. Current phase (``lastCompletedPhase`` from ``.meta.json``)
+        4. Project-level description fallback (``CLAUDE.md`` or ``README.md``)
+        5. Current git branch name
+        6. Recently changed files (committed + working tree)
 
         Returns a composed context string, or ``None`` if no signals
         are found.
@@ -90,11 +94,29 @@ class RetrievalPipeline:
             # 3. Phase
             phase = meta.get("lastCompletedPhase", "unknown")
             signals.append(f"Phase: {phase}")
+        else:
+            # 4. No active feature — use project-level context as fallback
+            project_desc = self._read_project_description(project_root)
+            if project_desc:
+                signals.append(project_desc)
 
-        # 4. Git diff
-        files = self._git_changed_files(project_root)
-        if files:
-            signals.append(f"Files: {' '.join(files)}")
+        # 5. Branch name (skip generic names that add no signal)
+        branch = self._git_branch_name(project_root)
+        if branch and branch not in ("main", "master", "develop", "HEAD"):
+            signals.append(f"Branch: {branch}")
+
+        # 6a. Git committed changes
+        committed_files = self._git_changed_files(project_root)
+        if committed_files:
+            signals.append(f"Files: {' '.join(committed_files)}")
+
+        # 6b. Working tree changes (unstaged + staged), deduplicated
+        working_files = self._git_working_tree_files(project_root)
+        if working_files:
+            committed_set = set(committed_files) if committed_files else set()
+            new_files = [f for f in working_files if f not in committed_set]
+            if new_files:
+                signals.append(f"Editing: {' '.join(new_files)}")
 
         if not signals:
             return None
@@ -235,6 +257,98 @@ class RetrievalPipeline:
                 words = first_para.split()[:100]
                 if words:
                     return " ".join(words)
+
+        return None
+
+    @staticmethod
+    def _git_branch_name(project_root: str) -> str | None:
+        """Get the current git branch name.
+
+        Returns ``None`` on any error or when HEAD is detached.
+        """
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                capture_output=True,
+                text=True,
+                cwd=project_root,
+                timeout=2,
+            )
+            if result.returncode == 0:
+                branch = result.stdout.strip()
+                return branch if branch else None
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _git_working_tree_files(project_root: str) -> list[str]:
+        """Get files with uncommitted changes (unstaged + staged).
+
+        Returns up to 20 file paths, sorted and deduplicated.
+        Returns an empty list on any error.
+        """
+        files: set[str] = set()
+        for cmd in (
+            ["git", "diff", "--name-only"],             # unstaged
+            ["git", "diff", "--cached", "--name-only"],  # staged
+        ):
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=project_root,
+                    timeout=2,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    for f in result.stdout.strip().split("\n"):
+                        files.add(f)
+            except Exception:
+                continue
+        return sorted(files)[:20]
+
+    @staticmethod
+    def _read_project_description(project_root: str) -> str | None:
+        """Read a project-level description for context when no feature is active.
+
+        Tries the ``## Repository Overview`` section of ``CLAUDE.md``
+        first (max 50 words), then falls back to the first paragraph
+        of ``README.md``.
+
+        Returns ``None`` if neither source provides usable content.
+        """
+        # Try CLAUDE.md "Repository Overview" section first
+        claude_md = os.path.join(project_root, "CLAUDE.md")
+        if os.path.isfile(claude_md):
+            try:
+                with open(claude_md, "r") as fh:
+                    text = fh.read()
+                match = re.search(
+                    r"##\s*Repository Overview\s*\n(.*?)(?=\n##|\Z)",
+                    text,
+                    re.DOTALL,
+                )
+                if match:
+                    overview = match.group(1).strip()
+                    words = overview.split()[:50]
+                    if words:
+                        return f"Project: {' '.join(words)}"
+            except OSError:
+                pass
+
+        # Fallback to README.md first paragraph
+        readme = os.path.join(project_root, "README.md")
+        if os.path.isfile(readme):
+            try:
+                with open(readme, "r") as fh:
+                    text = fh.read()
+                first_para = text.split("\n## ")[0].strip()
+                words = first_para.split()[:50]
+                if words:
+                    return f"Project: {' '.join(words)}"
+            except OSError:
+                pass
 
         return None
 
