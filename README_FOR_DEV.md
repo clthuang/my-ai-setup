@@ -256,6 +256,8 @@ Hooks execute automatically at lifecycle points.
 | `inject-secretary-context` | SessionStart (startup\|resume\|clear) | Injects available agent/command context for secretary |
 | `cleanup-sandbox` | (utility) | Cleans up agent_sandbox/ temporary files |
 | `pre-commit-guard` | PreToolUse (Bash) | Branch protection and iflow directory protection |
+| `yolo-guard` | PreToolUse (.*) | Enforces YOLO mode safety boundaries on all tool calls |
+| `yolo-stop` | Stop | Detects YOLO mode stop events and chains to next phase |
 
 SessionStart hooks match `startup|resume|clear` only -- they do not fire on `compact` events, preserving context window savings from compaction.
 
@@ -318,7 +320,7 @@ The secretary agent supports a `[YOLO_MODE]` flag that enables fully autonomous 
 
 1. User sets mode: `/secretary mode yolo`
 2. User invokes: `/secretary build X`
-3. Secretary command reads `.claude/secretary.local.md`, detects `activation_mode: yolo`
+3. Secretary command reads `.claude/iflow-dev.local.md`, detects `activation_mode: yolo`
 4. Dispatches secretary agent with `[YOLO_MODE]` prefix
 5. Secretary agent detects workflow state and invokes the starting command with `[YOLO_MODE]`
 6. Each command auto-selects through AskUserQuestion prompts and chains to the next command
@@ -391,6 +393,10 @@ Updated via `/iflow:retrospect` after feature completion.
 Universal entries are promoted to a global store at `~/.claude/iflow/memory/` during retrospectives. The `session-start` hook injects top entries (project-local + global, deduplicated) into every session.
 
 **Semantic Retrieval:** Memory uses embedding-based retrieval with cosine similarity and hybrid ranking. SQLite database (`memory.db`) stores embeddings for semantic search. Legacy fallback (observation-count ranking) activates when semantic memory is disabled or no API key is set.
+
+**MCP Tools:** Two MCP tools are exposed via `plugins/iflow-dev/mcp/memory_server.py`:
+- `store_memory` -- Save a learning (name, description, reasoning, category, references) to long-term memory with automatic embedding generation
+- `search_memory` -- Search long-term memory for relevant learnings using hybrid retrieval (vector similarity + BM25 keyword search)
 
 **Setup:**
 1. Install dependencies: `cd plugins/iflow-dev && uv sync --extra gemini`

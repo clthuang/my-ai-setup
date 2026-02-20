@@ -171,9 +171,13 @@ copy_dev_to_prod() {
         ! -name "sync-cache.sh" \
         -exec sed -i '' 's/iflow-dev/iflow/g' {} \;
 
+    # Blanket convert in Python files
+    find plugins/iflow -name "*.py" \
+        -exec sed -i '' 's/iflow-dev/iflow/g' {} \;
+
     # Verification gate: fail release if unconverted references leak through
     local remaining
-    remaining=$(grep -rn "iflow-dev" plugins/iflow/ --include="*.md" --include="*.sh" \
+    remaining=$(grep -rn "iflow-dev" plugins/iflow/ --include="*.md" --include="*.sh" --include="*.py" \
         | grep -v "pre-commit-guard.sh" \
         | grep -v "sync-cache.sh" || true)
     if [[ -n "$remaining" ]]; then

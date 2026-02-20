@@ -25,6 +25,7 @@ class TestReadConfigDefaults:
 
     def test_missing_file_returns_defaults(self, tmp_path):
         result = read_config(str(tmp_path))
+        assert result["activation_mode"] == "manual"
         assert result["memory_semantic_enabled"] is True
         assert result["memory_vector_weight"] == 0.5
         assert result["memory_keyword_weight"] == 0.2
@@ -182,11 +183,13 @@ class TestReadConfigEdgeCases:
             "---\n"
             "yolo_mode: true\n"
             "yolo_max_stop_blocks: 50\n"
+            "activation_mode: aware\n"
             "memory_semantic_enabled: true\n"
             "memory_vector_weight: 0.6\n"
             "---\n",
         )
         result = read_config(str(tmp_path))
+        assert result["activation_mode"] == "aware"
         assert result["memory_semantic_enabled"] is True
         assert result["memory_vector_weight"] == 0.6
         assert result["yolo_mode"] is True

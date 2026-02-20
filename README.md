@@ -236,6 +236,17 @@ Resume after a stop: `/iflow:secretary continue`
 
 **Modes:** `manual` (default) | `aware` (session hints) | `yolo` (fully autonomous)
 
+## Memory
+
+The plugin includes a semantic memory system that persists learnings across sessions. Two MCP tools are available:
+
+| Tool | Purpose |
+|------|---------|
+| `store_memory` | Save a pattern, anti-pattern, or heuristic to long-term memory |
+| `search_memory` | Search past learnings by topic using semantic similarity |
+
+Memory entries are injected automatically at session start. See [README_FOR_DEV.md](./README_FOR_DEV.md) for setup and configuration.
+
 ## For Developers
 
 See [README_FOR_DEV.md](./README_FOR_DEV.md) for:

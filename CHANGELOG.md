@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Semantic memory system with embedding-based retrieval using cosine similarity and hybrid ranking
 - `store_memory` MCP tool for mid-session memory capture
+- `search_memory` MCP tool for on-demand semantic memory search with hybrid ranking (vector + BM25)
+- Enhanced retrieval context signals: active feature description, current phase, git branch, recently changed files, working tree edits
 - Memory toggle configuration: `memory_semantic_enabled`, `memory_embedding_provider`, `memory_embedding_model`
 - SQLite-backed memory database (`memory.db`) with legacy fallback support
 - Project-level workflow with `/iflow:create-project` command for AI-driven PRD decomposition into ordered features
@@ -35,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Crypto-analysis domain skill with 7 reference files (protocol-comparison, defi-taxonomy, tokenomics-models, trading-strategies, mev-classification, market-structure, risk-assessment)
 - Crypto/Web3 option in brainstorming Step 9 domain selection
 - Crypto-analysis criteria table in brainstorm-reviewer for domain-specific quality checks
+
+### Fixed
+- Documentation sync: ground truth detection in documentation-researcher agent and README drift correction
 
 ### Changed
 - Brainstorming Stage 1 CLARIFY expanded with Steps 6-8 (problem type classification, optional framework loading, metadata storage)
@@ -77,7 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Secretary agent for intelligent task routing with 5 modules (Discovery, Interpreter, Matcher, Recommender, Delegator)
 - `/iflow:secretary` command for manual invocation
 - `inject-secretary-context.sh` hook for aware mode activation
-- Activation modes: manual (explicit command) and aware (automatic via `.claude/secretary.local.md`)
+- Activation modes: manual (explicit command) and aware (automatic via `.claude/iflow-dev.local.md`)
 - `write-control` PreToolUse hook for Write/Edit path restrictions on agent subprocesses
 - `agent_sandbox/` directory for agent scratch work and investigation output
 - `write-policies.json` configuration for protected/warned/safe path policies
