@@ -390,14 +390,26 @@ Updated via `/iflow:retrospect` after feature completion.
 
 Universal entries are promoted to a global store at `~/.claude/iflow/memory/` during retrospectives. The `session-start` hook injects top entries (project-local + global, deduplicated) into every session.
 
-**Semantic Retrieval:** Memory uses embedding-based retrieval with cosine similarity and hybrid ranking. SQLite database (`memory.db`) stores embeddings for semantic search. Legacy fallback (observation-count ranking) activates when semantic memory is disabled.
+**Semantic Retrieval:** Memory uses embedding-based retrieval with cosine similarity and hybrid ranking. SQLite database (`memory.db`) stores embeddings for semantic search. Legacy fallback (observation-count ranking) activates when semantic memory is disabled or no API key is set.
 
-**Configuration:**
+**Setup:**
+1. Install dependencies: `cd plugins/iflow-dev && uv sync --extra gemini`
+2. Add API key to `.env` in project root: `GEMINI_API_KEY=your-key`
+3. Memory is enabled by default — no config changes needed
+
+Without an API key, memory still works via FTS5 keyword search and prominence ranking (no vector search).
+
+**Alternative Providers:**
+- **OpenAI:** `uv sync --extra openai`, add `OPENAI_API_KEY=your-key` to `.env`, set `memory_embedding_provider: openai` and `memory_embedding_model: text-embedding-3-small`
+- **Ollama (local):** `uv sync --extra ollama`, run `ollama pull nomic-embed-text`, set `memory_embedding_provider: ollama` and `memory_embedding_model: nomic-embed-text` (no API key needed)
+- **Voyage:** `uv sync --extra voyage`, add `VOYAGE_API_KEY=your-key` to `.env`, set `memory_embedding_provider: voyage` and `memory_embedding_model: voyage-3`
+
+**Configuration** (in `.claude/iflow-dev.local.md`):
 - `memory_semantic_enabled` — Enable semantic retrieval (default: true)
-- `memory_embedding_provider` — Provider for embeddings (default: openai)
-- `memory_embedding_model` — Model for embeddings (default: text-embedding-3-small)
-- `memory_injection_enabled` — Enable memory injection at session start
-- `memory_injection_limit` — Max entries to inject per session
+- `memory_embedding_provider` — Provider for embeddings (default: gemini)
+- `memory_embedding_model` — Model for embeddings (default: gemini-embedding-001)
+- `memory_injection_enabled` — Enable memory injection at session start (default: true)
+- `memory_injection_limit` — Max entries to inject per session (default: 20)
 
 ## Creating Components
 

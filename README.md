@@ -58,6 +58,7 @@ Then follow the phases:
 | `/iflow:review-ds-code <file>` | Review DS Python code for anti-patterns |
 | `/iflow:init-ds-project <name>` | Scaffold a new data science project |
 | `/iflow:sync-cache` | Sync plugin source files to cache |
+| `/iflow:yolo [on\|off]` | Toggle YOLO autonomous mode on or off |
 
 ## Skills
 

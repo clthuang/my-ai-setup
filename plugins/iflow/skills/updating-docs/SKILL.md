@@ -31,6 +31,7 @@ Task tool call:
     - Existing docs that may need updates
     - What user-visible changes were made
     - What documentation patterns exist in project
+    - Ground truth drift: compare plugins/iflow/{commands,skills,agents} against README.md AND plugins/iflow/README.md tables and counts
 
     Return findings as structured JSON.
 ```
@@ -69,6 +70,12 @@ Task tool call:
 
     Feature: {id}-{slug}
     Research findings: {JSON from researcher agent}
+
+    Pay special attention to any `drift_detected` entries — these represent
+    components that exist on the filesystem but are missing from README.md
+    (or vice versa). Update BOTH README.md (root) and plugins/iflow/README.md
+    (plugin). Add missing entries to the appropriate tables, remove stale entries,
+    and correct component count headers.
 
     Write necessary documentation updates.
     Return summary of changes made.
