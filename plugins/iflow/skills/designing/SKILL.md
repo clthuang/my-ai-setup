@@ -10,7 +10,7 @@ Design the technical architecture.
 ## Prerequisites
 
 - If `spec.md` exists: Read for requirements
-- If not: "No spec found. Run /iflow:specify first, or describe requirements now."
+- If not: Gather requirements from the user's request context. Design can run independently — the research stage (Stage 0) gathers context when earlier phases were skipped.
 
 ## Read Feature Context
 

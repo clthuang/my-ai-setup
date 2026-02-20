@@ -172,7 +172,7 @@ The existing command chaining and YOLO overrides handle everything from here. Ea
 The chain breaks and reports to user when:
 - **Circuit breaker**: 5 review iterations without approval in implementation
 - **Git merge conflict**: Cannot auto-resolve in /finish
-- **Hard prerequisite failure**: Missing spec.md or plan.md
+- **Hard prerequisite failure**: Missing design.md (blocks create-plan), plan.md (blocks create-tasks), spec.md or tasks.md (blocks implement)
 - **Pre-merge validation failure**: 3 fix attempts exhausted
 
 These are handled by the individual commands. The orchestrator does NOT need to catch them — the Skill invocation naturally surfaces them.
