@@ -8,7 +8,7 @@ from unittest import mock
 import numpy as np
 import pytest
 
-from semantic_memory.types import CandidateScores, RetrievalResult
+from semantic_memory.retrieval_types import CandidateScores, RetrievalResult
 from semantic_memory.retrieval import RetrievalPipeline
 
 

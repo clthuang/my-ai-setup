@@ -7,6 +7,7 @@ All errors go to stderr; stdout is never corrupted.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from datetime import datetime, timezone
@@ -22,7 +23,7 @@ from semantic_memory.embedding import create_provider
 from semantic_memory.importer import MarkdownImporter
 from semantic_memory.ranking import RankingEngine
 from semantic_memory.retrieval import RetrievalPipeline
-from semantic_memory.types import RetrievalResult
+from semantic_memory.retrieval_types import RetrievalResult
 
 # ---------------------------------------------------------------------------
 # Output formatting constants
@@ -125,6 +126,42 @@ def format_output(
 
 
 # ---------------------------------------------------------------------------
+# Injection tracking
+# ---------------------------------------------------------------------------
+
+
+def write_tracking(
+    *,
+    global_store: str,
+    selected: list[dict],
+    result: RetrievalResult,
+    total_count: int,
+    model: str,
+) -> None:
+    """Write .last-injection.json with semantic-specific diagnostics."""
+    now_iso = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    tracking = {
+        "timestamp": now_iso,
+        "mode": "semantic",
+        "entries_injected": len(selected),
+        "total_entries": total_count,
+        "model": model,
+        "retrieval": {
+            "vector_candidates": result.vector_candidate_count,
+            "fts5_candidates": result.fts5_candidate_count,
+            "context_query": result.context_query,
+        },
+    }
+    tracking_path = os.path.join(global_store, ".last-injection.json")
+    try:
+        with open(tracking_path, "w") as fh:
+            json.dump(tracking, fh, indent=2)
+            fh.write("\n")
+    except OSError as exc:
+        print(f"semantic_memory: tracking write failed: {exc}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -195,6 +232,15 @@ def main(argv: list[str] | None = None) -> None:
         )
         if output:
             sys.stdout.write(output)
+
+        # Write tracking file
+        write_tracking(
+            global_store=global_store,
+            selected=selected,
+            result=result,
+            total_count=total_count,
+            model=model,
+        )
 
     except Exception as exc:
         print(f"semantic_memory: error: {exc}", file=sys.stderr)

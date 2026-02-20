@@ -26,7 +26,7 @@ from semantic_memory import EmbeddingError
 from semantic_memory.embedding import NormalizingWrapper, create_provider, EmbeddingProvider
 from semantic_memory.keywords import TieredKeywordGenerator, SkipKeywordGenerator, STOPWORD_LIST
 from semantic_memory.ranking import RankingEngine
-from semantic_memory.types import CandidateScores, RetrievalResult
+from semantic_memory.retrieval_types import CandidateScores, RetrievalResult
 
 
 # =========================================================================

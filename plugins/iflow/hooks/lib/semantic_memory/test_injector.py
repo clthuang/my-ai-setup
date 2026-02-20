@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from unittest import mock
 
-from semantic_memory.types import CandidateScores, RetrievalResult
+from semantic_memory.retrieval_types import CandidateScores, RetrievalResult
 
 
 # ---------------------------------------------------------------------------
