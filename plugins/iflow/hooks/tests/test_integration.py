@@ -460,7 +460,7 @@ class TestAC6ToggleFallback:
         """Config with memory_semantic_enabled: true returns True."""
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir()
-        (claude_dir / "iflow-dev.local.md").write_text(
+        (claude_dir / "iflow.local.md").write_text(
             "memory_semantic_enabled: true\n"
         )
 
@@ -471,7 +471,7 @@ class TestAC6ToggleFallback:
         """Config with memory_semantic_enabled: false returns False."""
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir()
-        (claude_dir / "iflow-dev.local.md").write_text(
+        (claude_dir / "iflow.local.md").write_text(
             "memory_semantic_enabled: false\n"
         )
 
