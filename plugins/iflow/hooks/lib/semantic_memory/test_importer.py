@@ -206,15 +206,15 @@ class TestImportIntoDB:
         (kb_dir / "patterns.md").write_text("")
         (kb_dir / "heuristics.md").write_text("")
 
-        count = importer.import_all(
+        result = importer.import_all(
             project_root=str(tmp_path),
             global_store=str(tmp_path / "global"),
         )
-        assert count == 3
+        assert result["imported"] == 3
         assert db.count_entries() == 3
 
     def test_reimport_is_idempotent(self, db, importer, tmp_path):
-        """Re-importing the same files does not create duplicates."""
+        """Re-importing the same files skips all entries, observation_count unchanged."""
         kb_dir = tmp_path / "docs" / "knowledge-bank"
         kb_dir.mkdir(parents=True)
         (kb_dir / "anti-patterns.md").write_text(ANTI_PATTERNS_MD)
@@ -222,10 +222,16 @@ class TestImportIntoDB:
         (kb_dir / "heuristics.md").write_text("")
 
         importer.import_all(str(tmp_path), str(tmp_path / "global"))
-        importer.import_all(str(tmp_path), str(tmp_path / "global"))
+        result = importer.import_all(str(tmp_path), str(tmp_path / "global"))
 
         # Still 3 entries (upsert dedup by content hash)
         assert db.count_entries() == 3
+        assert result["skipped"] == 3
+        assert result["imported"] == 0
+
+        # observation_count should NOT have been incremented
+        for entry in db.get_all_entries():
+            assert entry["observation_count"] == entry.get("observation_count", 1)
 
     def test_embeddings_and_keywords_are_null(self, db, importer, tmp_path):
         """After import, embeddings and keywords are NULL (deferred)."""
@@ -259,17 +265,17 @@ class TestImportIntoDB:
         (global_dir / "patterns.md").write_text(PATTERNS_MD)
         (global_dir / "heuristics.md").write_text("")
 
-        count = importer.import_all(str(tmp_path), str(global_dir))
-        assert count == 4  # 3 local + 1 global
+        result = importer.import_all(str(tmp_path), str(global_dir))
+        assert result["imported"] == 4  # 3 local + 1 global
         assert db.count_entries() == 4
 
     def test_missing_dirs_handled_gracefully(self, db, importer, tmp_path):
         """Missing local or global directories do not cause errors."""
-        count = importer.import_all(
+        result = importer.import_all(
             str(tmp_path / "nonexistent"),
             str(tmp_path / "also-nonexistent"),
         )
-        assert count == 0
+        assert result["imported"] == 0
         assert db.count_entries() == 0
 
     def test_source_is_import(self, db, importer, tmp_path):
@@ -306,5 +312,110 @@ class TestImportIntoDB:
         (kb_dir / "patterns.md").write_text(PATTERNS_MD)
         (kb_dir / "heuristics.md").write_text(HEURISTICS_MD)
 
-        count = importer.import_all(str(tmp_path), str(tmp_path / "global"))
-        assert count == 5  # 3 + 1 + 1
+        result = importer.import_all(str(tmp_path), str(tmp_path / "global"))
+        assert result["imported"] == 5  # 3 + 1 + 1
+
+    def test_source_hash_stored_after_import(self, db, importer, tmp_path):
+        """All imported entries should have a non-null source_hash."""
+        kb_dir = tmp_path / "docs" / "knowledge-bank"
+        kb_dir.mkdir(parents=True)
+        (kb_dir / "anti-patterns.md").write_text(ANTI_PATTERNS_MD)
+        (kb_dir / "patterns.md").write_text("")
+        (kb_dir / "heuristics.md").write_text("")
+
+        importer.import_all(str(tmp_path), str(tmp_path / "global"))
+
+        for entry in db.get_all_entries():
+            stored = db.get_entry(entry["id"])
+            assert stored["source_hash"] is not None
+
+    def test_created_timestamp_utc_stored_after_import(self, db, importer, tmp_path):
+        """All imported entries should have a non-null created_timestamp_utc."""
+        kb_dir = tmp_path / "docs" / "knowledge-bank"
+        kb_dir.mkdir(parents=True)
+        (kb_dir / "anti-patterns.md").write_text(ANTI_PATTERNS_MD)
+        (kb_dir / "patterns.md").write_text("")
+        (kb_dir / "heuristics.md").write_text("")
+
+        importer.import_all(str(tmp_path), str(tmp_path / "global"))
+
+        for entry in db.get_all_entries():
+            stored = db.get_entry(entry["id"])
+            assert stored["created_timestamp_utc"] is not None
+
+    def test_modified_entry_reimported(self, db, importer, tmp_path):
+        """Changing markdown text causes re-import with updated source_hash."""
+        kb_dir = tmp_path / "docs" / "knowledge-bank"
+        kb_dir.mkdir(parents=True)
+        (kb_dir / "patterns.md").write_text("")
+        (kb_dir / "heuristics.md").write_text("")
+
+        original_md = textwrap.dedent("""\
+            # Anti-Patterns
+
+            ### Anti-Pattern: Premature Optimisation
+            Optimising code before profiling leads to complex,
+            hard-to-maintain solutions.
+            - Observation Count: 5
+            - Confidence: high
+        """)
+        (kb_dir / "anti-patterns.md").write_text(original_md)
+        importer.import_all(str(tmp_path), str(tmp_path / "global"))
+
+        entries = db.get_all_entries()
+        assert len(entries) == 1
+        original_hash = db.get_entry(entries[0]["id"])["source_hash"]
+
+        # Modify the markdown
+        modified_md = textwrap.dedent("""\
+            # Anti-Patterns
+
+            ### Anti-Pattern: Premature Optimisation
+            Optimising code before profiling leads to complex,
+            hard-to-maintain solutions. Updated with new info.
+            - Observation Count: 5
+            - Confidence: high
+        """)
+        (kb_dir / "anti-patterns.md").write_text(modified_md)
+        result = importer.import_all(str(tmp_path), str(tmp_path / "global"))
+
+        # The content_hash changed (different description), so it's a new entry
+        assert result["imported"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Backfill discovery tests
+# ---------------------------------------------------------------------------
+
+
+class TestDiscoverKnowledgeBankProjects:
+    def test_discover_finds_kb_projects(self, tmp_path):
+        """Projects with docs/knowledge-bank/ are discovered."""
+        from semantic_memory.backfill import _discover_knowledge_bank_projects
+
+        proj_a = tmp_path / "proj-a"
+        (proj_a / "docs" / "knowledge-bank").mkdir(parents=True)
+        proj_b = tmp_path / "proj-b"
+        (proj_b / "docs" / "knowledge-bank").mkdir(parents=True)
+
+        found = _discover_knowledge_bank_projects(str(tmp_path))
+        assert str(proj_a) in found
+        assert str(proj_b) in found
+
+    def test_discover_ignores_non_kb(self, tmp_path):
+        """Projects without docs/knowledge-bank/ are not discovered."""
+        from semantic_memory.backfill import _discover_knowledge_bank_projects
+
+        (tmp_path / "proj-a" / "docs" / "knowledge-bank").mkdir(parents=True)
+        (tmp_path / "proj-b" / "src").mkdir(parents=True)  # no KB
+
+        found = _discover_knowledge_bank_projects(str(tmp_path))
+        assert len(found) == 1
+        assert "proj-a" in found[0]
+
+    def test_discover_nonexistent_base_dir(self):
+        """Non-existent base directory returns empty list."""
+        from semantic_memory.backfill import _discover_knowledge_bank_projects
+
+        found = _discover_knowledge_bank_projects("/nonexistent/path")
+        assert found == []

@@ -106,18 +106,32 @@ def _create_fts5_objects(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _add_source_hash_and_created_timestamp(
+    conn: sqlite3.Connection,
+    **_kwargs: object,
+) -> None:
+    """Migration 2: add source_hash and created_timestamp_utc columns."""
+    conn.executescript("""
+        ALTER TABLE entries ADD COLUMN source_hash TEXT;
+        ALTER TABLE entries ADD COLUMN created_timestamp_utc REAL;
+        UPDATE entries SET created_timestamp_utc = CAST(strftime('%s', created_at) AS REAL);
+    """)
+
+
 # Ordered mapping of version -> migration function.
 # Each migration brings the schema from (version - 1) to version.
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     1: _create_initial_schema,
+    2: _add_source_hash_and_created_timestamp,
 }
 
-# All 16 column names in insertion order.
+# All 18 column names in insertion order.
 _COLUMNS = [
     "id", "name", "description", "reasoning", "category",
     "keywords", "source", "source_project", '"references"',
     "observation_count", "confidence", "recall_count",
     "last_recalled_at", "embedding", "created_at", "updated_at",
+    "source_hash", "created_timestamp_utc",
 ]
 
 # Columns that use "overwrite if non-null, keep existing if null" on conflict.
@@ -213,7 +227,8 @@ class MemoryDatabase:
     def _update_existing(self, entry: dict) -> None:
         """Update an existing entry: increment observation_count, conditionally
         overwrite description/reasoning/keywords/references, always update
-        updated_at."""
+        updated_at.  Always sets source_hash when provided.  Never overwrites
+        created_timestamp_utc."""
         set_parts = [
             "observation_count = observation_count + 1",
             "updated_at = ?",
@@ -227,6 +242,10 @@ class MemoryDatabase:
                 set_parts.append(f"{col} = ?")
                 params.append(value)
 
+        if "source_hash" in entry:
+            set_parts.append("source_hash = ?")
+            params.append(entry["source_hash"])
+
         params.append(entry.get("id"))
         sql = f"UPDATE entries SET {', '.join(set_parts)} WHERE id = ?"
         self._conn.execute(sql, params)
@@ -238,6 +257,16 @@ class MemoryDatabase:
         if row is None:
             return None
         return dict(row)
+
+    def get_source_hash(self, entry_id: str) -> str | None:
+        """Return the source_hash for an entry, or ``None`` if missing."""
+        cur = self._conn.execute(
+            "SELECT source_hash FROM entries WHERE id = ?", (entry_id,)
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return row[0]
 
     # Columns returned by get_all_entries (everything except the embedding BLOB).
     _ALL_ENTRY_COLS = ", ".join(c for c in _COLUMNS if c != "embedding")

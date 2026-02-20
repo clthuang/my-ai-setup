@@ -12,7 +12,7 @@ import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from semantic_memory import content_hash
+from semantic_memory import content_hash, source_hash
 
 if TYPE_CHECKING:
     from semantic_memory.database import MemoryDatabase
@@ -38,38 +38,61 @@ class MarkdownImporter:
     def __init__(self, db: MemoryDatabase) -> None:
         self._db = db
 
-    def import_all(self, project_root: str, global_store: str) -> int:
+    def import_all(self, project_root: str, global_store: str) -> dict:
         """Import entries from local and global knowledge bank files.
 
         Scans ``{project_root}/docs/knowledge-bank/*.md`` (local) and
         ``{global_store}/*.md`` (global) for each known category file.
 
-        Returns the total number of entries upserted.
+        Returns ``{"imported": N, "skipped": N}`` where *imported* counts
+        entries actually upserted and *skipped* counts hash-matched entries.
         """
         now = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        count = 0
+        imported = 0
+        skipped = 0
 
         local_kb = os.path.join(project_root, "docs", "knowledge-bank")
         for filename, category in CATEGORIES:
             filepath = os.path.join(local_kb, filename)
             entries = self._parse_markdown_entries(filepath, category)
             for entry in entries:
-                self._upsert_entry(entry, project_root, now)
-                count += 1
+                result = self._upsert_entry(entry, project_root, now)
+                if result == "skipped":
+                    skipped += 1
+                else:
+                    imported += 1
 
         for filename, category in CATEGORIES:
             filepath = os.path.join(global_store, filename)
             entries = self._parse_markdown_entries(filepath, category)
             for entry in entries:
-                self._upsert_entry(entry, project_root, now)
-                count += 1
+                result = self._upsert_entry(entry, project_root, now)
+                if result == "skipped":
+                    skipped += 1
+                else:
+                    imported += 1
 
-        return count
+        return {"imported": imported, "skipped": skipped}
 
-    def _upsert_entry(self, parsed: dict, project_root: str, now: str) -> None:
-        """Convert a parsed entry dict into the DB format and upsert."""
+    def _upsert_entry(self, parsed: dict, project_root: str, now: str) -> str:
+        """Convert a parsed entry dict into the DB format and upsert.
+
+        Returns ``"inserted"``, ``"updated"``, or ``"skipped"``.
+        """
+        entry_id = parsed["content_hash"]
+        raw_chunk = parsed.get("raw_chunk", "")
+        sh = source_hash(raw_chunk) if raw_chunk else None
+
+        # Check if the source content is unchanged
+        if sh is not None:
+            existing_hash = self._db.get_source_hash(entry_id)
+            if existing_hash == sh:
+                return "skipped"
+
+        is_new = self._db.get_entry(entry_id) is None
+
         entry = {
-            "id": parsed["content_hash"],
+            "id": entry_id,
             "name": parsed["name"],
             "description": parsed["description"],
             "reasoning": None,
@@ -83,8 +106,11 @@ class MarkdownImporter:
             "embedding": None,
             "created_at": now,
             "updated_at": now,
+            "source_hash": sh,
+            "created_timestamp_utc": datetime.now(tz=timezone.utc).timestamp(),
         }
         self._db.upsert_entry(entry)
+        return "inserted" if is_new else "updated"
 
     def _parse_markdown_entries(
         self, filepath: str, category: str
@@ -162,6 +188,7 @@ class MarkdownImporter:
                 "observation_count": obs_count,
                 "confidence": confidence,
                 "content_hash": content_hash(description),
+                "raw_chunk": chunk.strip(),
             })
 
         return entries
