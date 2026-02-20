@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from semantic_memory.types import RetrievalResult
+from semantic_memory.retrieval_types import RetrievalResult
 
 
 class RankingEngine:

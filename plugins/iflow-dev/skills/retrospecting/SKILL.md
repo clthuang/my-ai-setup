@@ -210,7 +210,7 @@ For each entry written in Step 4, also write to semantic memory:
    ```
 3. Invoke writer CLI:
    ```bash
-   ${plugin_dir}/.venv/bin/python ${plugin_dir}/hooks/lib/semantic_memory/writer.py \
+   PYTHONPATH="${plugin_dir}/hooks/lib" ${plugin_dir}/.venv/bin/python -m semantic_memory.writer \
      --action upsert \
      --global-store "$HOME/.claude/iflow/memory" \
      --project-root "$PROJECT_ROOT" \

@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 import pytest
 
 from semantic_memory.ranking import RankingEngine
-from semantic_memory.types import CandidateScores, RetrievalResult
+from semantic_memory.retrieval_types import CandidateScores, RetrievalResult
 
 
 # ---------------------------------------------------------------------------

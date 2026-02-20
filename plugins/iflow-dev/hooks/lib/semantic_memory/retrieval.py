@@ -20,7 +20,7 @@ try:
 except ImportError:  # pragma: no cover
     _numpy_available = False
 
-from semantic_memory.types import CandidateScores, RetrievalResult
+from semantic_memory.retrieval_types import CandidateScores, RetrievalResult
 
 if TYPE_CHECKING:
     from semantic_memory.database import MemoryDatabase

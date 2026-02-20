@@ -26,7 +26,7 @@ import pytest
 
 from semantic_memory import content_hash
 from semantic_memory.database import MemoryDatabase
-from semantic_memory.types import CandidateScores, RetrievalResult
+from semantic_memory.retrieval_types import CandidateScores, RetrievalResult
 
 # Lazy imports inside each test class to keep module-level clean.
 
