@@ -473,6 +473,230 @@ class TestCollectContextGitFallback:
         assert "fallback_file.py" in context
 
 
+class TestCollectContextBranchName:
+    """collect_context includes branch name when it's descriptive."""
+
+    def test_includes_branch_name(self, tmp_path):
+        """Should include branch name in context string."""
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+
+        with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+            def mock_run(cmd, **kwargs):
+                result = mock.Mock()
+                if "rev-parse" in cmd:
+                    result.returncode = 0
+                    result.stdout = "feature/024-memory-semantic-search"
+                elif "--cached" in cmd:
+                    result.returncode = 0
+                    result.stdout = ""
+                elif "--name-only" in cmd and "HEAD" not in "".join(cmd):
+                    result.returncode = 0
+                    result.stdout = ""
+                else:
+                    result.returncode = 0
+                    result.stdout = "some_file.py"
+                return result
+
+            mock_subprocess.run.side_effect = mock_run
+
+            context = pipeline.collect_context(str(tmp_path))
+
+        assert context is not None
+        assert "Branch: feature/024-memory-semantic-search" in context
+
+    def test_skips_generic_branch_names(self, tmp_path):
+        """Generic branch names (main, master, develop) should be skipped."""
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+
+        for branch_name in ("main", "master", "develop", "HEAD"):
+            with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+                def mock_run(cmd, **kwargs):
+                    result = mock.Mock()
+                    if "rev-parse" in cmd:
+                        result.returncode = 0
+                        result.stdout = branch_name
+                    else:
+                        result.returncode = 0
+                        result.stdout = "file.py"
+                    return result
+
+                mock_subprocess.run.side_effect = mock_run
+
+                context = pipeline.collect_context(str(tmp_path))
+
+            assert context is not None
+            assert "Branch:" not in context
+
+
+class TestCollectContextWorkingTree:
+    """collect_context includes working tree (unstaged + staged) files."""
+
+    def test_includes_working_tree_files(self, tmp_path):
+        """Unstaged and staged files should appear as 'Editing:' signal."""
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+
+        with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+            def mock_run(cmd, **kwargs):
+                result = mock.Mock()
+                if "rev-parse" in cmd:
+                    result.returncode = 0
+                    result.stdout = "main"
+                elif "HEAD~3..HEAD" in cmd or "HEAD~1..HEAD" in cmd:
+                    result.returncode = 0
+                    result.stdout = ""
+                elif "--cached" in cmd:
+                    result.returncode = 0
+                    result.stdout = "staged_file.py"
+                elif cmd == ["git", "diff", "--name-only"]:
+                    result.returncode = 0
+                    result.stdout = "unstaged_file.py"
+                else:
+                    result.returncode = 0
+                    result.stdout = ""
+                return result
+
+            mock_subprocess.run.side_effect = mock_run
+
+            context = pipeline.collect_context(str(tmp_path))
+
+        assert context is not None
+        assert "Editing:" in context
+        assert "staged_file.py" in context
+        assert "unstaged_file.py" in context
+
+    def test_deduplicates_with_committed_files(self, tmp_path):
+        """Files already in committed changes should not appear in Editing."""
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+
+        with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+            def mock_run(cmd, **kwargs):
+                result = mock.Mock()
+                if "rev-parse" in cmd:
+                    result.returncode = 0
+                    result.stdout = "main"
+                elif "HEAD~3..HEAD" in cmd:
+                    result.returncode = 0
+                    result.stdout = "shared.py"
+                elif cmd == ["git", "diff", "--name-only"]:
+                    result.returncode = 0
+                    result.stdout = "shared.py\nnew_file.py"
+                elif "--cached" in cmd:
+                    result.returncode = 0
+                    result.stdout = ""
+                else:
+                    result.returncode = 0
+                    result.stdout = ""
+                return result
+
+            mock_subprocess.run.side_effect = mock_run
+
+            context = pipeline.collect_context(str(tmp_path))
+
+        assert context is not None
+        assert "Files: shared.py" in context
+        # Editing should only include the file NOT already in committed
+        assert "Editing: new_file.py" in context
+        # shared.py should NOT appear in Editing
+        assert "Editing: shared.py" not in context
+
+
+class TestCollectContextProjectDescription:
+    """collect_context uses project-level description when no active feature."""
+
+    def test_reads_claude_md_repository_overview(self, tmp_path):
+        """Should extract Repository Overview section from CLAUDE.md."""
+        claude_md = tmp_path / "CLAUDE.md"
+        claude_md.write_text(textwrap.dedent("""\
+            # CLAUDE.md
+
+            ## Repository Overview
+
+            Claude Code plugin providing a structured feature development workflow.
+
+            ## Key Principles
+
+            Other content here.
+        """))
+
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+
+        with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+            mock_result = mock.Mock()
+            mock_result.returncode = 0
+            mock_result.stdout = ""
+            mock_subprocess.run.return_value = mock_result
+
+            context = pipeline.collect_context(str(tmp_path))
+
+        assert context is not None
+        assert "Project:" in context
+        assert "structured feature development workflow" in context
+
+    def test_falls_back_to_readme(self, tmp_path):
+        """Should fall back to README.md when CLAUDE.md has no overview."""
+        readme = tmp_path / "README.md"
+        readme.write_text(textwrap.dedent("""\
+            # My Project
+
+            This is a web application for managing tasks.
+
+            ## Installation
+
+            More content.
+        """))
+
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+
+        with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+            mock_result = mock.Mock()
+            mock_result.returncode = 0
+            mock_result.stdout = ""
+            mock_subprocess.run.return_value = mock_result
+
+            context = pipeline.collect_context(str(tmp_path))
+
+        assert context is not None
+        assert "Project:" in context
+        assert "managing tasks" in context
+
+    def test_not_used_when_active_feature_exists(self, tmp_path):
+        """Project description should NOT be used when an active feature exists."""
+        feature_dir = tmp_path / "docs" / "features" / "024-feature"
+        feature_dir.mkdir(parents=True)
+        (feature_dir / ".meta.json").write_text(json.dumps({
+            "slug": "test-feature",
+            "status": "active",
+            "lastCompletedPhase": "design",
+        }))
+        (feature_dir / "spec.md").write_text("# Spec\n\nFeature description.")
+
+        # Also create a CLAUDE.md — should NOT be used
+        (tmp_path / "CLAUDE.md").write_text(
+            "## Repository Overview\n\nShould not appear.\n"
+        )
+
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+
+        with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+            mock_result = mock.Mock()
+            mock_result.returncode = 0
+            mock_result.stdout = ""
+            mock_subprocess.run.return_value = mock_result
+
+            context = pipeline.collect_context(str(tmp_path))
+
+        assert context is not None
+        assert "test-feature" in context
+        assert "Should not appear" not in context
+
+
 class TestCollectContextWordLimit:
     """collect_context respects the 100-word limit for spec description."""
 

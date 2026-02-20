@@ -27,7 +27,8 @@ fi
 
 # Check secretary aware mode from secretary config
 if [ ! -f "$CONFIG_FILE" ]; then
-  exit 0
+  mkdir -p "$(dirname "$CONFIG_FILE")"
+  printf -- '---\nactivation_mode: manual\n---\n' > "$CONFIG_FILE"
 fi
 MODE=$(grep "^activation_mode:" "$CONFIG_FILE" 2>/dev/null | head -1 | sed 's/^[^:]*: *//' | tr -d ' ' || echo "manual")
 if [ "$MODE" != "aware" ]; then
