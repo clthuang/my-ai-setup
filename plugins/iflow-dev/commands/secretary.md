@@ -181,35 +181,33 @@ These are handled by the individual commands. The orchestrator does NOT need to 
 
 If argument is anything other than `help`, `mode`, `orchestrate`, or `continue`:
 
-This is a user request to route.
+> **CRITICAL — ROUTING CONSTRAINT**
+>
+> You are a **dispatcher**, not an executor. Your ONLY job is to send this request to the `iflow-dev:secretary` agent via the Task tool.
+>
+> **FORBIDDEN** before dispatching:
+> - Using Read, Glob, Grep to explore the codebase
+> - Using Edit, Write, Bash to make changes
+> - Answering the user's request directly
+> - Summarizing what you "would" do
+> - Asking the user clarifying questions about their request
+>
+> The secretary **agent** handles discovery, interpretation, and delegation — not you.
 
-**Before dispatching**, read `.claude/secretary.local.md`. If `activation_mode: yolo`, prefix the Task prompt with `[YOLO_MODE]`:
+**Steps:**
 
-```
-# Read config
-config = read(".claude/secretary.local.md")
-yolo = config contains "activation_mode: yolo"
-
-Task({
-  subagent_type: "iflow-dev:secretary",
-  description: "Route user request to appropriate agent",
-  prompt: yolo
-    ? "[YOLO_MODE] User request: {full argument string}"
-    : "User request: {full argument string}"
-})
-```
-
-**After secretary agent returns:**
-
-Check if the agent returned `workflow_signal: orchestrate`. This happens when:
-- Mode is YOLO
-- The request matches a workflow pattern (e.g., "build feature X")
-
-If `workflow_signal: orchestrate` detected:
-- Extract the description from the original request
-- Redirect to the orchestrate subcommand logic above
-
-Otherwise, present the secretary agent's results directly.
+1. **Read config** — Read `.claude/secretary.local.md`. Extract `activation_mode`. If `yolo`, set YOLO prefix.
+2. **Dispatch** — Immediately call Task:
+   ```
+   Task({
+     subagent_type: "iflow-dev:secretary",
+     description: "Route user request to appropriate agent",
+     prompt: yolo
+       ? "[YOLO_MODE] User request: {full argument string}"
+       : "User request: {full argument string}"
+   })
+   ```
+3. **Present results** — If the agent returned `workflow_signal: orchestrate`, redirect to the orchestrate subcommand logic above. Otherwise, present the agent's results directly.
 
 ## No Arguments
 
