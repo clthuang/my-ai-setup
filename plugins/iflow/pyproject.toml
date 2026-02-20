@@ -1,16 +1,17 @@
 [project]
 name = "iflow-dev-hooks"
 version = "0.1.0"
-requires-python = ">=3.9"
-dependencies = ["numpy>=1.24"]
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24,<3", "python-dotenv>=1.0,<2"]
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.0"]
-gemini = ["google-genai>=1.0"]
-voyage = ["voyageai>=0.3"]
-openai = ["openai>=1.0"]
+mcp = ["mcp>=1.0,<2"]
+gemini = ["google-genai>=1.0,<2"]
+voyage = ["voyageai>=0.3,<1"]
+openai = ["openai>=1.0,<3"]
+ollama = ["ollama>=0.4,<1"]
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.2",
+    "pytest>=9.0.2,<10",
 ]
