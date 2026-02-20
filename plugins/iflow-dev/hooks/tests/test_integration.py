@@ -34,7 +34,7 @@ import pytest
 
 from semantic_memory import content_hash
 from semantic_memory.database import MemoryDatabase
-from semantic_memory.types import CandidateScores, RetrievalResult
+from semantic_memory.retrieval_types import CandidateScores, RetrievalResult
 from semantic_memory.retrieval import RetrievalPipeline
 from semantic_memory.ranking import RankingEngine
 from semantic_memory.config import read_config

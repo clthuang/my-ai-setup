@@ -65,7 +65,7 @@ AskUserQuestion:
 - **Knowledge bank:** `docs/knowledge-bank/{patterns,anti-patterns,heuristics}.md` — updated by retrospectives
 - **Global memory store:** `~/.claude/iflow/memory/` — cross-project entries injected at session start
 - **Hook subprocess safety:** Always suppress stderr (`2>/dev/null`) for Python/external calls in hooks to prevent corrupting JSON output
-- **Semantic memory CLI:** Invoke writer as module, not script: `PYTHONPATH=plugins/iflow-dev/hooks/lib .venv/bin/python -m semantic_memory.writer` — direct script execution causes `types.py` stdlib shadowing
+- **Semantic memory CLI:** Invoke as module: `PYTHONPATH=plugins/iflow-dev/hooks/lib .venv/bin/python -m semantic_memory.writer` (or `semantic_memory.injector`)
 
 ## Quick Reference
 

@@ -21,7 +21,7 @@ import numpy as np
 import pytest
 
 from semantic_memory import content_hash
-from semantic_memory.types import CandidateScores, RetrievalResult
+from semantic_memory.retrieval_types import CandidateScores, RetrievalResult
 from semantic_memory.retrieval import RetrievalPipeline
 from semantic_memory.importer import MarkdownImporter
 from semantic_memory.database import MemoryDatabase

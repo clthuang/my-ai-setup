@@ -251,7 +251,7 @@ build_memory_context() {
     if [[ "$semantic_enabled" == "true" ]]; then
         # Semantic memory: embedding-based retrieval with FTS5 keyword search
         # stderr suppressed: injector.py errors must not corrupt hook JSON output
-        memory_output=$($timeout_cmd "$python_cmd" "${SCRIPT_DIR}/lib/semantic_memory/injector.py" \
+        memory_output=$(PYTHONPATH="${SCRIPT_DIR}/lib" $timeout_cmd "$python_cmd" -m semantic_memory.injector \
             --project-root "$PROJECT_ROOT" \
             --limit "$limit" \
             --global-store "$HOME/.claude/iflow/memory" 2>/dev/null) || memory_output=""
