@@ -8,9 +8,9 @@ Structured feature development workflow with skills, agents, and commands for me
 
 | Type | Count |
 |------|-------|
-| Skills | 19 |
-| Agents | 19 |
-| Commands | 16 |
+| Skills | 27 |
+| Agents | 28 |
+| Commands | 22 |
 | Hooks | 5 |
 
 ## Commands
@@ -42,6 +42,12 @@ Structured feature development workflow with skills, agents, and commands for me
 | `/iflow-dev:sync-cache` | Reload plugin after changes |
 | `/iflow-dev:secretary` | Intelligent task routing to commands/agents |
 | `/iflow-dev:root-cause-analysis` | Investigate bugs and failures to find all root causes |
+| `/iflow-dev:create-project <prd>` | Create project from PRD with AI-driven decomposition |
+| `/iflow-dev:create-specialist-team` | Create ephemeral specialist teams for complex tasks |
+| `/iflow-dev:init-ds-project <name>` | Scaffold a new data science project |
+| `/iflow-dev:review-analysis <file>` | Review data analysis for statistical pitfalls |
+| `/iflow-dev:review-ds-code <file>` | Review DS Python code for anti-patterns |
+| `/iflow-dev:yolo [on\|off]` | Toggle YOLO autonomous mode |
 
 ## Review System
 
@@ -110,6 +116,8 @@ The `/iflow-dev:implement` command uses three reviewers:
 
 | Agent | Purpose |
 |-------|---------|
+| advisor | Applies strategic/domain advisory lens to brainstorm problems |
+| analysis-reviewer | Reviews data analysis for statistical pitfalls and methodology |
 | brainstorm-reviewer | Reviews brainstorm artifacts for completeness before promotion |
 | code-quality-reviewer | Reviews implementation quality by severity |
 | code-simplifier | Identifies unnecessary complexity and suggests simplifications |
@@ -117,6 +125,7 @@ The `/iflow-dev:implement` command uses three reviewers:
 | design-reviewer | Challenges design assumptions and finds gaps (skeptic) |
 | documentation-researcher | Researches documentation state and identifies update needs |
 | documentation-writer | Writes and updates documentation |
+| ds-code-reviewer | Reviews DS Python code for anti-patterns and best practices |
 | generic-worker | General-purpose implementation agent |
 | implementation-reviewer | Validates implementation against full requirements chain (4-level) |
 | implementer | Task implementation with TDD and self-review |
@@ -125,8 +134,12 @@ The `/iflow-dev:implement` command uses three reviewers:
 | phase-reviewer | Validates artifacts have what next phase needs (gatekeeper) |
 | plan-reviewer | Skeptical plan reviewer for failure modes and TDD compliance |
 | prd-reviewer | Critical review of PRD drafts |
+| project-decomposer | Decomposes project PRD into ordered features with dependencies |
+| project-decomposition-reviewer | Validates project decomposition quality |
 | rca-investigator | Finds all root causes through 6-phase systematic investigation |
+| retro-facilitator | Runs data-driven AORTA retrospective with full intermediate context |
 | secretary | Intelligent task routing with discovery, interpretation, and delegation |
+| secretary-reviewer | Validates secretary routing recommendations |
 | security-reviewer | Reviews implementation for security vulnerabilities |
 | skill-searcher | Finds relevant existing skills |
 | spec-reviewer | Skeptically reviews spec.md for testability and assumptions |

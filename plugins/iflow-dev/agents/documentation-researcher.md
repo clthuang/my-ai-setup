@@ -93,6 +93,23 @@ Read spec.md **In Scope** section. Identify changes by audience:
 - Code quality improvements
 - Test additions
 
+### Step 2b: Ground Truth Comparison
+
+Compare the **filesystem** (source of truth) against what README files claim. This catches drift that accumulates across features even when individual features have no doc-worthy changes.
+
+**Check both:**
+- `README.md` (root — primary user-facing doc)
+- `plugins/iflow-dev/README.md` (plugin — distribution-facing doc)
+
+**Commands:**
+1. Glob `plugins/iflow-dev/commands/*.md` → extract command names → Grep each README for the command name (both prefixed variants) → flag missing entries
+2. Glob `plugins/iflow-dev/skills/*/SKILL.md` → extract skill names from directory paths → Grep each README's Skills section → flag missing entries
+3. Glob `plugins/iflow-dev/agents/*.md` → extract agent names → Grep each README's Agents section → flag missing entries
+4. **Reverse check:** For each entry in a README table, verify the corresponding file still exists on the filesystem. Flag stale entries that reference deleted components.
+5. **Count check:** If `plugins/iflow-dev/README.md` has component count headers (e.g., `| Skills | 19 |`), compare against actual filesystem counts and flag mismatches.
+
+Any discrepancy found here is a drift entry — add it to `drift_detected` in the output.
+
 ### Step 3: Cross-Reference
 
 For each detected doc:
@@ -139,6 +156,29 @@ Return structured JSON:
       "priority": "medium"
     }
   ],
+  "drift_detected": [
+    {
+      "type": "command",
+      "name": "yolo",
+      "description": "Toggle YOLO autonomous mode",
+      "status": "missing_from_readme",
+      "readme": "README.md"
+    },
+    {
+      "type": "skill",
+      "name": "some-old-skill",
+      "description": "",
+      "status": "stale_in_readme",
+      "readme": "plugins/iflow-dev/README.md"
+    },
+    {
+      "type": "count_mismatch",
+      "name": "Skills",
+      "description": "README claims 19, filesystem has 27",
+      "status": "count_mismatch",
+      "readme": "plugins/iflow-dev/README.md"
+    }
+  ],
   "no_updates_needed": false,
   "no_updates_reason": null
 }
@@ -156,6 +196,10 @@ If no changes needed:
   "no_updates_reason": "Internal refactoring only - no user-facing or technical doc changes"
 }
 ```
+
+## Critical Rule: Drift Overrides No-Update
+
+`no_updates_needed` MUST be `false` if `drift_detected` has any entries. Ground truth drift always requires documentation updates, even if the current feature made no user-visible changes.
 
 ## What You MUST NOT Do
 
