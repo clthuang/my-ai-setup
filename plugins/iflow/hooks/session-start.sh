@@ -243,8 +243,8 @@ build_memory_context() {
 
     # Resolve Python: prefer venv, fallback to system python3
     local python_cmd="python3"
-    if [[ -x "${SCRIPT_DIR}/../.venv/bin/python" ]]; then
-        python_cmd="${SCRIPT_DIR}/../.venv/bin/python"
+    if [[ -x "${PLUGIN_ROOT}/.venv/bin/python" ]]; then
+        python_cmd="${PLUGIN_ROOT}/.venv/bin/python"
     fi
 
     local memory_output
@@ -258,7 +258,7 @@ build_memory_context() {
     else
         # Legacy memory: markdown-based with observation count sorting
         # stderr suppressed: memory.py errors must not corrupt hook JSON output
-        memory_output=$($timeout_cmd python3 "${SCRIPT_DIR}/lib/memory.py" \
+        memory_output=$($timeout_cmd $python_cmd "${SCRIPT_DIR}/lib/memory.py" \
             --project-root "$PROJECT_ROOT" \
             --limit "$limit" \
             --global-store "$HOME/.claude/iflow/memory" 2>/dev/null) || memory_output=""
