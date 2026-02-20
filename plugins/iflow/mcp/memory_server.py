@@ -25,6 +25,8 @@ from semantic_memory.keywords import (
     SkipKeywordGenerator,
     TieredKeywordGenerator,
 )
+from semantic_memory.ranking import RankingEngine
+from semantic_memory.retrieval import RetrievalPipeline
 from semantic_memory.writer import _embed_text_for_entry, _process_pending_embeddings
 
 from mcp.server.fastmcp import FastMCP
@@ -127,12 +129,63 @@ def _process_store_memory(
 
 
 # ---------------------------------------------------------------------------
+# Search processing function (testable without MCP)
+# ---------------------------------------------------------------------------
+
+
+def _process_search_memory(
+    db: MemoryDatabase,
+    provider: EmbeddingProvider | None,
+    config: dict,
+    query: str,
+    limit: int = 10,
+) -> str:
+    """Search the semantic memory database for relevant entries.
+
+    Returns formatted results or an error string. Never raises.
+    """
+    if not query or not query.strip():
+        return "Error: query must be non-empty"
+
+    pipeline = RetrievalPipeline(db, provider, config)
+    result = pipeline.retrieve(query.strip())
+
+    all_entries = db.get_all_entries()
+    entries_by_id = {e["id"]: e for e in all_entries}
+
+    engine = RankingEngine(config)
+    selected = engine.rank(result, entries_by_id, limit)
+
+    if not selected:
+        return "No matching memories found."
+
+    cat_prefix_map = {
+        "anti-patterns": "Anti-Pattern",
+        "patterns": "Pattern",
+        "heuristics": "Heuristic",
+    }
+
+    lines: list[str] = [f"Found {len(selected)} relevant memories:\n"]
+    for entry in selected:
+        prefix = cat_prefix_map.get(entry["category"], entry["category"])
+        lines.append(f"### {prefix}: {entry['name']}")
+        lines.append(entry["description"])
+        if entry.get("reasoning"):
+            lines.append(f"- Why: {entry['reasoning']}")
+        lines.append(f"- Confidence: {entry.get('confidence', 'medium')}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Module-level globals (set during lifespan)
 # ---------------------------------------------------------------------------
 
 _db: MemoryDatabase | None = None
 _provider: EmbeddingProvider | None = None
 _keyword_gen: KeywordGenerator | None = None
+_config: dict = {}
 
 # ---------------------------------------------------------------------------
 # Lifespan handler
@@ -142,7 +195,7 @@ _keyword_gen: KeywordGenerator | None = None
 @asynccontextmanager
 async def lifespan(server):
     """Manage DB connection and providers lifecycle."""
-    global _db, _provider, _keyword_gen
+    global _db, _provider, _keyword_gen, _config
 
     global_store = os.path.expanduser("~/.claude/iflow/memory")
     os.makedirs(global_store, exist_ok=True)
@@ -152,6 +205,7 @@ async def lifespan(server):
     # Read config from the project root (cwd at server start).
     project_root = os.getcwd()
     config = read_config(project_root)
+    _config = config
 
     _provider = create_provider(config)
     if _provider is not None:
@@ -177,6 +231,7 @@ async def lifespan(server):
             _db = None
         _provider = None
         _keyword_gen = None
+        _config = {}
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +278,39 @@ async def store_memory(
         reasoning=reasoning,
         category=category,
         references=references if references is not None else [],
+    )
+
+
+@mcp.tool()
+async def search_memory(
+    query: str,
+    limit: int = 10,
+) -> str:
+    """Search long-term memory for relevant learnings.
+
+    Use this when you need to recall past learnings, patterns, or
+    anti-patterns relevant to the current task.  Especially useful
+    when the session context has shifted from the initial topic.
+
+    Parameters
+    ----------
+    query:
+        What to search for (e.g. 'hook development patterns',
+        'git workflow mistakes', 'testing best practices').
+    limit:
+        Maximum number of results to return (default: 10).
+
+    Returns matching memories ranked by relevance.
+    """
+    if _db is None:
+        return "Error: database not initialized (server not started)"
+
+    return _process_search_memory(
+        db=_db,
+        provider=_provider,
+        config=_config,
+        query=query,
+        limit=limit,
     )
 
 
