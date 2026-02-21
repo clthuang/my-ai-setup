@@ -343,7 +343,7 @@ Terminal statuses cannot be changed. New work requires a new feature.
 
 ### Status Updates
 
-The `/iflow-dev:finish` command updates status to terminal values:
+The `/iflow-dev:finish-feature` command updates status to terminal values:
 
 ```json
 // For completed features
@@ -356,4 +356,4 @@ The `/iflow-dev:finish` command updates status to terminal values:
 ## Review History
 
 During development, `.review-history.md` tracks iteration feedback.
-On `/iflow-dev:finish`, this file is deleted (git has the permanent record).
+On `/iflow-dev:finish-feature`, this file is deleted (git has the permanent record).

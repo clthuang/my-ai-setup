@@ -1,6 +1,7 @@
 """Tests for semantic_memory.database module."""
 from __future__ import annotations
 
+import hashlib
 import json
 import struct
 import sqlite3
@@ -26,6 +27,7 @@ def _make_entry(**overrides) -> dict:
         "source": "manual",
         "keywords": json.dumps(["test", "example"]),
         "source_project": "/tmp/project",
+        "source_hash": "0000000000000000",
         "created_at": "2026-01-01T00:00:00Z",
         "updated_at": "2026-01-01T00:00:00Z",
     }
@@ -71,8 +73,8 @@ class TestSchemaCreation:
         )
         assert cur.fetchone() is not None
 
-    def test_schema_version_is_2(self, db: MemoryDatabase):
-        assert db.get_schema_version() == 2
+    def test_schema_version_is_3(self, db: MemoryDatabase):
+        assert db.get_schema_version() == 3
 
     def test_entries_has_18_columns(self, db: MemoryDatabase):
         cur = db._conn.execute("PRAGMA table_info(entries)")
@@ -95,20 +97,20 @@ class TestSchemaCreation:
 class TestMigrationIdempotency:
     def test_opening_twice_does_not_error(self):
         """Opening two MemoryDatabase instances on same in-memory DB should
-        still result in schema_version == 2 (migrations are idempotent)."""
+        still result in schema_version == 3 (migrations are idempotent)."""
         db1 = MemoryDatabase(":memory:")
-        assert db1.get_schema_version() == 2
+        assert db1.get_schema_version() == 3
         db1.close()
 
     def test_schema_version_persists(self, tmp_path):
         """Schema version survives close and reopen."""
         db_path = str(tmp_path / "test.db")
         db1 = MemoryDatabase(db_path)
-        assert db1.get_schema_version() == 2
+        assert db1.get_schema_version() == 3
         db1.close()
 
         db2 = MemoryDatabase(db_path)
-        assert db2.get_schema_version() == 2
+        assert db2.get_schema_version() == 3
         db2.close()
 
 
@@ -121,9 +123,9 @@ class TestGetSourceHash:
     def test_returns_none_for_missing_entry(self, db: MemoryDatabase):
         assert db.get_source_hash("nonexistent") is None
 
-    def test_returns_none_when_not_set(self, db: MemoryDatabase):
+    def test_returns_default_when_set_via_helper(self, db: MemoryDatabase):
         db.upsert_entry(_make_entry())
-        assert db.get_source_hash("abc123") is None
+        assert db.get_source_hash("abc123") == "0000000000000000"
 
     def test_returns_value_when_set(self, db: MemoryDatabase):
         db.upsert_entry(_make_entry(source_hash="deadbeef12345678"))
@@ -172,12 +174,218 @@ class TestMigrationV2Backfill:
 
         # Reopen with MemoryDatabase to trigger migration v2
         db = MemoryDatabase(db_path)
-        assert db.get_schema_version() == 2
+        assert db.get_schema_version() == 3
 
         entry = db.get_entry("test1")
         assert entry is not None
         assert entry["created_timestamp_utc"] is not None
         assert isinstance(entry["created_timestamp_utc"], float)
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Migration v3 tests (NOT NULL enforcement)
+# ---------------------------------------------------------------------------
+
+
+def _create_v2_db(db_path: str) -> sqlite3.Connection:
+    """Create a v2 database manually for migration testing."""
+    conn = sqlite3.connect(db_path)
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS entries (
+            id                TEXT PRIMARY KEY,
+            name              TEXT NOT NULL,
+            description       TEXT NOT NULL,
+            reasoning         TEXT,
+            category          TEXT NOT NULL CHECK(category IN ('anti-patterns', 'patterns', 'heuristics')),
+            keywords          TEXT,
+            source            TEXT NOT NULL CHECK(source IN ('retro', 'session-capture', 'manual', 'import')),
+            source_project    TEXT,
+            "references"      TEXT,
+            observation_count INTEGER DEFAULT 1,
+            confidence        TEXT DEFAULT 'medium' CHECK(confidence IN ('high', 'medium', 'low')),
+            recall_count      INTEGER DEFAULT 0,
+            last_recalled_at  TEXT,
+            embedding         BLOB,
+            created_at        TEXT NOT NULL,
+            updated_at        TEXT NOT NULL,
+            source_hash       TEXT,
+            created_timestamp_utc REAL
+        );
+        CREATE TABLE IF NOT EXISTS _metadata (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        INSERT INTO _metadata (key, value) VALUES ('schema_version', '2');
+    """)
+    return conn
+
+
+class TestMigrationV3:
+    def test_migration_v3_backfills_null_keywords(self, tmp_path):
+        """NULL keywords should be backfilled to '[]'."""
+        db_path = str(tmp_path / "test.db")
+        conn = _create_v2_db(db_path)
+        conn.execute(
+            "INSERT INTO entries (id, name, description, category, source, keywords, "
+            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            ("e1", "Test", "Desc", "patterns", "manual", None,
+             "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+        )
+        conn.commit()
+        conn.close()
+
+        db = MemoryDatabase(db_path)
+        entry = db.get_entry("e1")
+        assert entry["keywords"] == "[]"
+        db.close()
+
+    def test_migration_v3_backfills_null_source_project(self, tmp_path):
+        """NULL source_project should be backfilled from existing import entries."""
+        db_path = str(tmp_path / "test.db")
+        conn = _create_v2_db(db_path)
+        # Import entry with source_project set
+        conn.execute(
+            "INSERT INTO entries (id, name, description, category, source, "
+            "source_project, source_hash, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("import1", "Import", "Import desc", "patterns", "import",
+             "/projects/myapp", "abc123", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+        )
+        # Manual entry without source_project
+        conn.execute(
+            "INSERT INTO entries (id, name, description, category, source, "
+            "source_project, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            ("manual1", "Manual", "Manual desc", "patterns", "manual",
+             None, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+        )
+        conn.commit()
+        conn.close()
+
+        db = MemoryDatabase(db_path)
+        entry = db.get_entry("manual1")
+        assert entry["source_project"] == "/projects/myapp"
+        db.close()
+
+    def test_migration_v3_backfills_null_source_project_unknown_fallback(self, tmp_path):
+        """When ALL source_project are NULL, backfill to 'unknown'."""
+        db_path = str(tmp_path / "test.db")
+        conn = _create_v2_db(db_path)
+        conn.execute(
+            "INSERT INTO entries (id, name, description, category, source, "
+            "source_project, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            ("e1", "Test", "Desc", "patterns", "manual",
+             None, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+        )
+        conn.commit()
+        conn.close()
+
+        db = MemoryDatabase(db_path)
+        entry = db.get_entry("e1")
+        assert entry["source_project"] == "unknown"
+        db.close()
+
+    def test_migration_v3_backfills_null_source_hash(self, tmp_path):
+        """NULL source_hash should be backfilled to SHA-256(description)[:16]."""
+        db_path = str(tmp_path / "test.db")
+        conn = _create_v2_db(db_path)
+        desc = "A test description for hash"
+        conn.execute(
+            "INSERT INTO entries (id, name, description, category, source, "
+            "source_project, source_hash, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("e1", "Test", desc, "patterns", "manual",
+             "/proj", None, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+        )
+        conn.commit()
+        conn.close()
+
+        expected_hash = hashlib.sha256(desc.encode()).hexdigest()[:16]
+        db = MemoryDatabase(db_path)
+        entry = db.get_entry("e1")
+        assert entry["source_hash"] == expected_hash
+        db.close()
+
+    def test_migration_v3_preserves_existing_values(self, tmp_path):
+        """Non-NULL values should be preserved through migration."""
+        db_path = str(tmp_path / "test.db")
+        conn = _create_v2_db(db_path)
+        conn.execute(
+            "INSERT INTO entries (id, name, description, category, source, "
+            "keywords, source_project, source_hash, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("e1", "Test", "Desc", "patterns", "manual",
+             '["keep"]', "/my/project", "existinghash1234",
+             "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+        )
+        conn.commit()
+        conn.close()
+
+        db = MemoryDatabase(db_path)
+        entry = db.get_entry("e1")
+        assert entry["keywords"] == '["keep"]'
+        assert entry["source_project"] == "/my/project"
+        assert entry["source_hash"] == "existinghash1234"
+        db.close()
+
+    def test_migration_v3_fts5_works_after_rebuild(self, tmp_path):
+        """FTS5 should work after migration rebuilds the table."""
+        db_path = str(tmp_path / "test.db")
+        conn = _create_v2_db(db_path)
+        conn.commit()
+        conn.close()
+
+        db = MemoryDatabase(db_path)
+        # Insert after migration
+        db.upsert_entry(_make_entry(id="post_migration", name="Searchable pattern"))
+        results = db.fts5_search("searchable")
+        assert len(results) >= 1
+        ids = [r[0] for r in results]
+        assert "post_migration" in ids
+        db.close()
+
+    def test_migration_v3_not_null_enforced_keywords(self, tmp_path):
+        """After migration, inserting NULL keywords should raise IntegrityError."""
+        db_path = str(tmp_path / "test.db")
+        db = MemoryDatabase(db_path)
+        with pytest.raises(sqlite3.IntegrityError):
+            db._conn.execute(
+                "INSERT INTO entries (id, name, description, category, source, "
+                "keywords, source_project, source_hash, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("e1", "Test", "Desc", "patterns", "manual",
+                 None, "/proj", "hash1234", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+            )
+        db.close()
+
+    def test_migration_v3_not_null_enforced_source_project(self, tmp_path):
+        """After migration, inserting NULL source_project should raise IntegrityError."""
+        db_path = str(tmp_path / "test.db")
+        db = MemoryDatabase(db_path)
+        with pytest.raises(sqlite3.IntegrityError):
+            db._conn.execute(
+                "INSERT INTO entries (id, name, description, category, source, "
+                "keywords, source_project, source_hash, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("e1", "Test", "Desc", "patterns", "manual",
+                 "[]", None, "hash1234", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+            )
+        db.close()
+
+    def test_migration_v3_not_null_enforced_source_hash(self, tmp_path):
+        """After migration, inserting NULL source_hash should raise IntegrityError."""
+        db_path = str(tmp_path / "test.db")
+        db = MemoryDatabase(db_path)
+        with pytest.raises(sqlite3.IntegrityError):
+            db._conn.execute(
+                "INSERT INTO entries (id, name, description, category, source, "
+                "keywords, source_project, source_hash, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("e1", "Test", "Desc", "patterns", "manual",
+                 "[]", "/proj", None, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+            )
         db.close()
 
 
@@ -281,6 +489,10 @@ class TestInsert:
         assert result["references"] is None
         assert result["last_recalled_at"] is None
         assert result["embedding"] is None
+        # keywords, source_project, source_hash are NOT NULL with defaults/values
+        assert result["keywords"] is not None
+        assert result["source_project"] is not None
+        assert result["source_hash"] is not None
 
 
 class TestUpsert:
@@ -350,16 +562,27 @@ class TestUpsert:
         result = db.get_entry("abc123")
         assert json.loads(result["keywords"]) == ["new1", "new2"]
 
-    def test_upsert_keeps_keywords_if_null(self, db: MemoryDatabase):
+    def test_upsert_keeps_keywords_if_empty_json(self, db: MemoryDatabase):
+        """Upserting with keywords='[]' should preserve existing keywords."""
         entry = _make_entry(keywords=json.dumps(["keep"]))
         db.upsert_entry(entry)
 
-        entry2 = _make_entry()
-        entry2["keywords"] = None
+        entry2 = _make_entry(keywords="[]")
         db.upsert_entry(entry2)
 
         result = db.get_entry("abc123")
         assert json.loads(result["keywords"]) == ["keep"]
+
+    def test_upsert_keeps_keywords_when_incoming_empty_json(self, db: MemoryDatabase):
+        """Explicit test: '[]' keywords should not overwrite existing non-empty keywords."""
+        entry = _make_entry(keywords=json.dumps(["keep-these"]))
+        db.upsert_entry(entry)
+
+        entry2 = _make_entry(keywords="[]")
+        db.upsert_entry(entry2)
+
+        result = db.get_entry("abc123")
+        assert json.loads(result["keywords"]) == ["keep-these"]
 
     def test_upsert_overwrites_reasoning_if_nonnull(self, db: MemoryDatabase):
         entry = _make_entry(reasoning="old reasoning")
@@ -533,12 +756,9 @@ class TestFTS5Detection:
         )
         assert cur.fetchone()[0] == 1
 
-    def test_fts5_handles_null_keywords(self, db: MemoryDatabase):
-        """Entries with NULL keywords should not break FTS5 triggers."""
-        entry = _make_entry()
-        entry.pop("keywords", None)
-        entry["keywords"] = None
-        # The insert should not raise
+    def test_fts5_handles_empty_json_keywords(self, db: MemoryDatabase):
+        """Entries with empty JSON '[]' keywords should not break FTS5 triggers."""
+        entry = _make_entry(keywords="[]")
         db.upsert_entry(entry)
         cur = db._conn.execute("SELECT COUNT(*) FROM entries_fts")
         assert cur.fetchone()[0] == 1

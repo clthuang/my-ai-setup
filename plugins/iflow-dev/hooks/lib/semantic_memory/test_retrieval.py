@@ -665,8 +665,8 @@ class TestCollectContextProjectDescription:
         assert "Project:" in context
         assert "managing tasks" in context
 
-    def test_not_used_when_active_feature_exists(self, tmp_path):
-        """Project description should NOT be used when an active feature exists."""
+    def test_project_description_always_included_with_active_feature(self, tmp_path):
+        """Project description should be included even when an active feature exists."""
         feature_dir = tmp_path / "docs" / "features" / "024-feature"
         feature_dir.mkdir(parents=True)
         (feature_dir / ".meta.json").write_text(json.dumps({
@@ -676,9 +676,9 @@ class TestCollectContextProjectDescription:
         }))
         (feature_dir / "spec.md").write_text("# Spec\n\nFeature description.")
 
-        # Also create a CLAUDE.md — should NOT be used
+        # Create a CLAUDE.md — should now be included alongside feature signals
         (tmp_path / "CLAUDE.md").write_text(
-            "## Repository Overview\n\nShould not appear.\n"
+            "## Repository Overview\n\nProject context always present.\n"
         )
 
         db = MockDatabase()
@@ -694,7 +694,35 @@ class TestCollectContextProjectDescription:
 
         assert context is not None
         assert "test-feature" in context
-        assert "Should not appear" not in context
+        assert "Project:" in context
+        assert "Project context always present" in context
+
+    def test_reads_readme_for_dev(self, tmp_path):
+        """Should include README_FOR_DEV.md content in project description."""
+        (tmp_path / "README_FOR_DEV.md").write_text(textwrap.dedent("""\
+            # Developer Guide
+
+            Internal developer documentation for the workflow system.
+
+            ## Architecture
+
+            More content.
+        """))
+
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+
+        with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+            mock_result = mock.Mock()
+            mock_result.returncode = 0
+            mock_result.stdout = ""
+            mock_subprocess.run.return_value = mock_result
+
+            context = pipeline.collect_context(str(tmp_path))
+
+        assert context is not None
+        assert "Project:" in context
+        assert "workflow system" in context
 
 
 class TestCollectContextWordLimit:

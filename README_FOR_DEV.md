@@ -29,7 +29,7 @@ Two plugins coexist in this repository:
 
 1. Create feature branch from `develop`
 2. Use conventional commits (`feat:`, `fix:`, `BREAKING CHANGE:`)
-3. Merge to `develop` via `/iflow:finish` or PR
+3. Merge to `develop` via `/iflow:finish-feature` or PR
 4. Release when ready using the release script
 
 ## Version Bump Logic
@@ -258,6 +258,8 @@ Hooks execute automatically at lifecycle points.
 | `cleanup-sandbox` | (utility) | Cleans up agent_sandbox/ temporary files |
 | `pre-commit-guard` | PreToolUse (Bash) | Branch protection and iflow directory protection |
 | `yolo-guard` | PreToolUse (.*) | Enforces YOLO mode safety boundaries on all tool calls |
+| `post-enter-plan` | PostToolUse (EnterPlanMode) | Injects plan review instructions before approval |
+| `post-exit-plan` | PostToolUse (ExitPlanMode) | Injects task breakdown and implementation workflow |
 | `yolo-stop` | Stop | Detects YOLO mode stop events and chains to next phase |
 
 SessionStart hooks match `startup|resume|clear` only -- they do not fire on `compact` events, preserving context window savings from compaction.
@@ -311,7 +313,7 @@ Hard prerequisites: spec.md AND tasks.md must pass 4-level validation before imp
    - Produces `implementation-log.md` with per-task decisions, deviations, and concerns
 2. **Simplification**: `code-simplifier` removes unnecessary complexity
 3. **Review** (iterative): `implementation-reviewer` -> `code-quality-reviewer` -> `security-reviewer` (up to 2-3 iterations)
-4. **Completion**: Prompts user to run `/finish`
+4. **Completion**: Prompts user to run `/finish-feature`
 
 The `implementation-log.md` artifact is read by the retro skill during `/finish` and then deleted alongside `.review-history.md`.
 
@@ -372,8 +374,8 @@ YOLO mode stops and reports to user (does not force through):
 | `commands/design.md` | Auto-proceed research, auto-chain to create-plan |
 | `commands/create-plan.md` | Auto-chain to create-tasks |
 | `commands/create-tasks.md` | Auto-chain to implement |
-| `commands/implement.md` | Circuit breaker STOP, auto-chain to finish |
-| `commands/finish.md` | Auto-continue, auto-merge, STOP on conflict |
+| `commands/implement.md` | Circuit breaker STOP, auto-chain to finish-feature |
+| `commands/finish-feature.md` | Auto-continue, auto-merge, STOP on conflict |
 | `agents/secretary.md` | Triage + reviewer gate + mode recommendation |
 | `agents/secretary-reviewer.md` | Validates routing before user sees recommendation |
 | `commands/secretary.md` | Yolo mode config + orchestrate subcommand + [YOLO_MODE] prefix |

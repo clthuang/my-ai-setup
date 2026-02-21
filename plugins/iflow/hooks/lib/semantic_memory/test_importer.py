@@ -233,8 +233,8 @@ class TestImportIntoDB:
         for entry in db.get_all_entries():
             assert entry["observation_count"] == entry.get("observation_count", 1)
 
-    def test_embeddings_and_keywords_are_null(self, db, importer, tmp_path):
-        """After import, embeddings and keywords are NULL (deferred)."""
+    def test_embeddings_null_keywords_empty_json(self, db, importer, tmp_path):
+        """After import, embeddings are NULL and keywords are '[]' (deferred)."""
         kb_dir = tmp_path / "docs" / "knowledge-bank"
         kb_dir.mkdir(parents=True)
         (kb_dir / "anti-patterns.md").write_text(ANTI_PATTERNS_MD)
@@ -245,9 +245,9 @@ class TestImportIntoDB:
 
         for entry in db.get_all_entries():
             # get_all_entries() excludes the embedding BLOB column;
-            # verify keywords are NULL (embeddings tested via get_entry).
+            # verify keywords are '[]' (embeddings tested via get_entry).
             assert "embedding" not in entry
-            assert entry["keywords"] is None
+            assert entry["keywords"] == "[]"
 
     def test_import_all_scans_local_and_global(self, db, importer, tmp_path):
         """import_all scans both local knowledge-bank and global store."""

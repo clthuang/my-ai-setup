@@ -10,8 +10,8 @@ Structured feature development workflow with skills, agents, and commands for me
 |------|-------|
 | Skills | 28 |
 | Agents | 28 |
-| Commands | 23 |
-| Hooks | 7 |
+| Commands | 24 |
+| Hooks | 9 |
 | MCP Tools | 2 |
 
 ## Commands
@@ -30,7 +30,8 @@ Structured feature development workflow with skills, agents, and commands for me
 | `/iflow-dev:create-plan` | plan.md |
 | `/iflow-dev:create-tasks` | tasks.md |
 | `/iflow-dev:implement` | Code changes |
-| `/iflow-dev:finish` | Merge, retro, cleanup |
+| `/iflow-dev:finish-feature` | Merge, retro, cleanup (iflow features) |
+| `/iflow-dev:wrap-up` | Wrap up implementation - review, retro, merge or PR |
 
 **Anytime:**
 | Command | Purpose |

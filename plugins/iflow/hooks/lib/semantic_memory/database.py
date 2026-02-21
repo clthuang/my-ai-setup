@@ -1,6 +1,7 @@
 """SQLite database layer for the semantic memory system."""
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 import sys
 from typing import Callable
@@ -118,11 +119,91 @@ def _add_source_hash_and_created_timestamp(
     """)
 
 
+def _enforce_not_null_columns(
+    conn: sqlite3.Connection,
+    *,
+    fts5_available: bool = False,
+    **_kwargs: object,
+) -> None:
+    """Migration 3: enforce NOT NULL on keywords, source_project, source_hash.
+
+    1. Backfill NULL values with sensible defaults.
+    2. Rebuild the entries table with NOT NULL constraints.
+    3. Recreate FTS5 virtual table and triggers if available.
+    """
+    # --- Backfill keywords ---
+    conn.execute("UPDATE entries SET keywords = '[]' WHERE keywords IS NULL")
+
+    # --- Backfill source_project ---
+    # Try to find a non-NULL source_project from existing import entries.
+    cur = conn.execute(
+        "SELECT source_project FROM entries "
+        "WHERE source_project IS NOT NULL LIMIT 1"
+    )
+    row = cur.fetchone()
+    fallback_project = row[0] if row else "unknown"
+    conn.execute(
+        "UPDATE entries SET source_project = ? WHERE source_project IS NULL",
+        (fallback_project,),
+    )
+
+    # --- Backfill source_hash ---
+    # Compute SHA-256(description)[:16] for entries missing source_hash.
+    cur = conn.execute(
+        "SELECT id, description FROM entries WHERE source_hash IS NULL"
+    )
+    for entry_id, description in cur.fetchall():
+        computed = hashlib.sha256(description.encode()).hexdigest()[:16]
+        conn.execute(
+            "UPDATE entries SET source_hash = ? WHERE id = ?",
+            (computed, entry_id),
+        )
+
+    # --- Rebuild table with NOT NULL constraints ---
+    conn.executescript("""
+        CREATE TABLE entries_new (
+            id                TEXT PRIMARY KEY,
+            name              TEXT NOT NULL,
+            description       TEXT NOT NULL,
+            reasoning         TEXT,
+            category          TEXT NOT NULL CHECK(category IN ('anti-patterns', 'patterns', 'heuristics')),
+            keywords          TEXT NOT NULL DEFAULT '[]',
+            source            TEXT NOT NULL CHECK(source IN ('retro', 'session-capture', 'manual', 'import')),
+            source_project    TEXT NOT NULL,
+            "references"      TEXT,
+            observation_count INTEGER DEFAULT 1,
+            confidence        TEXT DEFAULT 'medium' CHECK(confidence IN ('high', 'medium', 'low')),
+            recall_count      INTEGER DEFAULT 0,
+            last_recalled_at  TEXT,
+            embedding         BLOB,
+            created_at        TEXT NOT NULL,
+            updated_at        TEXT NOT NULL,
+            source_hash       TEXT NOT NULL,
+            created_timestamp_utc REAL
+        );
+        INSERT INTO entries_new SELECT * FROM entries;
+        DROP TABLE entries;
+        ALTER TABLE entries_new RENAME TO entries;
+    """)
+
+    # --- Recreate FTS5 objects ---
+    if fts5_available:
+        # Dropping old FTS table (may not exist in a fresh v2 DB)
+        conn.execute("DROP TABLE IF EXISTS entries_fts")
+        conn.execute("DROP TRIGGER IF EXISTS entries_ai")
+        conn.execute("DROP TRIGGER IF EXISTS entries_ad")
+        conn.execute("DROP TRIGGER IF EXISTS entries_au")
+        _create_fts5_objects(conn)
+        # Rebuild the FTS index from existing data
+        conn.execute("INSERT INTO entries_fts(entries_fts) VALUES('rebuild')")
+
+
 # Ordered mapping of version -> migration function.
 # Each migration brings the schema from (version - 1) to version.
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     1: _create_initial_schema,
     2: _add_source_hash_and_created_timestamp,
+    3: _enforce_not_null_columns,
 }
 
 # All 18 column names in insertion order.
@@ -239,6 +320,9 @@ class MemoryDatabase:
             key = col.strip('"')
             value = entry.get(key)
             if value is not None:
+                # Skip overwriting keywords with empty '[]' to preserve existing
+                if key == "keywords" and value == "[]":
+                    continue
                 set_parts.append(f"{col} = ?")
                 params.append(value)
 

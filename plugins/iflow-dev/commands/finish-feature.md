@@ -3,7 +3,7 @@ description: Complete a feature - merge, run retro, cleanup branch
 argument-hint: [feature-id]
 ---
 
-# /iflow:finish Command
+# /iflow-dev:finish-feature Command
 
 Complete a feature and clean up.
 
@@ -21,7 +21,7 @@ If `[YOLO_MODE]` is active:
 
 ## Determine Feature
 
-Same logic as /iflow:show-status command.
+Same logic as /iflow-dev:show-status command.
 
 ---
 
@@ -57,15 +57,15 @@ AskUserQuestion:
     "header": "Tasks",
     "options": [
       {"label": "Continue anyway", "description": "Proceed despite incomplete tasks"},
-      {"label": "Run /iflow:implement", "description": "Execute implementation once more"},
-      {"label": "Run /iflow:implement until done", "description": "Loop until all tasks complete"}
+      {"label": "Run /iflow-dev:implement", "description": "Execute implementation once more"},
+      {"label": "Run /iflow-dev:implement until done", "description": "Loop until all tasks complete"}
     ],
     "multiSelect": false
   }]
 ```
 
-If "Run /iflow:implement": Execute `/iflow:implement`, then return to Phase 2.
-If "Run /iflow:implement until done": Loop `/iflow:implement` until no incomplete tasks, then continue.
+If "Run /iflow-dev:implement": Execute `/iflow-dev:implement`, then return to Phase 2.
+If "Run /iflow-dev:implement until done": Loop `/iflow-dev:implement` until no incomplete tasks, then continue.
 
 ### Step 2b: Documentation Update (Automatic)
 
@@ -76,7 +76,7 @@ Run documentation update automatically using agents:
 ```
 Task tool call:
   description: "Research documentation context"
-  subagent_type: iflow:documentation-researcher
+  subagent_type: iflow-dev:documentation-researcher
   prompt: |
     Research current documentation state for feature {id}-{slug}.
 
@@ -116,7 +116,7 @@ If "Skip": Continue to Phase 3.
 ```
 Task tool call:
   description: "Update documentation"
-  subagent_type: iflow:documentation-writer
+  subagent_type: iflow-dev:documentation-writer
   prompt: |
     Update documentation based on research findings.
 
@@ -125,7 +125,7 @@ Task tool call:
 
     Pay special attention to any `drift_detected` entries — these represent
     components that exist on the filesystem but are missing from README.md
-    (or vice versa). Update BOTH README.md (root) and plugins/iflow/README.md
+    (or vice versa). Update BOTH README.md (root) and plugins/iflow-dev/README.md
     (plugin). Add missing entries to the appropriate tables, remove stale entries,
     and correct component count headers.
 
@@ -236,7 +236,7 @@ Pre-merge validation failed after 3 attempts.
 Still failing:
 - {check command}: {brief error summary}
 
-Fix these issues manually, then run /finish again.
+Fix these issues manually, then run /finish-feature again.
 ```
 
 Do NOT proceed to Create PR or Merge & Release if validation is failing.

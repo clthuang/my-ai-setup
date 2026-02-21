@@ -325,7 +325,7 @@ Saved to retro.md.
 
 ## Automatic Execution
 
-This skill runs automatically during `/iflow:finish`:
+This skill runs automatically during `/iflow:finish-feature`:
 - No permission prompt required
 - Findings drive knowledge bank updates
 - User sees summary of learnings captured

@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "hooks", "lib")
 
 # Smoke test: ensure the package is importable at startup.
 import semantic_memory  # noqa: F401
-from semantic_memory import VALID_CATEGORIES, VALID_CONFIDENCE, content_hash
+from semantic_memory import VALID_CATEGORIES, VALID_CONFIDENCE, content_hash, source_hash
 from semantic_memory.config import read_config
 from semantic_memory.database import MemoryDatabase
 from semantic_memory.embedding import EmbeddingProvider, create_provider
@@ -46,6 +46,7 @@ def _process_store_memory(
     category: str,
     references: list[str],
     confidence: str = "medium",
+    source_project: str = "",
 ) -> str:
     """Store a learning in the semantic memory database.
 
@@ -77,7 +78,7 @@ def _process_store_memory(
     source = "session-capture"
 
     # -- Generate keywords if keyword_gen available --
-    keywords_json: str | None = None
+    keywords_json: str = "[]"
     if keyword_gen is not None:
         try:
             kw_list = keyword_gen.generate(name, description, reasoning, category)
@@ -99,6 +100,8 @@ def _process_store_memory(
         "category": category,
         "keywords": keywords_json,
         "source": source,
+        "source_project": source_project,
+        "source_hash": source_hash(description),
         "confidence": confidence,
         "references": json.dumps(references),
         "created_at": now,
@@ -202,6 +205,7 @@ _db: MemoryDatabase | None = None
 _provider: EmbeddingProvider | None = None
 _keyword_gen: KeywordGenerator | None = None
 _config: dict = {}
+_project_root: str = ""
 
 # ---------------------------------------------------------------------------
 # Lifespan handler
@@ -211,7 +215,7 @@ _config: dict = {}
 @asynccontextmanager
 async def lifespan(server):
     """Manage DB connection and providers lifecycle."""
-    global _db, _provider, _keyword_gen, _config
+    global _db, _provider, _keyword_gen, _config, _project_root
 
     global_store = os.path.expanduser("~/.claude/iflow/memory")
     os.makedirs(global_store, exist_ok=True)
@@ -220,6 +224,7 @@ async def lifespan(server):
 
     # Read config from the project root (cwd at server start).
     project_root = os.getcwd()
+    _project_root = project_root
     config = read_config(project_root)
     _config = config
 
@@ -299,6 +304,7 @@ async def store_memory(
         category=category,
         references=references if references is not None else [],
         confidence=confidence,
+        source_project=_project_root,
     )
 
 

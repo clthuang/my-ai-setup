@@ -81,7 +81,7 @@ Return summary of changes:
   "updates_made": [
     {
       "file": "README.md",
-      "action": "Added /finish command to commands table",
+      "action": "Added /finish-feature command to commands table",
       "lines_changed": 1
     }
   ],

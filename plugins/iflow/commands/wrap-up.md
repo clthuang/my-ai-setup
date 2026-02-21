@@ -1,41 +1,31 @@
 ---
-description: Complete a feature - merge, run retro, cleanup branch
-argument-hint: [feature-id]
+description: Wrap up implementation - review, retro, merge or PR
+argument-hint: ""
 ---
 
-# /iflow-dev:finish Command
+# /iflow:wrap-up Command
 
-Complete a feature and clean up.
+Wrap up the current implementation with code review, retrospective, and merge/PR. This command is for work done outside the iflow feature workflow (e.g., after plan mode).
 
 ## YOLO Mode Overrides
 
 If `[YOLO_MODE]` is active:
 - Step 2a (tasks incomplete) → auto "Continue anyway"
-- Step 2b (docs no update needed AND `changelog_state.needs_entry` is false) → auto "Skip"
-- Step 2b (docs no update needed BUT `changelog_state.needs_entry` is true) → proceed with documentation-writer for CHANGELOG only
+- Step 2b (docs no update needed) → auto "Skip"
 - Step 2b (docs updates found) → proceed with documentation-writer (no prompt needed)
 - Phase 4 (completion decision) → auto "Merge & Release (Recommended)"
 - **Git merge failure:** STOP and report. Do NOT attempt to resolve merge conflicts
-  autonomously. Output: "YOLO MODE STOPPED: Merge conflict on develop. Resolve manually,
-  then run /secretary continue"
-
-## Determine Feature
-
-Same logic as /iflow-dev:show-status command.
+  autonomously. Output: "YOLO MODE STOPPED: Merge conflict on develop. Resolve manually."
 
 ---
 
-## Phase 1: Auto-Commit (with Branch/Phase Checks)
+## Phase 1: Auto-Commit and Push
 
-### Steps 1a-1c: Branch Check, Partial Recovery, Mark Started
-
-Follow `validateAndSetup("finish")` from the **workflow-transitions** skill (skip transition validation since finish has no hard prerequisites).
-
-### Step 1d: Commit and Push
+### Step 1a: Commit and Push
 
 1. Check for uncommitted changes via `git status --short`
 2. If uncommitted changes found:
-   - `git add -A && git commit -m "wip: uncommitted changes before finish"`
+   - `git add -A && git commit -m "wip: uncommitted changes before wrap-up"`
    - `git push`
    - On push failure: Show error and STOP - user must resolve manually
 3. If no uncommitted changes: Continue
@@ -44,9 +34,11 @@ Follow `validateAndSetup("finish")` from the **workflow-transitions** skill (ski
 
 ## Phase 2: Pre-Completion Reviews
 
-### Step 2a: Check Tasks Completion
+### Step 2a: Check Task Completion
 
-If `tasks.md` exists, check for incomplete tasks (unchecked `- [ ]` items).
+1. Call `TaskList` to get all tasks
+2. Count pending/in_progress tasks
+3. If no tasks exist: Continue (skip this step)
 
 If incomplete tasks found:
 
@@ -57,32 +49,34 @@ AskUserQuestion:
     "header": "Tasks",
     "options": [
       {"label": "Continue anyway", "description": "Proceed despite incomplete tasks"},
-      {"label": "Run /iflow-dev:implement", "description": "Execute implementation once more"},
-      {"label": "Run /iflow-dev:implement until done", "description": "Loop until all tasks complete"}
+      {"label": "Review and complete tasks first", "description": "Go back and finish remaining tasks"}
     ],
     "multiSelect": false
   }]
 ```
 
-If "Run /iflow-dev:implement": Execute `/iflow-dev:implement`, then return to Phase 2.
-If "Run /iflow-dev:implement until done": Loop `/iflow-dev:implement` until no incomplete tasks, then continue.
+If "Review and complete tasks first": Show "Complete remaining tasks, then run /iflow:wrap-up again." → STOP
 
 ### Step 2b: Documentation Update (Automatic)
 
 Run documentation update automatically using agents:
 
-1. **Dispatch documentation-researcher agent:**
+1. **Gather context from git:**
+   - Run `git log --oneline -20` for recent commit messages
+   - Run `git diff --stat HEAD~20` (or since branch divergence) for files changed
+
+2. **Dispatch documentation-researcher agent:**
 
 ```
 Task tool call:
   description: "Research documentation context"
-  subagent_type: iflow-dev:documentation-researcher
+  subagent_type: iflow:documentation-researcher
   prompt: |
-    Research current documentation state for feature {id}-{slug}.
+    Research current documentation state for recent implementation work.
 
-    Feature context:
-    - spec.md: {content summary}
-    - Files changed: {list from git diff}
+    Context:
+    - Recent commits: {git log output}
+    - Files changed: {git diff stat output}
 
     Find:
     - Existing docs that may need updates
@@ -92,7 +86,7 @@ Task tool call:
     Return findings as structured JSON.
 ```
 
-2. **Evaluate researcher findings:**
+3. **Evaluate researcher findings:**
 
 If `no_updates_needed: true`:
 
@@ -111,21 +105,20 @@ AskUserQuestion:
 
 If "Skip": Continue to Phase 3.
 
-3. **Dispatch documentation-writer agent:**
+4. **Dispatch documentation-writer agent:**
 
 ```
 Task tool call:
   description: "Update documentation"
-  subagent_type: iflow-dev:documentation-writer
+  subagent_type: iflow:documentation-writer
   prompt: |
     Update documentation based on research findings.
 
-    Feature: {id}-{slug}
     Research findings: {JSON from researcher agent}
 
     Pay special attention to any `drift_detected` entries — these represent
     components that exist on the filesystem but are missing from README.md
-    (or vice versa). Update BOTH README.md (root) and plugins/iflow-dev/README.md
+    (or vice versa). Update BOTH README.md (root) and plugins/iflow/README.md
     (plugin). Add missing entries to the appropriate tables, remove stale entries,
     and correct component count headers.
 
@@ -139,10 +132,10 @@ Task tool call:
     Return summary of changes made.
 ```
 
-4. **Commit documentation changes:**
+5. **Commit documentation changes:**
 ```bash
 git add -A
-git commit -m "docs: update documentation for feature {id}-{slug}"
+git commit -m "docs: update documentation"
 git push
 ```
 
@@ -150,18 +143,40 @@ git push
 
 ## Phase 3: Retrospective (Automatic)
 
-Run retrospective automatically without asking permission.
-
 ### Step 3a: Run Retrospective
 
-Follow the `retrospecting` skill, which handles:
-1. Context bundle assembly (.meta.json, .review-history.md, git summary, artifact stats)
-2. retro-facilitator agent dispatch (AORTA framework analysis)
-3. retro.md generation
-4. Knowledge bank updates
-5. Commit
+Dispatch retro-facilitator agent with lightweight context:
 
-The skill includes graceful degradation — if retro-facilitator fails, it falls back to investigation-agent.
+```
+Task tool call:
+  description: "Run retrospective"
+  subagent_type: iflow:retro-facilitator
+  prompt: |
+    Run an AORTA retrospective on the recent implementation work.
+
+    Context:
+    - Recent commits: {git log --oneline -20}
+    - Files changed: {git diff --stat summary}
+
+    Analyze what went well, obstacles encountered, and learnings.
+    Return structured findings.
+```
+
+If retro-facilitator fails, fall back to:
+```
+Task tool call:
+  description: "Gather retrospective context"
+  subagent_type: iflow:investigation-agent
+  prompt: |
+    Analyze the recent implementation work for learnings.
+    - Recent commits: {git log}
+    - Files changed: {list}
+    Return key observations and learnings.
+```
+
+Store learnings directly via `store_memory` MCP tool (no retro.md file).
+
+Commit if any changes were made.
 
 ### Step 3b: CLAUDE.md Update
 
@@ -178,7 +193,7 @@ Capture session learnings into project CLAUDE.md.
 3. **If changes made:**
    ```bash
    git add CLAUDE.md .claude.local.md 2>/dev/null
-   git commit -m "chore: update CLAUDE.md with feature {id}-{slug} learnings" --allow-empty
+   git commit -m "chore: update CLAUDE.md with session learnings" --allow-empty
    git push
    ```
 
@@ -186,12 +201,10 @@ Capture session learnings into project CLAUDE.md.
 
 ## Phase 4: Completion Decision
 
-Present only two options:
-
 ```
 AskUserQuestion:
   questions: [{
-    "question": "Feature {id}-{slug} complete. How would you like to finish?",
+    "question": "Work complete. How would you like to finish?",
     "header": "Finish",
     "options": [
       {"label": "Merge & Release (Recommended)", "description": "Merge to develop and run release script"},
@@ -207,7 +220,7 @@ AskUserQuestion:
 
 ### Step 5a: Pre-Merge Validation
 
-Before executing the selected option, discover and run project checks to catch issues while still on the feature branch.
+Before executing the selected option, discover and run project checks.
 
 **Discovery** — scan in this order, collecting checks from all matching categories:
 
@@ -236,7 +249,7 @@ Pre-merge validation failed after 3 attempts.
 Still failing:
 - {check command}: {brief error summary}
 
-Fix these issues manually, then run /finish again.
+Fix these issues manually, then run /iflow:wrap-up again.
 ```
 
 Do NOT proceed to Create PR or Merge & Release if validation is failing.
@@ -244,15 +257,15 @@ Do NOT proceed to Create PR or Merge & Release if validation is failing.
 ### If "Create PR":
 
 ```bash
-git push -u origin feature/{id}-{slug}
-gh pr create --title "Feature: {slug}" --body "## Summary
-{Brief description from spec.md}
+git push -u origin HEAD
+gh pr create --title "{Brief summary from commits}" --body "## Summary
+{Brief description from recent changes}
 
 ## Changes
 {List of key changes}
 
 ## Testing
-{Test instructions or 'See tasks.md'}"
+{Test instructions}"
 ```
 
 Output: "PR created: {url}"
@@ -264,7 +277,7 @@ Output: "PR created: {url}"
 # Merge to develop
 git checkout develop
 git pull origin develop
-git merge feature/{id}-{slug}
+git merge {current-branch}
 git push
 
 # Run release script
@@ -276,43 +289,21 @@ Output: "Merged to develop. Release: v{version}"
 
 ---
 
-## Phase 6: Cleanup (Automatic)
+## Phase 6: Cleanup
 
-Run automatically after Phase 5 completes.
+### Step 6a: Branch Cleanup
 
-### Step 6a: Update .meta.json
+Determine current branch:
+- If on `develop` or `main`: No branch cleanup needed
+- If on a feature/topic branch:
+  - After PR: Branch will be deleted when PR merged via GitHub
+  - After Merge & Release: `git branch -d {branch-name}`
 
-```json
-{
-  "status": "completed",
-  "completed": "{ISO timestamp}",
-  "phases": {
-    "finish": {
-      "completed": "{ISO timestamp}"
-    }
-  }
-}
-```
-
-### Step 6b: Delete temporary files
-
-```bash
-rm docs/features/{id}-{slug}/.review-history.md 2>/dev/null || true
-rm docs/features/{id}-{slug}/implementation-log.md 2>/dev/null || true
-```
-
-### Step 6c: Delete Feature Branch
-
-- After PR: Branch will be deleted when PR merged via GitHub
-- After Merge & Release: `git branch -d feature/{id}-{slug}`
-
-### Step 6d: Final Output
+### Step 6b: Final Output
 
 ```
-Feature {id}-{slug} completed
-Retrospective saved to retro.md
-Branch cleaned up
+Work wrapped up successfully.
 {PR created: {url} | Released v{version}}
 
-Learnings captured in knowledge bank.
+Learnings captured via memory tools.
 ```

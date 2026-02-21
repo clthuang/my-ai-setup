@@ -148,8 +148,8 @@ If argument starts with `orchestrate` or `continue`:
 | design | iflow:create-plan |
 | create-plan | iflow:create-tasks |
 | create-tasks | iflow:implement |
-| implement | iflow:finish |
-| finish | Already complete — report "Feature already completed." and stop |
+| implement | iflow:finish-feature |
+| finish-feature | Already complete — report "Feature already completed." and stop |
 
 ### Execute in Main Session
 
@@ -171,7 +171,7 @@ The existing command chaining and YOLO overrides handle everything from here. Ea
 
 The chain breaks and reports to user when:
 - **Circuit breaker**: 5 review iterations without approval in implementation
-- **Git merge conflict**: Cannot auto-resolve in /finish
+- **Git merge conflict**: Cannot auto-resolve in /finish-feature
 - **Hard prerequisite failure**: Missing design.md (blocks create-plan), plan.md (blocks create-tasks), spec.md or tasks.md (blocks implement)
 - **Pre-merge validation failure**: 3 fix attempts exhausted
 
