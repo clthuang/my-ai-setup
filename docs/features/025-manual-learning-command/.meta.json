@@ -6,10 +6,12 @@
   "created": "2026-02-21T01:30:00Z",
   "branch": "feature/025-manual-learning-command",
   "brainstorm_source": "docs/brainstorms/20260221-012305-manual-learning-command.prd.md",
-  "lastCompletedPhase": null,
+  "lastCompletedPhase": "specify",
   "phases": {
     "specify": {
-      "started": "2026-02-21T01:35:00Z"
+      "started": "2026-02-21T01:35:00Z",
+      "completed": "2026-02-21T01:58:00Z",
+      "artifacts": ["spec.md"]
     }
   }
 }
