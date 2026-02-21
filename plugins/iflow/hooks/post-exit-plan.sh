@@ -14,7 +14,7 @@ if [[ "$enabled" != "true" ]]; then
     echo '{}'; exit 0
 fi
 
-# Guard: skip if active iflow feature exists (standard workflow handles this)
+# Detect active iflow feature (affects section 4 guidance)
 has_active=$(python3 -c "
 import os, json, glob
 features = glob.glob(os.path.join('$PROJECT_ROOT', 'docs/features/*/.meta.json'))
@@ -30,10 +30,6 @@ for f in features:
         pass
 print('no')
 " 2>/dev/null) || has_active="no"
-
-if [[ "$has_active" == "yes" ]]; then
-    echo '{}'; exit 0
-fi
 
 # Inject post-approval workflow instructions
 context="## Post-Approval Workflow\n\n"
@@ -65,7 +61,11 @@ context+="- Mark each task in_progress before starting\n"
 context+="- Mark completed when done\n"
 context+="- Use TaskList to find the next available task\n\n"
 context+="### 4. Finish\n"
-context+="When all tasks are complete, run \`/iflow:wrap-up\` for code review and finishing.\n"
+if [[ "$has_active" == "yes" ]]; then
+    context+="When all tasks are complete, continue with the feature workflow. Run \`/iflow:show-status\` to see the current phase and next steps.\n"
+else
+    context+="When all tasks are complete, run \`/iflow:wrap-up\` for code review and finishing.\n"
+fi
 
 escaped=$(escape_json "$context")
 cat <<EOF

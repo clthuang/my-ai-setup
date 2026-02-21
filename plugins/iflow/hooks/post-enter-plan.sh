@@ -14,27 +14,6 @@ if [[ "$enabled" != "true" ]]; then
     echo '{}'; exit 0
 fi
 
-# Guard: skip if active iflow feature exists (standard /create-plan handles review)
-has_active=$(python3 -c "
-import os, json, glob
-features = glob.glob(os.path.join('$PROJECT_ROOT', 'docs/features/*/.meta.json'))
-for f in features:
-    try:
-        with open(f) as fh:
-            if json.load(fh).get('status') == 'active':
-                print('yes')
-                raise SystemExit
-    except SystemExit:
-        raise
-    except:
-        pass
-print('no')
-" 2>/dev/null) || has_active="no"
-
-if [[ "$has_active" == "yes" ]]; then
-    echo '{}'; exit 0
-fi
-
 # Inject review instructions
 context="## Plan Mode: Review Before Approval\n\n"
 context+="After writing your plan but BEFORE calling ExitPlanMode, you MUST run plan review:\n\n"
