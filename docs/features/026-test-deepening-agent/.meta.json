@@ -1,0 +1,16 @@
+{
+  "id": "026",
+  "slug": "test-deepening-agent",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-02-22T02:05:00Z",
+  "branch": "feature/026-test-deepening-agent",
+  "brainstorm_source": "docs/brainstorms/20260222-015904-test-deepening-agent.prd.md",
+  "lastCompletedPhase": null,
+  "phases": {
+    "specify": {
+      "status": "started",
+      "startedAt": "2026-02-22T02:06:00Z"
+    }
+  }
+}
