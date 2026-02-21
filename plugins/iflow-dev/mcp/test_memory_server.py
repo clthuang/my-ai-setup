@@ -251,6 +251,96 @@ class TestDuplicateEntry:
 
 
 # ---------------------------------------------------------------------------
+# Test: confidence parameter
+# ---------------------------------------------------------------------------
+
+
+class TestConfidence:
+    def test_confidence_defaults_to_medium(self, db: MemoryDatabase):
+        """When confidence kwarg is omitted, the DB DEFAULT 'medium' applies."""
+        _process_store_memory(
+            db=db,
+            provider=None,
+            keyword_gen=None,
+            name="test",
+            description="test description for confidence default",
+            reasoning="testing",
+            category="heuristics",
+            references=[],
+        )
+        expected_hash = content_hash("test description for confidence default")
+        entry = db.get_entry(expected_hash)
+        assert entry["confidence"] == "medium"
+
+    def test_confidence_low_stored_correctly(self, db: MemoryDatabase):
+        """Passing confidence='low' should persist that value."""
+        _process_store_memory(
+            db=db,
+            provider=None,
+            keyword_gen=None,
+            name="test",
+            description="test description for low confidence",
+            reasoning="testing",
+            category="heuristics",
+            references=[],
+            confidence="low",
+        )
+        expected_hash = content_hash("test description for low confidence")
+        entry = db.get_entry(expected_hash)
+        assert entry["confidence"] == "low"
+
+    def test_invalid_confidence_returns_error(self, db: MemoryDatabase):
+        """Invalid confidence value should return an error, not store."""
+        result = _process_store_memory(
+            db=db,
+            provider=None,
+            keyword_gen=None,
+            name="test",
+            description="test description for invalid confidence",
+            reasoning="testing",
+            category="heuristics",
+            references=[],
+            confidence="invalid",
+        )
+        assert "Error" in result
+        expected_hash = content_hash("test description for invalid confidence")
+        assert db.get_entry(expected_hash) is None
+
+    def test_new_entry_with_confidence_returns_stored(self, db: MemoryDatabase):
+        """A new entry with confidence='low' should return 'Stored:' prefix."""
+        result = _process_store_memory(
+            db=db,
+            provider=None,
+            keyword_gen=None,
+            name="test",
+            description="test description for new entry confidence",
+            reasoning="testing",
+            category="heuristics",
+            references=[],
+            confidence="low",
+        )
+        assert result.startswith("Stored:")
+
+    def test_duplicate_entry_returns_reinforced(self, db: MemoryDatabase):
+        """Second store of same description should return 'Reinforced:' with count."""
+        desc = "test description for duplicate reinforced"
+        for _ in range(2):
+            result = _process_store_memory(
+                db=db,
+                provider=None,
+                keyword_gen=None,
+                name="test",
+                description=desc,
+                reasoning="testing",
+                category="heuristics",
+                references=[],
+                confidence="low",
+            )
+        assert result.startswith("Reinforced:")
+        assert "observation" in result.lower()
+
+
+# ---------------------------------------------------------------------------
 # Test: keywords
 # ---------------------------------------------------------------------------
 
@@ -529,3 +619,37 @@ class TestSearchMemory:
         assert "Heuristic: Test entry" in result
         assert "Prevents permission-denied errors" in result
         assert "Confidence:" in result
+
+
+# ---------------------------------------------------------------------------
+# Test: store_memory MCP tool accepts confidence parameter (Task 1.4)
+# ---------------------------------------------------------------------------
+
+import inspect
+
+from memory_server import store_memory  # noqa: E402
+
+
+class TestStoreMemoryMCPToolConfidence:
+    def test_store_memory_has_confidence_parameter(self):
+        """The store_memory MCP tool must accept a 'confidence' parameter."""
+        sig = inspect.signature(store_memory)
+        assert "confidence" in sig.parameters, (
+            "store_memory() is missing 'confidence' parameter"
+        )
+
+    def test_store_memory_confidence_defaults_to_medium(self):
+        """The confidence parameter should default to 'medium'."""
+        sig = inspect.signature(store_memory)
+        param = sig.parameters["confidence"]
+        assert param.default == "medium", (
+            f"Expected default 'medium', got {param.default!r}"
+        )
+
+    def test_store_memory_confidence_type_is_str(self):
+        """The confidence parameter should be typed as str."""
+        sig = inspect.signature(store_memory)
+        param = sig.parameters["confidence"]
+        assert param.annotation is str or param.annotation == "str", (
+            f"Expected str annotation, got {param.annotation!r}"
+        )

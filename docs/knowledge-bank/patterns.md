@@ -152,11 +152,11 @@ When a workflow has nested iteration loops, make budgets independent.
 - Key: Each cycle has its own counter and max, preventing one from starving the other
 
 ### Pattern: Heavy Upfront Review Investment
-Heavy upfront review investment (30+ pre-implementation review iterations) correlates with clean implementation (0 deviations, 0 concerns across all tasks). Front-loading review effort shifts risk discovery to phases where changes are cheap (text edits) rather than expensive (code changes).
+Heavy upfront review investment (15-30+ pre-implementation review iterations) correlates with clean implementation (0-1 actionable issues across all reviewers). Front-loading review effort shifts risk discovery to phases where changes are cheap (text edits) rather than expensive (code changes).
 - Observed in: Feature #022, implementation phase
 - Confidence: high
-- Last observed: Feature #022
-- Observation count: 1
+- Last observed: Feature #025
+- Observation count: 2
 
 ### Pattern: Template Indentation Matching
 When inserting blocks into existing prompt templates, read the target file first and match its specific indentation level (which may differ per file). Prevents downstream formatting issues.
@@ -173,11 +173,11 @@ Define interfaces before implementation. Enables parallel work.
 -->
 
 ### Pattern: Skeptic Design Reviewer Catches Feasibility Blockers Early
-When the design reviewer operates in 'skeptic' mode and challenges unverified assumptions (CLI mechanisms, parser complexity, file format handling), it prevents costly rework in later phases. Architectural pivots made during design (env var over CLI args, split-and-partition over state machine) are far cheaper than discovering these issues during implementation.
+When the design reviewer operates in 'skeptic' mode and challenges unverified assumptions (CLI mechanisms, parser complexity, file format handling, runtime behavior gaps), it prevents costly rework in later phases. Architectural pivots and behavioral clarifications made during design are far cheaper than discovering these issues during implementation.
 - Observed in: Feature #023, design phase
 - Confidence: high
-- Last observed: Feature #023
-- Observation count: 1
+- Last observed: Feature #025
+- Observation count: 2
 
 ### Pattern: Detailed Rebuttals With Line-Number Evidence Resolve False Positives
 When the implementer provides exact line references, quotes from spec/design, and git-blame evidence for pre-existing code, false-positive review blockers are resolved without code churn. This preserves implementation quality while avoiding unnecessary changes.

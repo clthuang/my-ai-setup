@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "hooks", "lib")
 
 # Smoke test: ensure the package is importable at startup.
 import semantic_memory  # noqa: F401
-from semantic_memory import VALID_CATEGORIES, content_hash
+from semantic_memory import VALID_CATEGORIES, VALID_CONFIDENCE, content_hash
 from semantic_memory.config import read_config
 from semantic_memory.database import MemoryDatabase
 from semantic_memory.embedding import EmbeddingProvider, create_provider
@@ -45,6 +45,7 @@ def _process_store_memory(
     reasoning: str,
     category: str,
     references: list[str],
+    confidence: str = "medium",
 ) -> str:
     """Store a learning in the semantic memory database.
 
@@ -62,6 +63,11 @@ def _process_store_memory(
         return (
             f"Error: invalid category '{category}'. "
             f"Must be one of: {', '.join(sorted(VALID_CATEGORIES))}"
+        )
+    if confidence not in VALID_CONFIDENCE:
+        return (
+            f"Error: invalid confidence '{confidence}'. "
+            f"Must be one of: {', '.join(sorted(VALID_CONFIDENCE))}"
         )
 
     # -- Compute content hash (id) --
@@ -93,10 +99,15 @@ def _process_store_memory(
         "category": category,
         "keywords": keywords_json,
         "source": source,
+        "confidence": confidence,
         "references": json.dumps(references),
         "created_at": now,
         "updated_at": now,
     }
+
+    # Pre-check before upsert to distinguish new vs. reinforced return message
+    # Safe: MCP server is single-threaded with one DB connection; no concurrent writes possible
+    existing = db.get_entry(entry_id)
 
     # -- Upsert into DB --
     db.upsert_entry(entry)
@@ -125,6 +136,11 @@ def _process_store_memory(
                 file=sys.stderr,
             )
 
+    # Differentiated return based on pre-upsert existence
+    if existing:
+        # Read post-upsert state for accurate observation_count
+        updated = db.get_entry(entry_id)
+        return f"Reinforced: {name} (id: {entry_id}, observations: {updated['observation_count']})"
     return f"Stored: {name} (id: {entry_id})"
 
 
@@ -248,6 +264,7 @@ async def store_memory(
     reasoning: str,
     category: str,
     references: list[str] | None = None,
+    confidence: str = "medium",
 ) -> str:
     """Save a learning to long-term memory.
 
@@ -263,6 +280,9 @@ async def store_memory(
         One of: anti-patterns, patterns, heuristics.
     references:
         Optional list of file paths or URLs related to this learning.
+    confidence:
+        Confidence level for this learning. One of: high, medium, low.
+        Default: medium.
 
     Returns confirmation message or error.
     """
@@ -278,6 +298,7 @@ async def store_memory(
         reasoning=reasoning,
         category=category,
         references=references if references is not None else [],
+        confidence=confidence,
     )
 
 

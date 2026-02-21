@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `/remember` command for manually capturing learnings to long-term memory
+- `capturing-learnings` skill for model-initiated learning capture with configurable modes (ask-first, silent, off)
+- `memory_model_capture_mode` and `memory_silent_capture_budget` configuration keys for controlling model-initiated memory capture
+- Optional `confidence` parameter (high/medium/low, defaults to medium) for `store_memory` MCP tool
+- Memory capture hints in session-start context for model-initiated learning capture
 - Semantic memory system with embedding-based retrieval using cosine similarity and hybrid ranking
 - `store_memory` MCP tool for mid-session memory capture
 - `search_memory` MCP tool for on-demand semantic memory search with hybrid ranking (vector + BM25)

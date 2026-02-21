@@ -194,6 +194,7 @@ Skills are instructions Claude follows for specific development practices. Locat
 | `updating-docs` | Automatically updates documentation using agents |
 | `writing-skills` | Applies TDD approach to skill documentation |
 | `detecting-kanban` | Detects Vibe-Kanban and provides TodoWrite fallback |
+| `capturing-learnings` | Guides model-initiated learning capture with configurable modes |
 
 ## Agents
 
@@ -397,7 +398,7 @@ Universal entries are promoted to a global store at `~/.claude/iflow/memory/` du
 **Semantic Retrieval:** Memory uses embedding-based retrieval with cosine similarity and hybrid ranking. SQLite database (`memory.db`) stores embeddings for semantic search. Legacy fallback (observation-count ranking) activates when semantic memory is disabled or no API key is set.
 
 **MCP Tools:** Two MCP tools are exposed via `plugins/iflow-dev/mcp/memory_server.py`:
-- `store_memory` -- Save a learning (name, description, reasoning, category, references) to long-term memory with automatic embedding generation
+- `store_memory` -- Save a learning (name, description, reasoning, category, references) to long-term memory with automatic embedding generation. Optional `confidence` parameter (high/medium/low, defaults to medium) controls retrieval ranking weight.
 - `search_memory` -- Search long-term memory for relevant learnings using hybrid retrieval (vector similarity + BM25 keyword search)
 
 **Setup:**
@@ -416,6 +417,8 @@ Without an API key, memory still works via FTS5 keyword search and prominence ra
 - `memory_semantic_enabled` — Enable semantic retrieval (default: true)
 - `memory_embedding_provider` — Provider for embeddings (default: gemini)
 - `memory_embedding_model` — Model for embeddings (default: gemini-embedding-001)
+- `memory_model_capture_mode` — Model-initiated learning capture mode: ask-first, silent, or off (default: ask-first)
+- `memory_silent_capture_budget` — Max silent captures per session before switching to ask-first (default: 5)
 - `memory_injection_enabled` — Enable memory injection at session start (default: true)
 - `memory_injection_limit` — Max entries to inject per session (default: 20)
 

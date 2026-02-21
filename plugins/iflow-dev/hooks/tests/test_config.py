@@ -34,6 +34,8 @@ class TestReadConfigDefaults:
         assert result["memory_embedding_model"] == "gemini-embedding-001"
         assert result["memory_keyword_provider"] == "auto"
         assert result["memory_injection_limit"] == 20
+        assert result["memory_model_capture_mode"] == "ask-first"
+        assert result["memory_silent_capture_budget"] == 5
 
     def test_default_types(self, tmp_path):
         result = read_config(str(tmp_path))

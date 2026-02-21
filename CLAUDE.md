@@ -50,6 +50,9 @@ AskUserQuestion:
 ```bash
 # Validate components
 ./validate.sh
+
+# Run memory server tests (requires venv for MCP deps)
+.venv/bin/python -m pytest plugins/iflow-dev/mcp/test_memory_server.py -v
 ```
 
 ## Key References
@@ -78,6 +81,7 @@ AskUserQuestion:
 
 **Documentation sync:** When adding, removing, or renaming skills, commands, or agents in `plugins/iflow-dev/`, update:
 - `README.md` and `README_FOR_DEV.md` — skill/agent/command tables and counts
+- `plugins/iflow-dev/README.md` — component counts table and command/agent tables
 - `plugins/iflow-dev/skills/workflow-state/SKILL.md` — Workflow Map section (if phase sequence or prerequisites change)
 
 A hookify rule (`.claude/hookify.docs-sync.local.md`) will remind you on plugin component edits.

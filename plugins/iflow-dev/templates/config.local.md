@@ -14,4 +14,6 @@ memory_prominence_weight: 0.3
 memory_embedding_provider: gemini
 memory_embedding_model: gemini-embedding-001
 memory_keyword_provider: auto
+memory_model_capture_mode: ask-first
+memory_silent_capture_budget: 5
 ---
