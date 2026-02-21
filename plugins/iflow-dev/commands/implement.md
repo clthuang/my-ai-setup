@@ -90,6 +90,125 @@ If simplifications found:
 - Verify tests still pass
 - Return to main agent
 
+### 6. Test Deepening Phase
+
+Dispatch test-deepener agent in two phases. Phase A generates spec-driven test outlines without implementation access. Phase B writes executable tests.
+
+**Phase A — Generate test outlines from spec only:**
+```
+Task tool call:
+  description: "Generate test outlines from spec"
+  subagent_type: iflow-dev:test-deepener
+  prompt: |
+    PHASE A: Generate test outlines from specifications only.
+    Do NOT read implementation files. Do NOT use Glob/Grep to find source code.
+    You will receive implementation access in Phase B.
+
+    Feature: {feature name from .meta.json slug}
+
+    ## Spec (acceptance criteria — your primary test oracle)
+    {content of spec.md}
+
+    ## Design (error handling contracts, performance constraints)
+    {content of design.md}
+
+    ## Tasks (what was supposed to be built)
+    {content of tasks.md}
+
+    ## PRD Goals
+    {Problem Statement + Goals sections from prd.md}
+
+    Generate Given/When/Then test outlines for all applicable dimensions.
+    Return as structured JSON with dimension, scenario name, given/when/then text,
+    and derived_from reference to spec criterion.
+```
+
+**Phase A validation:** If `outlines` array is empty, log warning: "Test deepening Phase A returned no outlines — skipping test deepening" and proceed to Step 7.
+
+**Files-changed union assembly:**
+
+Build the union of files from Step 4 (implementation) and Step 5 (simplification):
+
+```
+# files from Step 4 (already in orchestrator context)
+implementation_files = step_4_aggregate.files_changed
+
+# files from Step 5 (already in orchestrator context)
+simplification_files = [s.location.split(":")[0] for s in step_5_output.simplifications]
+
+# union and deduplicate
+files_changed = sorted(set(implementation_files + simplification_files))
+```
+
+**Fallback if context was compacted:** If the orchestrator no longer holds Step 4/5 data in context (due to conversation compaction), parse `implementation-log.md` directly. Each task section contains a "Files changed" or "files_changed" field with file paths. Match lines that look like file paths (contain `/` and end with a file extension). Step 5 paths are always a subset of Step 4 paths, so no coverage gap exists.
+
+**Phase B — Write executable tests:**
+```
+Task tool call:
+  description: "Write and verify deepened tests"
+  subagent_type: iflow-dev:test-deepener
+  prompt: |
+    PHASE B: Write executable test code from these outlines.
+
+    Feature: {feature name}
+
+    ## Test Outlines (from Phase A)
+    {Phase A JSON output — the full outlines array}
+
+    ## Files Changed (implementation + simplification)
+    {deduplicated file list}
+
+    Step 1: Read existing test files for changed code to identify the test
+    framework, assertion patterns, and file organization conventions. Match
+    these exactly when writing new tests.
+
+    Step 2: Skip scenarios already covered by existing TDD tests.
+
+    Step 3: Write executable tests, run the suite, and report.
+```
+
+**Divergence control flow:**
+
+After Phase B completes, check `spec_divergences` in the output:
+
+- **If `spec_divergences` is empty:** Proceed to Step 7 (Review Phase).
+
+- **If `spec_divergences` is non-empty AND YOLO mode OFF:**
+  ```
+  AskUserQuestion:
+    questions: [{
+      "question": "Test deepening found {n} spec divergences. How to proceed?",
+      "header": "Spec Divergences",
+      "options": [
+        {"label": "Fix implementation", "description": "Dispatch implementer to fix code to match spec, then re-run Phase B"},
+        {"label": "Accept implementation", "description": "Remove divergent tests and proceed to review"},
+        {"label": "Review manually", "description": "Inspect divergences before deciding"}
+      ],
+      "multiSelect": false
+    }]
+  ```
+
+  - **"Fix implementation":**
+    1. Dispatch implementer agent with `spec_divergences` formatted as issues (spec_criterion as requirement, expected as target, actual as bug, failing_test as evidence). Include spec.md, design.md, and implementation files in context.
+    2. Re-run Phase B only (Phase A outlines are unchanged since spec inputs don't change when implementation is fixed).
+    3. Max 2 re-runs. If divergences persist after 2 cycles, escalate with AskUserQuestion offering only "Accept implementation" and "Review manually".
+
+  - **"Accept implementation":**
+    1. For each divergence in `spec_divergences`, delete the test function identified by `failing_test` from the file.
+    2. After ALL deletions, re-run the test suite once to verify remaining tests pass.
+    3. Proceed to Step 7.
+
+  - **"Review manually":** Stop execution.
+
+- **If `spec_divergences` is non-empty AND YOLO mode ON:**
+  - If re-run count < 2: Auto-select "Fix implementation" (dispatch implementer, re-run Phase B only).
+  - If re-run count >= 2: STOP execution and surface to user:
+    "YOLO MODE STOPPED: Test deepening found persistent spec divergences after 2 fix cycles.
+     Divergences: {divergence list}
+     Resume with: /secretary continue"
+
+**Error handling:** If Phase A or Phase B agent dispatch fails (tool error, timeout, or agent crash), log the error and proceed to Step 7. Test deepening is additive — failure should not block the review phase.
+
 ### 7. Review Phase (Automated Iteration Loop)
 
 Maximum 5 iterations. Loop continues until ALL reviewers approve or cap is reached.
