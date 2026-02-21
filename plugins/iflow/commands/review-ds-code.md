@@ -73,7 +73,7 @@ AskUserQuestion:
     "question": "Code review complete. What would you like to do?",
     "header": "Next Step",
     "options": [
-      {"label": "Review analysis", "description": "Also check for statistical pitfalls with /review-analysis"},
+      {"label": "Review analysis", "description": "Also check for statistical pitfalls with /review-ds-analysis"},
       {"label": "Address issues", "description": "Fix the identified code issues"},
       {"label": "Done", "description": "Review complete, no further action"}
     ],
@@ -82,7 +82,7 @@ AskUserQuestion:
 ```
 
 **If "Review analysis":**
-1. Invoke: `/iflow:review-analysis {target file path}`
+1. Invoke: `/iflow:review-ds-analysis {target file path}`
 
 **If "Address issues":**
 1. Display the issues list with suggested fixes

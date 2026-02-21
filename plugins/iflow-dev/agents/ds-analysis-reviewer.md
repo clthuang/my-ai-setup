@@ -1,5 +1,5 @@
 ---
-name: analysis-reviewer
+name: ds-analysis-reviewer
 description: "Reviews data analysis for statistical pitfalls, methodology issues, and conclusion validity. Use when (1) user says 'review my analysis', (2) user asks 'check my results', (3) user wants validation of statistical conclusions."
 model: opus
 tools: [Read, Glob, Grep, WebSearch, WebFetch, mcp__context7__resolve-library-id, mcp__context7__query-docs]
@@ -9,14 +9,14 @@ color: cyan
 <example>
 Context: User wants analysis reviewed for pitfalls
 user: "review my analysis"
-assistant: "I'll use the analysis-reviewer agent to check for statistical pitfalls and methodology issues."
+assistant: "I'll use the ds-analysis-reviewer agent to check for statistical pitfalls and methodology issues."
 <commentary>User requests analysis review, triggering pitfall detection and methodology validation.</commentary>
 </example>
 
 <example>
 Context: User wants statistical conclusions validated
 user: "check if my results are valid"
-assistant: "I'll use the analysis-reviewer agent to validate the statistical conclusions."
+assistant: "I'll use the ds-analysis-reviewer agent to validate the statistical conclusions."
 <commentary>User asks to validate results, matching the agent's trigger.</commentary>
 </example>
 
@@ -31,7 +31,7 @@ You are a skeptical senior data scientist reviewing analysis for correctness. Yo
 ## Setup
 
 Load the pitfalls skill for reference:
-1. Read `plugins/iflow-dev/skills/spotting-analysis-pitfalls/SKILL.md` via Read tool
+1. Read `plugins/iflow-dev/skills/spotting-ds-analysis-pitfalls/SKILL.md` via Read tool
 2. Read `plugins/iflow-dev/skills/writing-ds-python/SKILL.md` via Read tool
 3. If either file is missing, warn and continue with your own knowledge
 

@@ -179,8 +179,8 @@ Skills are instructions Claude follows for specific development practices. Locat
 | `data-science-analysis` | Data science frameworks for methodology assessment, pitfall analysis, and modeling approach recommendations (brainstorming domain) |
 | `writing-ds-python` | Clean DS Python code: anti-patterns, pipeline rules, type hints, testing strategy, dependency management |
 | `structuring-ds-projects` | Cookiecutter v2 project layout, notebook conventions, data immutability, the 3-use rule |
-| `spotting-analysis-pitfalls` | 15 common statistical pitfalls with diagnostic decision tree and mitigation checklists |
-| `choosing-modeling-approach` | Predictive vs causal modeling, method selection flowchart, Rubin/Pearl frameworks, hybrid approaches |
+| `spotting-ds-analysis-pitfalls` | 15 common statistical pitfalls with diagnostic decision tree and mitigation checklists |
+| `choosing-ds-modeling-approach` | Predictive vs causal modeling, method selection flowchart, Rubin/Pearl frameworks, hybrid approaches |
 
 ### Specialist Teams
 | Skill | Purpose |
@@ -212,7 +212,7 @@ Agents are isolated subprocesses spawned by the workflow. Located in `plugins/if
 - `spec-reviewer` — Reviews spec.md for testability, assumptions, and scope discipline
 - `security-reviewer` — Reviews implementation for security vulnerabilities; uses WebSearch + Context7 for external claim verification
 - `task-reviewer` — Validates task breakdown quality for immediate executability
-- `analysis-reviewer` — Reviews data analysis for statistical pitfalls, methodology issues, and conclusion validity; uses WebSearch + Context7
+- `ds-analysis-reviewer` — Reviews data analysis for statistical pitfalls, methodology issues, and conclusion validity; uses WebSearch + Context7
 - `ds-code-reviewer` — Reviews DS Python code for anti-patterns, pipeline quality, and best practices; uses Context7 for API verification
 
 **Workers (5):**
@@ -315,7 +315,7 @@ Hard prerequisites: spec.md AND tasks.md must pass 4-level validation before imp
 3. **Review** (iterative): `implementation-reviewer` -> `code-quality-reviewer` -> `security-reviewer` (up to 2-3 iterations)
 4. **Completion**: Prompts user to run `/finish-feature`
 
-The `implementation-log.md` artifact is read by the retro skill during `/finish` and then deleted alongside `.review-history.md`.
+The `implementation-log.md` artifact is read by the retro skill during `/finish-feature` and then deleted alongside `.review-history.md`.
 
 ## YOLO Mode (Autonomous Workflow)
 
@@ -416,6 +416,7 @@ Without an API key, memory still works via FTS5 keyword search and prominence ra
 - **Voyage:** `uv sync --extra voyage`, add `VOYAGE_API_KEY=your-key` to `.env`, set `memory_embedding_provider: voyage` and `memory_embedding_model: voyage-3`
 
 **Configuration** (in `.claude/iflow-dev.local.md`):
+- `plan_mode_review` — Enable plan review hooks for Claude Code plan mode (default: true)
 - `memory_semantic_enabled` — Enable semantic retrieval (default: true)
 - `memory_embedding_provider` — Provider for embeddings (default: gemini)
 - `memory_embedding_model` — Model for embeddings (default: gemini-embedding-001)

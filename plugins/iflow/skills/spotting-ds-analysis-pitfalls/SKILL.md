@@ -1,5 +1,5 @@
 ---
-name: spotting-analysis-pitfalls
+name: spotting-ds-analysis-pitfalls
 description: "Use when reviewing analysis results, interpreting statistical findings, designing experiments, validating conclusions, or when the user asks to check for bias or pitfalls."
 ---
 

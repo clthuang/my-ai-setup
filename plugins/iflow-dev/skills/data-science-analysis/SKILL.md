@@ -30,7 +30,7 @@ See Graceful Degradation for missing-file behavior.
 Using loaded reference content, analyze the concept across four dimensions:
 1. **Methodology Assessment** — Predictive vs causal, experimental design considerations, appropriate methods
 2. **Data Requirements** — Sources, volume, quality needs, collection challenges, privacy/ethical considerations
-3. **Key Pitfall Risks** — Which of the 15 common pitfalls (from spotting-analysis-pitfalls skill) apply to this concept
+3. **Key Pitfall Risks** — Which of the 15 common pitfalls (from spotting-ds-analysis-pitfalls skill) apply to this concept
 4. **Modeling Approach Recommendation** — Specific methods and frameworks suited to the problem
 
 ### 3. Produce Output

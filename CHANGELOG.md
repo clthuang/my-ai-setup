@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.12] - 2026-02-21
+
+### Added
+- Secretary fast-path routing: known specialist patterns skip discovery, semantic matching, and reviewer gate
+- Secretary Workflow Guardian: feature requests auto-route to correct workflow phase based on active feature state
+- Secretary plan-mode routing: unmatched simple tasks route to Claude Code plan mode instead of dead-ending
+- Secretary web/library research tools (WebSearch, WebFetch, Context7) for scoping unfamiliar domains
+
+### Changed
+- Secretary conditional reviewer gate: reviewer skipped for high-confidence matches (>85%)
+- Secretary-reviewer model changed from opus to haiku
+- Data science components renamed with `ds-` prefix (`analysis-reviewer`, `review-analysis`, `choosing-modeling-approach`, `spotting-analysis-pitfalls`)
+
 ## [3.0.11] - 2026-02-21
 
 ### Added

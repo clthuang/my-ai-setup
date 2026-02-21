@@ -47,7 +47,7 @@ Structured feature development workflow with skills, agents, and commands for me
 | `/iflow-dev:create-project <prd>` | Create project from PRD with AI-driven decomposition |
 | `/iflow-dev:create-specialist-team` | Create ephemeral specialist teams for complex tasks |
 | `/iflow-dev:init-ds-project <name>` | Scaffold a new data science project |
-| `/iflow-dev:review-analysis <file>` | Review data analysis for statistical pitfalls |
+| `/iflow-dev:review-ds-analysis <file>` | Review data analysis for statistical pitfalls |
 | `/iflow-dev:review-ds-code <file>` | Review DS Python code for anti-patterns |
 | `/iflow-dev:remember` | Capture a learning to long-term memory for future session recall |
 | `/iflow-dev:yolo [on\|off]` | Toggle YOLO autonomous mode |
@@ -120,7 +120,7 @@ The `/iflow-dev:implement` command uses three reviewers:
 | Agent | Purpose |
 |-------|---------|
 | advisor | Applies strategic/domain advisory lens to brainstorm problems |
-| analysis-reviewer | Reviews data analysis for statistical pitfalls and methodology |
+| ds-analysis-reviewer | Reviews data analysis for statistical pitfalls and methodology |
 | brainstorm-reviewer | Reviews brainstorm artifacts for completeness before promotion |
 | code-quality-reviewer | Reviews implementation quality by severity |
 | code-simplifier | Identifies unnecessary complexity and suggests simplifications |
