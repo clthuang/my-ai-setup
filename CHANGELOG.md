@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.12] - 2026-02-21
+
 ### Added
 - Secretary fast-path routing: known specialist patterns skip discovery, semantic matching, and reviewer gate
 - Secretary Workflow Guardian: feature requests auto-route to correct workflow phase based on active feature state

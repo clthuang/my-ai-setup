@@ -49,8 +49,8 @@ Examples:
 The secretary will:
 1. Discover available agents across all plugins
 2. Interpret your request (ask clarifying questions if needed)
-3. Validate routing via independent reviewer
-4. Match to the best specialist agent with mode recommendation
+3. Match to the best specialist agent with mode recommendation
+4. Validate routing via reviewer (for uncertain matches)
 5. Confirm with you before delegating
 6. Execute the delegation and report results
 ```
@@ -207,7 +207,13 @@ If argument is anything other than `help`, `mode`, `orchestrate`, or `continue`:
        : "User request: {full argument string}"
    })
    ```
-3. **Present results** — If the agent returned `workflow_signal: orchestrate`, redirect to the orchestrate subcommand logic above. Otherwise, present the agent's results directly.
+3. **Handle routing signals:**
+   - If the agent's output contains `**Signal:** plan_mode`:
+     1. Extract the task description from the `**Task:**` line
+     2. Present to user: "This task is straightforward. Switching to plan mode for direct implementation."
+     3. Call `EnterPlanMode` — Claude Code's native planning flow takes over from here
+   - If the agent returned `workflow_signal: orchestrate`: redirect to the orchestrate subcommand logic above
+   - Otherwise: present the agent's results directly
 
 ## No Arguments
 
