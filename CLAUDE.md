@@ -83,6 +83,7 @@ AskUserQuestion:
 - `README.md` and `README_FOR_DEV.md` — skill/agent/command tables and counts
 - `plugins/iflow-dev/README.md` — component counts table and command/agent tables
 - `plugins/iflow-dev/skills/workflow-state/SKILL.md` — Workflow Map section (if phase sequence or prerequisites change)
+- `plugins/iflow-dev/agents/secretary.md` — Specialist Fast-Path table (if renaming agents listed there)
 
 A hookify rule (`.claude/hookify.docs-sync.local.md`) will remind you on plugin component edits.
 
