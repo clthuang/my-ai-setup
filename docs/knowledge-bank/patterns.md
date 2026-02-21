@@ -185,3 +185,17 @@ When the implementer provides exact line references, quotes from spec/design, an
 - Confidence: medium
 - Last observed: Feature #023
 - Observation count: 1
+
+### Pattern: Documentation Gap Verification via Three-Point Anchor
+When merging documentation improvements into CLAUDE.md, cross-examine candidate items against three anchor points: (1) constitution.md core principles, (2) system prompt enforced behaviors, (3) workflow phase safety mechanisms. Items present in all three are redundant; items in none are genuine gaps.
+- Observed in: CLAUDE.md Working Standards addition — filtered 8 candidates to 5
+- Confidence: high
+- Last observed: 2026-02-22
+- Observation count: 1
+
+### Pattern: Directive Specificity via Tooling References
+When writing behavioral guidance in documentation, include explicit tool/command references (e.g., `/iflow:remember`, `systematic-debugging` skill) instead of abstract principles. Concrete references reduce interpretation variance.
+- Observed in: CLAUDE.md Working Standards section
+- Confidence: medium
+- Last observed: 2026-02-22
+- Observation count: 1
