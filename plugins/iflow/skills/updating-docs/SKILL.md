@@ -77,6 +77,12 @@ Task tool call:
     (plugin). Add missing entries to the appropriate tables, remove stale entries,
     and correct component count headers.
 
+    Also update CHANGELOG.md:
+    - Add entries under the `## [Unreleased]` section
+    - Use Keep a Changelog categories: Added, Changed, Fixed, Removed
+    - Only include user-visible changes (new commands, skills, config options, behavior changes)
+    - Skip internal refactoring, test additions, and code quality changes
+
     Write necessary documentation updates.
     Return summary of changes made.
 ```
