@@ -50,6 +50,7 @@ Then follow the phases:
 | `/iflow:list-features` | List active features and branches |
 | `/iflow:retrospect` | Run retrospective on a feature |
 | `/iflow:add-to-backlog` | Capture ad-hoc ideas and todos |
+| `/iflow:remember` | Capture a learning to long-term memory |
 | `/iflow:cleanup-brainstorms` | Delete old brainstorm scratch files |
 | `/iflow:secretary` | Intelligent task routing to agents (supports YOLO mode with orchestrate subcommand) |
 | `/iflow:create-specialist-team` | Create ephemeral specialist teams for complex tasks |
@@ -120,6 +121,7 @@ Skills are internal capabilities that Claude uses automatically during the workf
 | updating-docs | Automatically updates documentation using agents |
 | writing-skills | Applies TDD approach to skill documentation |
 | detecting-kanban | Detects Vibe-Kanban and provides TodoWrite fallback |
+| capturing-learnings | Guides model-initiated learning capture with configurable modes |
 
 ## Agents
 
