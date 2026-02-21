@@ -1,13 +1,5 @@
 {
   "mcpServers": {
-    "playwright": {
-      "command": "npx",
-      "args": [
-        "@playwright/mcp@latest",
-        "--user-data-dir",
-        "/Users/terry/projects/my-ai-setup/.chrome-profile"
-      ]
-    },
     "memory-server": {
       "command": "plugins/iflow-dev/.venv/bin/python",
       "args": ["plugins/iflow-dev/mcp/memory_server.py"]
