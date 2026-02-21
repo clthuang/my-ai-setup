@@ -264,6 +264,7 @@ async def store_memory(
     reasoning: str,
     category: str,
     references: list[str] | None = None,
+    confidence: str = "medium",
 ) -> str:
     """Save a learning to long-term memory.
 
@@ -279,6 +280,9 @@ async def store_memory(
         One of: anti-patterns, patterns, heuristics.
     references:
         Optional list of file paths or URLs related to this learning.
+    confidence:
+        Confidence level for this learning. One of: high, medium, low.
+        Default: medium.
 
     Returns confirmation message or error.
     """
@@ -294,6 +298,7 @@ async def store_memory(
         reasoning=reasoning,
         category=category,
         references=references if references is not None else [],
+        confidence=confidence,
     )
 
 

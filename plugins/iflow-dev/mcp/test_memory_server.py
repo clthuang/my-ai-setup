@@ -619,3 +619,37 @@ class TestSearchMemory:
         assert "Heuristic: Test entry" in result
         assert "Prevents permission-denied errors" in result
         assert "Confidence:" in result
+
+
+# ---------------------------------------------------------------------------
+# Test: store_memory MCP tool accepts confidence parameter (Task 1.4)
+# ---------------------------------------------------------------------------
+
+import inspect
+
+from memory_server import store_memory  # noqa: E402
+
+
+class TestStoreMemoryMCPToolConfidence:
+    def test_store_memory_has_confidence_parameter(self):
+        """The store_memory MCP tool must accept a 'confidence' parameter."""
+        sig = inspect.signature(store_memory)
+        assert "confidence" in sig.parameters, (
+            "store_memory() is missing 'confidence' parameter"
+        )
+
+    def test_store_memory_confidence_defaults_to_medium(self):
+        """The confidence parameter should default to 'medium'."""
+        sig = inspect.signature(store_memory)
+        param = sig.parameters["confidence"]
+        assert param.default == "medium", (
+            f"Expected default 'medium', got {param.default!r}"
+        )
+
+    def test_store_memory_confidence_type_is_str(self):
+        """The confidence parameter should be typed as str."""
+        sig = inspect.signature(store_memory)
+        param = sig.parameters["confidence"]
+        assert param.annotation is str or param.annotation == "str", (
+            f"Expected str annotation, got {param.annotation!r}"
+        )
