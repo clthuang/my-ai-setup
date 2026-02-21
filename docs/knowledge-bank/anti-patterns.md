@@ -47,8 +47,8 @@ Referencing specific line numbers in tasks that will shift after earlier task in
 - Cost: Tasks 4.2-4.4 line numbers shifted ~60 lines after Task 4.1 insertion, causing confusion
 - Root cause: Line numbers are brittle anchors when tasks modify the same file sequentially
 - Instead: Use semantic anchors (exact text search targets) that survive insertions
-- Last observed: Feature #022
-- Observation count: 2
+- Last observed: Feature #025
+- Observation count: 3
 
 ### Anti-Pattern: Frozen Artifact Contradictions
 Leaving PRD claims that contradict later spec/design resolutions without noting the divergence.
