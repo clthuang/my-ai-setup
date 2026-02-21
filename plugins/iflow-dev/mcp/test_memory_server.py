@@ -365,8 +365,8 @@ class TestKeywords:
         keywords = json.loads(entry["keywords"])
         assert keywords == ["testing", "memory", "patterns"]
 
-    def test_no_keyword_gen_stores_null_keywords(self, db: MemoryDatabase):
-        """Without a keyword generator, keywords should be None."""
+    def test_no_keyword_gen_stores_empty_json_keywords(self, db: MemoryDatabase):
+        """Without a keyword generator, keywords should be '[]'."""
         _process_store_memory(
             db=db,
             provider=None,
@@ -379,7 +379,59 @@ class TestKeywords:
         )
         expected_hash = content_hash("No keyword gen test")
         entry = db.get_entry(expected_hash)
-        assert entry["keywords"] is None
+        assert entry["keywords"] == "[]"
+
+
+# ---------------------------------------------------------------------------
+# Test: source_project
+# ---------------------------------------------------------------------------
+
+
+class TestSourceProject:
+    def test_source_project_stored(self, db: MemoryDatabase):
+        """store_memory should set source_project."""
+        _process_store_memory(
+            db=db,
+            provider=None,
+            keyword_gen=None,
+            name="SP test",
+            description="Source project test",
+            reasoning="For source project",
+            category="patterns",
+            references=[],
+            source_project="/my/project",
+        )
+        expected_hash = content_hash("Source project test")
+        entry = db.get_entry(expected_hash)
+        assert entry["source_project"] == "/my/project"
+
+
+# ---------------------------------------------------------------------------
+# Test: source_hash
+# ---------------------------------------------------------------------------
+
+
+class TestSourceHash:
+    def test_source_hash_stored(self, db: MemoryDatabase):
+        """store_memory should set source_hash from description."""
+        from semantic_memory import source_hash as sh_fn
+
+        desc = "Source hash test description"
+        _process_store_memory(
+            db=db,
+            provider=None,
+            keyword_gen=None,
+            name="SH test",
+            description=desc,
+            reasoning="For source hash",
+            category="patterns",
+            references=[],
+            source_project="/proj",
+        )
+        expected_content_hash = content_hash(desc)
+        expected_source_hash = sh_fn(desc)
+        entry = db.get_entry(expected_content_hash)
+        assert entry["source_hash"] == expected_source_hash
 
 
 # ---------------------------------------------------------------------------

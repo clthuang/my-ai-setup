@@ -15,7 +15,7 @@ import argparse
 import json
 from datetime import datetime, timezone
 
-from semantic_memory import content_hash
+from semantic_memory import content_hash, source_hash
 from semantic_memory.config import read_config
 from semantic_memory.database import MemoryDatabase
 from semantic_memory.embedding import create_provider
@@ -43,11 +43,13 @@ def _validate_entry(entry: dict) -> str | None:
     return None
 
 
-def _build_db_entry(entry: dict, entry_id: str, now: str) -> dict:
+def _build_db_entry(entry: dict, entry_id: str, now: str, *, project_root: str = "") -> dict:
     """Convert a user-supplied entry dict to the DB row format."""
     keywords = entry.get("keywords")
     if isinstance(keywords, list):
         keywords = json.dumps(keywords)
+    elif keywords is None:
+        keywords = "[]"
 
     references = entry.get("references")
     if isinstance(references, list):
@@ -61,11 +63,12 @@ def _build_db_entry(entry: dict, entry_id: str, now: str) -> dict:
         "category": entry["category"],
         "keywords": keywords,
         "source": entry.get("source", "manual"),
-        "source_project": entry.get("source_project"),
+        "source_project": entry.get("source_project") or project_root,
         "references": references,
         "confidence": entry.get("confidence", "medium"),
         "created_at": now,
         "updated_at": now,
+        "source_hash": source_hash(entry["description"]),
         "created_timestamp_utc": datetime.now(tz=timezone.utc).timestamp(),
     }
 
@@ -253,7 +256,8 @@ def main() -> None:
         existing = db.get_entry(entry_id)
 
         # Build and upsert entry
-        db_entry = _build_db_entry(entry_data, entry_id, now)
+        db_entry = _build_db_entry(entry_data, entry_id, now,
+                                   project_root=args.project_root)
         db.upsert_entry(db_entry)
 
         # Merge keywords if this was an update
