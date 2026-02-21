@@ -97,7 +97,7 @@ class MarkdownImporter:
             "description": parsed["description"],
             "reasoning": None,
             "category": parsed["category"],
-            "keywords": None,
+            "keywords": "[]",
             "source": "import",
             "source_project": project_root,
             "references": None,

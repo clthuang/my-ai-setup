@@ -1,6 +1,7 @@
 """Tests for semantic_memory.ranking module."""
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone, timedelta
 
 import pytest
@@ -107,21 +108,21 @@ class TestConfidenceMapping:
 class TestRecencyDecay:
     def test_updated_today(self):
         engine = RankingEngine(_default_config())
-        # 0 days since updated -> 1.0 / (1.0 + 0/30) = 1.0
-        assert engine._recency_decay(_NOW_ISO, _NOW) == 1.0
+        # 0 days -> raw=1.0 -> log(1.0+1) = log(2)
+        assert abs(engine._recency_decay(_NOW_ISO, _NOW) - math.log(2)) < 1e-9
 
     def test_updated_30_days_ago(self):
         engine = RankingEngine(_default_config())
         old = (_NOW - timedelta(days=30)).isoformat()
-        # 1.0 / (1.0 + 30/30) = 0.5
-        assert engine._recency_decay(old, _NOW) == 0.5
+        # 30 days -> raw=0.5 -> log(0.5+1) = log(1.5)
+        assert abs(engine._recency_decay(old, _NOW) - math.log(1.5)) < 1e-9
 
     def test_updated_60_days_ago(self):
         engine = RankingEngine(_default_config())
         old = (_NOW - timedelta(days=60)).isoformat()
-        # 1.0 / (1.0 + 60/30) = 1/3
+        # 60 days -> raw=1/3 -> log(1/3+1) = log(4/3)
         result = engine._recency_decay(old, _NOW)
-        assert abs(result - 1 / 3) < 1e-9
+        assert abs(result - math.log(4 / 3)) < 1e-9
 
 
 # ---------------------------------------------------------------------------
@@ -498,14 +499,14 @@ class TestFinalScoreComputation:
             observation_count=10,
             confidence="high",
             recall_count=10,
-            updated_at=_NOW_ISO,  # 0 days ago -> recency 1.0
+            updated_at=_NOW_ISO,  # 0 days ago
         )
         _, entry_b = _make_entry(
             "b",
             observation_count=5,
             confidence="low",
             recall_count=0,
-            updated_at=(_NOW - timedelta(days=30)).isoformat(),  # recency 0.5
+            updated_at=(_NOW - timedelta(days=30)).isoformat(),  # 30 days ago
         )
         entries = {"a": entry_a, "b": entry_b}
 
@@ -526,25 +527,27 @@ class TestFinalScoreComputation:
         # Manually compute expected score for "a":
         # norm_vector: (0.9-0.1)/(0.9-0.1) = 1.0
         # norm_bm25: (8.0-2.0)/(8.0-2.0) = 1.0
-        # norm_obs: 10/10 = 1.0
+        # norm_obs: log(10+1)/log(10+1) = 1.0
         # confidence: high = 1.0
-        # recency: 1.0 / (1+0/30) = 1.0
+        # recency: log(1.0+1) = log(2)
         # recall: min(10/10, 1.0) = 1.0
-        # prominence = 0.3*1.0 + 0.2*1.0 + 0.3*1.0 + 0.2*1.0 = 1.0
-        # final = 0.5*1.0 + 0.2*1.0 + 0.3*1.0 = 1.0
-        assert abs(ranked[0]["final_score"] - 1.0) < 1e-9
+        # prominence = 0.3*1.0 + 0.2*1.0 + 0.3*log(2) + 0.2*1.0
+        recency_a = math.log(2)
+        prominence_a = 0.3 * 1.0 + 0.2 * 1.0 + 0.3 * recency_a + 0.2 * 1.0
+        expected_a = 0.5 * 1.0 + 0.2 * 1.0 + 0.3 * prominence_a
+        assert abs(ranked[0]["final_score"] - expected_a) < 1e-9
 
         # Entry "b":
         # norm_vector: (0.1-0.1)/(0.9-0.1) = 0.0
         # norm_bm25: (2.0-2.0)/(8.0-2.0) = 0.0
-        # norm_obs: 5/10 = 0.5
+        # norm_obs: log(5+1)/log(10+1) = log(6)/log(11)
         # confidence: low = 1/3
-        # recency: 1.0 / (1+30/30) = 0.5
+        # recency: log(0.5+1) = log(1.5)
         # recall: min(0/10, 1.0) = 0.0
-        # prominence = 0.3*0.5 + 0.2*(1/3) + 0.3*0.5 + 0.2*0.0
-        #            = 0.15 + 0.06666... + 0.15 + 0.0 = 0.36666...
-        # final = 0.5*0.0 + 0.2*0.0 + 0.3*0.36666... = 0.11
-        expected_b = 0.3 * (0.3 * 0.5 + 0.2 * (1 / 3) + 0.3 * 0.5 + 0.2 * 0.0)
+        norm_obs_b = math.log(6) / math.log(11)
+        recency_b = math.log(1.5)
+        prominence_b = 0.3 * norm_obs_b + 0.2 * (1 / 3) + 0.3 * recency_b + 0.2 * 0.0
+        expected_b = 0.5 * 0.0 + 0.2 * 0.0 + 0.3 * prominence_b
         assert abs(ranked[1]["final_score"] - expected_b) < 1e-9
 
     def test_candidate_not_in_entries_is_skipped(self):

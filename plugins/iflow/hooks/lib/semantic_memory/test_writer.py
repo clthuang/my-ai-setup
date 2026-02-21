@@ -320,6 +320,7 @@ class TestPendingBatch:
                 "category": "patterns",
                 "source": "manual",
                 "source_project": str(tmp_path),
+                "source_hash": f"hash{i:014d}",
                 "created_at": "2026-01-01T00:00:00Z",
                 "updated_at": "2026-01-01T00:00:00Z",
             })
@@ -375,6 +376,7 @@ class TestProviderMigration:
             "category": "patterns",
             "source": "manual",
             "source_project": str(tmp_path),
+            "source_hash": "existinghash1234",
             "embedding": emb,
             "created_at": "2026-01-01T00:00:00Z",
             "updated_at": "2026-01-01T00:00:00Z",
@@ -478,3 +480,46 @@ class TestEntryFile:
         assert entry is not None
         assert entry["name"] == "Test pattern"
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Test: _build_db_entry
+# ---------------------------------------------------------------------------
+
+from semantic_memory.writer import _build_db_entry  # noqa: E402
+from semantic_memory import source_hash as sh_fn  # noqa: E402
+
+
+class TestBuildDbEntry:
+    def test_defaults_keywords_to_empty_json(self):
+        """When keywords are not provided, should default to '[]'."""
+        entry = {"name": "Test", "description": "Desc", "category": "patterns",
+                 "source": "manual"}
+        result = _build_db_entry(entry, "test_id", "2026-01-01T00:00:00Z",
+                                 project_root="/proj")
+        assert result["keywords"] == "[]"
+
+    def test_sets_source_hash(self):
+        """source_hash should be computed from description."""
+        desc = "A description for hash test"
+        entry = {"name": "Test", "description": desc, "category": "patterns",
+                 "source": "manual"}
+        result = _build_db_entry(entry, "test_id", "2026-01-01T00:00:00Z",
+                                 project_root="/proj")
+        assert result["source_hash"] == sh_fn(desc)
+
+    def test_falls_back_to_project_root(self):
+        """When source_project is not in entry, should fall back to project_root."""
+        entry = {"name": "Test", "description": "Desc", "category": "patterns",
+                 "source": "manual"}
+        result = _build_db_entry(entry, "test_id", "2026-01-01T00:00:00Z",
+                                 project_root="/my/project")
+        assert result["source_project"] == "/my/project"
+
+    def test_preserves_explicit_source_project(self):
+        """When source_project is in entry, it should be used."""
+        entry = {"name": "Test", "description": "Desc", "category": "patterns",
+                 "source": "manual", "source_project": "/explicit/project"}
+        result = _build_db_entry(entry, "test_id", "2026-01-01T00:00:00Z",
+                                 project_root="/fallback")
+        assert result["source_project"] == "/explicit/project"

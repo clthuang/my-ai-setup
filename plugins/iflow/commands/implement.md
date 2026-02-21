@@ -16,7 +16,7 @@ If `[YOLO_MODE]` is active:
   "YOLO MODE STOPPED: Implementation review failed after 5 iterations.
    Unresolved issues: {issue list}
    Resume with: /secretary continue"
-- Completion prompt → skip AskUserQuestion, directly invoke `/iflow:finish` with `[YOLO_MODE]`
+- Completion prompt → skip AskUserQuestion, directly invoke `/iflow:finish-feature` with `[YOLO_MODE]`
 
 ## Workflow Integration
 
@@ -337,7 +337,7 @@ AskUserQuestion:
     "question": "Implementation complete. Continue to next phase?",
     "header": "Next Step",
     "options": [
-      {"label": "Continue to /iflow:finish (Recommended)", "description": "Complete the feature"},
+      {"label": "Continue to /iflow:finish-feature (Recommended)", "description": "Complete the feature"},
       {"label": "Review implementation first", "description": "Inspect the code before finishing"},
       {"label": "Fix and rerun reviews", "description": "Apply fixes then rerun the 3-reviewer review cycle"}
     ],
@@ -345,6 +345,6 @@ AskUserQuestion:
   }]
 ```
 
-If "Continue to /iflow:finish (Recommended)": Invoke `/iflow:finish`
-If "Review implementation first": Show "Run /iflow:finish when ready." → STOP
+If "Continue to /iflow:finish-feature (Recommended)": Invoke `/iflow:finish-feature`
+If "Review implementation first": Show "Run /iflow:finish-feature when ready." → STOP
 If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to the implementation, then return to Step 6 (3-reviewer loop) with the iteration counter reset to 0.

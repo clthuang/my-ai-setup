@@ -10,7 +10,7 @@ Automatic documentation updates using documentation-researcher and documentation
 ## Prerequisites
 
 - Feature folder in `docs/features/` with spec.md for context
-- This skill is invoked automatically from `/iflow:finish`
+- This skill is invoked automatically from `/iflow:finish-feature`
 
 ## Process
 
