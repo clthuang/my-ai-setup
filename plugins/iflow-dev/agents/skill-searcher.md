@@ -1,7 +1,7 @@
 ---
 name: skill-searcher
 description: Finds relevant existing skills. Use when (1) brainstorming Stage 2, (2) user says 'what skills exist', (3) user says 'find related capabilities', (4) user says 'search skills'.
-model: opus
+model: sonnet
 tools: [Glob, Grep, Read]
 color: cyan
 ---

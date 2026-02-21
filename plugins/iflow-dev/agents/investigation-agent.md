@@ -1,7 +1,7 @@
 ---
 name: investigation-agent
 description: Read-only research agent for context gathering. Use when (1) retrospecting skill Step 1, (2) user says 'investigate this', (3) user says 'gather context', (4) user says 'research before coding'.
-model: opus
+model: sonnet
 tools: [Read, Glob, Grep, WebFetch, WebSearch]
 color: cyan
 ---
