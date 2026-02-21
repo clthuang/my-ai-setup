@@ -105,6 +105,10 @@ def _process_store_memory(
         "updated_at": now,
     }
 
+    # Pre-check before upsert to distinguish new vs. reinforced return message
+    # Safe: MCP server is single-threaded with one DB connection; no concurrent writes possible
+    existing = db.get_entry(entry_id)
+
     # -- Upsert into DB --
     db.upsert_entry(entry)
 
@@ -132,6 +136,11 @@ def _process_store_memory(
                 file=sys.stderr,
             )
 
+    # Differentiated return based on pre-upsert existence
+    if existing:
+        # Read post-upsert state for accurate observation_count
+        updated = db.get_entry(entry_id)
+        return f"Reinforced: {name} (id: {entry_id}, observations: {updated['observation_count']})"
     return f"Stored: {name} (id: {entry_id})"
 
 
