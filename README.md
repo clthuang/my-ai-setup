@@ -23,7 +23,7 @@
 
 Then follow the phases:
 ```
-/iflow:specify → /iflow:design → /iflow:create-plan → /iflow:create-tasks → /iflow:implement → /iflow:finish
+/iflow:specify → /iflow:design → /iflow:create-plan → /iflow:create-tasks → /iflow:implement → /iflow:finish-feature
 ```
 
 ## Commands
@@ -40,7 +40,8 @@ Then follow the phases:
 | `/iflow:create-plan` | Plan implementation (plan.md) |
 | `/iflow:create-tasks` | Break into tasks (tasks.md) |
 | `/iflow:implement` | Write code with TDD and review |
-| `/iflow:finish` | Merge, run retro, cleanup branch |
+| `/iflow:finish-feature` | Merge, run retro, cleanup branch (iflow features) |
+| `/iflow:wrap-up` | Wrap up implementation - review, retro, merge or PR |
 
 ### Utilities
 
@@ -224,7 +225,7 @@ The secretary agent can drive the entire feature workflow autonomously:
 ```
 
 In YOLO mode, the orchestrate subcommand chains all phases automatically:
-`brainstorm -> specify -> design -> create-plan -> create-tasks -> implement -> finish -> merge`
+`brainstorm -> specify -> design -> create-plan -> create-tasks -> implement -> finish-feature -> merge`
 
 All quality gates (reviewers, phase validators) still run. YOLO mode only bypasses user confirmation prompts at phase transitions.
 

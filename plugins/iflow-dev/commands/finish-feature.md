@@ -3,7 +3,7 @@ description: Complete a feature - merge, run retro, cleanup branch
 argument-hint: [feature-id]
 ---
 
-# /iflow-dev:finish Command
+# /iflow-dev:finish-feature Command
 
 Complete a feature and clean up.
 
@@ -236,7 +236,7 @@ Pre-merge validation failed after 3 attempts.
 Still failing:
 - {check command}: {brief error summary}
 
-Fix these issues manually, then run /finish again.
+Fix these issues manually, then run /finish-feature again.
 ```
 
 Do NOT proceed to Create PR or Merge & Release if validation is failing.

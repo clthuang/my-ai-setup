@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `/wrap-up` command for finishing work done outside iflow feature workflow (plan mode, ad-hoc tasks)
+- PostToolUse hooks for plan mode integration: plan review before approval (EnterPlanMode), task breakdown and implementation workflow after approval (ExitPlanMode)
+- `plan_mode_review` configuration option to enable/disable plan mode review hooks
+
+### Changed
+- Renamed `/finish` to `/finish-feature` to distinguish from the new `/wrap-up` command
+
 ## [3.0.10] - 2026-02-21
 
 ### Added
