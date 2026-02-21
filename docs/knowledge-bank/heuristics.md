@@ -119,3 +119,10 @@ When a plan claims TDD methodology, verify (1) test steps precede implementation
 - Confidence: medium
 - Last observed: Feature #025
 - Observation count: 1
+
+### Lightweight Documentation Improvements Skip Feature Workflow
+For scoped documentation changes (<50 lines, single-pass analysis, no cross-system rework), direct commits to primary branches are appropriate. Reserve feature workflow for substantive changes requiring multi-file validation.
+- Source: CLAUDE.md Working Standards addition — +12 lines, no review iterations, verified against three anchor points
+- Confidence: high
+- Last observed: 2026-02-22
+- Observation count: 1

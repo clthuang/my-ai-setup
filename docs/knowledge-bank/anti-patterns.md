@@ -118,3 +118,12 @@ When the quality reviewer flags code quality issues on lines not introduced by t
 - Confidence: high
 - Last observed: Feature #023
 - Observation count: 1
+
+### Anti-Pattern: Over-Documentation Before System Maturity
+Adding behavioral guidance for features/behaviors not yet consistently observed in practice. Documentation should trail patterns by at least one reinforcement cycle (observed in 2+ features).
+- Observed in: CLAUDE.md template analysis — most template items were aspirational rather than proven
+- Cost: False authority and wasted reader attention on unproven patterns
+- Instead: Wait for observational evidence from 1+ cycles before documenting as standard guidance
+- Confidence: medium
+- Last observed: 2026-02-22
+- Observation count: 1
