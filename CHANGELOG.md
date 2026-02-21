@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.10] - 2026-02-21
+
 ### Added
 - Automatic learning capture in all 5 core phase commands (specify, design, create-plan, create-tasks, implement) — recurring review issues persisted to long-term memory
 - Learning capture in `/root-cause-analysis` command — root causes and recommendations persisted to memory

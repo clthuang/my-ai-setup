@@ -110,6 +110,18 @@ Compare the **filesystem** (source of truth) against what README files claim. Th
 
 Any discrepancy found here is a drift entry — add it to `drift_detected` in the output.
 
+### Step 2c: CHANGELOG State Check
+
+Check if the `[Unreleased]` section in `CHANGELOG.md` has entries for the current feature.
+
+1. Read `CHANGELOG.md` and extract content between `## [Unreleased]` and the next `## [` header
+2. If the `[Unreleased]` section is empty or has no entries related to the current feature's user-visible changes, set `changelog_state.needs_entry` to `true`
+3. If user-visible changes exist (from Step 2 analysis) but `[Unreleased]` has no corresponding entries, this is a gap that must be flagged
+
+Add a `changelog_state` field to your output with:
+- `needs_entry`: boolean — `true` if the feature has user-visible changes not yet in `[Unreleased]`
+- `unreleased_content`: string — current content of the `[Unreleased]` section (empty string if none)
+
 ### Step 3: Cross-Reference
 
 For each detected doc:
@@ -179,6 +191,10 @@ Return structured JSON:
       "readme": "plugins/iflow/README.md"
     }
   ],
+  "changelog_state": {
+    "needs_entry": true,
+    "unreleased_content": ""
+  },
   "no_updates_needed": false,
   "no_updates_reason": null
 }
@@ -192,14 +208,20 @@ If no changes needed:
   "user_visible_changes": [],
   "technical_changes": [],
   "recommended_updates": [],
+  "changelog_state": {
+    "needs_entry": false,
+    "unreleased_content": ""
+  },
   "no_updates_needed": true,
   "no_updates_reason": "Internal refactoring only - no user-facing or technical doc changes"
 }
 ```
 
-## Critical Rule: Drift Overrides No-Update
+## Critical Rule: Drift and CHANGELOG Override No-Update
 
-`no_updates_needed` MUST be `false` if `drift_detected` has any entries. Ground truth drift always requires documentation updates, even if the current feature made no user-visible changes.
+`no_updates_needed` MUST be `false` if ANY of these are true:
+- `drift_detected` has any entries — ground truth drift always requires documentation updates
+- `changelog_state.needs_entry` is `true` — user-visible changes must be recorded in CHANGELOG
 
 ## What You MUST NOT Do
 
