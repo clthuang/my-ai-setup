@@ -45,6 +45,7 @@ def _process_store_memory(
     reasoning: str,
     category: str,
     references: list[str],
+    confidence: str = "medium",
 ) -> str:
     """Store a learning in the semantic memory database.
 
@@ -62,6 +63,11 @@ def _process_store_memory(
         return (
             f"Error: invalid category '{category}'. "
             f"Must be one of: {', '.join(sorted(VALID_CATEGORIES))}"
+        )
+    if confidence not in ("high", "medium", "low"):
+        return (
+            f"Error: invalid confidence '{confidence}'. "
+            f"Must be one of: high, medium, low"
         )
 
     # -- Compute content hash (id) --
@@ -93,6 +99,7 @@ def _process_store_memory(
         "category": category,
         "keywords": keywords_json,
         "source": source,
+        "confidence": confidence,
         "references": json.dumps(references),
         "created_at": now,
         "updated_at": now,
