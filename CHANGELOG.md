@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Plan mode hooks (plan review, post-approval workflow) no longer incorrectly skipped when an iflow feature is active
+
 ## [3.0.12] - 2026-02-21
 
 ### Added
