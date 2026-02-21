@@ -56,12 +56,12 @@ When creating tasks for file modifications, read the target file first and inclu
 - Observation count: 2
 
 ### Reviewer Iteration Count as Complexity Signal
-Reviewer iteration counts suggest complexity: 2 = straightforward, 3 = moderate, 4+ = initially underspecified. High early-phase iterations predict thorough preparation, not implementation risk -- Feature #022 had 30 pre-implementation iterations but 0 implementation deviations.
+Reviewer iteration counts suggest complexity: 2 = straightforward, 3 = moderate, 4+ = initially underspecified. High early-phase iterations predict thorough preparation, not implementation risk -- Features #022 and #025 both had 15-30 pre-implementation iterations but 0-1 implementation issues.
 - Feature #021 plan had 6 iterations (highest), mostly from dependency graph contradictions
 - If plan iterations exceed 3, check for structural issues (dual representations, missing test cases)
 - Source: Feature #021
-- Last observed: Feature #023
-- Observation count: 3
+- Last observed: Feature #025
+- Observation count: 4
 
 ### Circuit Breaker Hits as Assumption Signals
 Circuit breaker hits in design review indicate a fundamental assumption mismatch, not incremental quality issues. When design review hits 5 iterations, the root cause is typically a wrong foundational assumption (e.g., wrong file format) rather than accumulated small issues.
@@ -95,13 +95,27 @@ When a feature involves parsing existing files, the designer should read at leas
 ### Comprehensive Brainstorm PRDs Correlate With Fast Specify Phases
 When a brainstorm PRD exists and is comprehensive (300+ lines with explicit success criteria), the specify phase acts as a scoping/structuring pass rather than a discovery pass, typically completing in under 30 minutes with minimal review iterations.
 - Source: Feature #023 — 404-line brainstorm PRD led to 29-minute specify phase with zero review iterations
-- Confidence: medium
-- Last observed: Feature #023
-- Observation count: 1
+- Confidence: high
+- Last observed: Feature #025
+- Observation count: 2
 
 ### Expect Extra Task Review Iterations When Plan Leaves Format Details Ambiguous
 If the plan describes 'what' a format contains but not the exact 'shape' (all fields, ordering, delimiters), task review will iterate until the format is unambiguous enough for implementation. Budget 2-3 extra iterations for this.
 - Source: Feature #023 — 3 of 5 taskReview iterations were format back-fill (missing dependency, unspecified synthetic format, missing metadata field)
 - Confidence: high
 - Last observed: Feature #023
+- Observation count: 1
+
+### Probe Runtime Behavior Boundaries During Design Review
+For each component interface, explicitly ask 'What does the caller see for each distinct outcome?' and 'How does the component access its configuration at runtime?' These two questions catch the most common class of design-phase blockers.
+- Source: Feature #025 — 3 of 5 design blockers were runtime behavior gaps: differentiated return (Stored vs Reinforced), config injection (model cannot read files during session), MCP-to-CLI fallback undefined
+- Confidence: high
+- Last observed: Feature #025
+- Observation count: 1
+
+### Validate TDD Test Ordering and RED-Phase Authenticity in Plans
+When a plan claims TDD methodology, verify (1) test steps precede implementation steps, and (2) each RED test includes a concrete reason it will fail against current code. Tests that pass immediately are not valid RED tests.
+- Source: Feature #025 — Plan iter 1: TDD order violation (tests after implementation); Plan iter 2: test_new_entry_returns_stored would pass immediately against current code
+- Confidence: medium
+- Last observed: Feature #025
 - Observation count: 1

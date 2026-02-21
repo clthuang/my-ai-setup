@@ -6,6 +6,7 @@ import hashlib
 __version__ = "0.1.0"
 
 VALID_CATEGORIES = frozenset({"anti-patterns", "patterns", "heuristics"})
+VALID_CONFIDENCE = frozenset({"high", "medium", "low"})
 
 
 class EmbeddingError(Exception):

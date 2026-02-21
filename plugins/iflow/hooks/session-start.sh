@@ -205,6 +205,9 @@ else:
 
     # Always include workflow overview
     context+="\nAvailable commands: /brainstorm → /specify → /design → /create-plan → /create-tasks → /implement → /finish (/create-feature, /create-project as alternatives)"
+    context+="\nTip: Use /remember <learning> to capture insights, or use the store_memory MCP tool directly."
+    context+="\nMemory capture mode: $(read_local_md_field "$PROJECT_ROOT/.claude/iflow.local.md" "memory_model_capture_mode" "ask-first")"
+    context+="\nMemory silent capture budget: $(read_local_md_field "$PROJECT_ROOT/.claude/iflow.local.md" "memory_silent_capture_budget" "5")"
 
     # Check optional dependency
     if ! check_claude_md_plugin; then
