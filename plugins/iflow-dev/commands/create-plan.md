@@ -127,6 +127,40 @@ g. **Branch on result (strict threshold):**
 
 h. **Complete phase:** Proceed to auto-commit, then update state.
 
+### 4a. Capture Review Learnings (Automatic)
+
+**Trigger:** Only execute if the review loop ran 2+ iterations (across Stage 1 and/or Stage 2 combined). If approved on first pass in both stages, skip — no review learnings to capture.
+
+**Process:**
+1. Read `.review-history.md` entries for THIS phase only (plan-reviewer and phase-reviewer entries)
+2. Group issues by description similarity (same category, overlapping file patterns)
+3. Identify issues that appeared in 2+ iterations — these are recurring patterns
+
+**For each recurring issue, call `store_memory`:**
+- `name`: derived from issue description (max 60 chars)
+- `description`: issue description + the suggestion that resolved it
+- `reasoning`: "Recurred across {n} review iterations in feature {id} create-plan phase"
+- `category`: infer from issue type:
+  - Security issues → `anti-patterns`
+  - Quality/SOLID/naming → `heuristics`
+  - Missing requirements → `anti-patterns`
+  - Feasibility/complexity → `heuristics`
+  - Scope/assumption issues → `heuristics`
+- `references`: ["feature/{id}-{slug}"]
+- `confidence`: "low"
+
+**Budget:** Max 3 entries per review cycle to avoid noise.
+
+**Circuit breaker capture:** If review loop hit max iterations (cap reached) in either stage, also capture a single entry:
+- `name`: "Plan review cap: {brief issue category}"
+- `description`: summary of unresolved issues that prevented approval
+- `category`: "anti-patterns"
+- `confidence`: "low"
+
+**Fallback:** If `store_memory` MCP tool unavailable, use `semantic_memory.writer` CLI.
+
+**Output:** `"Review learnings: {n} patterns captured from {m}-iteration review cycle"` (inline, no prompt)
+
 ### 4b. Auto-Commit and Update State
 
 Follow `commitAndComplete("create-plan", ["plan.md"])` from the **workflow-transitions** skill.

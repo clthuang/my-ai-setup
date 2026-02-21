@@ -59,6 +59,37 @@ check_preconditions() {
 }
 
 #############################################
+# CHANGELOG validation
+#############################################
+
+check_changelog() {
+    if [[ ! -f "CHANGELOG.md" ]]; then
+        warn "CHANGELOG.md not found, skipping validation"
+        return
+    fi
+
+    # Check if there's content under [Unreleased]
+    local unreleased_content
+    unreleased_content=$(sed -n '/^## \[Unreleased\]/,/^## \[/{/^## \[/d;/^$/d;p;}' CHANGELOG.md)
+
+    if [[ -z "$unreleased_content" ]]; then
+        if [[ "$CI_MODE" == "true" ]]; then
+            error "CHANGELOG.md has no entries under [Unreleased]. Add changelog entries before releasing."
+        else
+            warn "CHANGELOG.md has no entries under [Unreleased]."
+            read -p "Continue without changelog entries? (y/n) " -n 1 -r
+            echo ""
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                warn "Release cancelled — add CHANGELOG entries and retry."
+                exit 0
+            fi
+        fi
+    else
+        success "CHANGELOG has unreleased entries"
+    fi
+}
+
+#############################################
 # Plugin reference validation
 #############################################
 
@@ -302,6 +333,9 @@ main() {
 
     # Check preconditions
     check_preconditions
+
+    # Validate CHANGELOG has unreleased entries
+    check_changelog
 
     # Get last tag
     local last_tag

@@ -11,7 +11,8 @@ Complete a feature and clean up.
 
 If `[YOLO_MODE]` is active:
 - Step 2a (tasks incomplete) → auto "Continue anyway"
-- Step 2b (docs no update needed) → auto "Skip"
+- Step 2b (docs no update needed AND `changelog_state.needs_entry` is false) → auto "Skip"
+- Step 2b (docs no update needed BUT `changelog_state.needs_entry` is true) → proceed with documentation-writer for CHANGELOG only
 - Step 2b (docs updates found) → proceed with documentation-writer (no prompt needed)
 - Phase 4 (completion decision) → auto "Merge & Release (Recommended)"
 - **Git merge failure:** STOP and report. Do NOT attempt to resolve merge conflicts
@@ -121,6 +122,18 @@ Task tool call:
 
     Feature: {id}-{slug}
     Research findings: {JSON from researcher agent}
+
+    Pay special attention to any `drift_detected` entries — these represent
+    components that exist on the filesystem but are missing from README.md
+    (or vice versa). Update BOTH README.md (root) and plugins/iflow-dev/README.md
+    (plugin). Add missing entries to the appropriate tables, remove stale entries,
+    and correct component count headers.
+
+    Also update CHANGELOG.md:
+    - Add entries under the `## [Unreleased]` section
+    - Use Keep a Changelog categories: Added, Changed, Fixed, Removed
+    - Only include user-visible changes (new commands, skills, config options, behavior changes)
+    - Skip internal refactoring, test additions, and code quality changes
 
     Write necessary documentation updates.
     Return summary of changes made.

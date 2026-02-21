@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Automatic learning capture in all 5 core phase commands (specify, design, create-plan, create-tasks, implement) — recurring review issues persisted to long-term memory
+- Learning capture in `/root-cause-analysis` command — root causes and recommendations persisted to memory
+
+### Fixed
+- Retro fallback path now persists learnings to knowledge bank and semantic memory (Steps 4, 4a, 4c) instead of silently dropping them
+
+## [3.0.9] - 2026-02-21
+
+### Fixed
+- CHANGELOG backfill for missing version entries
+
 ## [3.0.8] - 2026-02-21
 
 ### Added
@@ -15,6 +27,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `memory_model_capture_mode` and `memory_silent_capture_budget` configuration keys
 - Optional `confidence` parameter (high/medium/low, defaults to medium) for `store_memory` MCP tool
 - Memory capture hints in session-start context for model-initiated learning capture
+
+## [3.0.7] - 2026-02-21
+
+### Changed
+- Secretary delegation hardened with workflow prerequisite validation
+
+## [3.0.6] - 2026-02-21
+
+### Added
+- Source-hash deduplication for knowledge bank backfill
+
+## [3.0.5] - 2026-02-20
+
+### Fixed
+- Venv Python used consistently in session-start hook
+
+## [3.0.4] - 2026-02-20
+
+### Fixed
+- Memory injection failure from module naming conflict (`types.py` renamed to `retrieval_types.py`)
+
+## [3.0.3] - 2026-02-20
+
+### Changed
+- Plugin configuration consolidated into single file
+
+## [3.0.2] - 2026-02-20
+
+### Added
+- `search_memory` MCP tool for on-demand memory retrieval
+- Enhanced retrieval context signals (active feature, current phase, git branch)
+
+### Fixed
+- Secretary routing hardened to prevent dispatch bypass
+
+## [3.0.1] - 2026-02-20
+
+### Added
+- `setup-memory` script for initial memory database population
+- Knowledge bank backfill from existing pattern/anti-pattern/heuristic files
+
+### Fixed
+- README documentation drift synced with ground truth detection
 
 ## [3.0.0] - 2026-02-20
 
@@ -37,6 +92,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-project persistent memory system with global memory store (`~/.claude/iflow/memory/`)
 - Memory injection in session-start hook for cross-project context
 
+## [2.10.2] - 2026-02-17
+
+### Added
+- Working-backwards advisor with deliverable clarity gate for high-uncertainty brainstorms
+
+## [2.10.1] - 2026-02-17
+
+### Added
+- Secretary-driven advisory teams for generalized brainstorming
+
 ## [2.10.0] - 2026-02-14
 
 ### Added
@@ -53,6 +118,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implementing skill rewritten with per-task dispatch loop
 - Knowledge bank validation step added to retrospecting skill
 - Implementation-log reading added to retrospecting skill
+
+## [2.8.6] - 2026-02-13
+
+### Fixed
+- YOLO-guard hook hardened with wildcard matcher and fast-path optimization
+
+## [2.8.5] - 2026-02-11
+
+### Added
+- AORTA retrospective framework with retro-facilitator agent
+
+## [2.8.4] - 2026-02-11
+
+### Added
+- YOLO mode for fully autonomous workflow
+
+## [2.8.3] - 2026-02-11
+
+### Changed
+- All agents set to model: opus for maximum capability
+
+## [2.8.2] - 2026-02-10
+
+### Changed
+- `/finish` improved with CLAUDE.md updates and better defaults
+
+## [2.8.1] - 2026-02-10
+
+### Changed
+- Reviewer cycles strengthened across all workflow phases
 
 ## [2.8.0] - 2026-02-10
 
@@ -71,6 +166,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/finish` improved with CLAUDE.md updates and better defaults
 - Reviewer cycles strengthened across all workflow phases
 - All agents set to model: opus for maximum capability
+
+## [2.7.2] - 2026-02-10
+
+### Changed
+- No-time-estimates policy enforced across plan and task components
+
+## [2.7.1] - 2026-02-10
+
+### Fixed
+- Plugin best practices audit fixes
 
 ## [2.7.0] - 2026-02-09
 
@@ -124,6 +229,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Spec-skeptic agent renamed to spec-reviewer
 - Show-status rewritten as workspace dashboard
 
+## [2.4.5] - 2026-02-07
+
+### Fixed
+- Release script uses `--ci` flag in agent workflows
+
+## [2.4.4] - 2026-02-07
+
+### Fixed
+- Component formats standardized across all plugin files
+- 103 validate.sh warnings eliminated
+
+## [2.4.3] - 2026-02-07
+
+### Changed
+- Documentation and MCP config relocated
+
+## [2.4.2] - 2026-02-07
+
+### Added
+- Pre-merge validation step in `/finish` Phase 5
+- Discovery-based scanning in documentation agents
+
+### Changed
+- `show-status` rewritten as workspace dashboard
+- READMEs updated with complete commands, skills, and agents inventory
+
+### Fixed
+- validate.sh `set -e` crash fixed with Anthropic best-practice checks
+
+## [2.4.1] - 2026-02-05
+
+### Changed
+- Spec-skeptic agent renamed to spec-reviewer
+
 ## [2.3.1] - 2026-02-05
 
 ### Added
@@ -150,6 +289,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `agent_sandbox/` directory for agent scratch work and investigation output
 - `write-policies.json` configuration for protected/warned/safe path policies
 
+## [2.1.1] - 2026-02-04
+
+### Changed
+- Write-control hook removed, guidelines centralized into agent instructions
+
 ## [2.0.0] - 2026-02-04
 
 ### Added
@@ -168,6 +312,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/implement` restructured with multi-phase review and automated review iterations
 - `/create-tasks` gains two-stage review with task-breakdown-reviewer agent
 - Plugin quality patterns applied across skills and agents
+
+## [1.7.1] - 2026-02-04
+
+### Changed
+- `/implement` gains automated review agent iterations
+- Plugin quality patterns applied across skills and agents
+
+## [1.6.1] - 2026-02-03
+
+### Added
+- `/create-plan` gains two-stage review with plan-reviewer agent
+- Code change percentage-based version bumping in release script
+
+### Fixed
+- Dev version simplified to mirror release version
+- Subshell variable passing fixed for change stats
 
 ## [1.6.0] - 2026-02-03
 

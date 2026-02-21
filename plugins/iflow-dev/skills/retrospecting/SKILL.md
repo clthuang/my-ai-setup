@@ -116,6 +116,22 @@ Task tool call:
 
 If using fallback, generate retro.md in the legacy format (What Went Well / What Could Improve / Learnings Captured).
 
+**Fallback learning persistence:** After writing retro.md, also execute Steps 4, 4a, and 4c
+using the investigation-agent's JSON output. Map fields:
+- `patterns` array → Step 4 patterns entries
+- `anti_patterns` array → Step 4 anti-patterns entries
+- `heuristics` array → Step 4 heuristics entries
+
+For each entry, set defaults for fields the investigation-agent doesn't produce:
+- `text`: the string from the array
+- `name`: derive from text (first ~60 chars)
+- `confidence`: "low"
+- `keywords`: []
+- `reasoning`: ""
+- `provenance`: "Feature #{id} (investigation-agent fallback)"
+
+Skip Step 4b (validation of pre-existing entries) during fallback.
+
 ### Step 3: Write retro.md
 
 Write `docs/features/{id}-{slug}/retro.md` using the `retro_md` field from the retro-facilitator agent response.

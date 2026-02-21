@@ -50,6 +50,48 @@ Task tool call:
     Follow the 6-phase RCA process. Generate a report at docs/rca/.
 ```
 
+## Capture Learnings
+
+After rca-investigator completes, extract learnings from the RCA report.
+
+### Extract and Persist
+
+1. Read the generated report at `docs/rca/{file}.md`
+2. For each **root cause** (primary + contributing factors):
+   - Call `store_memory` with:
+     - `name`: concise title (max 60 chars)
+     - `description`: full root cause description with evidence
+     - `reasoning`: "Root cause discovered during RCA: {bug summary}"
+     - `category`: "anti-patterns"
+     - `references`: ["{report-path}"]
+     - `confidence`: "medium" for primary cause, "low" for contributing factors
+3. For each **recommendation**:
+   - Call `store_memory` with:
+     - `name`: concise recommendation title (max 60 chars)
+     - `description`: full recommendation text
+     - `reasoning`: "Prevention strategy from RCA: {bug summary}"
+     - `category`: "heuristics"
+     - `references`: ["{report-path}"]
+     - `confidence`: "low"
+
+### Quality Filter
+- Skip entries that are purely feature-specific (e.g., "add field X to table Y")
+- Only capture generalizable learnings (e.g., "validate schema migrations with version tracking")
+- Max 5 entries per RCA to avoid noise
+
+### Fallback
+If `store_memory` MCP tool unavailable, use CLI:
+```bash
+PYTHONPATH=plugins/iflow-dev/hooks/lib .venv/bin/python -m semantic_memory.writer \
+  --action upsert --global-store ~/.claude/iflow/memory \
+  --entry-json '{...}'
+```
+
+### Output
+```
+RCA learnings captured: {n} anti-patterns, {m} heuristics
+```
+
 ## On Completion
 
 After the agent completes the RCA, offer handoff options:
