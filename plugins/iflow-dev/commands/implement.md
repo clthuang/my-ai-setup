@@ -90,13 +90,13 @@ If simplifications found:
 - Verify tests still pass
 - Return to main agent
 
-### 6. Review Phase (Automated Iteration Loop)
+### 7. Review Phase (Automated Iteration Loop)
 
 Maximum 5 iterations. Loop continues until ALL reviewers approve or cap is reached.
 
 Execute review cycle with three reviewers:
 
-**6a. Implementation Review (4-Level Validation):**
+**7a. Implementation Review (4-Level Validation):**
 ```
 Task tool call:
   description: "Review implementation against requirements chain"
@@ -131,7 +131,7 @@ Task tool call:
     Return JSON with approval status, level results, issues, and evidence.
 ```
 
-**6b. Code Quality Review:**
+**7b. Code Quality Review:**
 ```
 Task tool call:
   description: "Review code quality"
@@ -167,7 +167,7 @@ Task tool call:
     Return assessment with approval status.
 ```
 
-**6c. Security Review:**
+**7c. Security Review:**
 ```
 Task tool call:
   description: "Review security"
@@ -202,7 +202,7 @@ Task tool call:
     Return JSON with approval status and vulnerabilities.
 ```
 
-**6d. Automated Iteration Logic:**
+**7d. Automated Iteration Logic:**
 
 Collect results from all three reviewers (implementation, quality, security).
 
@@ -212,7 +212,7 @@ Collect results from all three reviewers (implementation, quality, security).
 
 IF all three PASS:
   → Mark phase completed
-  → Proceed to step 7
+  → Proceed to step 8
 
 ELSE (any issues found):
   → Append iteration to `.review-history.md`
@@ -262,10 +262,10 @@ ELSE (any issues found):
         "multiSelect": false
       }]
     ```
-    - "Force approve": Record unresolved issues in `.meta.json` reviewerNotes, proceed to step 7
+    - "Force approve": Record unresolved issues in `.meta.json` reviewerNotes, proceed to step 8
     - "Pause and review manually": Stop execution, output file list for manual review
     - "Abandon changes": Stop execution, do NOT mark phase completed
-  → Else: Loop back to step 6a
+  → Else: Loop back to step 7a
 
 **Review History Entry Format** (append to `.review-history.md`):
 ```markdown
@@ -289,7 +289,7 @@ ELSE (any issues found):
 ---
 ```
 
-### 6e. Capture Review Learnings (Automatic)
+### 7e. Capture Review Learnings (Automatic)
 
 **Trigger:** Only execute if the review loop ran 2+ iterations. If all three reviewers approved on first pass, skip — no review learnings to capture.
 
@@ -323,11 +323,11 @@ ELSE (any issues found):
 
 **Output:** `"Review learnings: {n} patterns captured from {m}-iteration review cycle"` (inline, no prompt)
 
-### 7. Update State on Completion
+### 8. Update State on Completion
 
 Follow the state update step from `commitAndComplete("implement", [])` in the **workflow-transitions** skill. Implementation does not auto-commit artifacts (code is committed during implementation).
 
-### 8. Completion Message
+### 9. Completion Message
 
 Output: "Implementation complete."
 
@@ -347,4 +347,4 @@ AskUserQuestion:
 
 If "Continue to /iflow-dev:finish-feature (Recommended)": Invoke `/iflow-dev:finish-feature`
 If "Review implementation first": Show "Run /iflow-dev:finish-feature when ready." → STOP
-If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to the implementation, then return to Step 6 (3-reviewer loop) with the iteration counter reset to 0.
+If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to the implementation, then return to Step 7 (3-reviewer loop) with the iteration counter reset to 0.
