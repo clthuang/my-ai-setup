@@ -7,90 +7,188 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.8] - 2026-02-21
+
 ### Added
 - `/remember` command for manually capturing learnings to long-term memory
 - `capturing-learnings` skill for model-initiated learning capture with configurable modes (ask-first, silent, off)
-- `memory_model_capture_mode` and `memory_silent_capture_budget` configuration keys for controlling model-initiated memory capture
+- `memory_model_capture_mode` and `memory_silent_capture_budget` configuration keys
 - Optional `confidence` parameter (high/medium/low, defaults to medium) for `store_memory` MCP tool
 - Memory capture hints in session-start context for model-initiated learning capture
+
+## [3.0.0] - 2026-02-20
+
+### Added
 - Semantic memory system with embedding-based retrieval using cosine similarity and hybrid ranking
-- `store_memory` MCP tool for mid-session memory capture
-- `search_memory` MCP tool for on-demand semantic memory search with hybrid ranking (vector + BM25)
-- Enhanced retrieval context signals: active feature description, current phase, git branch, recently changed files, working tree edits
+- `store_memory` and `search_memory` MCP tools for mid-session memory capture and on-demand search
+- Enhanced retrieval context signals: active feature, current phase, git branch, recently changed files
 - Memory toggle configuration: `memory_semantic_enabled`, `memory_embedding_provider`, `memory_embedding_model`
 - SQLite-backed memory database (`memory.db`) with legacy fallback support
-- Project-level workflow with `/iflow:create-project` command for AI-driven PRD decomposition into ordered features
-- Scale detection in brainstorming Stage 7 using 6 signals with "Promote to Project" option
-- `decomposing` skill orchestrating project decomposition pipeline (decompose, review, create features)
-- `project-decomposer` agent for generating feature breakdown with milestones and dependencies
-- `project-decomposition-reviewer` agent for validating decomposition quality
-- Feature `.meta.json` extended with optional `project_id`, `module`, and `depends_on_features` fields
-- New "planned" feature status for decomposition-created features
+- Setup-memory script and knowledge bank backfill with source-hash deduplication
+
+### Fixed
+- Secretary routing hardened to prevent dispatch bypass
+- Plugin config consolidated into single file
+- Venv Python used consistently in session-start hook
+
+## [2.11.0] - 2026-02-17
+
+### Added
+- Cross-project persistent memory system with global memory store (`~/.claude/iflow/memory/`)
+- Memory injection in session-start hook for cross-project context
+
+## [2.10.0] - 2026-02-14
+
+### Added
+- Data science domain skills for brainstorming enrichment
+- Secretary-driven advisory teams for generalized brainstorming
+- Working-backwards advisor with deliverable clarity gate for high-uncertainty brainstorms
+
+### Changed
+- Release script blanket iflow-dev to iflow conversion improved
+
+## [2.9.0] - 2026-02-13
+
+### Changed
+- Implementing skill rewritten with per-task dispatch loop
+- Knowledge bank validation step added to retrospecting skill
+- Implementation-log reading added to retrospecting skill
+
+## [2.8.0] - 2026-02-10
+
+### Added
+- `/iflow:create-project` command for AI-driven PRD decomposition into ordered features
+- Scale detection in brainstorming Stage 7 with "Promote to Project" option
+- `decomposing` skill orchestrating project decomposition pipeline
+- `project-decomposer` and `project-decomposition-reviewer` agents
+- Feature `.meta.json` extended with `project_id`, `module`, `depends_on_features`
+- "planned" feature status for decomposition-created features
 - `show-status` displays Project Features section with milestone progress
-- `list-features` shows project_id column and planned features
-- `session-start` hook displays project affiliation context
-- `workflow-transitions` injects project context at Step 5
-- `validate.sh` validates planned features and project metadata
-- `docs/projects/` directory for project decomposition artifacts
-- Structured problem-solving skill with SCQA framing and 5 problem type frameworks (product/feature, technical/architecture, financial/business, research/scientific, creative/design)
-- Problem type classification step in brainstorming Stage 1 (Steps 6-8) with Skip option for backward compatibility
-- Type-specific review criteria in brainstorm-reviewer for domain-adaptive quality checks
-- Mermaid mind map visualization in PRD Structured Analysis section
-- 4 reference files: problem-types.md, scqa-framing.md, decomposition-methods.md, review-criteria-by-type.md
-- Game-design domain skill with 7 reference files (design-frameworks, engagement-retention, aesthetic-direction, monetization-models, market-analysis, tech-evaluation-criteria, review-criteria)
-- Domain selection (Steps 9-10) in brainstorming Stage 1 for opt-in domain enrichment
+- YOLO mode for fully autonomous workflow
+- AORTA retrospective framework with retro-facilitator agent
+
+### Changed
+- `/finish` improved with CLAUDE.md updates and better defaults
+- Reviewer cycles strengthened across all workflow phases
+- All agents set to model: opus for maximum capability
+
+## [2.7.0] - 2026-02-09
+
+### Added
 - Crypto-analysis domain skill with 7 reference files (protocol-comparison, defi-taxonomy, tokenomics-models, trading-strategies, mev-classification, market-structure, risk-assessment)
 - Crypto/Web3 option in brainstorming Step 9 domain selection
 - Crypto-analysis criteria table in brainstorm-reviewer for domain-specific quality checks
 
-### Fixed
-- Documentation sync: ground truth detection in documentation-researcher agent and README drift correction
+## [2.6.0] - 2026-02-07
+
+### Added
+- Game-design domain skill with 7 reference files (design-frameworks, engagement-retention, aesthetic-direction, monetization-models, market-analysis, tech-evaluation-criteria, review-criteria)
+- Domain selection (Steps 9-10) in brainstorming Stage 1 for opt-in domain enrichment
+
+### Changed
+- Brainstorming refactored to generic domain-dispatch pattern
+- PRD output format gains conditional domain analysis section
+
+## [2.5.0] - 2026-02-07
+
+### Added
+- Structured problem-solving skill with SCQA framing and 5 problem type frameworks (product/feature, technical/architecture, financial/business, research/scientific, creative/design)
+- Problem type classification step in brainstorming Stage 1 (Steps 6-8) with Skip option
+- Type-specific review criteria in brainstorm-reviewer for domain-adaptive quality checks
+- Mermaid mind map visualization in PRD Structured Analysis section
+- 4 reference files: problem-types.md, scqa-framing.md, decomposition-methods.md, review-criteria-by-type.md
 
 ### Changed
 - Brainstorming Stage 1 CLARIFY expanded with Steps 6-8 (problem type classification, optional framework loading, metadata storage)
-- PRD format gains Problem Type metadata in Status section and Structured Analysis section (SCQA framing, decomposition tree, mind map)
-- Brainstorm-reviewer applies universal criteria (5) plus type-specific criteria (3) when problem type is provided
-- Stage 6 READINESS CHECK dispatch now sends inline PRD content with Problem Type context
-- Brainstorming Stage 2 gains domain-aware research query enhancement
-- Brainstorm-reviewer gains domain criteria parsing with warning-level checks
-- PRD output format gains conditional Game Design Analysis section
-- Brainstorming refactored to generic domain-dispatch pattern
-- Game-design Stage 2 research context moved to game-design SKILL.md
-- PRD output format gains generic domain analysis section placeholder
+- PRD format gains Problem Type metadata and Structured Analysis section (SCQA framing, decomposition tree, mind map)
+- Brainstorm-reviewer applies universal criteria plus type-specific criteria when problem type is provided
 
-## [2.3.0] - 2026-02-05
+## [2.4.0] - 2026-02-05
 
 ### Added
-- Feasibility Assessment section in spec.md with 5-level confidence scale (None → Proven) and evidence requirements
+- Feasibility Assessment section in spec.md with 5-level confidence scale (None to Proven) and evidence requirements
 - Prior Art Research stage (Stage 0) in design phase preceding architecture design
 - Evidence-grounded Technical Decisions documenting alternatives, trade-offs, and principles in design
 - Reasoning fields in plan.md items (Why this item, Why this order) replacing LOC estimates
 - Task traceability with Why field in tasks.md linking back to plan items
 - Auto-commit and auto-push after phase approval (specify, design, create-plan, create-tasks)
-- Independent verification in spec-skeptic and design-reviewer agents using Context7 and WebSearch tools
+- Independent verification in spec-reviewer and design-reviewer agents using Context7 and WebSearch tools
 
 ### Changed
-- Design phase workflow expanded to 5 stages: Prior Art Research → Architecture → Interface → Design Review → Handoff
+- Design phase workflow expanded to 5 stages: Prior Art Research, Architecture, Interface, Design Review, Handoff
 - Plan phase removes line-of-code estimates, focuses on reasoning and traceability
 - Phase approval now triggers automatic VCS commits and pushes for better workflow continuity
 
-## [1.5.0] - 2026-02-05
+### Fixed
+- Component formats standardized; 103 validate.sh warnings eliminated
+- Spec-skeptic agent renamed to spec-reviewer
+- Show-status rewritten as workspace dashboard
+
+## [2.3.1] - 2026-02-05
+
+### Added
+- Workflow overview diagram in plugin README
+
+## [2.3.0] - 2026-02-05
+
+### Changed
+- Review system redesigned with two-tier pattern
+- Workflow state transitions hardened
+- Description patterns standardized to 'Use when' format
+
+## [2.2.0] - 2026-02-05
 
 ### Added
 - Root cause analysis command `/iflow:root-cause-analysis` for systematic bug investigation
 - `rca-investigator` agent with 6-phase methodology (symptom, reproduce, hypothesize, trace, validate, document)
 - `root-cause-analysis` skill with reference materials for investigation techniques
 
-## [1.4.0] - 2026-02-04
+## [2.1.0] - 2026-02-04
+
+### Added
+- `write-control` PreToolUse hook for Write/Edit path restrictions on agent subprocesses (replaced by centralized guidelines in v2.1.1)
+- `agent_sandbox/` directory for agent scratch work and investigation output
+- `write-policies.json` configuration for protected/warned/safe path policies
+
+## [2.0.0] - 2026-02-04
 
 ### Added
 - Secretary agent for intelligent task routing with 5 modules (Discovery, Interpreter, Matcher, Recommender, Delegator)
 - `/iflow:secretary` command for manual invocation
 - `inject-secretary-context.sh` hook for aware mode activation
 - Activation modes: manual (explicit command) and aware (automatic via `.claude/iflow-dev.local.md`)
-- `write-control` PreToolUse hook for Write/Edit path restrictions on agent subprocesses
-- `agent_sandbox/` directory for agent scratch work and investigation output
-- `write-policies.json` configuration for protected/warned/safe path policies
+
+## [1.7.0] - 2026-02-04
+
+### Added
+- GitHub Actions workflow for manual releases
+
+### Changed
+- `/finish` streamlined with 6-phase automatic process
+- `/implement` restructured with multi-phase review and automated review iterations
+- `/create-tasks` gains two-stage review with task-breakdown-reviewer agent
+- Plugin quality patterns applied across skills and agents
+
+## [1.6.0] - 2026-02-03
+
+### Added
+- `/create-plan` gains two-stage review with plan-reviewer agent
+- Code change percentage-based version bumping in release script
+
+### Fixed
+- `get_last_tag` uses git tag sorting instead of `git describe`
+- Dev version simplified to mirror release version
+- Subshell variable passing fixed for change stats
+
+## [1.5.0] - 2026-02-03
+
+### Added
+- 4-stage design workflow with design-reviewer agent
+
+## [1.4.0] - 2026-02-03
+
+### Changed
+- PRD file naming standardized to `YYYYMMDD-HHMMSS-{slug}.prd.md` format
 
 ## [1.3.0] - 2026-02-03
 
@@ -124,7 +222,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Branch-based marketplace name switching
 - Marketplace format conversion during release
 
-## [1.1.0] - 2026-01-31
+## [1.1.0] - 2026-02-01
 
 ### Added
 - Plugin distribution and versioning infrastructure
@@ -134,7 +232,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Reorganized plugin structure for distribution
 
-## [1.0.0] - 2026-01-15
+## [1.0.0] - 2026-01-31
 
 ### Added
 - Initial iflow workflow plugin

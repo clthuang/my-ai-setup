@@ -230,6 +230,34 @@ with open('$MARKETPLACE_JSON', 'w') as f:
 }
 
 #############################################
+# CHANGELOG promotion
+#############################################
+
+promote_changelog() {
+    local new_version=$1
+    local today
+    today=$(date +%Y-%m-%d)
+
+    if [[ ! -f "CHANGELOG.md" ]]; then
+        warn "CHANGELOG.md not found, skipping promotion"
+        return
+    fi
+
+    # Check if there's content under [Unreleased] (non-empty lines before next ## header)
+    local unreleased_content
+    unreleased_content=$(sed -n '/^## \[Unreleased\]/,/^## \[/{/^## \[/d;/^$/d;p;}' CHANGELOG.md)
+
+    if [[ -z "$unreleased_content" ]]; then
+        warn "No unreleased CHANGELOG entries to promote"
+        return
+    fi
+
+    # Insert versioned header after [Unreleased] line
+    sed -i '' "s/^## \[Unreleased\]$/## [Unreleased]\n\n## [$new_version] - $today/" CHANGELOG.md
+    success "Promoted CHANGELOG [Unreleased] entries to [$new_version] - $today"
+}
+
+#############################################
 # Git operations
 #############################################
 
@@ -239,7 +267,7 @@ commit_and_release() {
 
     # Stage changes with IFLOW_RELEASE=1 to bypass hook
     export IFLOW_RELEASE=1
-    git add plugins/ .claude-plugin/
+    git add plugins/ .claude-plugin/ CHANGELOG.md
     git commit -m "chore(release): v$new_version"
     success "Committed release changes"
 
@@ -328,6 +356,9 @@ main() {
 
     # Update marketplace
     update_marketplace "$new_version" "$next_dev_version"
+
+    # Promote CHANGELOG [Unreleased] to versioned entry
+    promote_changelog "$new_version"
 
     # Commit and release
     commit_and_release "$new_version"
