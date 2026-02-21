@@ -194,6 +194,7 @@ Skills are instructions Claude follows for specific development practices. Locat
 | `updating-docs` | Automatically updates documentation using agents |
 | `writing-skills` | Applies TDD approach to skill documentation |
 | `detecting-kanban` | Detects Vibe-Kanban and provides TodoWrite fallback |
+| `capturing-learnings` | Guides model-initiated learning capture with configurable modes |
 
 ## Agents
 
