@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "hooks", "lib")
 
 # Smoke test: ensure the package is importable at startup.
 import semantic_memory  # noqa: F401
-from semantic_memory import VALID_CATEGORIES, content_hash
+from semantic_memory import VALID_CATEGORIES, VALID_CONFIDENCE, content_hash
 from semantic_memory.config import read_config
 from semantic_memory.database import MemoryDatabase
 from semantic_memory.embedding import EmbeddingProvider, create_provider
@@ -64,10 +64,10 @@ def _process_store_memory(
             f"Error: invalid category '{category}'. "
             f"Must be one of: {', '.join(sorted(VALID_CATEGORIES))}"
         )
-    if confidence not in ("high", "medium", "low"):
+    if confidence not in VALID_CONFIDENCE:
         return (
             f"Error: invalid confidence '{confidence}'. "
-            f"Must be one of: high, medium, low"
+            f"Must be one of: {', '.join(sorted(VALID_CONFIDENCE))}"
         )
 
     # -- Compute content hash (id) --
