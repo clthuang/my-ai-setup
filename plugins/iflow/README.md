@@ -8,9 +8,9 @@ Structured feature development workflow with skills, agents, and commands for me
 
 | Type | Count |
 |------|-------|
-| Skills | 27 |
+| Skills | 28 |
 | Agents | 28 |
-| Commands | 22 |
+| Commands | 23 |
 | Hooks | 7 |
 | MCP Tools | 2 |
 
@@ -48,6 +48,7 @@ Structured feature development workflow with skills, agents, and commands for me
 | `/iflow:init-ds-project <name>` | Scaffold a new data science project |
 | `/iflow:review-analysis <file>` | Review data analysis for statistical pitfalls |
 | `/iflow:review-ds-code <file>` | Review DS Python code for anti-patterns |
+| `/iflow:remember` | Capture a learning to long-term memory for future session recall |
 | `/iflow:yolo [on\|off]` | Toggle YOLO autonomous mode |
 
 ## Review System
