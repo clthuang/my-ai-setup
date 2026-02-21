@@ -1,5 +1,5 @@
 ---
-name: choosing-modeling-approach
+name: choosing-ds-modeling-approach
 description: "Use when choosing between predictive and causal modeling, designing experiments, evaluating causal claims, or selecting methods like DiD, IV, RDD, PSM, or uplift modeling."
 ---
 

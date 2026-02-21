@@ -33,7 +33,7 @@ Education → Income → Health
 **Prevention:**
 - Never claim causation from observational data without causal methodology
 - Draw a causal DAG before analysis — identify confounders, colliders, mediators
-- Use causal methods when causal claims are needed (see choosing-modeling-approach skill)
+- Use causal methods when causal claims are needed (see choosing-ds-modeling-approach skill)
 - Report associations as "associated with" not "causes" or "leads to"
 - Check for reverse causation: maybe Y causes X, not the other way around
 

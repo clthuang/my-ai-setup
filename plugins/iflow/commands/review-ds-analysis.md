@@ -5,7 +5,7 @@ argument-hint: <notebook or script path>
 
 # Review Analysis Command
 
-Load the analysis pitfalls skill and dispatch the analysis-reviewer agent.
+Load the analysis pitfalls skill and dispatch the ds-analysis-reviewer agent.
 
 ## Get Target File
 
@@ -32,16 +32,16 @@ After selection, ask for the path: "Please provide the file or directory path."
 ## Load Skill
 
 Reference the analysis pitfalls methodology:
-@plugins/iflow/skills/spotting-analysis-pitfalls/SKILL.md
+@plugins/iflow/skills/spotting-ds-analysis-pitfalls/SKILL.md
 
 ## Dispatch Agent
 
-Use the Task tool to dispatch the analysis-reviewer agent:
+Use the Task tool to dispatch the ds-analysis-reviewer agent:
 
 ```
 Task tool call:
   description: "Review analysis for pitfalls"
-  subagent_type: iflow:analysis-reviewer
+  subagent_type: iflow:ds-analysis-reviewer
   prompt: |
     Review this data analysis for statistical pitfalls, methodology issues, and conclusion validity:
 

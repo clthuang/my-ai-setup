@@ -56,7 +56,7 @@ Then follow the phases:
 | `/iflow:secretary` | Intelligent task routing to agents (supports YOLO mode with orchestrate subcommand) |
 | `/iflow:create-specialist-team` | Create ephemeral specialist teams for complex tasks |
 | `/iflow:root-cause-analysis` | Investigate bugs systematically |
-| `/iflow:review-analysis <file>` | Review data analysis for statistical pitfalls |
+| `/iflow:review-ds-analysis <file>` | Review data analysis for statistical pitfalls |
 | `/iflow:review-ds-code <file>` | Review DS Python code for anti-patterns |
 | `/iflow:init-ds-project <name>` | Scaffold a new data science project |
 | `/iflow:sync-cache` | Sync plugin source files to cache |
@@ -105,8 +105,8 @@ Skills are internal capabilities that Claude uses automatically during the workf
 | data-science-analysis | Data science frameworks for methodology assessment, pitfall analysis, and modeling approach recommendations (brainstorming domain) |
 | writing-ds-python | Clean DS Python code: anti-patterns, pipeline rules, type hints, testing strategy, dependency management |
 | structuring-ds-projects | Cookiecutter v2 project layout, notebook conventions, data immutability, the 3-use rule |
-| spotting-analysis-pitfalls | 15 common statistical pitfalls with diagnostic decision tree and mitigation checklists |
-| choosing-modeling-approach | Predictive vs causal modeling, method selection flowchart, Rubin/Pearl frameworks, hybrid approaches |
+| spotting-ds-analysis-pitfalls | 15 common statistical pitfalls with diagnostic decision tree and mitigation checklists |
+| choosing-ds-modeling-approach | Predictive vs causal modeling, method selection flowchart, Rubin/Pearl frameworks, hybrid approaches |
 
 ### Specialist Teams
 
@@ -143,7 +143,7 @@ Agents run as specialized subprocesses delegated by the workflow. They operate a
 | spec-reviewer | Reviews spec.md for testability, assumptions, and scope discipline |
 | security-reviewer | Reviews implementation for security vulnerabilities |
 | task-reviewer | Validates task breakdown quality for immediate executability |
-| analysis-reviewer | Reviews data analysis for statistical pitfalls, methodology issues, and conclusion validity |
+| ds-analysis-reviewer | Reviews data analysis for statistical pitfalls, methodology issues, and conclusion validity |
 | ds-code-reviewer | Reviews DS Python code for anti-patterns, pipeline quality, and best practices |
 
 ### Workers
