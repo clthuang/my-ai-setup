@@ -13,6 +13,18 @@ Claude Code plugin providing a structured feature development workflow—skills,
 - **Retro before cleanup** - Retrospective runs BEFORE branch deletion so context is still available.
 - **Edit *-dev plugins only** - Never edit `plugins/iflow/` directly. Make changes in `plugins/iflow-dev/`, then run release script to sync.
 
+## Working Standards
+
+**When things go sideways:** Stop pushing. Re-read relevant code, question your assumptions, and re-plan before continuing. After 3 failed attempts at a fix, the approach is wrong — don't iterate on a broken path.
+
+**Verification (all work):** Never claim work is complete without demonstrating correctness — run tests, check for regressions, diff against the base branch when relevant. Ask: "Would a staff engineer approve this?"
+
+**Bug fixing posture:** Be autonomous. When pointed at errors, failing tests, or broken CI — investigate root causes and fix without hand-holding. Use `systematic-debugging` skill for structured investigation; `/iflow:root-cause-analysis` for thorough multi-cause analysis.
+
+**When corrected:** After any user correction, capture the pattern via `/iflow:remember` so it persists across sessions. Don't repeat the same mistake twice.
+
+**Before non-trivial changes:** Pause and ask whether there's a simpler approach. Skip this for obvious, mechanical fixes.
+
 ## Writing Guidelines
 
 **Agents with Write/Edit access should use judgment.** Avoid modifying:
