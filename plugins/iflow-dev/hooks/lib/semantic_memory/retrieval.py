@@ -64,12 +64,13 @@ class RetrievalPipeline:
     def collect_context(self, project_root: str) -> str | None:
         """Collect session context signals from the project.
 
-        Gathers up to six signal types:
+        Gathers up to seven signal types:
 
         1. Active feature slug (from ``docs/features/*/.meta.json``)
         2. Feature description (first paragraph of ``spec.md`` / ``prd.md``)
         3. Current phase (``lastCompletedPhase`` from ``.meta.json``)
-        4. Project-level description fallback (``CLAUDE.md`` or ``README.md``)
+        4. Project-level description (``CLAUDE.md``, ``README.md``,
+           ``README_FOR_DEV.md`` — always included)
         5. Current git branch name
         6. Recently changed files (committed + working tree)
 
@@ -94,11 +95,11 @@ class RetrievalPipeline:
             # 3. Phase
             phase = meta.get("lastCompletedPhase", "unknown")
             signals.append(f"Phase: {phase}")
-        else:
-            # 4. No active feature — use project-level context as fallback
-            project_desc = self._read_project_description(project_root)
-            if project_desc:
-                signals.append(project_desc)
+
+        # 4. Project-level description (always included)
+        project_desc = self._read_project_descriptions(project_root)
+        if project_desc:
+            signals.append(project_desc)
 
         # 5. Branch name (skip generic names that add no signal)
         branch = self._git_branch_name(project_root)
@@ -309,16 +310,21 @@ class RetrievalPipeline:
         return sorted(files)[:20]
 
     @staticmethod
-    def _read_project_description(project_root: str) -> str | None:
-        """Read a project-level description for context when no feature is active.
+    def _read_project_descriptions(project_root: str) -> str | None:
+        """Read project-level descriptions from multiple sources.
 
-        Tries the ``## Repository Overview`` section of ``CLAUDE.md``
-        first (max 50 words), then falls back to the first paragraph
-        of ``README.md``.
+        Reads from up to three sources (each contributing max 50 words):
 
-        Returns ``None`` if neither source provides usable content.
+        1. ``CLAUDE.md`` — ``## Repository Overview`` section
+        2. ``README.md`` — first paragraph
+        3. ``README_FOR_DEV.md`` — first paragraph
+
+        Returns a combined string prefixed with ``"Project:"``, or
+        ``None`` if no source provides usable content.
         """
-        # Try CLAUDE.md "Repository Overview" section first
+        parts: list[str] = []
+
+        # 1. CLAUDE.md "Repository Overview" section
         claude_md = os.path.join(project_root, "CLAUDE.md")
         if os.path.isfile(claude_md):
             try:
@@ -333,11 +339,11 @@ class RetrievalPipeline:
                     overview = match.group(1).strip()
                     words = overview.split()[:50]
                     if words:
-                        return f"Project: {' '.join(words)}"
+                        parts.append(" ".join(words))
             except OSError:
                 pass
 
-        # Fallback to README.md first paragraph
+        # 2. README.md first paragraph
         readme = os.path.join(project_root, "README.md")
         if os.path.isfile(readme):
             try:
@@ -346,11 +352,27 @@ class RetrievalPipeline:
                 first_para = text.split("\n## ")[0].strip()
                 words = first_para.split()[:50]
                 if words:
-                    return f"Project: {' '.join(words)}"
+                    parts.append(" ".join(words))
             except OSError:
                 pass
 
-        return None
+        # 3. README_FOR_DEV.md first paragraph
+        readme_dev = os.path.join(project_root, "README_FOR_DEV.md")
+        if os.path.isfile(readme_dev):
+            try:
+                with open(readme_dev, "r") as fh:
+                    text = fh.read()
+                first_para = text.split("\n## ")[0].strip()
+                words = first_para.split()[:50]
+                if words:
+                    parts.append(" ".join(words))
+            except OSError:
+                pass
+
+        if not parts:
+            return None
+
+        return f"Project: {'. '.join(parts)}"
 
     @staticmethod
     def _git_changed_files(project_root: str) -> list[str]:

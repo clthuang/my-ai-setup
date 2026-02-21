@@ -239,9 +239,9 @@ build_memory_context() {
 
     local timeout_cmd=""
     if command -v gtimeout >/dev/null 2>&1; then
-        timeout_cmd="gtimeout 3"
+        timeout_cmd="gtimeout 5"
     elif command -v timeout >/dev/null 2>&1; then
-        timeout_cmd="timeout 3"
+        timeout_cmd="timeout 5"
     fi
 
     # Resolve Python: prefer venv, fallback to system python3
@@ -250,21 +250,31 @@ build_memory_context() {
         python_cmd="${PLUGIN_ROOT}/.venv/bin/python"
     fi
 
-    local memory_output
+    local memory_output=""
+    local max_retries=3
+    local attempt=0
     if [[ "$semantic_enabled" == "true" ]]; then
         # Semantic memory: embedding-based retrieval with FTS5 keyword search
         # stderr suppressed: injector.py errors must not corrupt hook JSON output
-        memory_output=$(PYTHONPATH="${SCRIPT_DIR}/lib" $timeout_cmd "$python_cmd" -m semantic_memory.injector \
-            --project-root "$PROJECT_ROOT" \
-            --limit "$limit" \
-            --global-store "$HOME/.claude/iflow/memory" 2>/dev/null) || memory_output=""
+        while (( attempt < max_retries )); do
+            memory_output=$(PYTHONPATH="${SCRIPT_DIR}/lib" $timeout_cmd "$python_cmd" -m semantic_memory.injector \
+                --project-root "$PROJECT_ROOT" \
+                --limit "$limit" \
+                --global-store "$HOME/.claude/iflow/memory" 2>/dev/null) && break
+            memory_output=""
+            (( attempt++ ))
+        done
     else
         # Legacy memory: markdown-based with observation count sorting
         # stderr suppressed: memory.py errors must not corrupt hook JSON output
-        memory_output=$($timeout_cmd $python_cmd "${SCRIPT_DIR}/lib/memory.py" \
-            --project-root "$PROJECT_ROOT" \
-            --limit "$limit" \
-            --global-store "$HOME/.claude/iflow/memory" 2>/dev/null) || memory_output=""
+        while (( attempt < max_retries )); do
+            memory_output=$($timeout_cmd $python_cmd "${SCRIPT_DIR}/lib/memory.py" \
+                --project-root "$PROJECT_ROOT" \
+                --limit "$limit" \
+                --global-store "$HOME/.claude/iflow/memory" 2>/dev/null) && break
+            memory_output=""
+            (( attempt++ ))
+        done
     fi
     echo "$memory_output"
 }

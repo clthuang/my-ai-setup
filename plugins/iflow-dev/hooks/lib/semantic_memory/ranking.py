@@ -1,6 +1,7 @@
 """Ranking engine for semantic memory retrieval results."""
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 
 from semantic_memory.retrieval_types import RetrievalResult
@@ -127,13 +128,19 @@ class RankingEngine:
         return self._CONFIDENCE_MAP.get(level, 2 / 3)  # default to medium
 
     def _recency_decay(self, updated_at_iso: str, now: datetime) -> float:
-        """Compute recency decay: ``1.0 / (1.0 + days_since / 30.0)``."""
+        """Compute recency decay with log compression.
+
+        Raw hyperbolic decay ``1/(1 + days/30)`` is compressed via
+        ``log(raw + 1)`` to reduce the penalty gap between recent and
+        older entries.
+        """
         updated = datetime.fromisoformat(updated_at_iso)
         if updated.tzinfo is None:
             updated = updated.replace(tzinfo=timezone.utc)
         delta = now - updated
         days_since = max(delta.total_seconds() / 86400.0, 0.0)
-        return 1.0 / (1.0 + days_since / 30.0)
+        raw_recency = 1.0 / (1.0 + days_since / 30.0)
+        return math.log(raw_recency + 1)
 
     def _recall_frequency(self, recall_count: int) -> float:
         """Compute recall frequency: ``min(recall_count / 10.0, 1.0)``."""
@@ -204,7 +211,7 @@ class RankingEngine:
         ``prominence = 0.3 * norm_obs + 0.2 * confidence + 0.3 * recency + 0.2 * recall``
         """
         obs_count = entry.get("observation_count", 0)
-        norm_obs = obs_count / max_obs if max_obs > 0 else 0.0
+        norm_obs = math.log(obs_count + 1) / math.log(max_obs + 1) if max_obs > 0 else 0.0
 
         confidence = self._confidence_value(entry.get("confidence", "medium"))
         recency = self._recency_decay(entry.get("updated_at", now.isoformat()), now)
