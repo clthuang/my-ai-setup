@@ -315,7 +315,7 @@ Hard prerequisites: spec.md AND tasks.md must pass 4-level validation before imp
 3. **Review** (iterative): `implementation-reviewer` -> `code-quality-reviewer` -> `security-reviewer` (up to 2-3 iterations)
 4. **Completion**: Prompts user to run `/finish-feature`
 
-The `implementation-log.md` artifact is read by the retro skill during `/finish` and then deleted alongside `.review-history.md`.
+The `implementation-log.md` artifact is read by the retro skill during `/finish-feature` and then deleted alongside `.review-history.md`.
 
 ## YOLO Mode (Autonomous Workflow)
 
@@ -416,6 +416,7 @@ Without an API key, memory still works via FTS5 keyword search and prominence ra
 - **Voyage:** `uv sync --extra voyage`, add `VOYAGE_API_KEY=your-key` to `.env`, set `memory_embedding_provider: voyage` and `memory_embedding_model: voyage-3`
 
 **Configuration** (in `.claude/iflow-dev.local.md`):
+- `plan_mode_review` — Enable plan review hooks for Claude Code plan mode (default: true)
 - `memory_semantic_enabled` — Enable semantic retrieval (default: true)
 - `memory_embedding_provider` — Provider for embeddings (default: gemini)
 - `memory_embedding_model` — Model for embeddings (default: gemini-embedding-001)
