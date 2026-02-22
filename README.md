@@ -155,6 +155,7 @@ Agents run as specialized subprocesses delegated by the workflow. They operate a
 | generic-worker | General-purpose implementation agent for mixed-domain tasks |
 | documentation-writer | Writes and updates documentation based on research findings |
 | code-simplifier | Identifies unnecessary complexity and suggests simplifications |
+| test-deepener | Systematically deepens test coverage after TDD scaffolding with spec-driven adversarial testing |
 
 ### Advisory
 

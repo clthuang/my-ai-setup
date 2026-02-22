@@ -215,12 +215,13 @@ Agents are isolated subprocesses spawned by the workflow. Located in `plugins/if
 - `ds-analysis-reviewer` — Reviews data analysis for statistical pitfalls, methodology issues, and conclusion validity; uses WebSearch + Context7
 - `ds-code-reviewer` — Reviews DS Python code for anti-patterns, pipeline quality, and best practices; uses Context7 for API verification
 
-**Workers (5):**
+**Workers (6):**
 - `implementer` — Implements tasks with TDD and self-review discipline
 - `project-decomposer` — Decomposes project PRD into ordered features with dependencies and milestones
 - `generic-worker` — General-purpose implementation agent for mixed-domain tasks
 - `documentation-writer` — Writes and updates documentation based on research findings
 - `code-simplifier` — Identifies unnecessary complexity and suggests simplifications
+- `test-deepener` — Systematically deepens test coverage after TDD scaffolding with spec-driven adversarial testing
 
 **Advisory (1):**
 - `advisor` — Applies strategic or domain advisory lens to brainstorm problems via template injection
@@ -312,8 +313,9 @@ Hard prerequisites: spec.md AND tasks.md must pass 4-level validation before imp
    - Includes project context block (~200-500 tokens) for project-linked features
    - Produces `implementation-log.md` with per-task decisions, deviations, and concerns
 2. **Simplification**: `code-simplifier` removes unnecessary complexity
-3. **Review** (iterative): `implementation-reviewer` -> `code-quality-reviewer` -> `security-reviewer` (up to 2-3 iterations)
-4. **Completion**: Prompts user to run `/finish-feature`
+3. **Test Deepening**: `test-deepener` generates spec-driven test outlines (Phase A) then writes executable tests (Phase B), reporting spec divergences
+4. **Review** (iterative): `implementation-reviewer` -> `code-quality-reviewer` -> `security-reviewer` (up to 5 iterations)
+5. **Completion**: Prompts user to run `/finish-feature`
 
 The `implementation-log.md` artifact is read by the retro skill during `/finish-feature` and then deleted alongside `.review-history.md`.
 

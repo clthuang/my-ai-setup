@@ -10,7 +10,7 @@ Read docs/features/ to find active feature, then follow the workflow below.
 ## YOLO Mode Overrides
 
 If `[YOLO_MODE]` is active:
-- **Circuit breaker (5 iterations):** STOP execution and report failure to user.
+- **Circuit breaker (5 iterations) — applies to Review Phase (Step 7) only, not Test Deepening (Step 6):** STOP execution and report failure to user.
   Do NOT force-approve. This is a safety boundary — autonomous operation should not
   merge code that fails review 5 times. Output:
   "YOLO MODE STOPPED: Implementation review failed after 5 iterations.
@@ -140,7 +140,7 @@ simplification_files = [s.location.split(":")[0] for s in step_5_output.simplifi
 files_changed = sorted(set(implementation_files + simplification_files))
 ```
 
-**Fallback if context was compacted:** If the orchestrator no longer holds Step 4/5 data in context (due to conversation compaction), parse `implementation-log.md` directly. Each task section contains a "Files changed" or "files_changed" field with file paths. Match lines that look like file paths (contain `/` and end with a file extension). Step 5 paths are always a subset of Step 4 paths, so no coverage gap exists.
+**Fallback if context was compacted:** If the orchestrator no longer holds Step 4/5 data in context (due to conversation compaction), parse `implementation-log.md` directly. Each task section contains a "Files changed" or "files_changed" field with file paths. Match lines that look like file paths (contain `/` and end with a file extension). Validate extracted paths: reject any containing `..`, `%2e`, null bytes, or backslashes; reject paths starting with `/`; only accept relative paths within the project root. Step 5 paths are always a subset of Step 4 paths, so no coverage gap exists.
 
 **Phase B — Write executable tests:**
 ```

@@ -9,7 +9,7 @@ Structured feature development workflow with skills, agents, and commands for me
 | Type | Count |
 |------|-------|
 | Skills | 28 |
-| Agents | 28 |
+| Agents | 29 |
 | Commands | 24 |
 | Hooks | 9 |
 | MCP Tools | 2 |
@@ -147,6 +147,7 @@ The `/iflow-dev:implement` command uses three reviewers:
 | skill-searcher | Finds relevant existing skills |
 | spec-reviewer | Skeptically reviews spec.md for testability and assumptions |
 | task-reviewer | Validates task breakdown quality and executability |
+| test-deepener | Systematically deepens test coverage with spec-driven adversarial testing |
 
 ## MCP Tools
 
