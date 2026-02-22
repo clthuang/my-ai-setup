@@ -291,6 +291,9 @@ main() {
         fi
     fi
 
+    # Reset plan-review gate state from previous session
+    rm -f "${PROJECT_ROOT}/.claude/.plan-review-state" 2>/dev/null
+
     local memory_context=""
     memory_context=$(build_memory_context)
 

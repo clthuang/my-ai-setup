@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.17] - 2026-02-22
+
 ### Added
 - `pre-exit-plan-review` PreToolUse hook that gates ExitPlanMode behind plan-reviewer dispatch; denies the first ExitPlanMode call with instructions to run plan-reviewer, then allows the second call through. Respects `plan_mode_review` config key.
 
