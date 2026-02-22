@@ -146,9 +146,17 @@ plugin-name/
   "description": "Clear description of what this plugin provides",
   "author": { "name": "...", "email": "..." },
   "license": "MIT",
-  "keywords": ["relevant", "keywords"]
+  "keywords": ["relevant", "keywords"],
+  "mcpServers": {
+    "server-name": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/path/to/server-script.sh",
+      "args": []
+    }
+  }
 }
 ```
+
+**mcpServers:** Optional. Declares MCP servers that Claude Code registers when the plugin is loaded. Use `${CLAUDE_PLUGIN_ROOT}` for portable paths. Prefer a shell wrapper script that resolves Python and sets up the environment.
 
 ---
 

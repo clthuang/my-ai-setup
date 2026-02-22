@@ -188,7 +188,7 @@ bump_version() {
 
 copy_dev_to_prod() {
     success "Syncing iflow-dev to iflow (with deletions)..."
-    rsync -av --delete --exclude='.claude-plugin/plugin.json' plugins/iflow-dev/ plugins/iflow/
+    rsync -av --delete --exclude='.claude-plugin/plugin.json' --exclude='.venv' plugins/iflow-dev/ plugins/iflow/
 
     # Blanket convert iflow-dev → iflow in all markdown files
     # Handles all separators: colon (iflow-dev:cmd), dot (iflow-dev.local.md),
@@ -224,8 +224,9 @@ update_plugin_files() {
     local new_version=$1
     local next_dev_version=$2
 
-    # Update iflow (production) plugin.json
-    # Change name from iflow-dev to iflow, set release version
+    # Copy dev plugin.json as base (so mcpServers and any new fields propagate),
+    # then sed name and version to production values.
+    cp "$PLUGIN_DEV_JSON" "$PLUGIN_PROD_JSON"
     sed -i '' 's/"name": *"iflow-dev"/"name": "iflow"/' "$PLUGIN_PROD_JSON"
     sed -i '' "s/\"version\": *\"[^\"]*\"/\"version\": \"$new_version\"/" "$PLUGIN_PROD_JSON"
     success "Updated $PLUGIN_PROD_JSON: name=iflow, version=$new_version"

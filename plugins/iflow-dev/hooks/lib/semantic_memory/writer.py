@@ -7,8 +7,8 @@ pending embedding batches.
 import os
 import sys
 
-_lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-if _lib_dir not in sys.path:
+_lib_dir = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+if _lib_dir not in (os.path.normpath(p) for p in sys.path):
     sys.path.insert(0, _lib_dir)
 
 import argparse

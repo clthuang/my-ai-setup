@@ -587,6 +587,33 @@ while IFS= read -r marketplace_json; do
 done < <(find . -path "*/.claude-plugin/marketplace.json" -type f 2>/dev/null)
 echo ""
 
+# Check for stale project-level .mcp.json
+echo "Checking MCP Configuration..."
+if [ -f ".mcp.json" ]; then
+    log_warning ".mcp.json exists at project root — MCP servers should be declared in plugin.json mcpServers instead"
+fi
+
+# Validate mcpServers script references in plugin.json files
+while IFS= read -r plugin_json; do
+    [ -z "$plugin_json" ] && continue
+    local_plugin_dir=$(dirname "$(dirname "$plugin_json")")
+    if jq -e '.mcpServers' "$plugin_json" > /dev/null 2>&1; then
+        for server_name in $(jq -r '.mcpServers | keys[]' "$plugin_json" 2>/dev/null); do
+            local_cmd=$(jq -r ".mcpServers[\"$server_name\"].command" "$plugin_json")
+            # Replace ${CLAUDE_PLUGIN_ROOT} with the plugin's directory
+            local_resolved="${local_cmd//\$\{CLAUDE_PLUGIN_ROOT\}/$local_plugin_dir}"
+            if [ ! -f "$local_resolved" ]; then
+                log_error "$plugin_json: mcpServers.$server_name command not found: $local_resolved"
+            elif [ ! -x "$local_resolved" ]; then
+                log_error "$plugin_json: mcpServers.$server_name command not executable: $local_resolved"
+            else
+                log_success "mcpServers.$server_name: $local_resolved exists and is executable"
+            fi
+        done
+    fi
+done < <(find . -path "*/.claude-plugin/plugin.json" -type f 2>/dev/null)
+echo ""
+
 # Summary
 echo "=========================================="
 echo "Validation Complete"

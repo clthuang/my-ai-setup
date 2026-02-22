@@ -13,5 +13,11 @@
     "debugging",
     "planning",
     "implementation"
-  ]
+  ],
+  "mcpServers": {
+    "memory-server": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/mcp/run-memory-server.sh",
+      "args": []
+    }
+  }
 }

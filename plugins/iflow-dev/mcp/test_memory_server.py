@@ -10,7 +10,9 @@ import sys
 import os
 
 # Ensure semantic_memory package and mcp/ module are importable.
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "hooks", "lib"))
+_test_hooks_lib = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "hooks", "lib"))
+if _test_hooks_lib not in (os.path.normpath(p) for p in sys.path):
+    sys.path.insert(0, _test_hooks_lib)
 sys.path.insert(0, os.path.dirname(__file__))
 
 import numpy as np
@@ -704,4 +706,23 @@ class TestStoreMemoryMCPToolConfidence:
         param = sig.parameters["confidence"]
         assert param.annotation is str or param.annotation == "str", (
             f"Expected str annotation, got {param.annotation!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Test: sys.path idempotency (B6)
+# ---------------------------------------------------------------------------
+
+
+class TestSysPathIdempotency:
+    def test_sys_path_no_duplicate_hooks_lib(self):
+        """hooks/lib should appear at most once in sys.path."""
+        hooks_lib = os.path.normpath(
+            os.path.join(os.path.dirname(__file__), "..", "hooks", "lib")
+        )
+        matches = [
+            p for p in sys.path if os.path.normpath(p) == hooks_lib
+        ]
+        assert len(matches) <= 1, (
+            f"hooks/lib appears {len(matches)} times in sys.path: {matches}"
         )
