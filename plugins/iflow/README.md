@@ -158,6 +158,12 @@ The memory server (`mcp/memory_server.py`) exposes two tools for long-term seman
 | `store_memory` | Save a learning (pattern, anti-pattern, or heuristic) to long-term memory |
 | `search_memory` | Search long-term memory for relevant learnings by topic |
 
+The server is declared in `plugin.json` via `mcpServers` and bootstrapped by `mcp/run-memory-server.sh`. On first session it auto-creates `.venv/` with core deps (`mcp`, `numpy`, `python-dotenv`). For embedding providers, install into the plugin venv:
+
+```bash
+$PLUGIN_ROOT/.venv/bin/pip install "google-genai>=1.0,<2"
+```
+
 ## Installation
 
 ```bash

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.16] - 2026-02-22
+
 ### Changed
 - MCP memory server configuration now portable across projects via `plugin.json` `mcpServers` with `${CLAUDE_PLUGIN_ROOT}` variable substitution (replaces project-level `.mcp.json`)
 

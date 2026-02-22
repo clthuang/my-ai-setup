@@ -12,7 +12,9 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 # Make semantic_memory importable from hooks/lib/.
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "hooks", "lib"))
+_hooks_lib = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "hooks", "lib"))
+if _hooks_lib not in (os.path.normpath(p) for p in sys.path):
+    sys.path.insert(0, _hooks_lib)
 
 # Smoke test: ensure the package is importable at startup.
 import semantic_memory  # noqa: F401
