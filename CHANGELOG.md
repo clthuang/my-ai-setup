@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.16] - 2026-02-22
+
+### Changed
+- MCP memory server configuration now portable across projects via `plugin.json` `mcpServers` with `${CLAUDE_PLUGIN_ROOT}` variable substitution (replaces project-level `.mcp.json`)
+
+### Added
+- `run-memory-server.sh` bootstrap wrapper for MCP memory server with venv Python → system Python fallback and automatic dependency bootstrapping
+- `validate.sh` checks for stale `.mcp.json` files and validates `mcpServers` script paths
+
 ## [3.0.15] - 2026-02-22
 
 ### Added

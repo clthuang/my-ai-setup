@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "memory-server": {
-      "command": "plugins/iflow-dev/.venv/bin/python",
-      "args": ["plugins/iflow-dev/mcp/memory_server.py"]
-    }
-  }
-}

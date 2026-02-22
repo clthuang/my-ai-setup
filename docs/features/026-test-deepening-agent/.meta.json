@@ -2,7 +2,8 @@
   "id": "026",
   "slug": "test-deepening-agent",
   "mode": "standard",
-  "status": "active",
+  "status": "completed",
+  "completed": "2026-02-22T08:30:00Z",
   "created": "2026-02-22T02:05:00Z",
   "branch": "feature/026-test-deepening-agent",
   "brainstorm_source": "docs/brainstorms/20260222-015904-test-deepening-agent.prd.md",
@@ -31,8 +32,9 @@
       "completedAt": "2026-02-22T03:50:00Z"
     },
     "finish": {
-      "status": "in_progress",
-      "startedAt": "2026-02-22T08:05:00Z"
+      "status": "completed",
+      "startedAt": "2026-02-22T08:05:00Z",
+      "completedAt": "2026-02-22T08:30:00Z"
     },
     "specify": {
       "status": "completed",

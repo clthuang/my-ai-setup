@@ -25,6 +25,8 @@ Claude Code plugin providing a structured feature development workflow—skills,
 
 **Before non-trivial changes:** Pause and ask whether there's a simpler approach. Skip this for obvious, mechanical fixes.
 
+**Plans from any source:** When the user provides a plan (via CC plan mode, pasted in chat, or from a file), always dispatch plan-reviewer before implementing. The ExitPlanMode hook only fires in CC plan mode — compensate manually otherwise.
+
 ## Writing Guidelines
 
 **Agents with Write/Edit access should use judgment.** Avoid modifying:
@@ -63,8 +65,11 @@ AskUserQuestion:
 # Validate components
 ./validate.sh
 
-# Run memory server tests (requires venv for MCP deps)
-.venv/bin/python -m pytest plugins/iflow-dev/mcp/test_memory_server.py -v
+# Run memory server tests (requires plugin venv for MCP deps)
+plugins/iflow-dev/.venv/bin/python -m pytest plugins/iflow-dev/mcp/test_memory_server.py -v
+
+# Run MCP bootstrap wrapper tests
+bash plugins/iflow-dev/mcp/test_run_memory_server.sh
 ```
 
 ## Key References
@@ -80,7 +85,7 @@ AskUserQuestion:
 - **Knowledge bank:** `docs/knowledge-bank/{patterns,anti-patterns,heuristics}.md` — updated by retrospectives
 - **Global memory store:** `~/.claude/iflow/memory/` — cross-project entries injected at session start
 - **Hook subprocess safety:** Always suppress stderr (`2>/dev/null`) for Python/external calls in hooks to prevent corrupting JSON output
-- **Semantic memory CLI:** Invoke as module: `PYTHONPATH=plugins/iflow-dev/hooks/lib .venv/bin/python -m semantic_memory.writer` (or `semantic_memory.injector`)
+- **Semantic memory CLI:** Invoke as module: `PYTHONPATH=plugins/iflow-dev/hooks/lib plugins/iflow-dev/.venv/bin/python -m semantic_memory.writer` (or `semantic_memory.injector`)
 
 ## Quick Reference
 
