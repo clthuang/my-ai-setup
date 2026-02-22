@@ -1,7 +1,7 @@
 ---
 name: task-reviewer
 description: Validates task breakdown quality. Use when (1) create-tasks command review, (2) user says 'review tasks', (3) user says 'check task breakdown', (4) user says 'validate tasks.md'.
-model: opus
+model: sonnet
 tools: [Read, Glob, Grep]
 color: blue
 ---

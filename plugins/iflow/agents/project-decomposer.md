@@ -1,7 +1,7 @@
 ---
 name: project-decomposer
 description: Generates module/feature breakdown from PRD. Use when (1) decomposing skill dispatches decomposition, (2) user says 'decompose this project', (3) user says 'break down the PRD into features'.
-model: opus
+model: sonnet
 tools: []
 color: cyan
 ---
