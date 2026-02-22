@@ -11,7 +11,7 @@ Structured feature development workflow with skills, agents, and commands for me
 | Skills | 28 |
 | Agents | 29 |
 | Commands | 24 |
-| Hooks | 9 |
+| Hooks | 11 |
 | MCP Tools | 2 |
 
 ## Commands

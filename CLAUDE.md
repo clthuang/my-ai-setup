@@ -25,7 +25,7 @@ Claude Code plugin providing a structured feature development workflow—skills,
 
 **Before non-trivial changes:** Pause and ask whether there's a simpler approach. Skip this for obvious, mechanical fixes.
 
-**Plans from any source:** When the user provides a plan (via CC plan mode, pasted in chat, or from a file), always dispatch plan-reviewer before implementing. The ExitPlanMode hook only fires in CC plan mode — compensate manually otherwise.
+**Plans from any source:** When the user provides a plan (via CC plan mode, pasted in chat, or from a file), always dispatch plan-reviewer before implementing. The PreToolUse ExitPlanMode hook enforces this in CC plan mode; compensate manually for plans pasted in chat or from files.
 
 ## Writing Guidelines
 
@@ -70,6 +70,9 @@ plugins/iflow-dev/.venv/bin/python -m pytest plugins/iflow-dev/mcp/test_memory_s
 
 # Run MCP bootstrap wrapper tests
 bash plugins/iflow-dev/mcp/test_run_memory_server.sh
+
+# Run hook integration tests
+bash plugins/iflow-dev/hooks/tests/test-hooks.sh
 ```
 
 ## Key References
@@ -96,11 +99,12 @@ bash plugins/iflow-dev/mcp/test_run_memory_server.sh
 
 **Token budget:** SKILL.md <500 lines, <5,000 tokens
 
-**Documentation sync:** When adding, removing, or renaming skills, commands, or agents in `plugins/iflow-dev/`, update:
+**Documentation sync:** When adding, removing, or renaming skills, commands, agents, or hooks in `plugins/iflow-dev/`, update:
 - `README.md` and `README_FOR_DEV.md` — skill/agent/command tables and counts
 - `plugins/iflow-dev/README.md` — component counts table and command/agent tables
 - `plugins/iflow-dev/skills/workflow-state/SKILL.md` — Workflow Map section (if phase sequence or prerequisites change)
 - `plugins/iflow-dev/agents/secretary.md` — Specialist Fast-Path table (if renaming agents listed there)
+- `README_FOR_DEV.md` — hooks table (if adding/removing hooks)
 
 A hookify rule (`.claude/hookify.docs-sync.local.md`) will remind you on plugin component edits.
 

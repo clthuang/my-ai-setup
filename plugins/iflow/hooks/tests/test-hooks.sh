@@ -651,6 +651,146 @@ STATE
     teardown_yolo_test
 }
 
+# === Plan Review Gate Tests ===
+
+# Test: pre-exit-plan-review allows when plan_mode_review=false
+test_pre_exit_plan_allows_when_disabled() {
+    log_test "pre-exit-plan-review allows when plan_mode_review=false"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
+---
+plan_mode_review: false
+---
+TMPL
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$(echo '{"tool_name":"ExitPlanMode","tool_input":{}}' | "${HOOKS_DIR}/pre-exit-plan-review.sh" 2>/dev/null)
+
+    if [[ -z "$output" ]]; then
+        log_pass
+    else
+        log_fail "Expected empty output (allow), got: $output"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: pre-exit-plan-review denies first attempt
+test_pre_exit_plan_denies_first_attempt() {
+    log_test "pre-exit-plan-review denies first attempt with plan-reviewer instructions"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
+---
+plan_mode_review: true
+---
+TMPL
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$(echo '{"tool_name":"ExitPlanMode","tool_input":{}}' | "${HOOKS_DIR}/pre-exit-plan-review.sh" 2>/dev/null)
+
+    if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['hookSpecificOutput']['permissionDecision'] == 'deny'; assert 'plan-reviewer' in d['hookSpecificOutput']['permissionDecisionReason']" 2>/dev/null; then
+        log_pass
+    else
+        log_fail "Expected deny with 'plan-reviewer' in reason, got: $output"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: pre-exit-plan-review allows second attempt and resets counter
+test_pre_exit_plan_allows_second_attempt() {
+    log_test "pre-exit-plan-review allows second attempt and resets counter"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
+---
+plan_mode_review: true
+---
+TMPL
+    # Pre-seed counter to 1 (simulates first attempt already happened)
+    echo "attempt=1" > "${YOLO_TMPDIR}/.claude/.plan-review-state"
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$(echo '{"tool_name":"ExitPlanMode","tool_input":{}}' | "${HOOKS_DIR}/pre-exit-plan-review.sh" 2>/dev/null)
+
+    if [[ -z "$output" ]]; then
+        # Verify counter was reset to 0
+        local counter
+        counter=$(grep "^attempt=" "${YOLO_TMPDIR}/.claude/.plan-review-state" 2>/dev/null | cut -d= -f2)
+        if [[ "$counter" == "0" ]]; then
+            log_pass
+        else
+            log_fail "Counter not reset to 0, got: $counter"
+        fi
+    else
+        log_fail "Expected empty output (allow), got: $output"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: pre-exit-plan-review resets stale counter (>2)
+test_pre_exit_plan_resets_stale_counter() {
+    log_test "pre-exit-plan-review resets stale counter and allows"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
+---
+plan_mode_review: true
+---
+TMPL
+    # Pre-seed counter to 5 (stale from crashed session)
+    echo "attempt=5" > "${YOLO_TMPDIR}/.claude/.plan-review-state"
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$(echo '{"tool_name":"ExitPlanMode","tool_input":{}}' | "${HOOKS_DIR}/pre-exit-plan-review.sh" 2>/dev/null)
+
+    if [[ -z "$output" ]]; then
+        # Verify counter was reset to 0
+        local counter
+        counter=$(grep "^attempt=" "${YOLO_TMPDIR}/.claude/.plan-review-state" 2>/dev/null | cut -d= -f2)
+        if [[ "$counter" == "0" ]]; then
+            log_pass
+        else
+            log_fail "Counter not reset to 0, got: $counter"
+        fi
+    else
+        log_fail "Expected empty output (allow), got: $output"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: pre-exit-plan-review deny output is valid JSON
+test_pre_exit_plan_valid_json_on_deny() {
+    log_test "pre-exit-plan-review deny output is valid JSON"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
+---
+plan_mode_review: true
+---
+TMPL
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$(echo '{"tool_name":"ExitPlanMode","tool_input":{}}' | "${HOOKS_DIR}/pre-exit-plan-review.sh" 2>/dev/null)
+
+    if echo "$output" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
+        log_pass
+    else
+        log_fail "Invalid JSON output: $output"
+    fi
+
+    teardown_yolo_test
+}
+
 # Run all tests
 main() {
     echo "=========================================="
@@ -690,6 +830,16 @@ main() {
     test_yolo_stop_blocks_with_next_phase
     test_yolo_stop_detects_stuck
     test_yolo_stop_max_blocks
+
+    echo ""
+    echo "--- Plan Review Gate Tests ---"
+    echo ""
+
+    test_pre_exit_plan_allows_when_disabled
+    test_pre_exit_plan_denies_first_attempt
+    test_pre_exit_plan_allows_second_attempt
+    test_pre_exit_plan_resets_stale_counter
+    test_pre_exit_plan_valid_json_on_deny
 
     echo ""
     echo "=========================================="
