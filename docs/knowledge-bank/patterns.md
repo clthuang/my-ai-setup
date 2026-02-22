@@ -199,3 +199,10 @@ When writing behavioral guidance in documentation, include explicit tool/command
 - Confidence: medium
 - Last observed: 2026-02-22
 - Observation count: 1
+
+### Pattern: Domain Reviewer Approval Gates Chain Reviewer Escalation
+When the domain reviewer (task-reviewer, plan-reviewer) has explicitly approved a domain-specific concern (task sizing, heuristic tolerances, format specifics), the chain reviewer (phase-reviewer) may note it but may not re-raise it as Needs Revision. Domain expertise on domain concerns is final for structural gatekeepers.
+- Observed in: Feature #026, create-tasks phase — 5 chain review iterations on task-size concern approved by domain reviewer at iter 3
+- Confidence: high
+- Last observed: 2026-02-22
+- Observation count: 1

@@ -126,3 +126,17 @@ For scoped documentation changes (<50 lines, single-pass analysis, no cross-syst
 - Confidence: high
 - Last observed: 2026-02-22
 - Observation count: 1
+
+### Markdown-Only Feature Task Sizing
+For features producing exclusively markdown artifacts (agents, skills, commands), the natural task decomposition limit is one section or dimension per task, which may require 20-30 minutes. Document this as the natural decomposition limit rather than treating exceeded 15-min guidelines as a violation.
+- Source: Feature #026, create-tasks — 4 chain review iterations consumed by task-size concern; domain reviewer confirmed no split was possible
+- Confidence: high
+- Last observed: 2026-02-22
+- Observation count: 1
+
+### Shifting Security Concern Frames as Threat Model Gap Signal
+When a security reviewer's concern shifts to a new frame each iteration after a fix is applied (basic validation -> canonicalization bypass -> allowlist), the root cause is a missing threat model, not an incomplete fix. Stop applying fixes and define the threat model first.
+- Source: Feature #026, implement iters 3-5 — path extraction security review ran 3 iterations with shifting frames
+- Confidence: medium
+- Last observed: 2026-02-22
+- Observation count: 1
