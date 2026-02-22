@@ -152,7 +152,7 @@ Modify `plugins/iflow-dev/commands/implement.md` to add Step 6 (Test Deepening P
 4. Spec divergence control flow:
    - Empty divergences: proceed to Step 7
    - Non-empty: AskUserQuestion with three options (Fix implementation, Accept implementation, Review manually)
-   - "Fix implementation" re-runs full Phase A + Phase B cycle (max 2 re-runs; if divergences remain after 2 fix cycles, escalate to user with only "Accept implementation" and "Review manually" options)
+   - "Fix implementation" re-runs Phase B only (Phase A outlines are reused since spec/design/tasks inputs are unchanged; max 2 re-runs; if divergences remain after 2 fix cycles, escalate to user with only "Accept implementation" and "Review manually" options)
    - "Accept implementation" removes divergent tests, proceeds to Step 7. The agent does not modify spec.md — the user is responsible for updating it if needed.
    - Under YOLO mode: default to "Fix implementation" for the first divergence cycle; if divergences persist after max re-runs, stop execution and surface to user (consistent with YOLO circuit breaker pattern).
    - "Review manually" stops execution
@@ -200,7 +200,7 @@ Note: `plugins/iflow-dev/skills/workflow-state/SKILL.md` Workflow Map shows phas
 ### AC-5: Failure Mode Control Flow
 - [ ] Implement.md distinguishes test compilation errors (agent self-fixes) from assertion failures (spec divergences)
 - [ ] Spec divergence AskUserQuestion has three options: Fix implementation, Accept implementation, Review manually
-- [ ] "Fix implementation" re-runs full Phase A + Phase B cycle with max 2 re-runs circuit breaker
+- [ ] "Fix implementation" re-runs Phase B only (Phase A outlines reused since inputs unchanged) with max 2 re-runs circuit breaker
 - [ ] "Accept implementation" removes divergent tests and proceeds to review (does not modify spec.md)
 - [ ] YOLO mode defaults to "Fix implementation" on first divergence, stops on max re-runs
 
