@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `test-deepener` agent — spec-driven adversarial testing across 6 dimensions; Phase A generates a test outline, Phase B writes executable tests; dispatched by `/implement` as the new Test Deepening Phase
+- Test Deepening Phase (Step 6) in `/implement` workflow — runs after code simplification, before review; reports spec divergences with fix/accept/manual-review control flow
+- Secretary fast-path: 'deepen tests', 'add edge case tests', and 'test deepening' patterns route directly to `test-deepener` at 95% confidence
+
 ## [3.0.14] - 2026-02-22
 
 ### Added
