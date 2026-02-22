@@ -30,6 +30,10 @@
       "startedAt": "2026-02-22T03:20:00Z",
       "completedAt": "2026-02-22T03:50:00Z"
     },
+    "finish": {
+      "status": "in_progress",
+      "startedAt": "2026-02-22T08:05:00Z"
+    },
     "specify": {
       "status": "completed",
       "startedAt": "2026-02-22T02:06:00Z",
