@@ -127,3 +127,30 @@ Adding behavioral guidance for features/behaviors not yet consistently observed 
 - Confidence: medium
 - Last observed: 2026-02-22
 - Observation count: 1
+
+### Anti-Pattern: Classifying Absent Content Without Full-Artifact Verification
+Asserting that a required element is missing without verifying its absence in the full artifact. Summarized reviewer inputs mask content that exists in the full document, producing false-positive blockers that waste a full review iteration.
+- Observed in: Feature #026 — design iter 1 (3 false-positive blockers), task review iter 1 (2), chain review iter 3 (1)
+- Cost: 6 wasted blocker rebuttals across 3 phases
+- Instead: Before classifying an element as absent, verify it is genuinely not present in the full artifact
+- Confidence: high
+- Last observed: 2026-02-22
+- Observation count: 1
+
+### Anti-Pattern: Flagging Annotated Spec Deviations as Implementation Failures
+When a spec-design deviation is annotated in the design document (TD-* entry) and acknowledged in the spec, treating it as a spec failure during implementation review wastes a circuit-breaker slot on a non-fixable issue.
+- Observed in: Feature #026, implement iter 5 — AC-5 vs TD-5 flagged as spec failure despite annotation in design.md
+- Cost: Consumed final circuit-breaker iteration on a non-resolvable issue
+- Instead: Check for deviation annotations before flagging spec mismatches as blockers
+- Confidence: high
+- Last observed: 2026-02-22
+- Observation count: 1
+
+### Anti-Pattern: Open-Ended Security Review Without a Threat Model
+Conducting security review on a path extraction subsystem without first defining a threat model. Each fix closes one attack path and reveals the next, producing escalating iterations rather than convergence.
+- Observed in: Feature #026, implement iters 3-5 — path validation hardened 3 times without converging
+- Cost: 3 iterations of security review; circuit breaker reached without resolution
+- Instead: Require a Security Threat Model subsection in design defining allowed path forms, rejected patterns, and acceptable residual risks
+- Confidence: medium
+- Last observed: 2026-02-22
+- Observation count: 1

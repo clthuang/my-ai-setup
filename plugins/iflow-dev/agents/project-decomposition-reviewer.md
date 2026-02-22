@@ -1,7 +1,7 @@
 ---
 name: project-decomposition-reviewer
 description: Skeptically reviews decomposition quality against 5 criteria. Use when (1) decomposing skill dispatches review, (2) user says 'review decomposition', (3) user says 'check project breakdown quality'.
-model: opus
+model: sonnet
 tools: []
 color: blue
 ---

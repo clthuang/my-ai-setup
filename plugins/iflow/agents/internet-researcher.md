@@ -1,7 +1,7 @@
 ---
 name: internet-researcher
 description: Searches web for best practices and standards. Use when (1) brainstorming Stage 2, (2) user says 'research best practices', (3) user says 'find prior art', (4) user says 'what do others do'.
-model: opus
+model: sonnet
 tools: [WebSearch, WebFetch]
 color: cyan
 ---

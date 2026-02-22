@@ -256,6 +256,7 @@ Before running agent discovery or semantic matching, check the clarified intent 
 | "review" + ("notebook" / "pandas" / "sklearn" / "DS code") | iflow-dev:ds-code-reviewer | 95% |
 | "simplify" / "reduce complexity" / "clean up code" | iflow-dev:code-simplifier | 95% |
 | "explore" + ("codebase" / "code" / "patterns" / "how does") | iflow-dev:codebase-explorer | 95% |
+| "deepen tests" / "add edge case tests" / "test deepening" | iflow-dev:test-deepener | 95% |
 
 **Fast-path rules:**
 1. Match is keyword overlap, not semantic — must hit the exact pattern
