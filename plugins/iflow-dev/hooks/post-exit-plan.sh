@@ -59,12 +59,20 @@ context+="### 3. Implement\n"
 context+="Work through tasks in dependency order:\n"
 context+="- Mark each task in_progress before starting\n"
 context+="- Mark completed when done\n"
-context+="- Use TaskList to find the next available task\n\n"
+context+="- Use TaskList to find the next available task\n"
+context+="- After completing each task, commit the changes:\n"
+context+="  \`\`\`\n"
+context+="  git add <changed files>\n"
+context+="  git commit -m \"task: {task subject}\"\n"
+context+="  \`\`\`\n"
+context+="- Do NOT push until all tasks are done\n\n"
 context+="### 4. Finish\n"
+context+="When all tasks are complete:\n"
+context+="1. Push all commits: \`git push\`\n"
 if [[ "$has_active" == "yes" ]]; then
-    context+="When all tasks are complete, continue with the feature workflow. Run \`/iflow-dev:show-status\` to see the current phase and next steps.\n"
+    context+="2. Continue with the feature workflow. Run \`/iflow-dev:show-status\` to see the current phase and next steps.\n"
 else
-    context+="When all tasks are complete, run \`/iflow-dev:wrap-up\` for code review and finishing.\n"
+    context+="2. Run \`/iflow-dev:wrap-up\` for code review and finishing.\n"
 fi
 
 escaped=$(escape_json "$context")
