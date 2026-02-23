@@ -177,7 +177,6 @@ Agents run as specialized subprocesses delegated by the workflow. They operate a
 
 | Agent | Purpose |
 |-------|---------|
-| secretary | Routes user requests to appropriate specialist agents via triage and independent review |
 | secretary-reviewer | Validates secretary routing recommendations before presenting to user |
 | rca-investigator | Finds all root causes through 6-phase systematic investigation |
 | retro-facilitator | Runs data-driven AORTA retrospective with full intermediate context |
@@ -212,7 +211,7 @@ docs/
 
 ## Autonomous Operation (YOLO Mode)
 
-The secretary agent can drive the entire feature workflow autonomously:
+The secretary command can drive the entire feature workflow autonomously:
 
 ```bash
 # Enable YOLO mode

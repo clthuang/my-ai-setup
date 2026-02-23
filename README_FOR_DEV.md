@@ -233,8 +233,7 @@ Agents are isolated subprocesses spawned by the workflow. Located in `plugins/if
 - `investigation-agent` — Read-only research agent for context gathering
 - `skill-searcher` — Finds relevant existing skills for a given topic
 
-**Orchestration (4):**
-- `secretary` — Routes user requests to appropriate specialist agents via triage, independent review, and mode recommendation
+**Orchestration (3):**
 - `secretary-reviewer` — Validates secretary routing recommendations before presenting to user
 - `rca-investigator` — Finds all root causes through 6-phase systematic investigation
 - `retro-facilitator` — Runs data-driven AORTA retrospective with full intermediate context
@@ -322,17 +321,18 @@ The `implementation-log.md` artifact is read by the retro skill during `/finish-
 
 ## YOLO Mode (Autonomous Workflow)
 
-The secretary agent supports a `[YOLO_MODE]` flag that enables fully autonomous feature development.
+The secretary command supports a `[YOLO_MODE]` flag that enables fully autonomous feature development.
 
 ### How It Works
 
 1. User sets mode: `/secretary mode yolo`
 2. User invokes: `/secretary build X`
 3. Secretary command reads `.claude/iflow-dev.local.md`, detects `activation_mode: yolo`
-4. Dispatches secretary agent with `[YOLO_MODE]` prefix
-5. Secretary agent detects workflow state and invokes the starting command with `[YOLO_MODE]`
-6. Each command auto-selects through AskUserQuestion prompts and chains to the next command
-7. The `[YOLO_MODE]` flag propagates through args at every phase transition
+4. Command performs routing inline (discover agents, match patterns, select best route)
+5. YOLO overrides skip clarification, reviewer gate, and user confirmation
+6. Workflow patterns redirect to orchestrate subcommand which chains phases via Skill
+7. Each command auto-selects through AskUserQuestion prompts and chains to the next command
+8. The `[YOLO_MODE]` flag propagates through args at every phase transition
 
 ### Flag Propagation
 
@@ -379,9 +379,8 @@ YOLO mode stops and reports to user (does not force through):
 | `commands/create-tasks.md` | Auto-chain to implement |
 | `commands/implement.md` | Circuit breaker STOP, auto-chain to finish-feature |
 | `commands/finish-feature.md` | Auto-continue, auto-merge, STOP on conflict |
-| `agents/secretary.md` | Triage + reviewer gate + mode recommendation |
 | `agents/secretary-reviewer.md` | Validates routing before user sees recommendation |
-| `commands/secretary.md` | Yolo mode config + orchestrate subcommand + [YOLO_MODE] prefix |
+| `commands/secretary.md` | Full routing logic (discovery, matching, recommendation) + orchestrate subcommand + [YOLO_MODE] prefix |
 | `commands/create-specialist-team.md` | Ephemeral specialist teams via template injection |
 | `hooks/inject-secretary-context.sh` | Yolo mode session context |
 
