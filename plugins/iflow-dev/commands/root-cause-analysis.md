@@ -51,13 +51,13 @@ Task tool call:
     Follow the 6-phase RCA process. Generate a report at docs/rca/.
 ```
 
-## Capture Learnings
+## Capture Learnings (REQUIRED)
 
-After rca-investigator completes, extract learnings from the RCA report.
+You MUST capture learnings before presenting handoff options. This is not optional.
 
 ### Extract and Persist
 
-1. Read the generated report at `docs/rca/{file}.md`
+1. Glob `docs/rca/*.md` and read the most recently modified report
 2. For each **root cause** (primary + contributing factors):
    - Call `store_memory` with:
      - `name`: concise title (max 60 chars)

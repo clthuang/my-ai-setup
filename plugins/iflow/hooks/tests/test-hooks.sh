@@ -791,6 +791,38 @@ TMPL
     teardown_yolo_test
 }
 
+# Test: pre-exit-plan-review allows when yolo_mode=true (bypasses gate)
+test_pre_exit_plan_allows_in_yolo_mode() {
+    log_test "pre-exit-plan-review allows in YOLO mode (bypasses gate)"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
+---
+plan_mode_review: true
+yolo_mode: true
+---
+TMPL
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$(echo '{"tool_name":"ExitPlanMode","tool_input":{}}' | "${HOOKS_DIR}/pre-exit-plan-review.sh" 2>/dev/null)
+
+    if [[ -z "$output" ]]; then
+        # Verify counter was reset to 0
+        local counter
+        counter=$(grep "^attempt=" "${YOLO_TMPDIR}/.claude/.plan-review-state" 2>/dev/null | cut -d= -f2)
+        if [[ "$counter" == "0" ]]; then
+            log_pass
+        else
+            log_fail "Counter not reset to 0, got: $counter"
+        fi
+    else
+        log_fail "Expected empty output (allow), got: $output"
+    fi
+
+    teardown_yolo_test
+}
+
 # === Path Portability Tests ===
 
 # Helper: find plugin component dir (relative to PROJECT_ROOT)
@@ -970,6 +1002,7 @@ main() {
     test_pre_exit_plan_allows_second_attempt
     test_pre_exit_plan_resets_stale_counter
     test_pre_exit_plan_valid_json_on_deny
+    test_pre_exit_plan_allows_in_yolo_mode
 
     echo ""
     echo "--- Path Portability Tests ---"

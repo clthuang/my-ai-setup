@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.20] - 2026-02-23
+
+### Changed
+- Plan mode post-approval workflow now auto-commits after each task and pushes only after all tasks complete (post-exit-plan hook)
+- YOLO mode bypasses the plan review gate (pre-exit-plan-review hook) — ExitPlanMode is allowed immediately without plan-reviewer dispatch
+- RCA command's "Capture Learnings" section is now required with mandatory language and Glob-based report discovery
+
 ## [3.0.19] - 2026-02-23
 
 ### Changed

@@ -3,6 +3,7 @@
 # Uses counter-based state tracking (same pattern as yolo-stop.sh)
 #
 # Flow:
+#   YOLO mode: ALLOW immediately, skip gate
 #   attempt=1: DENY with plan-reviewer instructions
 #   attempt=2: ALLOW, reset counter
 #   attempt>2 (stale): reset counter, ALLOW
@@ -22,6 +23,14 @@ IFLOW_CONFIG="${PROJECT_ROOT}/.claude/iflow.local.md"
 # Check config — if plan_mode_review disabled, allow through
 enabled=$(read_local_md_field "$IFLOW_CONFIG" "plan_mode_review" "true")
 if [[ "$enabled" != "true" ]]; then
+    exit 0
+fi
+
+# YOLO mode: skip plan review gate — autonomous execution should not block
+YOLO=$(read_local_md_field "$IFLOW_CONFIG" "yolo_mode" "false")
+if [[ "$YOLO" == "true" ]]; then
+    # Reset counter to clean state and allow through
+    write_hook_state "$STATE_FILE" "attempt" "0"
     exit 0
 fi
 
