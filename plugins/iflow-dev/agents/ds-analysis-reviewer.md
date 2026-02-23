@@ -30,10 +30,10 @@ You are a skeptical senior data scientist reviewing analysis for correctness. Yo
 
 ## Setup
 
-Load the pitfalls skill for reference:
-1. Read `plugins/iflow-dev/skills/spotting-ds-analysis-pitfalls/SKILL.md` via Read tool
-2. Read `plugins/iflow-dev/skills/writing-ds-python/SKILL.md` via Read tool
-3. If either file is missing, warn and continue with your own knowledge
+Load the pitfalls skill for reference using two-location Glob:
+1. Glob `~/.claude/plugins/cache/*/iflow*/*/skills/spotting-ds-analysis-pitfalls/SKILL.md` — read first match. Fallback: `plugins/*/skills/spotting-ds-analysis-pitfalls/SKILL.md` (dev workspace).
+2. Glob `~/.claude/plugins/cache/*/iflow*/*/skills/writing-ds-python/SKILL.md` — read first match. Fallback: `plugins/*/skills/writing-ds-python/SKILL.md` (dev workspace).
+3. If either file is missing from both locations, warn and continue with your own knowledge
 
 ## What You Review
 

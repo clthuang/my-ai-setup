@@ -31,8 +31,9 @@ After selection, ask for the path: "Please provide the file or directory path."
 
 ## Load Skill
 
-Reference the analysis pitfalls methodology:
-@plugins/iflow-dev/skills/spotting-ds-analysis-pitfalls/SKILL.md
+Read the analysis pitfalls skill: Glob `~/.claude/plugins/cache/*/iflow*/*/skills/spotting-ds-analysis-pitfalls/SKILL.md` — read first match.
+Fallback: Read `plugins/iflow-dev/skills/spotting-ds-analysis-pitfalls/SKILL.md` (dev workspace).
+If not found: proceed with general analysis pitfall methodology.
 
 ## Dispatch Agent
 

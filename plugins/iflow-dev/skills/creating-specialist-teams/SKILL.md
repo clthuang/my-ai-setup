@@ -16,7 +16,7 @@ Instead of creating permanent agent files, specialist teams are:
 
 ## Available Templates
 
-Located in `plugins/iflow-dev/skills/creating-specialist-teams/references/`:
+Locate via two-location Glob: `~/.claude/plugins/cache/*/iflow*/*/skills/creating-specialist-teams/references/`, fallback `plugins/*/skills/creating-specialist-teams/references/` (dev workspace):
 
 | Template | Tools | Focus |
 |----------|-------|-------|

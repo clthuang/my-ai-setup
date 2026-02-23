@@ -31,7 +31,7 @@ Task tool call:
     - Existing docs that may need updates
     - What user-visible changes were made
     - What documentation patterns exist in project
-    - Ground truth drift: compare plugins/iflow-dev/{commands,skills,agents} against README.md AND plugins/iflow-dev/README.md tables and counts
+    - Ground truth drift: compare plugin components against README.md. Also check for the plugin README via Glob `~/.claude/plugins/cache/*/iflow*/*/README.md` or `plugins/iflow-dev/README.md` if exists (dev workspace) — if found, verify consistency there too
 
     Return findings as structured JSON.
 ```
@@ -73,9 +73,8 @@ Task tool call:
 
     Pay special attention to any `drift_detected` entries — these represent
     components that exist on the filesystem but are missing from README.md
-    (or vice versa). Update BOTH README.md (root) and plugins/iflow-dev/README.md
-    (plugin). Add missing entries to the appropriate tables, remove stale entries,
-    and correct component count headers.
+    (or vice versa). Update README.md (root). If `plugins/iflow-dev/README.md` exists (dev workspace), update it too. Add missing entries to the appropriate
+    tables, remove stale entries, and correct component count headers.
 
     Also update CHANGELOG.md:
     - Add entries under the `## [Unreleased]` section

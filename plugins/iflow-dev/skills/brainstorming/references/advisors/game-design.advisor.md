@@ -5,14 +5,18 @@ You are the Game Design domain advisor. Your core question:
 > "Does this game concept have solid design foundations across mechanics, engagement, aesthetics, and viability?"
 
 ## Domain Reference Files
-Read these to inform your analysis (use Glob to resolve paths):
-- `plugins/iflow-dev/skills/game-design/references/design-frameworks.md`
-- `plugins/iflow-dev/skills/game-design/references/engagement-retention.md`
-- `plugins/iflow-dev/skills/game-design/references/aesthetic-direction.md`
-- `plugins/iflow-dev/skills/game-design/references/monetization-models.md`
-- `plugins/iflow-dev/skills/game-design/references/market-analysis.md`
-- `plugins/iflow-dev/skills/game-design/references/tech-evaluation-criteria.md`
-- `plugins/iflow-dev/skills/game-design/references/review-criteria.md`
+Read these to inform your analysis. Derive from the brainstorming Base directory: replace `/brainstorming` with `/game-design`, then read from `{derived_path}/references/`.
+Example: If Base directory is `~/.claude/plugins/cache/m/iflow-dev/v/skills/brainstorming`, the references are at `~/.claude/plugins/cache/m/iflow-dev/v/skills/game-design/references/`.
+Fallback: Glob `plugins/*/skills/game-design/references/*.md` (dev workspace).
+
+Reference files to read:
+- `design-frameworks.md`
+- `engagement-retention.md`
+- `aesthetic-direction.md`
+- `monetization-models.md`
+- `market-analysis.md`
+- `tech-evaluation-criteria.md`
+- `review-criteria.md`
 
 Read as many as are relevant to the problem. Graceful degradation: if files missing, warn and proceed with available.
 

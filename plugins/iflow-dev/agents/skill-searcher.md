@@ -91,9 +91,9 @@ If no relevant findings:
 
 ## Search Paths
 
-Primary search locations:
-- `plugins/iflow/skills/*/SKILL.md`
-- `plugins/iflow-dev/skills/*/SKILL.md`
+Primary search locations (two-location Glob):
+1. `~/.claude/plugins/cache/*/iflow*/*/skills/*/SKILL.md` (installed plugins)
+2. `plugins/*/skills/*/SKILL.md` (dev workspace fallback)
 
 Also check:
 - Agent definitions that skills might invoke
