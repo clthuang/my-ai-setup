@@ -261,7 +261,7 @@ Hooks execute automatically at lifecycle points.
 | `yolo-guard` | PreToolUse (.*) | Enforces YOLO mode safety boundaries on all tool calls |
 | `post-enter-plan` | PostToolUse (EnterPlanMode) | Injects plan review instructions before approval |
 | `post-exit-plan` | PostToolUse (ExitPlanMode) | Injects task breakdown and implementation workflow |
-| `pre-exit-plan-review` | PreToolUse (ExitPlanMode) | Gates ExitPlanMode behind plan-reviewer dispatch; denies first call with instructions, allows second |
+| `pre-exit-plan-review` | PreToolUse (ExitPlanMode) | Gates ExitPlanMode behind plan-reviewer dispatch; denies first call with instructions, allows second. YOLO mode skips the gate entirely. |
 | `yolo-stop` | Stop | Detects YOLO mode stop events and chains to next phase |
 
 SessionStart hooks match `startup|resume|clear` only -- they do not fire on `compact` events, preserving context window savings from compaction.
