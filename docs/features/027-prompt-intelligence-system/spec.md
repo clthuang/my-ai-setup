@@ -53,7 +53,7 @@ Plugin prompt files (28+ skills, 28+ agents, 24+ commands) go stale relative to 
 
 - Given a path to any plugin skill SKILL.md file
 - When `/iflow-dev:promptimize <path>` is invoked
-- Then the skill detects component type as "skill", loads prompt-guidelines.md and component-authoring.md, scores 9 dimensions (structure compliance, token economy, description quality, persuasion strength, technique currency, prohibition clarity, example quality, progressive disclosure, context engineering) as pass/partial/fail, and outputs a report with overall score (sum/27 * 100). The overall score is informational — the per-dimension pass/partial/fail is the actionable signal.
+- Then the skill detects component type as "skill", loads prompt-guidelines.md (which includes distilled component-authoring rules) and scoring-rubric.md, scores 9 dimensions (structure compliance, token economy, description quality, persuasion strength, technique currency, prohibition clarity, example quality, progressive disclosure, context engineering) as pass/partial/fail, and outputs a report with overall score (sum/27 * 100). The overall score is informational — the per-dimension pass/partial/fail is the actionable signal.
 
 ### Promptimize Skill — Improved Version
 
@@ -132,7 +132,7 @@ Plugin prompt files (28+ skills, 28+ agents, 24+ commands) go stale relative to 
 ## Dependencies
 
 - `internet-researcher` agent — used by refresh-prompt-guidelines command for web scouting. Note: this agent is currently scoped for brainstorm research. The refresh command must provide a detailed query prompt specifying Tier 1-3 sources and prompt-engineering-specific search terms. No changes to the agent needed (its tools are sufficient).
-- `component-authoring.md` at `docs/dev_guides/component-authoring.md` — loaded at runtime by the promptimize skill for structural and quality criteria
+- `component-authoring.md` at `docs/dev_guides/component-authoring.md` — relevant rules distilled into prompt-guidelines.md at seed time (not loaded at runtime)
 - Existing reference files: `anthropic-best-practices.md`, `component-authoring.md`, `persuasion-principles.md` — used to seed initial guidelines
 
 ## Open Questions
