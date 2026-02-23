@@ -118,8 +118,8 @@ Task tool call:
 
     Pay special attention to any `drift_detected` entries — these represent
     components that exist on the filesystem but are missing from README.md
-    (or vice versa). Update BOTH README.md (root) and plugins/iflow/README.md
-    (plugin). Add missing entries to the appropriate tables, remove stale entries,
+    (or vice versa). Update README.md (root). If `plugins/iflow/README.md` exists (dev workspace), update it too.
+    Add missing entries to the appropriate tables, remove stale entries,
     and correct component count headers.
 
     Also update CHANGELOG.md:

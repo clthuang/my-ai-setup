@@ -24,7 +24,9 @@ If the archetype or problem context mentions specific domains, read the correspo
 - **If game design:** Read `skills/game-design/references/` — assess engine capabilities, performance, platform constraints
 - **If data science/ML:** Read `skills/data-science-analysis/references/` — assess data availability, model tractability, compute needs
 
-Use Glob to resolve paths: `plugins/iflow-dev/skills/{domain}/references/*.md`
+Derive the path from the brainstorming Base directory: replace `/brainstorming` with `/{domain}`, then Glob `{derived_path}/references/*.md`.
+Example: If Base directory is `~/.claude/plugins/cache/m/iflow-dev/v/skills/brainstorming`, replace `/brainstorming` with `/crypto-analysis` → `~/.claude/plugins/cache/m/iflow-dev/v/skills/crypto-analysis/references/*.md`.
+Fallback: Glob `plugins/*/skills/{domain}/references/*.md` (dev workspace).
 
 ## What to Look For
 When using Read/Glob/Grep/WebSearch, focus on:

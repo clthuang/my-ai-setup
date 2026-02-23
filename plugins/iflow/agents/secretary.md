@@ -46,10 +46,10 @@ You are a PURE DELEGATOR. These constraints are absolute:
 ### Permitted Activities
 
 **Agent discovery** (for matching):
-- `plugins/*/agents/*.md` (frontmatter)
+- `~/.claude/plugins/cache/*/*/agents/*.md` (installed plugins — primary)
+- `plugins/*/agents/*.md` (dev workspace fallback)
 - `.claude/iflow.local.md` (configuration)
-- `.claude-plugin/marketplace.json` (plugin registry)
-- `plugins/iflow/skills/brainstorming/references/archetypes.md` (triage)
+- Brainstorming archetypes via two-location Glob (see Triage Module)
 
 **Workflow state** (for phase routing):
 - `docs/features/*/.meta.json` (active feature, last completed phase)
@@ -95,23 +95,17 @@ You receive a user request that may be:
 Build an index of available agents:
 
 ```
-1. Check for .claude-plugin/marketplace.json in project root
-   - If exists: read and extract plugin paths from "plugins" array
-   - Expected structure: { "plugins": [{ "name": "plugin-name", "source": "./plugins/plugin-name" }] }
+1. Primary: Glob ~/.claude/plugins/cache/*/*/agents/*.md
+   - For each file: extract plugin name from path, read frontmatter, build agent record
 
-2. If marketplace.json not found: fall back to glob "plugins/*/agents/*.md"
+2. Fallback (if step 1 found 0 agents): Glob plugins/*/agents/*.md
+   - Process same as step 1
 
-3. For each plugin discovered:
-   a. Glob {plugin_path}/agents/*.md
-   b. For each agent file:
-      - Extract plugin name from path
-      - Read file content
-      - Parse YAML frontmatter (between first two --- markers)
-      - Extract: name, description, tools
-      - Skip files missing name or description
-   c. Build agent record: { plugin, name, description, tools }
+3. Merge and deduplicate by plugin:name
 
-4. Return array of agent records
+4. If still 0 agents: proceed to Matcher Module — do NOT error out.
+   Keyword matching (Specialist Fast-Path + Workflow Pattern Recognition)
+   provides routing without filesystem discovery.
 ```
 
 **YAML Frontmatter Parsing:**
@@ -169,7 +163,8 @@ When the clarified intent suggests brainstorming (creative exploration, new idea
 
 ### Process
 1. Read the archetypes reference file:
-   - Glob for `plugins/iflow/skills/brainstorming/references/archetypes.md`
+   - Glob `~/.claude/plugins/cache/*/iflow*/*/skills/brainstorming/references/archetypes.md` — use first match
+   - Fallback: Glob `plugins/*/skills/brainstorming/references/archetypes.md`
    - If not found: skip triage, proceed to Matcher with no archetype context
 2. Extract keywords from the clarified user intent
 3. Match against each archetype's signal words — count hits per archetype
@@ -419,11 +414,9 @@ Task({
 
 ## Error Handling
 
-**No Agents Found:**
-```
-"No agents found. Ensure plugins with agents are installed.
-Run /plugin install <plugin-name> or check .claude-plugin/marketplace.json"
-```
+**No Agents Found from Discovery:**
+Proceed to Matcher Module. Specialist Fast-Path and Workflow Pattern Recognition
+provide keyword-based routing without filesystem discovery.
 
 **No Suitable Match (best match <50%):**
 

@@ -791,6 +791,136 @@ TMPL
     teardown_yolo_test
 }
 
+# === Path Portability Tests ===
+
+# Helper: find plugin component dir (relative to PROJECT_ROOT)
+PLUGIN_COMP_DIR="${PROJECT_ROOT}/plugins/iflow"
+
+# Helper: check if a line (or its preceding context line) is a fallback reference
+_is_fallback_line() {
+    local line="$1"
+    local context_line="$2"  # preceding line from grep -B1
+    for check in "$line" "$context_line"; do
+        case "$check" in
+            *[Ff]allback*|*"dev workspace"*|*"If "*exists*|*"if "*exists*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+# Helper: count non-fallback hardcoded paths in files
+_count_hardcoded_paths() {
+    local search_dir="$1"
+    local file_pattern="$2"
+    local exclude_basename="${3:-}"  # optional file to skip
+
+    local violations=0
+    while IFS= read -r f; do
+        [ -z "$f" ] && continue
+        [[ -n "$exclude_basename" && "$(basename "$f")" == "$exclude_basename" ]] && continue
+        local prev_line=""
+        while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            if [[ "$line" == "--" ]]; then
+                prev_line=""
+                continue
+            fi
+            if echo "$line" | grep -q 'plugins/iflow/' 2>/dev/null; then
+                if ! _is_fallback_line "$line" "$prev_line"; then
+                    ((violations++)) || true
+                fi
+            fi
+            prev_line="$line"
+        done < <(grep -B1 'plugins/iflow/' "$f" 2>/dev/null || true)
+    done < <(find "$search_dir" -name "$file_pattern" -type f 2>/dev/null)
+    echo "$violations"
+}
+
+test_no_hardcoded_plugin_paths_in_agents() {
+    log_test "No hardcoded plugins/iflow/ in agent .md files (non-fallback)"
+
+    local violations
+    violations=$(_count_hardcoded_paths "${PLUGIN_COMP_DIR}/agents" "*.md")
+
+    if [[ $violations -eq 0 ]]; then
+        log_pass
+    else
+        log_fail "Found $violations non-fallback hardcoded path(s) in agent files"
+    fi
+}
+
+test_no_hardcoded_plugin_paths_in_skills() {
+    log_test "No hardcoded plugins/iflow/ in SKILL.md files (non-fallback)"
+
+    local violations
+    violations=$(_count_hardcoded_paths "${PLUGIN_COMP_DIR}/skills" "SKILL.md")
+
+    if [[ $violations -eq 0 ]]; then
+        log_pass
+    else
+        log_fail "Found $violations non-fallback hardcoded path(s) in skill files"
+    fi
+}
+
+test_no_hardcoded_plugin_paths_in_commands() {
+    log_test "No hardcoded plugins/iflow/ in command .md files (non-fallback, excluding sync-cache)"
+
+    local violations
+    violations=$(_count_hardcoded_paths "${PLUGIN_COMP_DIR}/commands" "*.md" "sync-cache.md")
+
+    if [[ $violations -eq 0 ]]; then
+        log_pass
+    else
+        log_fail "Found $violations non-fallback hardcoded path(s) in command files"
+    fi
+}
+
+test_no_at_includes_with_hardcoded_paths() {
+    log_test "No @plugins/ includes in command files"
+
+    local violations=0
+    while IFS= read -r f; do
+        [ -z "$f" ] && continue
+        local count
+        count=$(grep -c '@plugins/' "$f" 2>/dev/null) || count=0
+        violations=$((violations + count))
+    done < <(find "${PLUGIN_COMP_DIR}/commands" -name "*.md" -type f 2>/dev/null)
+
+    if [[ $violations -eq 0 ]]; then
+        log_pass
+    else
+        log_fail "Found $violations @plugins/ include(s) in command files"
+    fi
+}
+
+test_secretary_has_cache_glob() {
+    log_test "secretary.md contains ~/.claude/plugins/cache discovery"
+
+    if grep -q '~/.claude/plugins/cache' "${PLUGIN_COMP_DIR}/agents/secretary.md" 2>/dev/null; then
+        log_pass
+    else
+        log_fail "secretary.md missing ~/.claude/plugins/cache glob for installed plugin discovery"
+    fi
+}
+
+test_advisors_use_base_directory_derivation() {
+    log_test "No raw plugins/iflow/skills/ in advisor files"
+
+    local violations=0
+    while IFS= read -r f; do
+        [ -z "$f" ] && continue
+        local count
+        count=$(grep -c 'plugins/iflow/skills/' "$f" 2>/dev/null) || count=0
+        violations=$((violations + count))
+    done < <(find "${PLUGIN_COMP_DIR}/skills/brainstorming/references/advisors" -name "*.advisor.md" -type f 2>/dev/null)
+
+    if [[ $violations -eq 0 ]]; then
+        log_pass
+    else
+        log_fail "Found $violations raw hardcoded paths in advisor files"
+    fi
+}
+
 # Run all tests
 main() {
     echo "=========================================="
@@ -840,6 +970,17 @@ main() {
     test_pre_exit_plan_allows_second_attempt
     test_pre_exit_plan_resets_stale_counter
     test_pre_exit_plan_valid_json_on_deny
+
+    echo ""
+    echo "--- Path Portability Tests ---"
+    echo ""
+
+    test_no_hardcoded_plugin_paths_in_agents
+    test_no_hardcoded_plugin_paths_in_skills
+    test_no_hardcoded_plugin_paths_in_commands
+    test_no_at_includes_with_hardcoded_paths
+    test_secretary_has_cache_glob
+    test_advisors_use_base_directory_derivation
 
     echo ""
     echo "=========================================="

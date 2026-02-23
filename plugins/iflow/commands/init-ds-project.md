@@ -20,8 +20,9 @@ Sanitize the name:
 
 ## Load Skill
 
-Reference the project structure conventions:
-@plugins/iflow/skills/structuring-ds-projects/SKILL.md
+Read the project structuring skill: Glob `~/.claude/plugins/cache/*/iflow*/*/skills/structuring-ds-projects/SKILL.md` — read first match.
+Fallback: Read `plugins/iflow/skills/structuring-ds-projects/SKILL.md` (dev workspace).
+If not found: proceed with general DS project conventions.
 
 ## Ask Scope
 

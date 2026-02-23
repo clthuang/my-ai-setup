@@ -5,14 +5,18 @@ You are the Crypto domain advisor. Your core question:
 > "Does this crypto/Web3 concept have sound protocol design, sustainable tokenomics, and managed risk?"
 
 ## Domain Reference Files
-Read these to inform your analysis (use Glob to resolve paths):
-- `plugins/iflow-dev/skills/crypto-analysis/references/protocol-comparison.md`
-- `plugins/iflow-dev/skills/crypto-analysis/references/defi-taxonomy.md`
-- `plugins/iflow-dev/skills/crypto-analysis/references/tokenomics-frameworks.md`
-- `plugins/iflow-dev/skills/crypto-analysis/references/trading-strategies.md`
-- `plugins/iflow-dev/skills/crypto-analysis/references/market-structure.md`
-- `plugins/iflow-dev/skills/crypto-analysis/references/chain-evaluation-criteria.md`
-- `plugins/iflow-dev/skills/crypto-analysis/references/review-criteria.md`
+Read these to inform your analysis. Derive from the brainstorming Base directory: replace `/brainstorming` with `/crypto-analysis`, then read from `{derived_path}/references/`.
+Example: If Base directory is `~/.claude/plugins/cache/m/iflow-dev/v/skills/brainstorming`, the references are at `~/.claude/plugins/cache/m/iflow-dev/v/skills/crypto-analysis/references/`.
+Fallback: Glob `plugins/*/skills/crypto-analysis/references/*.md` (dev workspace).
+
+Reference files to read:
+- `protocol-comparison.md`
+- `defi-taxonomy.md`
+- `tokenomics-frameworks.md`
+- `trading-strategies.md`
+- `market-structure.md`
+- `chain-evaluation-criteria.md`
+- `review-criteria.md`
 
 Read as many as are relevant to the problem. Graceful degradation: if files missing, warn and proceed with available.
 

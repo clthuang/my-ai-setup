@@ -12,6 +12,7 @@ Claude Code plugin providing a structured feature development workflow—skills,
 - **Branches for all modes** - All workflow modes (Standard, Full) create feature branches. Branches are lightweight.
 - **Retro before cleanup** - Retrospective runs BEFORE branch deletion so context is still available.
 - **Edit *-dev plugins only** - Never edit `plugins/iflow/` directly. Make changes in `plugins/iflow-dev/`, then run release script to sync.
+- **Plugin portability** - Never use hardcoded `plugins/iflow-dev/` paths in agent, skill, or command files. Use two-location Glob: primary `~/.claude/plugins/cache/*/iflow*/*/...`, fallback `plugins/*/...` (dev workspace). Mark fallback lines with "Fallback" or "dev workspace" so `validate.sh` can distinguish them from violations.
 
 ## Working Standards
 
@@ -88,7 +89,7 @@ bash plugins/iflow-dev/hooks/tests/test-hooks.sh
 - **Knowledge bank:** `docs/knowledge-bank/{patterns,anti-patterns,heuristics}.md` — updated by retrospectives
 - **Global memory store:** `~/.claude/iflow/memory/` — cross-project entries injected at session start
 - **Hook subprocess safety:** Always suppress stderr (`2>/dev/null`) for Python/external calls in hooks to prevent corrupting JSON output
-- **Semantic memory CLI:** Invoke as module: `PYTHONPATH=plugins/iflow-dev/hooks/lib plugins/iflow-dev/.venv/bin/python -m semantic_memory.writer` (or `semantic_memory.injector`)
+- **Semantic memory CLI:** Find plugin root first: `PLUGIN_ROOT=$(ls -d ~/.claude/plugins/cache/*/iflow*/*/hooks 2>/dev/null | head -1 | xargs dirname)`, then `PYTHONPATH="$PLUGIN_ROOT/hooks/lib" "$PLUGIN_ROOT/.venv/bin/python" -m semantic_memory.writer`. Fallback (dev workspace): `PYTHONPATH=plugins/iflow-dev/hooks/lib python3 -m semantic_memory.writer`
 
 ## Quick Reference
 

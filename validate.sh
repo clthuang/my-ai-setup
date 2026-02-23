@@ -614,6 +614,62 @@ while IFS= read -r plugin_json; do
 done < <(find . -path "*/.claude-plugin/plugin.json" -type f 2>/dev/null)
 echo ""
 
+# Validate no hardcoded plugin paths in component markdown files
+echo "Checking Path Portability..."
+hardcoded_path_errors=0
+while IFS= read -r md_file; do
+    [ -z "$md_file" ] && continue
+    # Skip dev-only files, READMEs, and this plan
+    case "$md_file" in
+        */sync-cache.md|*/README*.md|*/plan*.md) continue ;;
+    esac
+    # Search for hardcoded plugins/iflow-dev/ paths with 1-line context
+    # Skip lines (or preceding context lines) with fallback/conditional markers
+    prev_line=""
+    while IFS= read -r match_line; do
+        [ -z "$match_line" ] && continue
+        if [ "$match_line" = "--" ]; then
+            prev_line=""
+            continue
+        fi
+        if echo "$match_line" | grep -q 'plugins/iflow-dev/' 2>/dev/null; then
+            is_fallback=0
+            for check_line in "$match_line" "$prev_line"; do
+                case "$check_line" in
+                    *[Ff]allback*|*"dev workspace"*|*"If "*exists*|*"if "*exists*) is_fallback=1 ;;
+                esac
+            done
+            if [ $is_fallback -eq 0 ]; then
+                log_error "$md_file: Hardcoded plugin path: $(echo "$match_line" | sed 's/^[[:space:]]*//' | head -c 120)"
+                ((hardcoded_path_errors++)) || true
+            fi
+        fi
+        prev_line="$match_line"
+    done < <(grep -B1 'plugins/iflow-dev/' "$md_file" 2>/dev/null || true)
+done < <(find ./plugins/iflow-dev/agents ./plugins/iflow-dev/skills ./plugins/iflow-dev/commands -name "*.md" -type f 2>/dev/null)
+if [ $hardcoded_path_errors -eq 0 ]; then
+    log_success "No hardcoded plugin paths in component files"
+else
+    log_error "Found $hardcoded_path_errors hardcoded plugin path(s) — use two-location Glob or base directory derivation instead"
+fi
+
+# Check for @plugins/ includes in command files
+at_include_errors=0
+while IFS= read -r cmd_file; do
+    [ -z "$cmd_file" ] && continue
+    while IFS= read -r match_line; do
+        [ -z "$match_line" ] && continue
+        log_error "$cmd_file: @include with hardcoded path: $(echo "$match_line" | sed 's/^[[:space:]]*//' | head -c 120)"
+        ((at_include_errors++)) || true
+    done < <(grep -n '@plugins/' "$cmd_file" 2>/dev/null || true)
+done < <(find ./plugins/iflow-dev/commands -name "*.md" -type f 2>/dev/null)
+if [ $at_include_errors -eq 0 ]; then
+    log_success "No @plugins/ includes in command files"
+else
+    log_error "Found $at_include_errors @plugins/ include(s) — replace with inline Read via two-location Glob"
+fi
+echo ""
+
 # Summary
 echo "=========================================="
 echo "Validation Complete"

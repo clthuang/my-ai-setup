@@ -118,9 +118,18 @@ Do nothing. Do not propose or store any learnings.
 If the `store_memory` MCP tool is unavailable, fall back to the CLI with `source="session-capture"`:
 
 ```bash
-PYTHONPATH=plugins/iflow/hooks/lib .venv/bin/python -m semantic_memory.writer \
-  --action upsert --global-store ~/.claude/iflow/memory \
-  --entry-json '{"name":"...","description":"...","reasoning":"...","category":"...","source":"session-capture","confidence":"low","references":"[]"}'
+# Find plugin Python + library
+PLUGIN_ROOT=$(ls -d ~/.claude/plugins/cache/*/iflow*/*/hooks 2>/dev/null | head -1 | xargs dirname)
+if [[ -n "$PLUGIN_ROOT" ]] && [[ -x "$PLUGIN_ROOT/.venv/bin/python" ]]; then
+  PYTHONPATH="$PLUGIN_ROOT/hooks/lib" "$PLUGIN_ROOT/.venv/bin/python" -m semantic_memory.writer \
+    --action upsert --global-store ~/.claude/iflow/memory \
+    --entry-json '{"name":"...","description":"...","reasoning":"...","category":"...","source":"session-capture","confidence":"low","references":"[]"}'
+else
+  # dev workspace fallback
+  PYTHONPATH=plugins/iflow/hooks/lib python3 -m semantic_memory.writer \
+    --action upsert --global-store ~/.claude/iflow/memory \
+    --entry-json '{"name":"...","description":"...","reasoning":"...","category":"...","source":"session-capture","confidence":"low","references":"[]"}'
+fi
 ```
 
 Escape any special characters (quotes, backslashes, dollar signs) in field values before embedding in the JSON string.
