@@ -161,4 +161,56 @@ Output the report using this template:
 
 **Staleness warning:** Only shown when `staleness_warning` flag was set in Step 3.
 
-<!-- Step 8 will be added in subsequent task -->
+### Step 8: User approval
+
+Present the report from Step 7, then prompt for approval:
+
+```
+AskUserQuestion:
+  questions: [{
+    "question": "How would you like to proceed with the improvements?",
+    "header": "Approval",
+    "options": [
+      {"label": "Accept all", "description": "Apply all improvements and write to file"},
+      {"label": "Accept some", "description": "Choose which dimensions to apply"},
+      {"label": "Reject", "description": "Discard improvements, no file changes"}
+    ],
+    "multiSelect": false
+  }]
+```
+
+**Accept all:**
+1. Take the improved version from Step 6
+2. Strip all `<!-- CHANGE: ... -->` and `<!-- END CHANGE -->` comments
+3. Write the result to the original file path (overwrite)
+4. Display: "Improvements applied to {filename}. Run `./validate.sh` to verify structural compliance."
+
+**Accept some:**
+1. Collect the list of dimensions that have CHANGE markers in the improved version
+2. Present each dimension as a multiSelect option:
+   ```
+   AskUserQuestion:
+     questions: [{
+       "question": "Select dimensions to apply:",
+       "header": "Dimensions",
+       "options": [
+         {"label": "{dimension_name}", "description": "{one-line summary of changes for this dimension}"}
+       ],
+       "multiSelect": true
+     }]
+   ```
+3. **Merge algorithm:**
+   a. Start with the full improved version from Step 6
+   b. For each **unselected** dimension, locate its CHANGE/END CHANGE block(s)
+   c. Replace each unselected block's content with the corresponding region from the **original file** (preserved in memory from Step 2)
+   d. Strip all remaining `<!-- CHANGE: ... -->` and `<!-- END CHANGE -->` markers
+4. **Merge invariant:** The resulting file must be valid markdown with no orphaned CHANGE/END CHANGE markers
+5. **Inseparable blocks:** If two dimensions' CHANGE blocks were merged (overlapping line ranges, as noted in Step 6), they appear as a single option with both dimension names. Selecting or deselecting applies to both dimensions together.
+6. **Malformed marker fallback:** If markers cannot be cleanly parsed for selective application, degrade to Accept all / Reject with warning: "Selective acceptance unavailable -- markers could not be parsed. Use Accept all or Reject."
+7. Write the merged result to the original file path (overwrite)
+8. Display: "Selected improvements applied to {filename}. Run `./validate.sh` to verify structural compliance."
+
+**Reject:**
+Display: "No changes applied." --> **STOP**
+
+**YOLO mode:** When `[YOLO_MODE]` is active, auto-select "Accept all" (skip AskUserQuestion), as specified in the YOLO Mode Overrides section above.
