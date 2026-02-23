@@ -9,7 +9,7 @@ Structured feature development workflow with skills, agents, and commands for me
 | Type | Count |
 |------|-------|
 | Skills | 28 |
-| Agents | 29 |
+| Agents | 28 |
 | Commands | 24 |
 | Hooks | 11 |
 | MCP Tools | 2 |
@@ -141,7 +141,6 @@ The `/iflow:implement` command uses three reviewers:
 | project-decomposition-reviewer | Validates project decomposition quality |
 | rca-investigator | Finds all root causes through 6-phase systematic investigation |
 | retro-facilitator | Runs data-driven AORTA retrospective with full intermediate context |
-| secretary | Intelligent task routing with discovery, interpretation, and delegation |
 | secretary-reviewer | Validates secretary routing recommendations |
 | security-reviewer | Reviews implementation for security vulnerabilities |
 | skill-searcher | Finds relevant existing skills |

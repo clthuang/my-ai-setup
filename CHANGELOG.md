@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.22] - 2026-02-24
+
+### Changed
+- Secretary routing logic moved from agent to command — fixes AskUserQuestion being invisible in Task subagent context
+- Deleted `agents/secretary.md` (agent); routing now runs inline in `commands/secretary.md`
+- Deleted `.claude/hookify.secretary-guard.local.md` (enforced old agent dispatch pattern)
+- `inject-secretary-context.sh` aware mode now outputs command invocation syntax instead of Task dispatch
+
 ## [3.0.21] - 2026-02-23
 
 ### Added

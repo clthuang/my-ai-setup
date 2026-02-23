@@ -1,20 +1,20 @@
 ---
 name: secretary-reviewer
-description: Validates secretary routing recommendations before presenting to user. Use when (1) secretary agent needs routing validation, (2) user says 'check routing', (3) user says 'validate agent match'.
+description: Validates secretary routing recommendations before presenting to user. Use when (1) secretary command needs routing validation, (2) user says 'check routing', (3) user says 'validate agent match'.
 model: haiku
 tools: [Read, Glob, Grep]
 color: blue
 ---
 
 <example>
-Context: Secretary agent has matched a request to an agent
+Context: Secretary command has matched a request to an agent
 user: "Validate routing: code-quality-reviewer (85% match) for 'review auth module security'"
 assistant: "I'll use the secretary-reviewer agent to validate the routing recommendation."
-<commentary>Secretary dispatches reviewer to catch misrouted requests before user sees them.</commentary>
+<commentary>Secretary command dispatches reviewer to catch misrouted requests before user sees them.</commentary>
 </example>
 
 <example>
-Context: Secretary agent has a low-confidence match
+Context: Secretary command has a low-confidence match
 user: "Validate routing: generic-worker (55% match) for 'analyze database query performance'"
 assistant: "I'll use the secretary-reviewer agent to check if a better specialist exists."
 <commentary>Low-confidence routing triggers reviewer to search for missed specialists.</commentary>

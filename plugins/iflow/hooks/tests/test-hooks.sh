@@ -928,7 +928,7 @@ test_no_at_includes_with_hardcoded_paths() {
 test_secretary_has_cache_glob() {
     log_test "secretary.md contains ~/.claude/plugins/cache discovery"
 
-    if grep -q '~/.claude/plugins/cache' "${PLUGIN_COMP_DIR}/agents/secretary.md" 2>/dev/null; then
+    if grep -q '~/.claude/plugins/cache' "${PLUGIN_COMP_DIR}/commands/secretary.md" 2>/dev/null; then
         log_pass
     else
         log_fail "secretary.md missing ~/.claude/plugins/cache glob for installed plugin discovery"
