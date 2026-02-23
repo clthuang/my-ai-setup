@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.22] - 2026-02-24
+
 ### Changed
 - Secretary routing logic moved from agent to command — fixes AskUserQuestion being invisible in Task subagent context
 - Deleted `agents/secretary.md` (agent); routing now runs inline in `commands/secretary.md`

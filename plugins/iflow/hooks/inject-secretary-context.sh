@@ -87,7 +87,7 @@ cat << 'EOF'
 {
   "hookSpecificOutput": {
     "hookEventName": "SessionStart",
-    "additionalContext": "Secretary agent available for orchestrating complex requests. For vague or multi-step tasks, consider: Task({ subagent_type: 'iflow:secretary', prompt: <user_request> })"
+    "additionalContext": "Secretary available for orchestrating complex requests. For vague or multi-step tasks, use: /iflow:secretary <request>"
   }
 }
 EOF
