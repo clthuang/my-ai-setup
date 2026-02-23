@@ -92,4 +92,73 @@ Overall score = **(sum of all 9 dimension scores) / 27 x 100**, rounded to neare
 
 Step 4 output (per-dimension scores and findings) feeds both this calculation and Step 6, which uses partial/fail dimensions to generate improvements.
 
-<!-- Steps 6-8 will be added in subsequent tasks -->
+### Step 6: Generate improved version
+
+Rewrite the full target file incorporating improvements for every dimension scoring **partial or fail**. The output is a complete copy of the target file with changes applied inline.
+
+**CHANGE/END CHANGE delimiters:** Wrap each modified region with paired HTML comment markers:
+
+```markdown
+<!-- CHANGE: {dimension} - {rationale} -->
+{modified content}
+<!-- END CHANGE -->
+```
+
+**Marker rules:**
+
+- **Only wrap partial/fail dimensions.** Pass dimensions have NO markers -- their content remains unchanged from the original.
+- **Multi-region changes** for one dimension: each region gets its own CHANGE/END CHANGE pair. They are grouped as a single selectable unit in Accept-some (keyed by dimension name).
+- **Overlapping dimensions** (two dimensions modify the same text): merge into one block with both dimension names in the CHANGE comment (`<!-- CHANGE: dim_a, dim_b - rationale -->`), presented as a single inseparable selection.
+
+**Example** (two change blocks with an unchanged pass-dimension region between):
+
+```markdown
+<!-- CHANGE: token_economy - Remove redundant preamble -->
+You are a code reviewer focused on quality.
+<!-- END CHANGE -->
+
+## Process
+
+<!-- CHANGE: structure_compliance - Add numbered steps with bold semantic labels -->
+1. **Read** -- Load the target file
+2. **Analyze** -- Check against criteria
+<!-- END CHANGE -->
+```
+
+**Malformed marker fallback:** If CHANGE/END CHANGE parsing fails during Accept-some (markers missing, mismatched, or unparseable overlap), degrade to Accept all / Reject only with warning: "Selective acceptance unavailable -- markers could not be parsed. Use Accept all or Reject."
+
+**Token budget check:** After generating the improved version, strip all `<!-- CHANGE: ... -->` and `<!-- END CHANGE -->` comments and count lines/tokens. If the stripped result exceeds 500 lines or 5,000 tokens, append a warning to the report: "Improved version exceeds token budget -- consider moving content to references/."
+
+### Step 7: Generate report
+
+Output the report using this template:
+
+```markdown
+## Promptimize Report: {filename}
+
+**Component type:** {Skill | Agent | Command}
+**Overall score:** {score}/100
+**Guidelines version:** {date from prompt-guidelines.md}
+{if staleness_warning: "Warning: Guidelines last updated {date} -- consider running /refresh-prompt-guidelines"}
+
+### Strengths
+- {dimension}: {what's done well}
+
+### Issues Found
+
+| # | Severity | Dimension | Finding | Suggestion |
+|---|----------|-----------|---------|------------|
+| 1 | blocker  | {dim}     | {finding} | {suggestion} |
+
+### Improved Version
+
+{Full rewritten prompt with CHANGE/END CHANGE block delimiters from Step 6}
+```
+
+**Strengths section:** List all dimensions scoring **pass** with a brief note on what was done well. This affirms good patterns before listing issues.
+
+**Issues Found table:** Only partial/fail dimensions appear. Severity mapping: **fail = blocker**, **partial = warning**. Order blockers first, then warnings.
+
+**Staleness warning:** Only shown when `staleness_warning` flag was set in Step 3.
+
+<!-- Step 8 will be added in subsequent task -->
