@@ -11,6 +11,8 @@ Thumbs.db
 
 # Claude Code local settings
 .claude/settings.local.json
+.claude/.yolo-hook-state
+.claude/.plan-review-state
 
 # Logs
 *.log
@@ -27,6 +29,7 @@ node_modules/
 # Python (if used)
 __pycache__/
 *.pyc
+.pytest_cache/
 .venv/
 venv/
 
