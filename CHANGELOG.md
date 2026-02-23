@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.21] - 2026-02-23
+
 ### Added
 - Usage-aware YOLO mode: tracks token consumption from transcripts and pauses when configurable budget is reached (`yolo_usage_limit`, `yolo_usage_wait`, `yolo_usage_cooldown` config fields)
 - Auto-resume after cooldown period (default 5h matching rolling window), or manual resume with `/yolo on`

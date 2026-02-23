@@ -21,6 +21,51 @@ if [[ "$YOLO" != "true" ]]; then
     exit 0
 fi
 
+# If YOLO is paused (usage limit hit), allow stop (don't block)
+YOLO_PAUSED=$(read_hook_state "$STATE_FILE" "yolo_paused" "false")
+if [[ "$YOLO_PAUSED" == "true" ]]; then
+    exit 0
+fi
+
+# Usage limit check: count tokens from transcript
+USAGE_LIMIT=$(read_local_md_field "$IFLOW_CONFIG" "yolo_usage_limit" "0")
+if [[ "$USAGE_LIMIT" -gt 0 ]]; then
+    TRANSCRIPT_PATH=$(echo "$INPUT" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    print(data.get('transcript_path', ''))
+except:
+    print('')
+" 2>/dev/null)
+    if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
+        TOTAL_TOKENS=$(python3 -c "
+import json, sys
+total = 0
+for line in open(sys.argv[1]):
+    try:
+        entry = json.loads(line)
+        u = entry.get('usage', {})
+        total += u.get('input_tokens', 0) + u.get('output_tokens', 0)
+        total += u.get('cache_creation_input_tokens', 0) + u.get('cache_read_input_tokens', 0)
+    except: pass
+print(total)
+" "$TRANSCRIPT_PATH" 2>/dev/null)
+        if [[ -n "$TOTAL_TOKENS" && "$TOTAL_TOKENS" -ge "$USAGE_LIMIT" ]]; then
+            write_hook_state "$STATE_FILE" "yolo_paused" "true"
+            write_hook_state "$STATE_FILE" "yolo_paused_at" "$(date +%s)"
+            REASON=$(escape_json "[YOLO_MODE] Usage limit reached: ${TOTAL_TOKENS}/${USAGE_LIMIT} tokens. YOLO paused.")
+            cat <<EOF
+{
+  "decision": "block",
+  "reason": "${REASON}"
+}
+EOF
+            exit 0
+        fi
+    fi
+fi
+
 # Find active feature: scan docs/features/*/.meta.json for status="active"
 FEATURES_DIR="${PROJECT_ROOT}/docs/features"
 if [[ ! -d "$FEATURES_DIR" ]]; then

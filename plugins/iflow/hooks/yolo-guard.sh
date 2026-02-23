@@ -39,6 +39,13 @@ if [[ "$YOLO" != "true" ]]; then
     exit 0
 fi
 
+# If YOLO is paused (usage limit hit), allow questions through
+STATE_FILE="${PROJECT_ROOT}/.claude/.yolo-hook-state"
+YOLO_PAUSED=$(read_hook_state "$STATE_FILE" "yolo_paused" "false")
+if [[ "$YOLO_PAUSED" == "true" ]]; then
+    exit 0
+fi
+
 # Parse question and options, check safety valve, find recommended option
 RESULT=$(echo "$INPUT" | python3 -c "
 import json, sys

@@ -21,6 +21,9 @@ If the file doesn't exist, create it with this exact content:
 # Workflow
 yolo_mode: false
 yolo_max_stop_blocks: 50
+yolo_usage_limit: 0
+yolo_usage_wait: true
+yolo_usage_cooldown: 18000
 activation_mode: manual
 
 # Memory
@@ -50,6 +53,8 @@ Path: `{project_root}/.claude/.yolo-hook-state`
 ```
 stop_count=0
 last_phase=null
+yolo_paused=false
+yolo_paused_at=0
 ```
 4. Output:
 ```
@@ -74,11 +79,19 @@ AskUserQuestions will be shown. Session can stop between phases.
 2. Read `stop_count` from `{project_root}/.claude/.yolo-hook-state` (default: 0).
 3. Read `yolo_max_stop_blocks` from config (default: 50).
 4. Find active feature: scan `docs/features/*/.meta.json` for `status: "active"`.
-5. Output:
+5. Read `yolo_usage_limit` from config (default: 0). Display "unlimited" if 0, otherwise the number.
+6. Read `yolo_usage_wait` from config (default: true).
+7. Read `yolo_usage_cooldown` from config (default: 18000). Calculate hours as cooldown/3600.
+8. Read `yolo_paused` and `yolo_paused_at` from state file. If paused, calculate remaining cooldown.
+9. Output:
 ```
 YOLO mode: {on/off}
 Active feature: {id}-{slug} (last completed: {phase}) | none
 Stop blocks used: {count}/{max}
+Usage limit: {limit} tokens | unlimited
+Usage wait: {yes/no} (auto-resume after cooldown)
+Cooldown: {cooldown}s ({hours}h)
+Paused: {yes/no} [since {timestamp}, {remaining} until resume]
 ```
 
 ## Important
