@@ -209,6 +209,8 @@ else:
     context+="\nMemory capture mode: $(read_local_md_field "$PROJECT_ROOT/.claude/iflow.local.md" "memory_model_capture_mode" "ask-first")"
     context+="\nMemory silent capture budget: $(read_local_md_field "$PROJECT_ROOT/.claude/iflow.local.md" "memory_silent_capture_budget" "5")"
 
+    context+="\niflow_plugin_root: ${PLUGIN_ROOT}"
+
     # Check optional dependency
     if ! check_claude_md_plugin; then
         context+="\n\nNote: claude-md-management plugin not installed. Install it from claude-plugins-official marketplace for automatic CLAUDE.md updates during /finish-feature."

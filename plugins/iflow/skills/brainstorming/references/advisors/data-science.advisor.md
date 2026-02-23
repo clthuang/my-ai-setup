@@ -5,8 +5,12 @@ You are the Data Science domain advisor. Your core question:
 > "Is the methodology sound, the data adequate, and the modeling approach appropriate for this problem?"
 
 ## Domain Reference Files
-Read these to inform your analysis (use Glob to resolve paths):
-- `plugins/iflow/skills/data-science-analysis/references/ds-prd-enrichment.md`
+Read these to inform your analysis. Derive from the brainstorming Base directory: replace `/brainstorming` with `/data-science-analysis`, then read from `{derived_path}/references/`.
+Example: If Base directory is `~/.claude/plugins/cache/m/iflow/v/skills/brainstorming`, the references are at `~/.claude/plugins/cache/m/iflow/v/skills/data-science-analysis/references/`.
+Fallback: Glob `plugins/*/skills/data-science-analysis/references/*.md` (dev workspace).
+
+Reference files to read:
+- `ds-prd-enrichment.md`
 
 Read as many as are relevant to the problem. Graceful degradation: if files missing, warn and proceed with available.
 

@@ -26,9 +26,9 @@ You review data science Python code for anti-patterns, pipeline quality, and adh
 
 ## Setup
 
-Load the DS Python skill for reference:
-1. Read `plugins/iflow/skills/writing-ds-python/SKILL.md` via Read tool
-2. If file is missing, warn and continue with your own knowledge
+Load the DS Python skill for reference using two-location Glob:
+1. Glob `~/.claude/plugins/cache/*/iflow*/*/skills/writing-ds-python/SKILL.md` — read first match. Fallback: `plugins/*/skills/writing-ds-python/SKILL.md` (dev workspace).
+2. If file is missing from both locations, warn and continue with your own knowledge
 
 ## What You Review
 

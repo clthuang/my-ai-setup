@@ -31,8 +31,9 @@ After selection, ask for details: "Please describe the specific error or behavio
 
 ## Load Skill
 
-Reference the RCA methodology:
-@plugins/iflow/skills/root-cause-analysis/SKILL.md
+Read the RCA skill: Glob `~/.claude/plugins/cache/*/iflow*/*/skills/root-cause-analysis/SKILL.md` — read first match.
+Fallback: Read `plugins/iflow/skills/root-cause-analysis/SKILL.md` (dev workspace).
+If not found: proceed with general RCA methodology.
 
 ## Dispatch Agent
 
@@ -82,9 +83,18 @@ After rca-investigator completes, extract learnings from the RCA report.
 ### Fallback
 If `store_memory` MCP tool unavailable, use CLI:
 ```bash
-PYTHONPATH=plugins/iflow/hooks/lib .venv/bin/python -m semantic_memory.writer \
-  --action upsert --global-store ~/.claude/iflow/memory \
-  --entry-json '{...}'
+# Find plugin Python + library
+PLUGIN_ROOT=$(ls -d ~/.claude/plugins/cache/*/iflow*/*/hooks 2>/dev/null | head -1 | xargs dirname)
+if [[ -n "$PLUGIN_ROOT" ]] && [[ -x "$PLUGIN_ROOT/.venv/bin/python" ]]; then
+  PYTHONPATH="$PLUGIN_ROOT/hooks/lib" "$PLUGIN_ROOT/.venv/bin/python" -m semantic_memory.writer \
+    --action upsert --global-store ~/.claude/iflow/memory \
+    --entry-json '{...}'
+else
+  # Fallback: dev workspace
+  PYTHONPATH=plugins/iflow/hooks/lib python3 -m semantic_memory.writer \
+    --action upsert --global-store ~/.claude/iflow/memory \
+    --entry-json '{...}'
+fi
 ```
 
 ### Output

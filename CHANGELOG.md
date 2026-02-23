@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.18] - 2026-02-23
+
 ### Fixed
 - Plugin portability: replaced 44 hardcoded `plugins/iflow-dev/` paths across 20 files with two-location Glob discovery (`~/.claude/plugins/cache/` primary, `plugins/*/` dev fallback), enabling all agents, skills, and commands to work in consumer projects
 - Secretary agent discovery now searches plugin cache directory before falling back to dev workspace, fixing "0 agents found" in consumer installs

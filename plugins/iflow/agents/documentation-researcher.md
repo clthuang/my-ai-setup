@@ -99,14 +99,15 @@ Compare the **filesystem** (source of truth) against what README files claim. Th
 
 **Check both:**
 - `README.md` (root — primary user-facing doc)
-- `plugins/iflow/README.md` (plugin — distribution-facing doc)
+- Plugin README: Glob `~/.claude/plugins/cache/*/iflow*/*/README.md` — first match. Fallback: `plugins/iflow/README.md` if exists (dev workspace).
 
 **Commands:**
-1. Glob `plugins/iflow/commands/*.md` → extract command names → Grep each README for the command name (both prefixed variants) → flag missing entries
-2. Glob `plugins/iflow/skills/*/SKILL.md` → extract skill names from directory paths → Grep each README's Skills section → flag missing entries
-3. Glob `plugins/iflow/agents/*.md` → extract agent names → Grep each README's Agents section → flag missing entries
+For each component type below, use two-location Glob: first try `~/.claude/plugins/cache/*/iflow*/*/` prefix, then fall back to `plugins/iflow/` (dev workspace):
+1. Glob `{plugin_path}/commands/*.md` → extract command names → Grep each README for the command name (both prefixed variants) → flag missing entries
+2. Glob `{plugin_path}/skills/*/SKILL.md` → extract skill names from directory paths → Grep each README's Skills section → flag missing entries
+3. Glob `{plugin_path}/agents/*.md` → extract agent names → Grep each README's Agents section → flag missing entries
 4. **Reverse check:** For each entry in a README table, verify the corresponding file still exists on the filesystem. Flag stale entries that reference deleted components.
-5. **Count check:** If `plugins/iflow/README.md` has component count headers (e.g., `| Skills | 19 |`), compare against actual filesystem counts and flag mismatches.
+5. **Count check:** If the plugin README has component count headers (e.g., `| Skills | 19 |`), compare against actual filesystem counts and flag mismatches.
 
 Any discrepancy found here is a drift entry — add it to `drift_detected` in the output.
 
@@ -181,14 +182,14 @@ Return structured JSON:
       "name": "some-old-skill",
       "description": "",
       "status": "stale_in_readme",
-      "readme": "plugins/iflow/README.md"
+      "readme": "{plugin_readme_path}"
     },
     {
       "type": "count_mismatch",
       "name": "Skills",
       "description": "README claims 19, filesystem has 27",
       "status": "count_mismatch",
-      "readme": "plugins/iflow/README.md"
+      "readme": "{plugin_readme_path}"
     }
   ],
   "changelog_state": {

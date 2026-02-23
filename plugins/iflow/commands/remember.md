@@ -35,9 +35,18 @@ Save a learning, pattern, or heuristic to the global memory store so future sess
 
 7. **If the MCP tool is unavailable, fall back to Bash.** Escape any special characters (quotes, backslashes, dollar signs) in the user input before embedding in the JSON string, then run:
    ```bash
-   PYTHONPATH=plugins/iflow/hooks/lib .venv/bin/python -m semantic_memory.writer \
-     --action upsert --global-store ~/.claude/iflow/memory \
-     --entry-json '{"name":"<generated-name>","description":"<stripped-input>","reasoning":"<generated-reasoning>","category":"<inferred-category>","source":"session-capture","confidence":"low","references":"[]"}'
+   # Find plugin Python + library
+   PLUGIN_ROOT=$(ls -d ~/.claude/plugins/cache/*/iflow*/*/hooks 2>/dev/null | head -1 | xargs dirname)
+   if [[ -n "$PLUGIN_ROOT" ]] && [[ -x "$PLUGIN_ROOT/.venv/bin/python" ]]; then
+     PYTHONPATH="$PLUGIN_ROOT/hooks/lib" "$PLUGIN_ROOT/.venv/bin/python" -m semantic_memory.writer \
+       --action upsert --global-store ~/.claude/iflow/memory \
+       --entry-json '{"name":"<generated-name>","description":"<stripped-input>","reasoning":"<generated-reasoning>","category":"<inferred-category>","source":"session-capture","confidence":"low","references":"[]"}'
+   else
+     # Fallback: dev workspace
+     PYTHONPATH=plugins/iflow/hooks/lib python3 -m semantic_memory.writer \
+       --action upsert --global-store ~/.claude/iflow/memory \
+       --entry-json '{"name":"<generated-name>","description":"<stripped-input>","reasoning":"<generated-reasoning>","category":"<inferred-category>","source":"session-capture","confidence":"low","references":"[]"}'
+   fi
    ```
 
 8. **Parse the return value** and display a confirmation:

@@ -38,7 +38,7 @@ Parse the task description to determine:
 
 ### Step 2: Select Templates and Confirm
 
-Available templates (in `plugins/iflow/skills/creating-specialist-teams/references/`):
+Available templates (locate via two-location Glob: `~/.claude/plugins/cache/*/iflow*/*/skills/creating-specialist-teams/references/`, fallback `plugins/*/skills/creating-specialist-teams/references/`):
 
 | Template | Best For |
 |----------|----------|
@@ -88,9 +88,10 @@ Then re-confirm the customized team.
 
 For each selected template:
 
-1. Read the scaffold template:
+1. Read the scaffold template via two-location Glob:
    ```
-   Read(plugins/iflow/skills/creating-specialist-teams/references/{type}.template.md)
+   Glob ~/.claude/plugins/cache/*/iflow*/*/skills/creating-specialist-teams/references/{type}.template.md — read first match.
+   Fallback: Read plugins/iflow/skills/creating-specialist-teams/references/{type}.template.md (dev workspace).
    ```
 
 2. Gather codebase context relevant to the task:
