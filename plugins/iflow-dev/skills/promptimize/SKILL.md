@@ -58,4 +58,38 @@ Read the file at the input path directly (absolute path provided by caller).
 3. If the date is **more than 30 days old**, set `staleness_warning = true`
 4. This flag is used in Step 7 to append a staleness warning to the report
 
-<!-- Steps 4-8 will be added in subsequent tasks -->
+### Step 4: Evaluate 9 dimensions
+
+For each dimension, apply the behavioral anchors from `references/scoring-rubric.md` (loaded in Step 2) to the target file. Produce a **pass (3) / partial (2) / fail (1)** score per dimension.
+
+**Auto-pass exceptions** (score = 3, skip evaluation):
+
+| Component Type | Auto-pass dimensions |
+|----------------|----------------------|
+| Command | persuasion_strength, prohibition_clarity, example_quality |
+| Agent | progressive_disclosure |
+| Skill | _(none -- all 9 evaluated)_ |
+
+All dimension/type combinations NOT listed above are **Evaluated** using the scoring rubric's behavioral anchors.
+
+**Dimensions** (evaluate in this order):
+
+1. **Structure compliance** -- matches macro-structure for component type
+2. **Token economy** -- under budget with no redundant content
+3. **Description quality** -- trigger phrases, activation conditions, specificity
+4. **Persuasion strength** -- uses persuasion principles effectively
+5. **Technique currency** -- current best practices, no outdated patterns
+6. **Prohibition clarity** -- specific, unambiguous constraints
+7. **Example quality** -- concrete, minimal, representative examples
+8. **Progressive disclosure** -- overview in main file, details in references
+9. **Context engineering** -- appropriate tool restrictions, clean boundaries
+
+For each dimension, record: **dimension name**, **score** (pass/partial/fail), and a **one-line finding** explaining the assessment.
+
+### Step 5: Calculate score
+
+Overall score = **(sum of all 9 dimension scores) / 27 x 100**, rounded to nearest integer.
+
+Step 4 output (per-dimension scores and findings) feeds both this calculation and Step 6, which uses partial/fail dimensions to generate improvements.
+
+<!-- Steps 6-8 will be added in subsequent tasks -->
