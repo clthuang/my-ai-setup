@@ -1,0 +1,11 @@
+{
+  "id": "027",
+  "slug": "prompt-intelligence-system",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-02-24T00:25:00Z",
+  "branch": "feature/027-prompt-intelligence-system",
+  "brainstorm_source": "docs/brainstorms/20260224-001355-prompt-intelligence-system.prd.md",
+  "lastCompletedPhase": null,
+  "phases": {}
+}
