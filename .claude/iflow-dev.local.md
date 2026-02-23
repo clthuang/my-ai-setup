@@ -1,6 +1,6 @@
 ---
 # Workflow
-yolo_mode: false
+yolo_mode: true
 yolo_max_stop_blocks: 50
 activation_mode: manual
 
