@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Plugin portability: replaced 44 hardcoded `plugins/iflow-dev/` paths across 20 files with two-location Glob discovery (`~/.claude/plugins/cache/` primary, `plugins/*/` dev fallback), enabling all agents, skills, and commands to work in consumer projects
+- Secretary agent discovery now searches plugin cache directory before falling back to dev workspace, fixing "0 agents found" in consumer installs
+- `@plugins/iflow-dev/` include directives in commands replaced with inline Read via two-location Glob (@ syntax only resolves from project root)
+- Dynamic PYTHONPATH resolution for semantic memory CLI fallback — detects installed plugin venv before falling back to dev workspace paths
+
+### Added
+- Path portability regression tests in `validate.sh` and `test-hooks.sh` (6 new test cases)
+- `iflow_plugin_root` context variable injected by session-start hook
+
 ## [3.0.17] - 2026-02-22
 
 ### Added
