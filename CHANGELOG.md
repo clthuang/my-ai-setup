@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `.gitignore`: added `.pytest_cache/`, `.claude/.yolo-hook-state`, `.claude/.plan-review-state`; removed `.yolo-hook-state` from tracking to eliminate noise commits
+
 ## [3.0.18] - 2026-02-23
 
 ### Fixed
