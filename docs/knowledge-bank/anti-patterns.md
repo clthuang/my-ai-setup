@@ -154,3 +154,21 @@ Conducting security review on a path extraction subsystem without first defining
 - Confidence: medium
 - Last observed: 2026-02-22
 - Observation count: 1
+
+### Anti-Pattern: Describing Algorithms Without Specifying Concrete I/O and Edge Cases
+Mentioning an algorithm by name (e.g., "Accept-some merge") without documenting step-by-step inputs, outputs, and edge cases causes blockers in downstream phases as each consumer interprets the gap differently.
+- Observed in: Feature #027, design iter 1 blocker ("Accept-some partial merge algorithm unspecified") + tasks iter 2 (4 blockers: content unspecified, CHANGE scope unclear, merge algorithm undocumented, extraction target unspecified)
+- Cost: Same underspecification caused blockers in two separate phases
+- Instead: For every algorithm described, document: all inputs, all outputs, error/edge cases, write targets
+- Confidence: high
+- Last observed: Feature #027
+- Observation count: 1
+
+### Anti-Pattern: Hardcoding Year Values in Search Queries
+Embedding literal year values (e.g., "2026") in search queries or date-sensitive prompts causes silent degradation as time passes — no error signal, just less relevant results.
+- Observed in: Feature #027, implementation iter 2 — quality reviewer flagged hardcoded year in refresh-prompt-guidelines.md search queries
+- Cost: Silently stale results with no visible error
+- Instead: Use dynamic placeholders like {current year} with instructions to resolve at runtime
+- Confidence: high
+- Last observed: Feature #027
+- Observation count: 1
