@@ -42,7 +42,7 @@ Structured feature development workflow with skills, agents, and commands for me
 | `/iflow-dev:add-to-backlog <idea>` | Capture ideas for later |
 | `/iflow-dev:cleanup-brainstorms` | Delete old scratch files |
 | `/iflow-dev:sync-cache` | Reload plugin after changes |
-| `/iflow-dev:secretary` | Intelligent task routing to commands/agents |
+| `/iflow-dev:secretary` | Intelligent task routing to commands, agents, and skills |
 | `/iflow-dev:root-cause-analysis` | Investigate bugs and failures to find all root causes |
 | `/iflow-dev:create-project <prd>` | Create project from PRD with AI-driven decomposition |
 | `/iflow-dev:create-specialist-team` | Create ephemeral specialist teams for complex tasks |

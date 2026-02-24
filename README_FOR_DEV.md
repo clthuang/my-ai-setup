@@ -122,14 +122,72 @@ To install the released version:
 
 ## Architecture
 
-```
-User → /command → Claude reads skill → Follows instructions
-                                    → Spawns agents if needed
-                                    → Updates files
-                                    → Uses Vibe-Kanban/TodoWrite for tracking
+Commands invoke Skills; Skills spawn Agents; Hooks fire at lifecycle points. The secretary command adds an intelligent routing layer — a 7-step pipeline (DISCOVER → CLARIFY → TRIAGE → MATCH → REVIEW → RECOMMEND → DELEGATE) that discovers available agents and skills, interprets the request, and delegates to the best match.
+
+```mermaid
+flowchart TD
+    U([User]) -->|"/command"| CMD[Command]
+    U -->|"/secretary request"| SEC
+
+    subgraph SEC["Secretary Routing Pipeline"]
+        direction TB
+        S1["1. DISCOVER<br/>agents & skills"] --> S2["2. CLARIFY<br/>structured 4-dimension analysis"]
+        S2 --> S3["3. TRIAGE<br/>maturity assessment"]
+        S3 --> S4["4. MATCH<br/>fast-path + semantic"]
+        S4 --> S5["5. REVIEW<br/>secretary-reviewer"]
+        S5 --> S6["6. RECOMMEND<br/>user confirmation"]
+        S6 --> S7["7. DELEGATE"]
+    end
+
+    CMD --> SK[Skill]
+    S7 -->|"workflow match"| SK
+    S7 -->|"agent match"| AG
+    S7 -->|"skill match"| SK
+
+    subgraph WORKFLOW["Workflow Phases"]
+        direction LR
+        WF1[brainstorm] --> WF2[specify] --> WF3[design]
+        WF3 --> WF4[create-plan] --> WF5[create-tasks]
+        WF5 --> WF6[implement] --> WF7[finish-feature]
+    end
+
+    SK --> WORKFLOW
+    SK --> AG
+
+    subgraph AG["Agents · 28 subagents"]
+        direction TB
+        A1["Reviewers (13)<br/>spec, design, plan, impl,<br/>security, code-quality, ..."]
+        A2["Workers (6)<br/>implementer, code-simplifier,<br/>test-deepener, ..."]
+        A3["Researchers (5)<br/>codebase-explorer,<br/>investigation-agent, ..."]
+        A4["Advisory (1) · Orchestration (3)"]
+    end
+
+    WORKFLOW -->|"produces"| ART
+
+    subgraph ART["File Artifacts"]
+        F1[spec.md] ~~~ F2[design.md] ~~~ F3[plan.md]
+        F4[tasks.md] ~~~ F5[impl-log.md] ~~~ F6[.meta.json]
+    end
+
+    subgraph HOOKS["Hooks · 11 scripts"]
+        H1["SessionStart (4)<br/>sync-cache, session-start,<br/>inject-secretary-context,<br/>cleanup-locks"]
+        H2["PreToolUse (3)<br/>pre-commit-guard,<br/>pre-exit-plan-review,<br/>yolo-guard"]
+        H3["PostToolUse (2)<br/>post-enter-plan,<br/>post-exit-plan"]
+        H4["Stop (1)<br/>yolo-stop"]
+    end
+
+    HOOKS -.->|"lifecycle events"| SK
+    HOOKS -.->|"lifecycle events"| AG
+
+    subgraph MEM["Memory · 2 MCP tools"]
+        MCP1[store_memory] --> MB[("memory.db<br/>~/.claude/iflow/memory/")]
+        MB --> MCP2[search_memory]
+    end
+
+    MCP2 -.->|"injected at<br/>session start"| U
 ```
 
-No routing layer. No orchestration. Just well-written prompts.
+![Architecture Overview](./docs/architecture-overview.png)
 
 ## Design Principles
 
@@ -338,7 +396,7 @@ The secretary command supports a `[YOLO_MODE]` flag that enables fully autonomou
 1. User sets mode: `/secretary mode yolo`
 2. User invokes: `/secretary build X`
 3. Secretary command reads `.claude/iflow-dev.local.md`, detects `activation_mode: yolo`
-4. Command performs routing inline (discover agents, match patterns, select best route)
+4. Command performs routing inline (discover agents and skills, match patterns, select best route)
 5. YOLO overrides skip clarification, reviewer gate, and user confirmation
 6. Workflow patterns redirect to orchestrate subcommand which chains phases via Skill
 7. Each command auto-selects through AskUserQuestion prompts and chains to the next command
@@ -390,7 +448,7 @@ YOLO mode stops and reports to user (does not force through):
 | `commands/implement.md` | Circuit breaker STOP, auto-chain to finish-feature |
 | `commands/finish-feature.md` | Auto-continue, auto-merge, STOP on conflict |
 | `agents/secretary-reviewer.md` | Validates routing before user sees recommendation |
-| `commands/secretary.md` | Full routing logic (discovery, matching, recommendation) + orchestrate subcommand + [YOLO_MODE] prefix |
+| `commands/secretary.md` | Full routing logic (agent and skill discovery, matching with skill fast-paths, recommendation) + orchestrate subcommand + [YOLO_MODE] prefix |
 | `commands/create-specialist-team.md` | Ephemeral specialist teams via template injection |
 | `hooks/inject-secretary-context.sh` | Yolo mode session context |
 

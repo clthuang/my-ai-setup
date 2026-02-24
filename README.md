@@ -53,7 +53,7 @@ Then follow the phases:
 | `/iflow:add-to-backlog` | Capture ad-hoc ideas and todos |
 | `/iflow:remember` | Capture a learning to long-term memory |
 | `/iflow:cleanup-brainstorms` | Delete old brainstorm scratch files |
-| `/iflow:secretary` | Intelligent task routing to agents (supports YOLO mode with orchestrate subcommand) |
+| `/iflow:secretary` | Intelligent task routing to agents and skills (supports YOLO mode with orchestrate subcommand) |
 | `/iflow:create-specialist-team` | Create ephemeral specialist teams for complex tasks |
 | `/iflow:root-cause-analysis` | Investigate bugs systematically |
 | `/iflow:promptimize [file-path]` | Review a plugin prompt against best practices and return an improved version |
