@@ -37,6 +37,7 @@ b. **Invoke plan-reviewer:** Use Task tool:
    Task tool call:
      description: "Skeptical review of plan for failure modes"
      subagent_type: iflow:plan-reviewer
+     model: opus
      prompt: |
        Review this plan for failure modes, untested assumptions,
        dependency accuracy, and TDD order compliance.
@@ -80,6 +81,7 @@ e. **Invoke phase-reviewer** (always a NEW Task tool dispatch per iteration):
    Task tool call:
      description: "Validate plan ready for task breakdown"
      subagent_type: iflow:phase-reviewer
+     model: sonnet
      prompt: |
        Validate this plan is ready for an experienced engineer
        to break into executable tasks.

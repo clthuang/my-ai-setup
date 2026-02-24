@@ -37,6 +37,7 @@ b. **Invoke task-reviewer:** Use the Task tool:
    Task tool call:
      description: "Review task breakdown quality"
      subagent_type: iflow:task-reviewer
+     model: sonnet
      prompt: |
        Review the task breakdown for quality and executability.
 
@@ -113,6 +114,7 @@ After Stage 1 completes, invoke phase-reviewer (always a NEW Task tool dispatch 
 Task tool call:
   description: "Validate tasks ready for implementation"
   subagent_type: iflow:phase-reviewer
+  model: sonnet
   prompt: |
     Validate this task breakdown is ready for implementation.
 

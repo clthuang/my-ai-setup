@@ -2,7 +2,8 @@
   "id": "027",
   "slug": "prompt-intelligence-system",
   "mode": "standard",
-  "status": "active",
+  "status": "completed",
+  "completed": "2026-02-24T06:45:00Z",
   "created": "2026-02-24T00:25:00Z",
   "branch": "feature/027-prompt-intelligence-system",
   "brainstorm_source": "docs/brainstorms/20260224-001355-prompt-intelligence-system.prd.md",
@@ -44,7 +45,8 @@
       "reviewIterations": 10
     },
     "finish": {
-      "started": "2026-02-24T06:20:00Z"
+      "started": "2026-02-24T06:20:00Z",
+      "completed": "2026-02-24T06:45:00Z"
     }
   }
 }

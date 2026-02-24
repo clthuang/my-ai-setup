@@ -43,6 +43,7 @@ Use the Task tool to dispatch the ds-analysis-reviewer agent:
 Task tool call:
   description: "Review analysis for pitfalls"
   subagent_type: iflow-dev:ds-analysis-reviewer
+  model: opus
   prompt: |
     Review this data analysis for statistical pitfalls, methodology issues, and conclusion validity:
 

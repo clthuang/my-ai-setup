@@ -77,6 +77,7 @@ Run documentation update automatically using agents:
 Task tool call:
   description: "Research documentation context"
   subagent_type: iflow-dev:documentation-researcher
+  model: sonnet
   prompt: |
     Research current documentation state for feature {id}-{slug}.
 
@@ -117,6 +118,7 @@ If "Skip": Continue to Phase 3.
 Task tool call:
   description: "Update documentation"
   subagent_type: iflow-dev:documentation-writer
+  model: sonnet
   prompt: |
     Update documentation based on research findings.
 

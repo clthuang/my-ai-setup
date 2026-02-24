@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.24] - 2026-02-24
+
+### Added
+- `max_concurrent_agents` config option — controls max parallel Task dispatches across skills and commands (default: 5). Session-start hook injects the value; brainstorming and specialist-team commands batch dispatches accordingly.
+
+### Changed
+- Per-agent model selection: all Task dispatches now explicitly assign model tiers by role — opus for implementers and reviewers, sonnet for explorers, researchers, and writers, haiku for lightweight routing. Affects cost, latency, and output quality across all workflow phases.
+
 ## [3.0.23] - 2026-02-24
 
 ### Added

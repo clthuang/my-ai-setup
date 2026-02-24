@@ -39,6 +39,7 @@ Use the Task tool to dispatch the ds-code-reviewer agent:
 Task tool call:
   description: "Review DS code quality"
   subagent_type: iflow-dev:ds-code-reviewer
+  model: sonnet
   prompt: |
     Review this data science Python code for anti-patterns, pipeline quality,
     and DS-specific best practices:

@@ -34,6 +34,7 @@ Delegate to the internet-researcher agent using the Task tool:
 Task tool call:
   description: "Research latest prompt engineering best practices"
   subagent_type: iflow:internet-researcher
+  model: sonnet
   prompt: |
     Research the latest prompt engineering best practices published in the last 3 months.
 

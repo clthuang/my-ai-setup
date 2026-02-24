@@ -21,6 +21,7 @@ Dispatch decomposition via Task tool:
 ```
 Tool: Task
 subagent_type: iflow-dev:project-decomposer
+model: sonnet
 prompt: |
   Decompose this PRD into modules and features.
 
@@ -78,6 +79,7 @@ Set `iteration = 1`. Dispatch review via Task tool:
 ```
 Tool: Task
 subagent_type: iflow-dev:project-decomposition-reviewer
+model: sonnet
 prompt: |
   Review this decomposition for quality.
 
@@ -121,6 +123,7 @@ Max 3 iterations. After Step 3 returns `review_result`:
      ```
      Tool: Task
      subagent_type: iflow-dev:project-decomposer
+     model: sonnet
      prompt: |
        Revise this decomposition to address reviewer issues.
 

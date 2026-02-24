@@ -436,6 +436,7 @@ Without an API key, memory still works via FTS5 keyword search and prominence ra
 - `memory_silent_capture_budget` — Max silent captures per session before switching to ask-first (default: 5)
 - `memory_injection_enabled` — Enable memory injection at session start (default: true)
 - `memory_injection_limit` — Max entries to inject per session (default: 20)
+- `max_concurrent_agents` — Max parallel Task dispatches across skills and commands (default: 5)
 
 ## Creating Components
 

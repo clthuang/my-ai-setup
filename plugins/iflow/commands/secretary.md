@@ -203,7 +203,7 @@ Build an index of available agents:
 
 ```
 1. Primary: Glob ~/.claude/plugins/cache/*/*/agents/*.md
-   - For each file: extract plugin name from path, read frontmatter, build agent record
+   - For each file: extract plugin name from path, read frontmatter (including `model` field), build agent record
 
 2. Fallback (if step 1 found 0 agents): Glob plugins/*/agents/*.md
    - Process same as step 1
@@ -435,6 +435,7 @@ When invoking the reviewer:
 ```
 Task({
   subagent_type: "iflow:secretary-reviewer",
+  model: "haiku",
   description: "Validate routing recommendation",
   prompt: "Discovered agents: {agent list with descriptions}\n
            User intent: {clarified intent}\n
@@ -506,6 +507,7 @@ Skill({
 ```
 Task({
   subagent_type: "{plugin}:{agent}",
+  model: "{agent_record.model}",
   description: "Brief task summary",
   prompt: `
     Task: {clarified_intent}

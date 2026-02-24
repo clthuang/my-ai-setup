@@ -62,6 +62,7 @@ Dispatch code-simplifier agent:
 Task tool call:
   description: "Simplify implementation"
   subagent_type: iflow:code-simplifier
+  model: sonnet
   prompt: |
     Review the implementation for unnecessary complexity.
 
@@ -99,6 +100,7 @@ Dispatch test-deepener agent in two phases. Phase A generates spec-driven test o
 Task tool call:
   description: "Generate test outlines from spec"
   subagent_type: iflow:test-deepener
+  model: opus
   prompt: |
     PHASE A: Generate test outlines from specifications only.
     Do NOT read implementation files. Do NOT use Glob/Grep to find source code.
@@ -147,6 +149,7 @@ files_changed = sorted(set(implementation_files + simplification_files))
 Task tool call:
   description: "Write and verify deepened tests"
   subagent_type: iflow:test-deepener
+  model: opus
   prompt: |
     PHASE B: Write executable test code from these outlines.
 
@@ -220,6 +223,7 @@ Execute review cycle with three reviewers:
 Task tool call:
   description: "Review implementation against requirements chain"
   subagent_type: iflow:implementation-reviewer
+  model: opus
   prompt: |
     Validate implementation against full requirements chain with 4-level validation.
 
@@ -255,6 +259,7 @@ Task tool call:
 Task tool call:
   description: "Review code quality"
   subagent_type: iflow:code-quality-reviewer
+  model: sonnet
   prompt: |
     Review implementation quality.
 
@@ -291,6 +296,7 @@ Task tool call:
 Task tool call:
   description: "Review security"
   subagent_type: iflow:security-reviewer
+  model: opus
   prompt: |
     Review implementation for security vulnerabilities.
 
@@ -340,6 +346,7 @@ ELSE (any issues found):
     Task tool call:
       description: "Fix review issues iteration {n}"
       subagent_type: iflow:implementer
+      model: opus
       prompt: |
         Fix the following review issues:
 

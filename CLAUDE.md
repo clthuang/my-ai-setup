@@ -83,6 +83,7 @@ bash plugins/iflow-dev/hooks/tests/test-hooks.sh
 | [Component Authoring Guide](docs/dev_guides/component-authoring.md) | Creating skills, agents, plugins, commands, or hooks |
 | [Developer Guide](README_FOR_DEV.md) | Architecture, release process, design principles |
 | [Hook Development Guide](docs/dev_guides/hook-development.md) | Writing or modifying hooks — covers PROJECT_ROOT vs PLUGIN_ROOT, JSON output, shared libs |
+| [ECC Comparison Improvements](docs/ecc-comparison-improvements.md) | Prioritizing plugin improvements based on competitive analysis |
 
 ## Knowledge & Memory
 
@@ -108,5 +109,9 @@ bash plugins/iflow-dev/hooks/tests/test-hooks.sh
 - `README_FOR_DEV.md` — hooks table (if adding/removing hooks)
 
 A hookify rule (`.claude/hookify.docs-sync.local.md`) will remind you on plugin component edits.
+
+**Agent model tiers:** Every `subagent_type:` dispatch must include `model:` (opus/sonnet/haiku) matching the agent's frontmatter. Verify with: `grep -rn 'subagent_type:' plugins/iflow-dev/ | wc -l` and confirm each has a nearby `model:` line.
+
+**Agent concurrency:** `max_concurrent_agents` in `.claude/iflow-dev.local.md` controls max parallel Task dispatches (default: 5). Skills and commands batch accordingly.
 
 **Backlog:** Capture ad-hoc ideas with `/iflow:add-to-backlog <description>`. Review at [docs/backlog.md](docs/backlog.md).
