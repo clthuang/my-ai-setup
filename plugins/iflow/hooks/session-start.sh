@@ -209,6 +209,11 @@ else:
     context+="\nMemory capture mode: $(read_local_md_field "$PROJECT_ROOT/.claude/iflow.local.md" "memory_model_capture_mode" "ask-first")"
     context+="\nMemory silent capture budget: $(read_local_md_field "$PROJECT_ROOT/.claude/iflow.local.md" "memory_silent_capture_budget" "5")"
 
+    local max_agents
+    max_agents=$(read_local_md_field "$PROJECT_ROOT/.claude/iflow.local.md" "max_concurrent_agents" "5")
+    [[ "$max_agents" =~ ^[0-9]+$ ]] || max_agents="5"
+    context+="\nmax_concurrent_agents: ${max_agents}"
+
     context+="\niflow_plugin_root: ${PLUGIN_ROOT}"
 
     # Check optional dependency

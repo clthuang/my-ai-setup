@@ -9,13 +9,13 @@
       "name": "iflow",
       "source": "./plugins/iflow",
       "description": "Structured feature development workflow with skills, agents, and commands for methodical development from ideation to implementation",
-      "version": "3.0.23"
+      "version": "3.0.24"
     },
     {
       "name": "iflow-dev",
       "source": "./plugins/iflow-dev",
       "description": "Structured feature development workflow with skills, agents, and commands for methodical development from ideation to implementation",
-      "version": "3.0.23-dev"
+      "version": "3.0.24-dev"
     }
   ]
 }

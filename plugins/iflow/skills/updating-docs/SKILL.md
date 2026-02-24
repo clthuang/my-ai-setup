@@ -20,6 +20,7 @@ Automatic documentation updates using documentation-researcher and documentation
 Task tool call:
   description: "Research documentation context"
   subagent_type: iflow:documentation-researcher
+  model: sonnet
   prompt: |
     Research current documentation state for feature {id}-{slug}.
 
@@ -65,6 +66,7 @@ If updates needed:
 Task tool call:
   description: "Update documentation"
   subagent_type: iflow:documentation-writer
+  model: sonnet
   prompt: |
     Update documentation based on research findings.
 

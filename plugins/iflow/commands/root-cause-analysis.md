@@ -43,6 +43,7 @@ Use the Task tool to dispatch the rca-investigator agent:
 Task tool call:
   description: "Investigate root causes"
   subagent_type: iflow:rca-investigator
+  model: opus
   prompt: |
     Investigate this bug/failure:
 

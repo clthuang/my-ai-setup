@@ -104,6 +104,7 @@ If `project_id` is present (non-null):
 ```
 Task tool call:
   subagent_type: iflow:implementer
+  model: opus
   prompt: |
     {task description with done-when criteria}
 
@@ -183,4 +184,4 @@ Never spin endlessly. Ask when stuck.
 
 After all tasks:
 "Implementation complete. {N} tasks completed, {M} skipped."
-"Proceeding to code simplification and review phases."
+"Proceeding to code simplification and review phases (3 reviewers dispatched in parallel, within `max_concurrent_agents` budget)."

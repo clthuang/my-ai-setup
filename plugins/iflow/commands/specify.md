@@ -54,6 +54,7 @@ b. **Invoke spec-reviewer:** Use the Task tool to spawn spec-reviewer (the skept
    Task tool call:
      description: "Skeptical review of spec quality"
      subagent_type: iflow:spec-reviewer
+     model: opus
      prompt: |
        Skeptically review spec.md for testability, assumptions, and scope discipline.
 
@@ -104,6 +105,7 @@ e. **Invoke phase-reviewer** (always a NEW Task tool dispatch per iteration):
    Task tool call:
      description: "Validate spec ready for design"
      subagent_type: iflow:phase-reviewer
+     model: sonnet
      prompt: |
        Validate this spec is ready for an engineer to design against.
 
