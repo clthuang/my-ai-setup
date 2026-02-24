@@ -47,30 +47,23 @@ Load three files using two-location Glob (try primary cache path first, fall bac
 
 **2c. Target file**
 
-Read the file at the input path directly (absolute path provided by caller).
+Read the file at the input path directly (absolute path provided by caller). Retain the full original content in memory as `original_content` -- this is needed for Accept-some restoration in Step 8.
 
 **Error handling:** If any reference file is not found after both Glob locations --> display error: "Required reference file not found: {filename}. Verify plugin installation." --> **STOP**
 
 ### Step 3: Check staleness
 
 1. Parse the `## Last Updated: YYYY-MM-DD` heading from the prompt guidelines file
-2. Compare the parsed date against today's date
-3. If the date is **more than 30 days old**, set `staleness_warning = true`
-4. This flag is used in Step 7 to append a staleness warning to the report
+2. If the heading is missing or the date fails to parse, set `staleness_warning = true` with displayed date "unknown"
+3. Compare the parsed date against today's date
+4. If the date is **more than 30 days old**, set `staleness_warning = true`
+5. This flag is used in Step 7 to append a staleness warning to the report
 
 ### Step 4: Evaluate 9 dimensions
 
 For each dimension, apply the behavioral anchors from `references/scoring-rubric.md` (loaded in Step 2) to the target file. Produce a **pass (3) / partial (2) / fail (1)** score per dimension.
 
-**Auto-pass exceptions** (score = 3, skip evaluation):
-
-| Component Type | Auto-pass dimensions |
-|----------------|----------------------|
-| Command | persuasion_strength, prohibition_clarity, example_quality |
-| Agent | progressive_disclosure |
-| Skill | _(none -- all 9 evaluated)_ |
-
-All dimension/type combinations NOT listed above are **Evaluated** using the scoring rubric's behavioral anchors.
+**Auto-pass exceptions:** Score 3 for any dimension marked "Auto-pass" in the Component Type Applicability table in `references/scoring-rubric.md` (loaded in Step 2). All other dimension/type combinations are **Evaluated** using the scoring rubric's behavioral anchors.
 
 **Dimensions** (evaluate in this order):
 
@@ -88,9 +81,7 @@ For each dimension, record: **dimension name**, **score** (pass/partial/fail), a
 
 ### Step 5: Calculate score
 
-Overall score = **(sum of all 9 dimension scores) / 27 x 100**, rounded to nearest integer.
-
-Step 4 output (per-dimension scores and findings) feeds both this calculation and Step 6, which uses partial/fail dimensions to generate improvements.
+Overall score = **(sum of all 9 dimension scores) / 27 x 100**, rounded to nearest integer. Auto-passed dimensions contribute their fixed score of 3 to the sum.
 
 ### Step 6: Generate improved version
 
@@ -125,9 +116,9 @@ You are a code reviewer focused on quality.
 <!-- END CHANGE -->
 ```
 
-**Malformed marker fallback:** If CHANGE/END CHANGE parsing fails during Accept-some (markers missing, mismatched, or unparseable overlap), degrade to Accept all / Reject only with warning: "Selective acceptance unavailable -- markers could not be parsed. Use Accept all or Reject."
+**Marker integrity:** Markers must remain well-formed for Accept-some to function; see Step 8 fallback.
 
-**Token budget check:** After generating the improved version, strip all `<!-- CHANGE: ... -->` and `<!-- END CHANGE -->` comments and count lines/tokens. If the stripped result exceeds 500 lines or 5,000 tokens, append a warning to the report: "Improved version exceeds token budget -- consider moving content to references/."
+**Token budget check:** After generating the improved version, strip all `<!-- CHANGE: ... -->` and `<!-- END CHANGE -->` comments and count lines/tokens. If the stripped result exceeds 500 lines or 5,000 tokens, set `over_budget_warning = true` and include the warning in the report (Step 7).
 
 ### Step 7: Generate report
 
@@ -139,7 +130,10 @@ Output the report using this template:
 **Component type:** {Skill | Agent | Command}
 **Overall score:** {score}/100
 **Guidelines version:** {date from prompt-guidelines.md}
+
+<!-- Conditional warnings (omit lines entirely when flag is false) -->
 {if staleness_warning: "Warning: Guidelines last updated {date} -- consider running /refresh-prompt-guidelines"}
+{if over_budget_warning: "Warning: Improved version exceeds token budget -- consider moving content to references/."}
 
 ### Strengths
 - {dimension}: {what's done well}
@@ -155,11 +149,11 @@ Output the report using this template:
 {Full rewritten prompt with CHANGE/END CHANGE block delimiters from Step 6}
 ```
 
-**Strengths section:** List all dimensions scoring **pass** with a brief note on what was done well. This affirms good patterns before listing issues.
+**Strengths section:** List all **evaluated** dimensions scoring **pass** (exclude auto-passed dimensions) with a brief note on what was done well. This affirms good patterns before listing issues.
 
 **Issues Found table:** Only partial/fail dimensions appear. Severity mapping: **fail = blocker**, **partial = warning**. Order blockers first, then warnings.
 
-**Staleness warning:** Only shown when `staleness_warning` flag was set in Step 3.
+**Conditional warnings:** The `staleness_warning` and `over_budget_warning` lines are only shown when their respective flags are set (Step 3 and Step 6). Omit the line entirely when the flag is false.
 
 ### Step 8: User approval
 
@@ -202,7 +196,7 @@ AskUserQuestion:
 3. **Merge algorithm:**
    a. Start with the full improved version from Step 6
    b. For each **unselected** dimension, locate its CHANGE/END CHANGE block(s)
-   c. Replace each unselected block's content with the corresponding region from the **original file** (preserved in memory from Step 2)
+   c. Replace each unselected block's content with the corresponding region from the **original file** (`original_content`, retained from Step 2c)
    d. Strip all remaining `<!-- CHANGE: ... -->` and `<!-- END CHANGE -->` markers
 4. **Merge invariant:** The resulting file must be valid markdown with no orphaned CHANGE/END CHANGE markers
 5. **Inseparable blocks:** If two dimensions' CHANGE blocks were merged (overlapping line ranges, as noted in Step 6), they appear as a single option with both dimension names. Selecting or deselecting applies to both dimensions together.
@@ -213,4 +207,10 @@ AskUserQuestion:
 **Reject:**
 Display: "No changes applied." --> **STOP**
 
-**YOLO mode:** When `[YOLO_MODE]` is active, auto-select "Accept all" (skip AskUserQuestion), as specified in the YOLO Mode Overrides section above.
+## PROHIBITED
+
+- NEVER write the improved version to disk without explicit user approval via AskUserQuestion (Step 8). The only exception is YOLO mode, which auto-selects "Accept all".
+- NEVER skip Step 8 (approval) in non-YOLO mode.
+- NEVER score a dimension without referencing the behavioral anchors from `references/scoring-rubric.md`. Do not invent scoring criteria.
+- NEVER apply changes that would push the stripped improved version over 500 lines or 5,000 tokens without including the over-budget warning in the report.
+
