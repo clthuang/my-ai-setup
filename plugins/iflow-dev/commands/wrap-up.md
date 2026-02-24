@@ -71,6 +71,7 @@ Run documentation update automatically using agents:
 Task tool call:
   description: "Research documentation context"
   subagent_type: iflow-dev:documentation-researcher
+  model: sonnet
   prompt: |
     Research current documentation state for recent implementation work.
 
@@ -111,6 +112,7 @@ If "Skip": Continue to Phase 3.
 Task tool call:
   description: "Update documentation"
   subagent_type: iflow-dev:documentation-writer
+  model: sonnet
   prompt: |
     Update documentation based on research findings.
 
@@ -151,6 +153,7 @@ Dispatch retro-facilitator agent with lightweight context:
 Task tool call:
   description: "Run retrospective"
   subagent_type: iflow-dev:retro-facilitator
+  model: opus
   prompt: |
     Run an AORTA retrospective on the recent implementation work.
 
@@ -167,6 +170,7 @@ If retro-facilitator fails, fall back to:
 Task tool call:
   description: "Gather retrospective context"
   subagent_type: iflow-dev:investigation-agent
+  model: sonnet
   prompt: |
     Analyze the recent implementation work for learnings.
     - Recent commits: {git log}

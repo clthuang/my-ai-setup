@@ -104,6 +104,7 @@ If `project_id` is present (non-null):
 ```
 Task tool call:
   subagent_type: iflow-dev:implementer
+  model: opus
   prompt: |
     {task description with done-when criteria}
 

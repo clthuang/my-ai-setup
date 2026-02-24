@@ -49,6 +49,7 @@ if [[ $next_attempt -eq 1 ]]; then
     reason+="1. Read the full plan file content you wrote\\n"
     reason+="2. Use the Task tool:\\n"
     reason+="   subagent_type: iflow-dev:plan-reviewer\\n"
+    reason+="   model: opus\\n"
     reason+="   prompt: |\\n"
     reason+="     Review this plan for failure modes, untested assumptions,\\n"
     reason+="     dependency accuracy, and feasibility.\\n"

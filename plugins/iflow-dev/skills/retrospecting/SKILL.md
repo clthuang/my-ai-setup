@@ -52,6 +52,7 @@ git diff --stat develop..HEAD
 Task tool call:
   description: "Run AORTA retrospective"
   subagent_type: iflow-dev:retro-facilitator
+  model: opus
   prompt: |
     Run AORTA retrospective for feature {id}-{slug}.
 
@@ -90,6 +91,7 @@ Task tool call:
 Task tool call:
   description: "Gather feature learnings"
   subagent_type: iflow-dev:investigation-agent
+  model: sonnet
   prompt: |
     Gather retrospective data for feature {id}-{slug}.
 

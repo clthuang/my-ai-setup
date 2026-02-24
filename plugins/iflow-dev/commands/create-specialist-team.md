@@ -113,6 +113,7 @@ Dispatch each specialist via generic-worker:
 ```
 Task({
   subagent_type: "iflow-dev:generic-worker",
+  model: "opus",
   description: "{role}: {brief assignment}",
   prompt: "{filled template content}"
 })

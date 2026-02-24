@@ -193,9 +193,9 @@ while queue is not empty:
   batch = take up to max_concurrent_agents items from front of queue
   For each item in batch, issue a Task call:
     If type == "research":
-      Task({ subagent_type: item.agent, description: "Research: {brief}", prompt: item.prompt })
+      Task({ subagent_type: item.agent, model: "sonnet", description: "Research: {brief}", prompt: item.prompt })
     If type == "advisor":
-      Task({ subagent_type: "iflow-dev:advisor", description: "Advisory: {advisor name}", prompt: see below })
+      Task({ subagent_type: "iflow-dev:advisor", model: "sonnet", description: "Advisory: {advisor name}", prompt: see below })
   Collect results from all batch items before next batch
 ```
 
@@ -267,6 +267,7 @@ Set `review_iteration = 0`.
 **a. Dispatch prd-reviewer** (always a NEW Task tool instance per iteration):
 - Tool: `Task`
 - subagent_type: `iflow-dev:prd-reviewer`
+- model: `opus`
 - prompt: Full PRD content + request for JSON response + "This is review iteration {review_iteration}/3"
 
 **Expected response:**
@@ -315,6 +316,7 @@ Set `readiness_iteration = 0`.
 **a. Dispatch brainstorm-reviewer** (always a NEW Task tool instance per iteration):
 - Tool: `Task`
 - subagent_type: `iflow-dev:brainstorm-reviewer`
+- model: `sonnet`
 - prompt: |
     Review this brainstorm for promotion readiness.
 

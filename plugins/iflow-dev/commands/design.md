@@ -56,6 +56,7 @@ b. **Dispatch parallel research agents** (2 agents, within `max_concurrent_agent
    Task tool call 1:
      description: "Explore codebase for patterns"
      subagent_type: iflow-dev:codebase-explorer
+     model: sonnet
      prompt: |
        Find existing patterns related to: {feature description from spec}
 
@@ -70,6 +71,7 @@ b. **Dispatch parallel research agents** (2 agents, within `max_concurrent_agent
    Task tool call 2:
      description: "Research external solutions"
      subagent_type: iflow-dev:internet-researcher
+     model: sonnet
      prompt: |
        Research existing solutions for: {feature description from spec}
 
@@ -203,6 +205,7 @@ b. **Invoke design-reviewer:** Use the Task tool to spawn design-reviewer (the s
    Task tool call:
      description: "Review design quality"
      subagent_type: iflow-dev:design-reviewer
+     model: opus
      prompt: |
        Review this design for robustness and completeness.
 
@@ -297,6 +300,7 @@ b. **Invoke phase-reviewer** (always a NEW Task tool dispatch per iteration):
    Task tool call:
      description: "Review design for phase sufficiency"
      subagent_type: iflow-dev:phase-reviewer
+     model: sonnet
      prompt: |
        Validate this design is ready for implementation planning.
 
