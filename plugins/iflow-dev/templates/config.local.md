@@ -7,6 +7,7 @@ yolo_usage_wait: true
 yolo_usage_cooldown: 18000
 activation_mode: manual
 plan_mode_review: true
+max_concurrent_agents: 5
 
 # Memory
 memory_injection_enabled: true

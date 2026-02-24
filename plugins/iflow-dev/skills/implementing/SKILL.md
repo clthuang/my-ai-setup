@@ -183,4 +183,4 @@ Never spin endlessly. Ask when stuck.
 
 After all tasks:
 "Implementation complete. {N} tasks completed, {M} skipped."
-"Proceeding to code simplification and review phases."
+"Proceeding to code simplification and review phases (3 reviewers dispatched in parallel, within `max_concurrent_agents` budget)."

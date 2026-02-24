@@ -186,11 +186,11 @@ AskUserQuestion:
    c. If not found: warn "Advisor '{name}' template not found, skipping" → remove from queue
    d. If found: add `{ type: "advisor", agent: "iflow-dev:advisor", template: file_content }`
 
-**Dispatch in batches of 3:**
+**Dispatch in batches of `max_concurrent_agents` (from session context, default 5):**
 
 ```
 while queue is not empty:
-  batch = take up to 3 items from front of queue
+  batch = take up to max_concurrent_agents items from front of queue
   For each item in batch, issue a Task call:
     If type == "research":
       Task({ subagent_type: item.agent, description: "Research: {brief}", prompt: item.prompt })

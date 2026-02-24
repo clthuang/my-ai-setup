@@ -51,7 +51,7 @@ a. **Mark stage started:**
    }
    ```
 
-b. **Dispatch parallel research agents:**
+b. **Dispatch parallel research agents** (2 agents, within `max_concurrent_agents` budget):
    ```
    Task tool call 1:
      description: "Explore codebase for patterns"

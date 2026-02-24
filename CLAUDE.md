@@ -109,4 +109,6 @@ bash plugins/iflow-dev/hooks/tests/test-hooks.sh
 
 A hookify rule (`.claude/hookify.docs-sync.local.md`) will remind you on plugin component edits.
 
+**Agent concurrency:** `max_concurrent_agents` in `.claude/iflow-dev.local.md` controls max parallel Task dispatches (default: 5). Skills and commands batch accordingly.
+
 **Backlog:** Capture ad-hoc ideas with `/iflow:add-to-backlog <description>`. Review at [docs/backlog.md](docs/backlog.md).

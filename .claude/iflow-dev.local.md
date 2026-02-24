@@ -3,6 +3,7 @@
 yolo_mode: true
 yolo_max_stop_blocks: 50
 activation_mode: manual
+max_concurrent_agents: 5
 
 # Memory
 memory_injection_enabled: true
