@@ -206,3 +206,24 @@ When the domain reviewer (task-reviewer, plan-reviewer) has explicitly approved 
 - Confidence: high
 - Last observed: 2026-02-22
 - Observation count: 1
+
+### Pattern: Extract Behavioral Anchors to Reference Files for Evaluator Skills
+When building a skill with an LLM-as-evaluator pattern (score N dimensions, generate improved version), extract behavioral anchors into a separate reference file (scoring-rubric.md) rather than embedding them in SKILL.md. This keeps the skill under token budget and allows rubric updates without modifying the skill.
+- Observed in: Feature #027, design phase — SKILL.md landed at 216 lines (well under 500) because behavioral anchors lived in references/
+- Confidence: high
+- Last observed: Feature #027
+- Observation count: 1
+
+### Pattern: Calibration Gates Between Skill and Command Creation
+After building an evaluator skill, run it on 2-3 diverse inputs and verify score differentiation (e.g., 20+ point spread) before proceeding to build dispatcher commands. Without early calibration, a rubric that fails to differentiate would only be discovered during end-to-end validation, requiring cascading rework.
+- Observed in: Feature #027, plan phase — plan-reviewer iter 2 blocker: "No intermediate calibration testing — late-stage rework risk for scoring rubric"
+- Confidence: high
+- Last observed: Feature #027
+- Observation count: 1
+
+### Pattern: Compose-Then-Write for Multi-Transformation File Updates
+For patterns where multiple transformations apply to one file, build the complete content in memory first and perform a single write rather than multiple sequential writes. Prevents partial-update states and reduces error surface.
+- Observed in: Feature #027, implementation iter 7 — quality reviewer flagged 3 sequential writes to same file; restructured to compose-then-write
+- Confidence: high
+- Last observed: Feature #027
+- Observation count: 1

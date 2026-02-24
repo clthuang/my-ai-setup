@@ -8,9 +8,9 @@ Structured feature development workflow with skills, agents, and commands for me
 
 | Type | Count |
 |------|-------|
-| Skills | 28 |
+| Skills | 29 |
 | Agents | 28 |
-| Commands | 24 |
+| Commands | 26 |
 | Hooks | 11 |
 | MCP Tools | 2 |
 
@@ -47,6 +47,8 @@ Structured feature development workflow with skills, agents, and commands for me
 | `/iflow:create-project <prd>` | Create project from PRD with AI-driven decomposition |
 | `/iflow:create-specialist-team` | Create ephemeral specialist teams for complex tasks |
 | `/iflow:init-ds-project <name>` | Scaffold a new data science project |
+| `/iflow:promptimize [file-path]` | Review a plugin prompt against best practices and return an improved version |
+| `/iflow:refresh-prompt-guidelines` | Scout latest prompt engineering best practices and update the guidelines document |
 | `/iflow:review-ds-analysis <file>` | Review data analysis for statistical pitfalls |
 | `/iflow:review-ds-code <file>` | Review DS Python code for anti-patterns |
 | `/iflow:remember` | Capture a learning to long-term memory for future session recall |

@@ -56,12 +56,12 @@ When creating tasks for file modifications, read the target file first and inclu
 - Observation count: 2
 
 ### Reviewer Iteration Count as Complexity Signal
-Reviewer iteration counts suggest complexity: 2 = straightforward, 3 = moderate, 4+ = initially underspecified. High early-phase iterations predict thorough preparation, not implementation risk -- Features #022 and #025 both had 15-30 pre-implementation iterations but 0-1 implementation issues.
+Reviewer iteration counts suggest complexity: 2 = straightforward, 3 = moderate, 4+ = initially underspecified. High early-phase iterations predict thorough preparation, not implementation risk -- Features #022 and #025 both had 15-30 pre-implementation iterations but 0-1 implementation issues. Exception: Feature #027 had 19 pre-implementation iterations AND 10 implementation iterations, suggesting complex merge/transformation logic creates sustained review surface area even after thorough pre-implementation review.
 - Feature #021 plan had 6 iterations (highest), mostly from dependency graph contradictions
 - If plan iterations exceed 3, check for structural issues (dual representations, missing test cases)
 - Source: Feature #021
-- Last observed: Feature #025
-- Observation count: 4
+- Last observed: Feature #027
+- Observation count: 5
 
 ### Circuit Breaker Hits as Assumption Signals
 Circuit breaker hits in design review indicate a fundamental assumption mismatch, not incremental quality issues. When design review hits 5 iterations, the root cause is typically a wrong foundational assumption (e.g., wrong file format) rather than accumulated small issues.
@@ -139,4 +139,18 @@ When a security reviewer's concern shifts to a new frame each iteration after a 
 - Source: Feature #026, implement iters 3-5 — path extraction security review ran 3 iterations with shifting frames
 - Confidence: medium
 - Last observed: 2026-02-22
+- Observation count: 1
+
+### Budget 8-10 Implementation Iterations for Complex Merge/Transformation Skills
+When a SKILL.md requires complex merge/transformation logic (Accept-some, CHANGE markers, multi-step file rewriting), expect 8-10 implementation review iterations. Each fix in conditional logic exposes adjacent problems in a cascading pattern. Consider pre-extracting the complex logic into a reference file to reduce the review surface area.
+- Source: Feature #027 — 8-step process with CHANGE/END CHANGE generation, Accept-some merge, and malformed marker fallback took 10 implementation iterations
+- Confidence: medium
+- Last observed: Feature #027
+- Observation count: 1
+
+### Standard Mode Sufficient for Standalone New-Component Features
+Standard mode is sufficient for features that introduce new standalone components (skill + commands + reference files) without modifying existing workflow phases. Reserve Full mode for features that modify existing phase sequences or cross-cutting concerns.
+- Source: Feature #027 — Standard mode produced complete 3,228-line feature in 5.6 hours without modifying existing components
+- Confidence: medium
+- Last observed: Feature #027
 - Observation count: 1

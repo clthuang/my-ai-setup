@@ -160,6 +160,7 @@ Skills are instructions Claude follows for specific development practices. Locat
 ### Quality & Review
 | Skill | Purpose |
 |-------|---------|
+| `promptimize` | Reviews plugin prompts against best practices guidelines and returns scored assessment with improved version |
 | `reviewing-artifacts` | Comprehensive quality criteria for PRD, spec, design, plan, and tasks |
 | `implementing-with-tdd` | Enforces RED-GREEN-REFACTOR cycle with rationalization prevention |
 | `workflow-state` | Defines phase sequence and validates transitions |
@@ -195,6 +196,15 @@ Skills are instructions Claude follows for specific development practices. Locat
 | `writing-skills` | Applies TDD approach to skill documentation |
 | `detecting-kanban` | Detects Vibe-Kanban and provides TodoWrite fallback |
 | `capturing-learnings` | Guides model-initiated learning capture with configurable modes |
+
+## Commands
+
+Commands are user-invoked entry points. Located in `plugins/iflow-dev/commands/{name}.md`. See [README.md](README.md) for the full list. Notable utility commands:
+
+| Command | Purpose |
+|---------|---------|
+| `promptimize` | Review a plugin prompt against best practices and return an improved version |
+| `refresh-prompt-guidelines` | Scout latest prompt engineering best practices and update the guidelines document |
 
 ## Agents
 
