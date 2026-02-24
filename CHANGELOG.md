@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.23] - 2026-02-24
+
 ### Added
 - `promptimize` skill — reviews plugin prompts against best practices guidelines and returns scored assessment with improved version
 - `/promptimize` command — interactive component selection and delegation to promptimize skill
