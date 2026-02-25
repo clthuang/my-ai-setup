@@ -11,20 +11,70 @@
 
 ## Quick Start
 
-**Explore an idea:**
+**Just describe what you need:**
 ```bash
-/iflow:brainstorm "your idea here"
+/iflow:secretary "add email validation to the signup form"
 ```
+Secretary routes your request to the right workflow phase or specialist automatically.
 
-**Build something:**
+**Or start directly:**
 ```bash
-/iflow:create-feature "add user authentication"
+/iflow:brainstorm "your idea here"       # Explore an idea
+/iflow:create-feature "add user auth"    # Build something
 ```
 
 Then follow the phases:
 ```
 /iflow:specify → /iflow:design → /iflow:create-plan → /iflow:create-tasks → /iflow:implement → /iflow:finish-feature
 ```
+
+```mermaid
+flowchart TD
+    SEC["/secretary<br/>Unified Entry Point"] -->|Explore| BS["/brainstorm<br/>Explore & Research"]
+    SEC -->|Build| CF["/create-feature<br/>Direct Start"]
+    SEC -->|Debug| RCA["/root-cause-analysis<br/>Debug & Investigate"]
+    SEC -->|Specialist| AGENT["Agent / Skill<br/>Direct Dispatch"]
+
+    BS -->|PRD| SPEC
+    CF --> SPEC
+    RCA -->|Fix| SPEC
+
+    subgraph SPEC["SPECIFY"]
+        SE[Executor] <-->|Fix| SR{{"Reviewer<br/>Clear?"}}
+    end
+    SPEC -->|Fix| SG{Spec Gate}
+    SG -->|Pass| DES
+
+    subgraph DES["DESIGN"]
+        DE[Executor] <-->|Fix| DR{{"Reviewer<br/>Robust?"}}
+    end
+    DES -->|Fix| DG{Design Gate}
+    DG -->|Pass| PLN
+
+    subgraph PLN["PLAN"]
+        PE[Executor] <-->|Fix| PR{{"Reviewer<br/>Practical?"}}
+    end
+    PLN -->|Fix| PG{Plan Gate}
+    PG -->|Pass| TSK
+
+    subgraph TSK["TASKS"]
+        TE[Executor] <-->|Fix| TR{{"Reviewer<br/>Executable?"}}
+    end
+    TSK -->|Fix| TG{Task Gate}
+    TG -->|Pass| IMP
+
+    subgraph IMP["IMPLEMENT"]
+        IE["Spec to Interface TDD"] <-->|Fix| IR{{"Reviewer<br/>Complete?"}}
+    end
+    IMP -->|Fix| CG{Code Gate}
+    CG -->|All Pass| FIN
+
+    FIN["FINISH<br/>Docs / PR / Merge"] --> RET
+    RET["RETROSPECTIVE<br/>Capture Learnings"] --> MEM[("Long-Term<br/>Memory")]
+    RET --> DONE([Complete])
+```
+
+![Workflow Overview](./docs/workflow-overview.png)
 
 ## Commands
 
@@ -53,7 +103,7 @@ Then follow the phases:
 | `/iflow:add-to-backlog` | Capture ad-hoc ideas and todos |
 | `/iflow:remember` | Capture a learning to long-term memory |
 | `/iflow:cleanup-brainstorms` | Delete old brainstorm scratch files |
-| `/iflow:secretary` | Intelligent task routing to agents (supports YOLO mode with orchestrate subcommand) |
+| `/iflow:secretary` | Intelligent task routing to agents and skills (supports YOLO mode with orchestrate subcommand) |
 | `/iflow:create-specialist-team` | Create ephemeral specialist teams for complex tasks |
 | `/iflow:root-cause-analysis` | Investigate bugs systematically |
 | `/iflow:promptimize [file-path]` | Review a plugin prompt against best practices and return an improved version |

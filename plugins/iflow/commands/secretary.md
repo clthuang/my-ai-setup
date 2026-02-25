@@ -47,9 +47,9 @@ Examples:
   /iflow:secretary find and fix performance problems
 
 The secretary will:
-1. Discover available agents across all plugins
-2. Interpret your request (ask clarifying questions if needed)
-3. Match to the best specialist agent with mode recommendation
+1. Discover available agents and skills across all plugins
+2. Interpret your request (ask structured clarifying questions if needed)
+3. Assess problem maturity and match to the best specialist agent or skill
 4. Validate routing via reviewer (for uncertain matches)
 5. Confirm with you before delegating
 6. Execute the delegation and report results
@@ -199,59 +199,72 @@ If argument is anything other than `help`, `mode`, `orchestrate`, or `continue`:
 
 ### Step 1: DISCOVER
 
-Build an index of available agents:
+Build an index of available agents and skills:
 
 ```
+Agent discovery:
 1. Primary: Glob ~/.claude/plugins/cache/*/*/agents/*.md
    - For each file: extract plugin name from path, read frontmatter (including `model` field), build agent record
 
 2. Fallback (if step 1 found 0 agents): Glob plugins/*/agents/*.md
    - Process same as step 1
 
-3. Merge and deduplicate by plugin:name
+3. Merge and deduplicate agents by plugin:name
 
-4. If still 0 agents: proceed to Step 4 — do NOT error out.
+Skill discovery:
+4. Primary: Glob ~/.claude/plugins/cache/*/iflow*/*/skills/*/SKILL.md
+   - For each file: extract skill name from path, read frontmatter (name, description), build skill record
+
+5. Fallback (if step 4 found 0 skills): Glob plugins/*/skills/*/SKILL.md
+   - Process same as step 4
+
+6. Merge and deduplicate skills by plugin:name
+
+7. If still 0 agents AND 0 skills: proceed to Step 4 — do NOT error out.
    Keyword matching (Specialist Fast-Path + Workflow Pattern Recognition)
-   provides routing without filesystem discovery.
+   provides routing even without discovery of either agents or skills.
 ```
 
 **YAML Frontmatter Parsing:**
 - Find content between first two "---" lines
 - For each line: split on first ":" to get key/value
 - Handle arrays (lines starting with "- " or bracket notation)
-- Skip agents with malformed frontmatter
+- Skip agents/skills with malformed frontmatter
 
 ---
 
 ### Step 2: CLARIFY
 
-Analyze the user request for ambiguity:
+Analyze the request across 4 dimensions:
 
-**Ambiguity Signals:**
-- Vague terms: "better", "improve", "fix", "help", "something"
-- Multiple domains mentioned: "auth and UI", "tests and docs"
-- Missing action verb
-- Missing scope/target
+| Dimension | What to extract | Example signals |
+|-----------|----------------|-----------------|
+| **Intent** | What does the user want to achieve? | Action verb: review, create, fix, explore, investigate, design, implement, brainstorm |
+| **Scope** | What files/areas/components? | File paths, module names, "the auth system", "all tests" |
+| **Constraints** | Approach preferences, patterns to follow? | "using TDD", "keep backward compat", "follow existing patterns" |
+| **Maturity** | How well-specified is the problem? | Has success criteria? Bounded scope? Known unknowns? |
 
-**If Ambiguous:**
-1. Generate clarifying questions (max 3)
-2. Use AskUserQuestion with concrete options where possible
-3. Incorporate answers to form clarified intent
+**Decision logic:**
+- If ALL 4 dimensions are extractable from the request text → proceed (no questions needed)
+- If Intent is unclear → ask about intent (informed by discovered agents/skills — present categories the system can actually route to)
+- If Intent is clear but Scope is missing → ask about scope
+- If multiple dimensions unclear → ask up to 2 questions (combine dimensions where natural)
+- Cap at max 3 clarification rounds total
 
 **If Clear:**
 - Proceed directly to Step 3
 
-**Example Clarification:**
+**Example Clarification (Intent unclear):**
 ```
 AskUserQuestion:
   questions: [{
-    question: "What aspect of 'improve the code' are you most interested in?",
-    header: "Clarification",
+    question: "What would you like to do with the auth module?",
+    header: "Intent",
     options: [
-      { label: "Security", description: "Check for vulnerabilities" },
-      { label: "Performance", description: "Optimize for speed/memory" },
-      { label: "Quality", description: "Clean code, best practices" },
-      { label: "All of the above", description: "Comprehensive review" }
+      { label: "Review it", description: "Security, code quality, or design review" },
+      { label: "Fix something", description: "Debug or investigate a specific issue" },
+      { label: "Build on it", description: "Add new functionality or extend it" },
+      { label: "Understand it", description: "Explore how it works" }
     ],
     multiSelect: false
   }]
@@ -262,20 +275,49 @@ AskUserQuestion:
 - If user provides empty/unclear response, re-prompt with simpler options
 - After 3 failed attempts or timeout, proceed with best-effort interpretation:
   1. Extract most concrete terms from original request
-  2. Match against agent descriptions using keyword overlap
-  3. If any agent scores >50%, recommend it with disclaimer: "Based on limited context, I suggest..."
-  4. If no agent >50%, report "Unable to interpret request. Please try rephrasing or use a specific agent."
+  2. Match against agent/skill descriptions using keyword overlap
+  3. If any candidate scores >50%, recommend it with disclaimer: "Based on limited context, I suggest..."
+  4. If no candidate >50%, report "Unable to interpret request. Please try rephrasing or use a specific agent."
 
 ---
 
 ### Step 3: TRIAGE
 
-When the clarified intent suggests brainstorming (creative exploration, new ideas, problem analysis), run triage:
+When the clarified intent suggests building something new (feature request, new capability, add/create), assess problem maturity. If the intent is NOT a feature/build request (e.g., review, investigate, explore), skip triage entirely and proceed to Step 4.
+
+#### Maturity Signals
+
+| Signal | Well-specified (+1) | Under-specified (-1) |
+|--------|--------------------|--------------------|
+| Problem statement | Clear, concrete ("add JWT auth to API endpoints") | Vague ("improve auth") |
+| Success criteria | Stated or strongly implied ("users can log in via SSO") | Absent |
+| Scope | Bounded ("the /api/auth routes") | Unbounded ("the whole system") |
+| Approach | Indicated ("using passport.js") | Unknown |
+| Unknowns | None stated, problem well-understood | "not sure how", "what's the best way" |
+
+#### Maturity Levels
+
+| Score | Level | Route |
+|-------|-------|-------|
+| 3-5 | **Well-specified** | Skip brainstorm → `create-feature` (starts at specify phase) |
+| 1-2 | **Partially specified** | Brainstorm with light triage (archetype matching, but flag as "refinement needed" not "exploration") |
+| 0 or below | **Exploratory** | Full brainstorm with advisory team (current behavior) |
+
+#### When well-specified (skip brainstorm):
+- Set `workflow_match = "iflow:create-feature"`
+- Pass the problem statement as the feature description
+- **Continue to Step 4** (MATCH confirms the route, Workflow Guardian validates no active feature conflict)
+- Step 5 (REVIEW) still validates this routing
+- Step 6 (RECOMMEND) still confirms with user — present as: "Problem is well-specified. Skip brainstorming and create feature directly?"
+- Step 7 (DELEGATE) invokes: `Skill({ skill: "iflow:create-feature", args: "{description}" })`
+
+#### When partially specified or exploratory:
+Run archetype matching:
 
 1. Read the archetypes reference file:
    - Glob `~/.claude/plugins/cache/*/iflow*/*/skills/brainstorming/references/archetypes.md` — use first match
    - Fallback: Glob `plugins/*/skills/brainstorming/references/archetypes.md`
-   - If not found: skip triage, proceed to Step 4 with no archetype context
+   - If not found: skip archetype matching, proceed to Step 4 with no archetype context
 2. Extract keywords from the clarified user intent
 3. Match against each archetype's signal words — count hits per archetype
 4. Select archetype with highest overlap (ties: prefer domain-specific archetype)
@@ -283,6 +325,7 @@ When the clarified intent suggests brainstorming (creative exploration, new idea
 6. Load the archetype's default advisory team from the reference
 7. Optionally override team if model judgment warrants it (explain reasoning)
 8. Store `archetype` and `advisory_team` for Step 7
+9. Set `workflow_match = "iflow:brainstorm"`
 
 Triage results are only used when Step 7 routes to brainstorming. Otherwise discarded.
 
@@ -290,7 +333,7 @@ Triage results are only used when Step 7 routes to brainstorming. Otherwise disc
 
 ### Step 4: MATCH
 
-Match clarified intent to discovered agents. Check patterns in this priority order:
+Match clarified intent to discovered agents and skills. Check patterns in this priority order:
 
 #### Specialist Fast-Path
 
@@ -310,11 +353,21 @@ Before running semantic matching, check against known specialist patterns:
 | "explore" + ("codebase" / "code" / "patterns" / "how does") | iflow:codebase-explorer | 95% |
 | "deepen tests" / "add edge case tests" / "test deepening" | iflow:test-deepener | 95% |
 
+**Skill Fast-Path** (routes to skills via `Skill()` instead of agents via `Task()`):
+
+| Pattern (case-insensitive) | Skill | Confidence |
+|---|---|---|
+| "debug" / "root cause" / "why is this broken" | iflow:systematic-debugging | 95% |
+| "TDD" / "test-driven" / "red-green-refactor" | iflow:implementing-with-tdd | 95% |
+| "retrospective" / "retro" / "what went well" | iflow:retrospecting | 95% |
+| "update docs" / "sync documentation" | iflow:updating-docs | 95% |
+
 **Fast-path rules:**
 1. Match is keyword overlap, not semantic — must hit the exact pattern
 2. If fast-path matches → skip Discovery, skip semantic matching, skip reviewer gate
-3. Go directly to Step 6 (Recommender) with the matched agent at 95% confidence
+3. Go directly to Step 6 (Recommender) with the matched agent/skill at 95% confidence
 4. User still confirms via AskUserQuestion before delegation (unless YOLO)
+5. Tag whether match is agent or skill — affects delegation method in Step 7
 
 **If no fast-path match** → proceed to remaining matching below.
 
@@ -350,8 +403,9 @@ When a workflow pattern is detected (feature request, "build X", "implement X", 
 1. Glob `docs/features/*/.meta.json`
 2. Read each file, look for `"status": "active"`
 3. If NO active feature:
-   - Route to `iflow:brainstorm`
-   - Explain: "No active feature. Starting from brainstorm to ensure proper research and planning."
+   - If triage set `workflow_match = "iflow:create-feature"` → preserve that route. Explain: "Problem is well-specified. Creating feature directly (skipping brainstorm)."
+   - If triage set `workflow_match = "iflow:brainstorm"` → preserve that route. Explain: "No active feature. Starting from brainstorm to ensure proper research and planning."
+   - If no triage ran (safety default) → route to `iflow:brainstorm`
 4. If active feature found:
    - Extract `lastCompletedPhase` from .meta.json
    - Determine next phase:
@@ -372,24 +426,26 @@ When a workflow pattern is detected (feature request, "build X", "implement X", 
 
 Note: Workflow Guardian applies ONLY to workflow pattern matches. Specialist agent routing (reviews, investigations, debugging) bypasses this entirely.
 
-#### Semantic Agent Matching
+#### Semantic Matching (Agents and Skills)
 
 If no fast-path, workflow, or investigative match:
 
 ```
-1. If agent count <= 20:
-   - Consider all agents for semantic matching
+1. If candidate count (agents + skills) <= 20:
+   - Consider all candidates for semantic matching
 
-2. If agent count > 20:
+2. If candidate count > 20:
    - Extract keywords from user intent (nouns, verbs, domain terms)
-   - Pre-filter to top 10 agents by keyword overlap with description
+   - Pre-filter to top 10 candidates by keyword overlap with description
    - Consider these 10 for semantic matching
 
-3. For each candidate agent:
-   - Evaluate semantic fit between intent and agent description
-   - Consider agent's tools vs task requirements
+3. For each candidate (agent OR skill):
+   - Evaluate semantic fit between intent and candidate description
+   - For agents: consider tools vs task requirements
+   - For skills: consider if the skill's triggering patterns match
    - Assign confidence score (0-100)
    - Document reasoning
+   - Tag whether match is agent or skill (affects delegation method)
 
 4. Return matches sorted by confidence
 ```
@@ -500,6 +556,14 @@ Skill({
 Skill({
   skill: "iflow:brainstorm",
   args: "{user_context} [ARCHETYPE: {archetype}] [ADVISORY_TEAM: {comma-separated advisor names}]"
+})
+```
+
+**If skill match (from semantic matching or fast-path):**
+```
+Skill({
+  skill: "{plugin}:{skill-name}",
+  args: "{clarified_intent}"
 })
 ```
 

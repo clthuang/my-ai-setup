@@ -19,6 +19,9 @@ You CANNOT modify any files. Your output is analysis only.
 ### Input
 {CODEBASE_CONTEXT}
 
+### Workflow Context
+{WORKFLOW_CONTEXT}
+
 ### Process
 1. **Survey**: Glob for relevant files matching the task domain
 2. **Analyze**: Read each file, noting patterns, issues, and architecture
@@ -44,6 +47,9 @@ If no specific format requested, use:
 
 ### Architecture Notes
 - {structural observations relevant to the task}
+
+### Workflow Implications
+- {How findings relate to the current workflow phase, if any}
 ```
 
 ### Success Criteria

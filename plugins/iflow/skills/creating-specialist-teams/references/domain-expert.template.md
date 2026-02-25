@@ -19,6 +19,9 @@ You provide expert advisory analysis and recommendations.
 ### Input
 {CODEBASE_CONTEXT}
 
+### Workflow Context
+{WORKFLOW_CONTEXT}
+
 ### Process
 1. **Assess**: Read the relevant codebase to understand the current architecture and patterns
 2. **Evaluate**: Identify strengths, weaknesses, and risks in the current approach
@@ -50,6 +53,9 @@ If no specific format requested, use:
 
 ### Architecture Notes
 {Broader observations about system design relevant to the task}
+
+### Workflow Implications
+- {How recommendations map to workflow phases, if any}
 ```
 
 ### Success Criteria

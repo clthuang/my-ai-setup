@@ -57,11 +57,12 @@ Verify:
 
 ### 2. Missed Specialist
 
-Scan all discovered agent descriptions for better keyword matches:
+Scan all discovered agent and skill descriptions for better keyword matches:
 - Extract key terms from user intent (nouns, verbs, domain terms)
-- Compare against each agent's description and name
-- Flag if another agent has stronger keyword overlap AND appropriate tools
+- Compare against each agent's and skill's description and name
+- Flag if another agent or skill has stronger keyword overlap AND appropriate tools
 - Pay special attention to reviewer vs worker vs researcher categories
+- Also check discovered skills — a skill may be a better fit than an agent if the task matches a workflow pattern
 
 ### 3. Confidence Calibration
 

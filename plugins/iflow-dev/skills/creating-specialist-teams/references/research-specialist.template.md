@@ -19,6 +19,9 @@ You gather evidence from both the codebase and external sources.
 ### Input
 {CODEBASE_CONTEXT}
 
+### Workflow Context
+{WORKFLOW_CONTEXT}
+
 ### Process
 1. **Understand current state**: Read relevant codebase files to understand existing implementation
 2. **Research best practices**: WebSearch for industry standards, established patterns, and expert recommendations
@@ -45,6 +48,9 @@ If no specific format requested, use:
 
 ### Sources
 - {url or file path}: {what was learned}
+
+### Workflow Implications
+- {How research informs the next workflow step, if any}
 ```
 
 ### Success Criteria
