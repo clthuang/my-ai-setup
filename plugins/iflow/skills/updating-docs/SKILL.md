@@ -11,15 +11,66 @@ Automatic documentation updates using documentation-researcher and documentation
 Use these values from session context (injected at session start):
 - `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
 
+## Parameters
+
+- `mode` — **required**, one of `scaffold` or `incremental`. Passed by the invoking command.
+  - `scaffold`: Full codebase doc generation. Used for bootstrapping docs.
+  - `incremental`: Feature-specific doc updates. Used for ongoing feature work.
+- `design_md_paths` — **optional**, array of file paths to design.md files. When provided, the Technical Decisions section from each file is read and injected into the writer dispatch prompt as ADR context. When not provided or empty, ADR context injection is skipped.
+
 ## Prerequisites
 
 - Feature folder in `{iflow_artifacts_root}/features/` with spec.md for context
-- This skill is invoked automatically from `/iflow:finish-feature`
+- This skill is invoked by `/iflow:generate-docs` only. finish-feature and wrap-up implement equivalent doc dispatch inline (per TD7) — they do NOT invoke this skill.
+
+## Dispatch Budget
+
+Dispatch patterns differ by mode to control agent concurrency.
+
+**Incremental mode** (max 3 dispatches):
+1. 1 researcher dispatch (documentation-researcher)
+2. 1 writer dispatch for the single affected tier (documentation-writer)
+3. 1 optional README/CHANGELOG writer dispatch (documentation-writer) — only if researcher findings include user-facing `recommended_updates` or `changelog_state.needs_entry` is true
+
+**Scaffold mode** (max 5 dispatches):
+1. 1 researcher dispatch (documentation-researcher)
+2. 1 writer dispatch per enabled tier, run sequentially not in parallel (documentation-writer) — up to 3 tiers
+3. 1 README/CHANGELOG writer dispatch (documentation-writer)
 
 ## Process
 
+### Step 0: Resolve Doc-Schema Reference
+
+<!-- SYNC: enriched-doc-dispatch -->
+Glob `~/.claude/plugins/cache/*/iflow*/*/references/doc-schema.md` — use first match. Fallback (dev workspace): `plugins/iflow/references/doc-schema.md`.
+
+Read the resolved file content. Before injecting into dispatch prompts, replace all occurrences of `{iflow_artifacts_root}` in the doc-schema content with the actual session value (e.g., if `{iflow_artifacts_root}` is `docs`, replace all `{iflow_artifacts_root}` strings in the doc-schema content with `docs`).
+
+The resolved and variable-replaced doc-schema content is injected into BOTH the researcher dispatch prompt AND the writer dispatch prompt as inline context.
+
+### Step 0b: Timestamp Injection
+
+<!-- SYNC: enriched-doc-dispatch -->
+The invoking command must pre-compute per-tier git timestamps and inject them into the researcher dispatch prompt. Format:
+
+```json
+{ "user-guide": "ISO-timestamp", "dev-guide": "ISO-timestamp", "technical": "ISO-timestamp" }
+```
+
+This skill does not run git commands — timestamps are pre-computed by the caller. The skill passes the `tier_timestamps` object through to the researcher dispatch prompt verbatim.
+
+### Step 0c: ADR Context (Optional)
+
+If `design_md_paths` parameter is provided and non-empty:
+1. For each path in `design_md_paths`, read the file and extract the Technical Decisions section
+2. Collect all extracted Technical Decisions content
+3. Inject into the writer dispatch prompt as ADR context (the writer uses this for ADR extraction)
+
+If `design_md_paths` is not provided or is empty, skip this step entirely.
+
 ### Step 1: Dispatch Documentation Researcher
 
+<!-- SYNC: enriched-doc-dispatch -->
 ```
 Task tool call:
   description: "Research documentation context"
@@ -28,9 +79,19 @@ Task tool call:
   prompt: |
     Research current documentation state for feature {id}-{slug}.
 
+    Mode: {mode}
+
     Feature context:
     - spec.md: {content summary}
     - Files changed: {list from git diff}
+
+    Tier timestamps (pre-computed by caller):
+    {tier_timestamps JSON object}
+
+    Doc-schema reference:
+    ---
+    {resolved doc-schema content with {iflow_artifacts_root} replaced}
+    ---
 
     Find:
     - Existing docs that may need updates
@@ -64,18 +125,36 @@ If "Skip": Exit skill - no documentation updates.
 
 ### Step 3: Dispatch Documentation Writer
 
-If updates needed:
+If updates needed, dispatch writer(s) according to the dispatch budget for the current `mode`.
+
+**Incremental mode:** Dispatch a single writer for the affected tier identified by the researcher.
+
+**Scaffold mode:** Dispatch one writer per enabled tier, sequentially (wait for each to complete before dispatching the next).
+
+Each writer dispatch uses this template:
 
 ```
 Task tool call:
-  description: "Update documentation"
+  description: "Update documentation — {tier name or README/CHANGELOG}"
   subagent_type: iflow:documentation-writer
   model: sonnet
   prompt: |
     Update documentation based on research findings.
 
+    Mode: {mode}
     Feature: {id}-{slug}
     Research findings: {JSON from researcher agent}
+
+    Doc-schema reference:
+    ---
+    {resolved doc-schema content with {iflow_artifacts_root} replaced}
+    ---
+
+    {If ADR context was collected in Step 0c, include:}
+    ADR Context:
+    ---
+    {Technical Decisions content from design.md files}
+    ---
 
     Pay special attention to any `drift_detected` entries — these represent
     documented items that don't match the filesystem (or vice versa).
@@ -91,6 +170,10 @@ Task tool call:
     Write necessary documentation updates.
     Return summary of changes made.
 ```
+
+**README/CHANGELOG dispatch** (applies to both modes when needed):
+
+If the researcher findings include user-facing `recommended_updates` or `changelog_state.needs_entry` is true, dispatch an additional writer focused on README and CHANGELOG updates. In scaffold mode, this is always dispatched as the final writer.
 
 ### Step 4: Report Results
 
