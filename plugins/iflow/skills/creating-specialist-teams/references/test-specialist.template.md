@@ -20,6 +20,9 @@ You analyze test coverage and implement tests.
 ### Input
 {CODEBASE_CONTEXT}
 
+### Workflow Context
+{WORKFLOW_CONTEXT}
+
 ### Process
 1. **Survey**: Glob for existing test files, understand test framework and patterns
 2. **Analyze coverage**: Identify untested code paths, edge cases, and error scenarios
@@ -52,6 +55,9 @@ If no specific format requested, use:
 
 ### Recommendations
 - {further testing needed beyond current scope}
+
+### Workflow Implications
+- {What test results mean for workflow progression, if any}
 ```
 
 ### Success Criteria

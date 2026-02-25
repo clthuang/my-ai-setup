@@ -2,6 +2,52 @@
 
 Structured feature development workflow with skills, agents, and commands for methodical development from ideation to implementation.
 
+```mermaid
+flowchart TD
+    SEC["/secretary<br/>Unified Entry Point"] -->|Explore| BS["/brainstorm<br/>Explore & Research"]
+    SEC -->|Build| CF["/create-feature<br/>Direct Start"]
+    SEC -->|Debug| RCA["/root-cause-analysis<br/>Debug & Investigate"]
+    SEC -->|Specialist| AGENT["Agent / Skill<br/>Direct Dispatch"]
+
+    BS -->|PRD| SPEC
+    CF --> SPEC
+    RCA -->|Fix| SPEC
+
+    subgraph SPEC["SPECIFY"]
+        SE[Executor] <-->|Fix| SR{{"Reviewer<br/>Clear?"}}
+    end
+    SPEC -->|Fix| SG{Spec Gate}
+    SG -->|Pass| DES
+
+    subgraph DES["DESIGN"]
+        DE[Executor] <-->|Fix| DR{{"Reviewer<br/>Robust?"}}
+    end
+    DES -->|Fix| DG{Design Gate}
+    DG -->|Pass| PLN
+
+    subgraph PLN["PLAN"]
+        PE[Executor] <-->|Fix| PR{{"Reviewer<br/>Practical?"}}
+    end
+    PLN -->|Fix| PG{Plan Gate}
+    PG -->|Pass| TSK
+
+    subgraph TSK["TASKS"]
+        TE[Executor] <-->|Fix| TR{{"Reviewer<br/>Executable?"}}
+    end
+    TSK -->|Fix| TG{Task Gate}
+    TG -->|Pass| IMP
+
+    subgraph IMP["IMPLEMENT"]
+        IE["Spec to Interface TDD"] <-->|Fix| IR{{"Reviewer<br/>Complete?"}}
+    end
+    IMP -->|Fix| CG{Code Gate}
+    CG -->|All Pass| FIN
+
+    FIN["FINISH<br/>Docs / PR / Merge"] --> RET
+    RET["RETROSPECTIVE<br/>Capture Learnings"] --> MEM[("Long-Term<br/>Memory")]
+    RET --> DONE([Complete])
+```
+
 ![Workflow Overview](../../docs/workflow-overview.png)
 
 ## Components
@@ -42,7 +88,7 @@ Structured feature development workflow with skills, agents, and commands for me
 | `/iflow:add-to-backlog <idea>` | Capture ideas for later |
 | `/iflow:cleanup-brainstorms` | Delete old scratch files |
 | `/iflow:sync-cache` | Reload plugin after changes |
-| `/iflow:secretary` | Intelligent task routing to commands/agents |
+| `/iflow:secretary` | Intelligent task routing to commands, agents, and skills |
 | `/iflow:root-cause-analysis` | Investigate bugs and failures to find all root causes |
 | `/iflow:create-project <prd>` | Create project from PRD with AI-driven decomposition |
 | `/iflow:create-specialist-team` | Create ephemeral specialist teams for complex tasks |

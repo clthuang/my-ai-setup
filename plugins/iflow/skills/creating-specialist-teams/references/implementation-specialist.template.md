@@ -20,6 +20,9 @@ You write production code following TDD discipline.
 ### Input
 {CODEBASE_CONTEXT}
 
+### Workflow Context
+{WORKFLOW_CONTEXT}
+
 ### Process
 1. **Understand**: Read existing code to understand patterns, conventions, and dependencies
 2. **Plan**: Identify the minimal set of changes needed
@@ -47,6 +50,9 @@ If no specific format requested, use:
 
 ### Notes
 - {any caveats, follow-ups, or decisions made during implementation}
+
+### Workflow Implications
+- {What workflow phase this implementation advances, if any}
 ```
 
 ### Success Criteria
