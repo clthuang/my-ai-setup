@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Workflow-aware specialist teams — specialists receive active feature context via `{WORKFLOW_CONTEXT}` placeholder and Step 5 synthesis recommends the appropriate workflow phase instead of generic follow-ups
+- `### Workflow Implications` output section in all 5 specialist templates
+
+### Changed
+- Plan review hook (`post-enter-plan.sh`) rewritten with "CRITICAL OVERRIDE — Phase 4.5" framing and heredoc for cleaner escaping, improving proactive plan-reviewer dispatch before ExitPlanMode
+
 ## [3.0.24] - 2026-02-24
 
 ### Added
