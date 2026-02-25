@@ -259,6 +259,9 @@ else:
     if [[ -n "$release_script_ctx" ]]; then
         context+="\niflow_release_script: ${release_script_ctx}"
     fi
+    local doc_tiers_ctx
+    doc_tiers_ctx=$(read_local_md_field "$PROJECT_ROOT/.claude/iflow.local.md" "doc_tiers" "user-guide,dev-guide,technical")
+    context+="\niflow_doc_tiers: ${doc_tiers_ctx}"
 
     # Check optional dependency
     if ! check_claude_md_plugin; then

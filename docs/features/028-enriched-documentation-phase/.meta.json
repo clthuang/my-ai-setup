@@ -29,8 +29,7 @@
         "designReview": { "started": "2026-02-25T20:15:00Z", "completed": "2026-02-25T22:15:00Z", "iterations": 5, "reviewerNotes": [] },
         "handoffReview": { "started": "2026-02-25T22:15:00Z", "completed": "2026-02-25T23:15:00Z", "iterations": 5, "approved": true, "reviewerNotes": [] }
       }
-    }
-  },
+    },
     "create-plan": {
       "status": "completed",
       "startedAt": "2026-02-25T23:20:00Z",
