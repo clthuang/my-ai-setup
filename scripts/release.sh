@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Release script for iflow plugin
-# Copies iflow-dev to iflow, calculates version, and creates tagged release
+# Release script for iflow plugin (single-plugin model)
+# Bumps version, merges develop → main, tags release
 
 set -euo pipefail
 
@@ -21,8 +21,7 @@ success() { echo -e "${GREEN}$1${NC}"; }
 warn() { echo -e "${YELLOW}$1${NC}"; }
 
 # File paths
-PLUGIN_DEV_JSON="plugins/iflow-dev/.claude-plugin/plugin.json"
-PLUGIN_PROD_JSON="plugins/iflow/.claude-plugin/plugin.json"
+PLUGIN_JSON="plugins/iflow/.claude-plugin/plugin.json"
 MARKETPLACE_JSON=".claude-plugin/marketplace.json"
 
 #############################################
@@ -47,10 +46,7 @@ check_preconditions() {
         error "No 'origin' remote configured."
     fi
 
-    # Both plugin directories must exist
-    if [[ ! -d "plugins/iflow-dev" ]]; then
-        error "plugins/iflow-dev directory not found."
-    fi
+    # Plugin directory must exist
     if [[ ! -d "plugins/iflow" ]]; then
         error "plugins/iflow directory not found."
     fi
@@ -90,21 +86,6 @@ check_changelog() {
 }
 
 #############################################
-# Plugin reference validation
-#############################################
-
-validate_dev_references() {
-    # iflow-dev should ONLY have iflow-dev: references, not /iflow:
-    # This catches cases where someone accidentally used the wrong prefix
-    if grep -r "/iflow:" plugins/iflow-dev --include="*.md" >/dev/null 2>&1; then
-        error "Found /iflow: references in iflow-dev. Use /iflow-dev: instead."
-        echo "Run: grep -rn '/iflow:' plugins/iflow-dev --include='*.md'"
-        exit 1
-    fi
-    success "All references use correct iflow-dev: prefix"
-}
-
-#############################################
 # Version calculation from code change percentage
 #############################################
 
@@ -114,6 +95,13 @@ get_last_tag() {
 
 calculate_bump_type() {
     local last_tag=$1
+
+    # Allow CI override
+    if [[ -n "${BUMP_OVERRIDE:-}" && "${BUMP_OVERRIDE}" != "auto" ]]; then
+        echo "${BUMP_OVERRIDE}"
+        echo "(override: ${BUMP_OVERRIDE})"
+        return
+    fi
 
     # Get lines changed since last tag (additions + deletions)
     local lines_changed diff_output
@@ -186,62 +174,16 @@ bump_version() {
 # File updates
 #############################################
 
-copy_dev_to_prod() {
-    success "Syncing iflow-dev to iflow (with deletions)..."
-    rsync -av --delete --exclude='.claude-plugin/plugin.json' --exclude='.venv' plugins/iflow-dev/ plugins/iflow/
-
-    # Blanket convert iflow-dev → iflow in all markdown files
-    # Handles all separators: colon (iflow-dev:cmd), dot (iflow-dev.local.md),
-    # slash (plugins/iflow-dev/skills/...), and any future patterns
-    find plugins/iflow -name "*.md" -exec sed -i '' 's/iflow-dev/iflow/g' {} \;
-
-    # Blanket convert in shell scripts, excluding cross-plugin scripts
-    # that legitimately reference both iflow and iflow-dev directories
-    find plugins/iflow -name "*.sh" \
-        ! -name "pre-commit-guard.sh" \
-        ! -name "sync-cache.sh" \
-        -exec sed -i '' 's/iflow-dev/iflow/g' {} \;
-
-    # Blanket convert in Python files
-    find plugins/iflow -name "*.py" \
-        -exec sed -i '' 's/iflow-dev/iflow/g' {} \;
-
-    # Verification gate: fail release if unconverted references leak through
-    local remaining
-    remaining=$(grep -rn "iflow-dev" plugins/iflow/ --include="*.md" --include="*.sh" --include="*.py" \
-        | grep -v "pre-commit-guard.sh" \
-        | grep -v "sync-cache.sh" || true)
-    if [[ -n "$remaining" ]]; then
-        error "Unconverted iflow-dev references found in released plugin:"
-        echo "$remaining"
-        exit 1
-    fi
-
-    success "Copied and converted plugin references"
-}
-
-update_plugin_files() {
+update_plugin_json() {
     local new_version=$1
-    local next_dev_version=$2
 
-    # Copy dev plugin.json as base (so mcpServers and any new fields propagate),
-    # then sed name and version to production values.
-    cp "$PLUGIN_DEV_JSON" "$PLUGIN_PROD_JSON"
-    sed -i '' 's/"name": *"iflow-dev"/"name": "iflow"/' "$PLUGIN_PROD_JSON"
-    sed -i '' "s/\"version\": *\"[^\"]*\"/\"version\": \"$new_version\"/" "$PLUGIN_PROD_JSON"
-    success "Updated $PLUGIN_PROD_JSON: name=iflow, version=$new_version"
-
-    # Update iflow-dev plugin.json with next dev version
-    sed -i '' "s/\"version\": *\"[^\"]*\"/\"version\": \"${next_dev_version}-dev\"/" "$PLUGIN_DEV_JSON"
-    success "Updated $PLUGIN_DEV_JSON: version=${next_dev_version}-dev"
+    sed -i '' "s/\"version\": *\"[^\"]*\"/\"version\": \"$new_version\"/" "$PLUGIN_JSON"
+    success "Updated $PLUGIN_JSON: version=$new_version"
 }
 
 update_marketplace() {
     local new_version=$1
-    local next_dev_version=$2
 
-    # Update iflow version in marketplace
-    # Use python for reliable JSON manipulation
     python3 -c "
 import json
 
@@ -251,14 +193,12 @@ with open('$MARKETPLACE_JSON', 'r') as f:
 for plugin in data['plugins']:
     if plugin['name'] == 'iflow':
         plugin['version'] = '$new_version'
-    elif plugin['name'] == 'iflow-dev':
-        plugin['version'] = '${next_dev_version}-dev'
 
 with open('$MARKETPLACE_JSON', 'w') as f:
     json.dump(data, f, indent=2)
     f.write('\n')
 "
-    success "Updated $MARKETPLACE_JSON: iflow=$new_version, iflow-dev=${next_dev_version}-dev"
+    success "Updated $MARKETPLACE_JSON: iflow=$new_version"
 }
 
 #############################################
@@ -297,8 +237,7 @@ commit_and_release() {
     local new_version=$1
     local tag="v$new_version"
 
-    # Stage changes with IFLOW_RELEASE=1 to bypass hook
-    export IFLOW_RELEASE=1
+    # Stage and commit release changes on develop
     git add plugins/ .claude-plugin/ CHANGELOG.md
     git commit -m "chore(release): v$new_version"
     success "Committed release changes"
@@ -324,12 +263,41 @@ commit_and_release() {
     success "Returned to develop branch"
 }
 
+bump_to_next_dev() {
+    local new_version=$1
+    local next_dev_version="${new_version}-dev"
+
+    # Bump plugin.json to next dev version
+    sed -i '' "s/\"version\": *\"[^\"]*\"/\"version\": \"${next_dev_version}\"/" "$PLUGIN_JSON"
+
+    # Bump marketplace.json
+    python3 -c "
+import json
+
+with open('$MARKETPLACE_JSON', 'r') as f:
+    data = json.load(f)
+
+for plugin in data['plugins']:
+    if plugin['name'] == 'iflow':
+        plugin['version'] = '${next_dev_version}'
+
+with open('$MARKETPLACE_JSON', 'w') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+"
+
+    git add plugins/ .claude-plugin/
+    git commit -m "chore: bump to ${next_dev_version}"
+    git push origin develop
+    success "Bumped to ${next_dev_version} on develop"
+}
+
 #############################################
 # Main
 #############################################
 
 main() {
-    echo "=== iflow Plugin Release Script (Two-Plugin Model) ==="
+    echo "=== iflow Plugin Release Script ==="
     echo ""
 
     # Check preconditions
@@ -359,13 +327,11 @@ main() {
     echo "Bump type: $bump_type (≤3% → patch, 3-10% → minor, >10% → major)"
 
     # Calculate new version by bumping from last tag
-    local last_version new_version next_dev_version
+    local last_version new_version
     last_version="${last_tag#v}"  # v1.6.0 → 1.6.0
     new_version=$(bump_version "$last_version" "$bump_type")
-    next_dev_version="$new_version"
 
     echo "Release version: $new_version"
-    echo "Next dev version: ${next_dev_version}-dev"
     echo ""
 
     # Confirm
@@ -380,28 +346,25 @@ main() {
         fi
     fi
 
-    # Validate plugin references before copying
-    validate_dev_references
-
-    # Copy dev to prod
-    copy_dev_to_prod
-
-    # Update plugin files
-    update_plugin_files "$new_version" "$next_dev_version"
+    # Update plugin files with release version (strip -dev)
+    update_plugin_json "$new_version"
 
     # Update marketplace
-    update_marketplace "$new_version" "$next_dev_version"
+    update_marketplace "$new_version"
 
     # Promote CHANGELOG [Unreleased] to versioned entry
     promote_changelog "$new_version"
 
-    # Commit and release
+    # Commit, merge to main, tag, push
     commit_and_release "$new_version"
+
+    # Bump develop to next dev version
+    bump_to_next_dev "$new_version"
 
     echo ""
     success "=== Released v$new_version ==="
-    echo "iflow plugin is now at v$new_version"
-    echo "iflow-dev plugin is now at v${next_dev_version}-dev"
+    echo "iflow plugin is now at v$new_version on main"
+    echo "iflow plugin is now at v${new_version}-dev on develop"
 }
 
 main "$@"

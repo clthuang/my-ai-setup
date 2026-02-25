@@ -218,7 +218,26 @@ After Phase B completes, check `spec_divergences` in the output:
 
 ### 7. Review Phase (Automated Iteration Loop)
 
-Maximum 5 iterations. Loop continues until ALL reviewers approve or cap is reached.
+Maximum 5 iterations (total, including the final validation round). Loop continues until ALL reviewers approve or cap is reached.
+
+**Reviewer State Tracking:**
+
+Before entering the iteration loop, initialize per-reviewer status:
+
+```
+reviewer_status = {
+  "implementation": "pending",
+  "quality": "pending",
+  "security": "pending"
+}
+is_final_validation = false
+```
+
+Values: `pending` (not yet reviewed), `passed`, `failed`.
+
+**Iteration 1:** Always dispatch all 3 reviewers (full scope).
+**Iterations 2+:** Only dispatch reviewers where `reviewer_status == "failed"`. Skip reviewers where `reviewer_status == "passed"`.
+**Final validation:** When all reviewers have individually passed, dispatch all 3 again for a mandatory full regression check.
 
 Execute review cycle with three reviewers:
 
@@ -331,83 +350,124 @@ Task tool call:
     Return JSON with approval status and vulnerabilities.
 ```
 
-**7d. Automated Iteration Logic:**
+**7d. Selective Dispatch Logic:**
 
-Collect results from all three reviewers (implementation, quality, security).
+Determine which reviewers to dispatch this iteration:
 
-**Apply strict threshold to each reviewer result:**
+```
+IF iteration == 1:
+  → Dispatch all 3 reviewers (7a + 7b + 7c)
+
+ELIF is_final_validation:
+  → Dispatch all 3 reviewers (7a + 7b + 7c) — full regression check
+
+ELSE (intermediate iteration):
+  → Only dispatch reviewers where reviewer_status == "failed"
+  → Skip reviewers where reviewer_status == "passed"
+```
+
+**7e. Collect Results and Update State:**
+
+Collect results from all dispatched reviewers.
+
+**Apply strict threshold to each dispatched reviewer result:**
 - **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
 - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
 
-IF all three PASS:
-  → Mark phase completed
-  → Proceed to step 8
+Update `reviewer_status` for each dispatched reviewer based on its result.
 
-ELSE (any issues found):
-  → Append iteration to `.review-history.md`
-  → Dispatch implementer agent to fix issues:
-    ```
-    Task tool call:
-      description: "Fix review issues iteration {n}"
-      subagent_type: iflow:implementer
-      model: opus
-      prompt: |
-        Fix the following review issues:
+**Decision logic:**
 
-        ## PRD (original requirements)
-        {content of prd.md or brainstorm file}
+```
+all_individually_passed = every reviewer has reviewer_status == "passed"
+all_dispatched_passed = every reviewer dispatched THIS iteration passed
 
-        ## Spec (acceptance criteria)
-        {content of spec.md}
+IF all_dispatched_passed AND is_final_validation:
+  → APPROVED. Mark phase completed. Proceed to step 8.
 
-        ## Design (architecture to follow)
-        {content of design.md}
-
-        ## Plan (implementation plan)
-        {content of plan.md}
-
-        ## Tasks (what should be done)
-        {content of tasks.md}
-
-        ## Implementation files
-        {list of files with code}
-
-        ## Issues to fix
-        {consolidated issue list from all reviewers}
-
-        After fixing, return summary of changes made.
-    ```
+ELIF all_individually_passed AND NOT is_final_validation:
+  → Trigger final validation: set is_final_validation = true
   → Increment iteration counter
-  → If iteration >= 5 (circuit breaker):
-    ```
-    AskUserQuestion:
-      questions: [{
-        "question": "Review loop reached 5 iterations without full approval. How to proceed?",
-        "header": "Circuit Breaker",
-        "options": [
-          {"label": "Force approve with warnings", "description": "Accept current state, log unresolved issues"},
-          {"label": "Pause and review manually", "description": "Stop loop, inspect code yourself"},
-          {"label": "Abandon changes", "description": "Discard implementation, return to planning"}
-        ],
-        "multiSelect": false
-      }]
-    ```
-    - "Force approve": Record unresolved issues in `.meta.json` reviewerNotes, proceed to step 8
-    - "Pause and review manually": Stop execution, output file list for manual review
-    - "Abandon changes": Stop execution, do NOT mark phase completed
-  → Else: Loop back to step 7a
+  → If iteration >= 5 (circuit breaker): handle circuit breaker (see below)
+  → Else: Loop back to 7d (dispatch all 3 reviewers)
+
+ELIF some dispatched reviewers failed:
+  → Append iteration to .review-history.md
+  → Dispatch implementer to fix issues from FAILED reviewers only
+  → Increment iteration counter
+  → If iteration >= 5 (circuit breaker): handle circuit breaker (see below)
+  → Else: Loop back to 7d (dispatch only failed reviewers)
+```
+
+**Edge case — final validation catches regression:**
+If the final validation round fails (e.g., security passed in iter 1, but a quality fix introduced a security issue):
+- That reviewer's `reviewer_status` becomes `failed`, `is_final_validation` resets to `false`
+- Normal fix cycle resumes — only the newly-failed reviewer dispatches next iteration
+- When it passes again → another final validation round triggers
+- Circuit breaker still applies to total iterations
+
+**Implementer fix dispatch** (only includes issues from failed reviewers):
+```
+Task tool call:
+  description: "Fix review issues iteration {n}"
+  subagent_type: iflow:implementer
+  model: opus
+  prompt: |
+    Fix the following review issues:
+
+    ## PRD (original requirements)
+    {content of prd.md or brainstorm file}
+
+    ## Spec (acceptance criteria)
+    {content of spec.md}
+
+    ## Design (architecture to follow)
+    {content of design.md}
+
+    ## Plan (implementation plan)
+    {content of plan.md}
+
+    ## Tasks (what should be done)
+    {content of tasks.md}
+
+    ## Implementation files
+    {list of files with code}
+
+    ## Issues to fix (from failed reviewers only)
+    {consolidated issue list from reviewers with reviewer_status == "failed"}
+
+    After fixing, return summary of changes made.
+```
+
+**Circuit breaker (iteration >= 5):**
+```
+AskUserQuestion:
+  questions: [{
+    "question": "Review loop reached 5 iterations without full approval. How to proceed?",
+    "header": "Circuit Breaker",
+    "options": [
+      {"label": "Force approve with warnings", "description": "Accept current state, log unresolved issues"},
+      {"label": "Pause and review manually", "description": "Stop loop, inspect code yourself"},
+      {"label": "Abandon changes", "description": "Discard implementation, return to planning"}
+    ],
+    "multiSelect": false
+  }]
+```
+- "Force approve": Record unresolved issues in `.meta.json` reviewerNotes, proceed to step 8
+- "Pause and review manually": Stop execution, output file list for manual review
+- "Abandon changes": Stop execution, do NOT mark phase completed
 
 **Review History Entry Format** (append to `.review-history.md`):
 ```markdown
-## Iteration {n} - {ISO timestamp}
+## Iteration {n} - {ISO timestamp} {final_validation_tag}
 
-**Implementation Review:** {Approved / Issues found}
+**Implementation Review:** {Approved / Issues found / Skipped (passed iter {m})}
   - Level 1 (Tasks): {pass/fail}
   - Level 2 (Spec): {pass/fail}
   - Level 3 (Design): {pass/fail}
   - Level 4 (PRD): {pass/fail}
-**Quality Review:** {Approved / Issues found}
-**Security Review:** {Approved / Issues found}
+**Quality Review:** {Approved / Issues found / Skipped (passed iter {m})}
+**Security Review:** {Approved / Issues found / Skipped (passed iter {m})}
 
 **Issues:**
 - [{severity}] [{level}] {reviewer}: {description} (at: {location})
@@ -419,7 +479,9 @@ ELSE (any issues found):
 ---
 ```
 
-### 7e. Capture Review Learnings (Automatic)
+Where `{final_validation_tag}` is `[FINAL VALIDATION]` when the iteration is a mandatory full regression review, otherwise empty. Skipped reviewers show which iteration they last passed in.
+
+### 7f. Capture Review Learnings (Automatic)
 
 **Trigger:** Only execute if the review loop ran 2+ iterations. If all three reviewers approved on first pass, skip — no review learnings to capture.
 

@@ -11,8 +11,7 @@ Claude Code plugin providing a structured feature development workflow—skills,
 - **No backward compatibility** - This is private tooling with no external users. Delete old code, don't maintain compatibility shims.
 - **Branches for all modes** - All workflow modes (Standard, Full) create feature branches. Branches are lightweight.
 - **Retro before cleanup** - Retrospective runs BEFORE branch deletion so context is still available.
-- **Edit *-dev plugins only** - Never edit `plugins/iflow/` directly. Make changes in `plugins/iflow-dev/`, then run release script to sync.
-- **Plugin portability** - Never use hardcoded `plugins/iflow-dev/` paths in agent, skill, or command files. Use two-location Glob: primary `~/.claude/plugins/cache/*/iflow*/*/...`, fallback `plugins/*/...` (dev workspace). Mark fallback lines with "Fallback" or "dev workspace" so `validate.sh` can distinguish them from violations.
+- **Plugin portability** - Never use hardcoded `plugins/iflow/` paths in agent, skill, or command files. Use two-location Glob: primary `~/.claude/plugins/cache/*/iflow*/*/...`, fallback `plugins/*/...` (dev workspace). Mark fallback lines with "Fallback" or "dev workspace" so `validate.sh` can distinguish them from violations.
 - **Project-aware design** - iflow is used across multiple projects. Paths resolution, configs, and state must be relative to the current project context — never assume a specific project root. The only global feature is the knowledge bank DB (`~/.claude/iflow/memory/`), which accumulates learnings across all projects.
 
 ## Working Standards
@@ -68,13 +67,13 @@ AskUserQuestion:
 ./validate.sh
 
 # Run memory server tests (requires plugin venv for MCP deps)
-plugins/iflow-dev/.venv/bin/python -m pytest plugins/iflow-dev/mcp/test_memory_server.py -v
+plugins/iflow/.venv/bin/python -m pytest plugins/iflow/mcp/test_memory_server.py -v
 
 # Run MCP bootstrap wrapper tests
-bash plugins/iflow-dev/mcp/test_run_memory_server.sh
+bash plugins/iflow/mcp/test_run_memory_server.sh
 
 # Run hook integration tests
-bash plugins/iflow-dev/hooks/tests/test-hooks.sh
+bash plugins/iflow/hooks/tests/test-hooks.sh
 ```
 
 ## Key References
@@ -91,7 +90,7 @@ bash plugins/iflow-dev/hooks/tests/test-hooks.sh
 - **Knowledge bank:** `docs/knowledge-bank/{patterns,anti-patterns,heuristics}.md` — updated by retrospectives
 - **Global memory store:** `~/.claude/iflow/memory/` — cross-project entries injected at session start
 - **Hook subprocess safety:** Always suppress stderr (`2>/dev/null`) for Python/external calls in hooks to prevent corrupting JSON output
-- **Semantic memory CLI:** Find plugin root first: `PLUGIN_ROOT=$(ls -d ~/.claude/plugins/cache/*/iflow*/*/hooks 2>/dev/null | head -1 | xargs dirname)`, then `PYTHONPATH="$PLUGIN_ROOT/hooks/lib" "$PLUGIN_ROOT/.venv/bin/python" -m semantic_memory.writer`. Fallback (dev workspace): `PYTHONPATH=plugins/iflow-dev/hooks/lib python3 -m semantic_memory.writer`
+- **Semantic memory CLI:** Find plugin root first: `PLUGIN_ROOT=$(ls -d ~/.claude/plugins/cache/*/iflow*/*/hooks 2>/dev/null | head -1 | xargs dirname)`, then `PYTHONPATH="$PLUGIN_ROOT/hooks/lib" "$PLUGIN_ROOT/.venv/bin/python" -m semantic_memory.writer`. Fallback (dev workspace): `PYTHONPATH=plugins/iflow/hooks/lib python3 -m semantic_memory.writer`
 
 ## Quick Reference
 
@@ -102,18 +101,18 @@ bash plugins/iflow-dev/hooks/tests/test-hooks.sh
 
 **Token budget:** SKILL.md <500 lines, <5,000 tokens
 
-**Documentation sync:** When adding, removing, or renaming skills, commands, agents, or hooks in `plugins/iflow-dev/`, update:
+**Documentation sync:** When adding, removing, or renaming skills, commands, agents, or hooks in `plugins/iflow/`, update:
 - `README.md` and `README_FOR_DEV.md` — skill/agent/command tables and counts
-- `plugins/iflow-dev/README.md` — component counts table and command/agent tables
-- `plugins/iflow-dev/skills/workflow-state/SKILL.md` — Workflow Map section (if phase sequence or prerequisites change)
-- `plugins/iflow-dev/commands/secretary.md` — Specialist Fast-Path table (if renaming agents listed there)
+- `plugins/iflow/README.md` — component counts table and command/agent tables
+- `plugins/iflow/skills/workflow-state/SKILL.md` — Workflow Map section (if phase sequence or prerequisites change)
+- `plugins/iflow/commands/secretary.md` — Specialist Fast-Path table (if renaming agents listed there)
 - `README_FOR_DEV.md` — hooks table (if adding/removing hooks)
 
 A hookify rule (`.claude/hookify.docs-sync.local.md`) will remind you on plugin component edits.
 
-**Agent model tiers:** Every `subagent_type:` dispatch must include `model:` (opus/sonnet/haiku) matching the agent's frontmatter. Verify with: `grep -rn 'subagent_type:' plugins/iflow-dev/ | wc -l` and confirm each has a nearby `model:` line.
+**Agent model tiers:** Every `subagent_type:` dispatch must include `model:` (opus/sonnet/haiku) matching the agent's frontmatter. Verify with: `grep -rn 'subagent_type:' plugins/iflow/ | wc -l` and confirm each has a nearby `model:` line.
 
-**Project-aware config:** `.claude/iflow-dev.local.md` fields injected at session start:
+**Project-aware config:** `.claude/iflow.local.md` fields injected at session start:
 - `artifacts_root` (default: `docs`) — root directory for features, brainstorms, projects, knowledge-bank
 - `base_branch` (default: `auto` — detects from remote HEAD, falls back to `main`) — merge target branch
 - `release_script` (default: empty) — path to release script, conditional execution
@@ -121,6 +120,6 @@ A hookify rule (`.claude/hookify.docs-sync.local.md`) will remind you on plugin 
 
 Skills/commands reference these as `{iflow_artifacts_root}`, `{iflow_base_branch}`, `{iflow_release_script}`.
 
-**Agent concurrency:** `max_concurrent_agents` in `.claude/iflow-dev.local.md` controls max parallel Task dispatches (default: 5). Skills and commands batch accordingly.
+**Agent concurrency:** `max_concurrent_agents` in `.claude/iflow.local.md` controls max parallel Task dispatches (default: 5). Skills and commands batch accordingly.
 
 **Backlog:** Capture ad-hoc ideas with `/iflow:add-to-backlog <description>`. Review at [docs/backlog.md](docs/backlog.md).

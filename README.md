@@ -359,4 +359,4 @@ See [README_FOR_DEV.md](./README_FOR_DEV.md) for:
 - Release workflow
 - Validation
 
-Each project uses `.claude/iflow.local.md` for local settings (artifacts path, merge branch, memory config). Developers working on the plugin itself use `iflow-dev` — see [README_FOR_DEV.md](./README_FOR_DEV.md) for the full configuration reference.
+Each project uses `.claude/iflow.local.md` for local settings (artifacts path, merge branch, memory config). See [README_FOR_DEV.md](./README_FOR_DEV.md) for the full configuration reference.

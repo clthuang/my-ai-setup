@@ -1,12 +1,13 @@
 ---
 # Workflow
-yolo_mode: false
+yolo_mode: true
 yolo_max_stop_blocks: 50
 activation_mode: manual
+max_concurrent_agents: 5
 
 # Memory
 memory_injection_enabled: true
-memory_injection_limit: 20
+memory_injection_limit: 100
 memory_semantic_enabled: true
 memory_vector_weight: 0.5
 memory_keyword_weight: 0.2
