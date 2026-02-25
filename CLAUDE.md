@@ -74,6 +74,10 @@ bash plugins/iflow/mcp/test_run_memory_server.sh
 
 # Run hook integration tests
 bash plugins/iflow/hooks/tests/test-hooks.sh
+
+# Release (bumps version, merges develop→main, tags)
+# Uses --ci for non-interactive; BUMP_OVERRIDE=patch|minor|major to force bump type
+bash scripts/release.sh --ci
 ```
 
 ## Key References
