@@ -369,7 +369,7 @@ Hard prerequisites: spec.md AND tasks.md must pass 4-level validation before imp
    - Produces `implementation-log.md` with per-task decisions, deviations, and concerns
 2. **Simplification**: `code-simplifier` removes unnecessary complexity
 3. **Test Deepening**: `test-deepener` generates spec-driven test outlines (Phase A) then writes executable tests (Phase B), reporting spec divergences
-4. **Review** (iterative): `implementation-reviewer` -> `code-quality-reviewer` -> `security-reviewer` (up to 5 iterations)
+4. **Review** (iterative, up to 5 iterations): `implementation-reviewer` -> `code-quality-reviewer` -> `security-reviewer`. Only failed reviewers re-run in intermediate iterations. When all three have individually passed, a mandatory final validation round runs all three reviewers regardless.
 5. **Completion**: Prompts user to run `/finish-feature`
 
 The `implementation-log.md` artifact is read by the retro skill during `/finish-feature` and then deleted alongside `.review-history.md`.

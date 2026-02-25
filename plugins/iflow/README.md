@@ -155,7 +155,7 @@ Stage 2: PHASE-REVIEWER (Execution Readiness)
 
 ### Implementation Review
 
-The `/iflow:implement` command uses three reviewers:
+The `/iflow:implement` command uses three reviewers in an iterative loop (up to 5 iterations). Only reviewers that failed re-run in intermediate iterations — passing reviewers are skipped. When all three have individually passed, a mandatory final validation round runs all three regardless to confirm end-to-end correctness.
 
 | Reviewer | Focus | Validation |
 |----------|-------|------------|
