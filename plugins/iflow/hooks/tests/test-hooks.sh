@@ -1041,6 +1041,138 @@ TMPL
     teardown_yolo_test
 }
 
+# === Robustness Tests ===
+
+# Test: session-start produces valid JSON when no features directory exists
+test_session_start_no_features() {
+    log_test "session-start produces valid JSON when no features dir exists"
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "${tmpdir}/.git" "${tmpdir}/.claude"
+
+    cd "$tmpdir"
+    local output
+    output=$("${HOOKS_DIR}/session-start.sh" 2>/dev/null)
+
+    if echo "$output" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
+        log_pass
+    else
+        log_fail "Invalid JSON output when no features dir: $output"
+    fi
+
+    cd "${PROJECT_ROOT}"
+    rm -rf "$tmpdir"
+}
+
+# Test: ERR trap outputs valid JSON {}
+test_err_trap_produces_json() {
+    log_test "install_err_trap outputs {} on error"
+
+    source "${HOOKS_DIR}/lib/common.sh"
+
+    # Run a subshell that triggers ERR trap
+    local output
+    output=$(bash -c '
+        source "'"${HOOKS_DIR}/lib/common.sh"'"
+        install_err_trap
+        false  # trigger ERR
+    ' 2>/dev/null)
+
+    if [[ "$output" == "{}" ]]; then
+        log_pass
+    else
+        log_fail "Expected '{}', got: '$output'"
+    fi
+}
+
+# Test: inject-secretary-context handles corrupt (non-numeric) YOLO_PAUSED_AT
+test_secretary_handles_corrupt_state() {
+    log_test "inject-secretary-context handles corrupt YOLO_PAUSED_AT"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
+---
+yolo_mode: true
+---
+TMPL
+    # Write corrupt non-numeric value
+    mkdir -p "${YOLO_TMPDIR}/.claude"
+    cat > "${YOLO_TMPDIR}/.claude/.yolo-hook-state" << 'STATE'
+yolo_paused=true
+yolo_paused_at=not_a_number
+STATE
+
+    cd "$YOLO_TMPDIR"
+    local output exit_code=0
+    output=$("${HOOKS_DIR}/inject-secretary-context.sh" 2>/dev/null) || exit_code=$?
+
+    # Should not crash — should produce valid JSON or exit 0
+    if [[ $exit_code -eq 0 ]]; then
+        if [[ -z "$output" ]] || echo "$output" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
+            log_pass
+        else
+            log_fail "Invalid output on corrupt state: $output"
+        fi
+    else
+        log_fail "Crashed with exit code $exit_code on corrupt state"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: yolo-stop handles non-numeric usage_limit gracefully
+test_yolo_stop_handles_nonnumeric_limit() {
+    log_test "yolo-stop handles non-numeric usage_limit"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow.local.md" << 'TMPL'
+---
+yolo_mode: true
+yolo_usage_limit: abc
+yolo_max_stop_blocks: xyz
+---
+TMPL
+    mkdir -p "${YOLO_TMPDIR}/docs/features/099-test-feature"
+    cat > "${YOLO_TMPDIR}/docs/features/099-test-feature/.meta.json" << 'META'
+{"id":"099","slug":"test-feature","status":"active","lastCompletedPhase":"specify"}
+META
+
+    cd "$YOLO_TMPDIR"
+    local output exit_code=0
+    output=$(echo '{"stop_hook_active":false}' | "${HOOKS_DIR}/yolo-stop.sh" 2>/dev/null) || exit_code=$?
+
+    if [[ $exit_code -eq 0 ]]; then
+        log_pass
+    else
+        log_fail "Crashed with exit code $exit_code on non-numeric limits"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: sync-cache handles rsync failure gracefully
+test_sync_cache_handles_rsync_failure() {
+    log_test "sync-cache handles rsync failure gracefully"
+
+    # Run from temp dir where source dirs don't exist
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    cd "$tmpdir"
+
+    local output exit_code=0
+    output=$("${HOOKS_DIR}/sync-cache.sh" 2>/dev/null) || exit_code=$?
+
+    if [[ $exit_code -eq 0 ]] && echo "$output" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
+        log_pass
+    else
+        log_fail "Should handle gracefully (exit=$exit_code)"
+    fi
+
+    cd "${PROJECT_ROOT}"
+    rm -rf "$tmpdir"
+}
+
 # === Path Portability Tests ===
 
 # Helper: find plugin component dir (relative to PROJECT_ROOT)
@@ -1240,6 +1372,16 @@ main() {
     test_yolo_stop_custom_artifacts_root
     test_yolo_stop_ignores_default_with_custom_root
     test_session_start_custom_artifacts_root
+
+    echo ""
+    echo "--- Robustness Tests ---"
+    echo ""
+
+    test_session_start_no_features
+    test_err_trap_produces_json
+    test_secretary_handles_corrupt_state
+    test_yolo_stop_handles_nonnumeric_limit
+    test_sync_cache_handles_rsync_failure
 
     echo ""
     echo "--- Path Portability Tests ---"

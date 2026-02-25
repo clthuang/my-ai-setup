@@ -15,7 +15,7 @@ Manage brainstorm scratch files in `{iflow_artifacts_root}/brainstorms/`.
 
 ### 1. List Files
 
-List all files in `{iflow_artifacts_root}/brainstorms/` (exclude `.gitkeep`):
+List all files in `{iflow_artifacts_root}/brainstorms/` (exclude `.gitkeep`). If the directory does not exist, display "No brainstorm scratch files found." and stop.
 
 ```
 Brainstorm scratch files:

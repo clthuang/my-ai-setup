@@ -95,6 +95,7 @@ Synthesize findings into root cause determination.
 Generate formal RCA report and offer workflow handoff.
 
 - **Actions:** Generate RCA report, offer handoff to /create-feature
+- Ensure directory exists: `mkdir -p {iflow_artifacts_root}/rca/`
 - **Output:** `{iflow_artifacts_root}/rca/{YYYYMMDD}-{HHMMSS}-{slug}.md`
 - **Reference:** [RCA Report Template](references/rca-report-template.md)
 

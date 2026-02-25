@@ -211,6 +211,27 @@ The server is declared in `plugin.json` via `mcpServers` and bootstrapped by `mc
 $PLUGIN_ROOT/.venv/bin/pip install "google-genai>=1.0,<2"
 ```
 
+## Setup
+
+After installing, run the setup script to configure the plugin environment:
+
+```bash
+# Check system health (read-only diagnostics)
+bash plugins/iflow/scripts/doctor.sh
+
+# Interactive setup (venv, embedding provider, API keys)
+bash plugins/iflow/scripts/setup.sh
+```
+
+The setup script:
+1. Runs diagnostics to check prerequisites (python3, git, rsync)
+2. Creates/verifies the Python venv with core dependencies
+3. Configures an embedding provider for semantic memory (gemini, openai, voyage, ollama, or none)
+4. Sets up API keys and environment variables
+5. Initializes project directories and config
+
+Run `doctor.sh` anytime to troubleshoot issues — it provides OS-specific fix instructions.
+
 ## Installation
 
 ```bash

@@ -6,6 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
+install_err_trap
 
 # Find the source project root
 SOURCE_ROOT="$(detect_project_root)"
@@ -32,13 +33,13 @@ fi
 
 # Sync iflow-dev (primary development plugin)
 if [[ -d "${SOURCE_PLUGIN_DEV}" && -f "${SOURCE_PLUGIN_DEV}/.claude-plugin/plugin.json" ]]; then
-    rsync -a --delete "${SOURCE_PLUGIN_DEV}/" "${CACHE_PLUGIN_DEV}/"
+    rsync -a --delete "${SOURCE_PLUGIN_DEV}/" "${CACHE_PLUGIN_DEV}/" 2>/dev/null || true
 fi
 
 # Sync iflow (production plugin) if installed in cache
 if [[ -n "$CACHE_PLUGIN_PROD" && -d "$CACHE_PLUGIN_PROD" ]]; then
     if [[ -d "${SOURCE_PLUGIN_PROD}" && -f "${SOURCE_PLUGIN_PROD}/.claude-plugin/plugin.json" ]]; then
-        rsync -a --delete "${SOURCE_PLUGIN_PROD}/" "${CACHE_PLUGIN_PROD}/"
+        rsync -a --delete "${SOURCE_PLUGIN_PROD}/" "${CACHE_PLUGIN_PROD}/" 2>/dev/null || true
     fi
 fi
 
@@ -47,7 +48,7 @@ SOURCE_MARKETPLACE="${SOURCE_ROOT}/.claude-plugin/marketplace.json"
 CACHE_MARKETPLACE="$HOME/.claude/plugins/marketplaces/my-local-plugins/.claude-plugin/marketplace.json"
 
 if [[ -f "$SOURCE_MARKETPLACE" && -d "$(dirname "$CACHE_MARKETPLACE")" ]]; then
-    cp "$SOURCE_MARKETPLACE" "$CACHE_MARKETPLACE"
+    cp "$SOURCE_MARKETPLACE" "$CACHE_MARKETPLACE" 2>/dev/null || true
 fi
 
 # Output required JSON

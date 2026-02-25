@@ -38,6 +38,7 @@ These overrides take precedence over the PROHIBITED section for YOLO mode only.
   - Max 30 characters
   - Trim trailing hyphens
   - If empty, use "untitled"
+- Ensure directory exists (create if needed): `mkdir -p {iflow_artifacts_root}/brainstorms/`
 - Create file: `{iflow_artifacts_root}/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`
   - Example: `{iflow_artifacts_root}/brainstorms/20260129-143052-api-caching.prd.md`
 

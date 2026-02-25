@@ -7,6 +7,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
+install_err_trap
 PROJECT_ROOT="$(detect_project_root)"
 
 IFLOW_CONFIG="${PROJECT_ROOT}/.claude/iflow-dev.local.md"
@@ -29,6 +30,7 @@ fi
 
 # Usage limit check: count tokens from transcript
 USAGE_LIMIT=$(read_local_md_field "$IFLOW_CONFIG" "yolo_usage_limit" "0")
+[[ "$USAGE_LIMIT" =~ ^[0-9]+$ ]] || USAGE_LIMIT="0"
 if [[ "$USAGE_LIMIT" -gt 0 ]]; then
     TRANSCRIPT_PATH=$(echo "$INPUT" | python3 -c "
 import json, sys
@@ -51,6 +53,7 @@ for line in open(sys.argv[1]):
     except: pass
 print(total)
 " "$TRANSCRIPT_PATH" 2>/dev/null)
+        [[ "$TOTAL_TOKENS" =~ ^[0-9]+$ ]] || TOTAL_TOKENS="0"
         if [[ -n "$TOTAL_TOKENS" && "$TOTAL_TOKENS" -ge "$USAGE_LIMIT" ]]; then
             write_hook_state "$STATE_FILE" "yolo_paused" "true"
             write_hook_state "$STATE_FILE" "yolo_paused_at" "$(date +%s)"
@@ -155,10 +158,12 @@ write_hook_state "$STATE_FILE" "last_phase" "$LAST_COMPLETED_PHASE"
 
 # Max iterations check
 STOP_COUNT=$(read_hook_state "$STATE_FILE" "stop_count" "0")
+[[ "$STOP_COUNT" =~ ^[0-9]+$ ]] || STOP_COUNT="0"
 STOP_COUNT=$((STOP_COUNT + 1))
 write_hook_state "$STATE_FILE" "stop_count" "$STOP_COUNT"
 
 MAX_BLOCKS=$(read_local_md_field "$IFLOW_CONFIG" "yolo_max_stop_blocks" "50")
+[[ "$MAX_BLOCKS" =~ ^[0-9]+$ ]] || MAX_BLOCKS="50"
 if [[ "$STOP_COUNT" -gt "$MAX_BLOCKS" ]]; then
     exit 0
 fi

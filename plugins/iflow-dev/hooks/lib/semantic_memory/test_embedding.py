@@ -782,3 +782,13 @@ class TestCreateProvider:
         mock_voyage_cls.assert_called_once_with(
             api_key="test-key", model="voyage-3"
         )
+
+    @patch("semantic_memory.embedding.np", None)
+    def test_returns_none_when_numpy_unavailable(self):
+        """create_provider should return None when numpy is not installed."""
+        config = {
+            "memory_embedding_provider": "gemini",
+            "memory_embedding_model": "gemini-embedding-001",
+        }
+        result = create_provider(config)
+        assert result is None

@@ -5,6 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
+install_err_trap
 PROJECT_ROOT="$(detect_project_root)"
 
 # Read tool input from stdin (with timeout to prevent indefinite blocking)
@@ -89,7 +90,13 @@ has_test_files() {
     )
 
     for pattern in "${patterns[@]}"; do
-        if find "${PROJECT_ROOT}" -name "$pattern" -type f 2>/dev/null | head -1 | grep -q .; then
+        if find "${PROJECT_ROOT}" -name "$pattern" -type f \
+            -not -path "*/node_modules/*" \
+            -not -path "*/.git/*" \
+            -not -path "*/vendor/*" \
+            -not -path "*/.venv/*" \
+            -not -path "*/venv/*" \
+            2>/dev/null | head -1 | grep -q .; then
             return 0
         fi
     done

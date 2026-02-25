@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.27] - 2026-02-25
+
+### Added
+- `scripts/doctor.sh` — standalone diagnostics script with OS-aware fix instructions for troubleshooting plugin health
+- `scripts/setup.sh` — interactive installer for first-time plugin configuration (venv, embedding provider, API keys, project init)
+- ERR trap safety net (`install_err_trap`) in all hook scripts — ensures valid JSON `{}` output on uncaught errors
+- Numeric validation guards in `yolo-stop.sh` and `inject-secretary-context.sh` for corrupt state resilience
+- python3 presence check in `session-start.sh` — graceful degradation with warning instead of crash
+- mkdir instructions in entry-point skills/commands (brainstorming, create-feature, add-to-backlog, root-cause-analysis, retrospecting)
+- Missing-directory guards in read-only commands (show-status, list-features, cleanup-brainstorms)
+- Validation checks in `validate.sh` for ERR traps, mkdir guards, and setup script existence
+- Robustness tests in `test-hooks.sh` for corrupt state, missing directories, and tool failures
+
+### Fixed
+- `session-start.sh` crash when no active feature found (`find_active_feature` exit code 1 under `set -e`)
+- `sync-cache.sh` crash when rsync unavailable
+- `pre-commit-guard.sh` slow scans in large projects (excluded node_modules, .git, vendor, .venv, venv from find)
+- `embedding.py` crash when numpy not installed (conditional import with `create_provider()` early return)
+
 ## [3.0.26] - 2026-02-25
 
 ### Added

@@ -6,6 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
+install_err_trap
 PROJECT_ROOT="$(detect_project_root)"
 
 # Resolve artifacts_root from config (default: docs)
@@ -179,7 +180,7 @@ build_context() {
     local cwd
     cwd=$(pwd)
 
-    meta_file=$(find_active_feature)
+    meta_file=$(find_active_feature) || true
 
     if [[ -n "$meta_file" ]]; then
         local feature_dir
@@ -264,6 +265,12 @@ else:
         context+="\n\nNote: claude-md-management plugin not installed. Install it from claude-plugins-official marketplace for automatic CLAUDE.md updates during /finish-feature."
     fi
 
+    # First-run detection: prompt user to run setup if key components are missing
+    if [[ ! -d "$HOME/.claude/iflow/memory" ]] || [[ ! -x "${PLUGIN_ROOT}/.venv/bin/python" ]]; then
+        context+="\n\nFirst run detected — run the setup script for full functionality (semantic memory, embedding search):"
+        context+="\n  bash \"${PLUGIN_ROOT}/scripts/setup.sh\""
+    fi
+
     if [[ -z "$meta_file" ]]; then
         context+="\n\nNo active feature. Use /brainstorm to start exploring ideas, or /create-feature to skip brainstorming."
     fi
@@ -340,6 +347,19 @@ main() {
 
     # Reset plan-review gate state from previous session
     rm -f "${PROJECT_ROOT}/.claude/.plan-review-state" 2>/dev/null
+
+    # python3 is required for feature detection and memory injection
+    if ! command -v python3 &>/dev/null; then
+        cat <<EOF
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "WARNING: python3 not found. Memory injection and feature detection disabled. Install python3 to enable full functionality."
+  }
+}
+EOF
+        exit 0
+    fi
 
     local memory_context=""
     memory_context=$(build_memory_context)

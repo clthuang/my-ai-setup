@@ -133,3 +133,9 @@ write_hook_state() {
         echo "${key}=${value}" >> "$file"
     fi
 }
+
+# Install ERR trap that outputs valid JSON on uncaught errors.
+# Call immediately after sourcing common.sh in hook scripts.
+install_err_trap() {
+    trap 'echo "{}" 2>/dev/null; exit 0' ERR
+}

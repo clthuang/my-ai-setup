@@ -5,6 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
+install_err_trap
 
 # detect_project_root returns PWD if no project markers found
 PROJECT_ROOT="$(detect_project_root)"
@@ -18,8 +19,10 @@ if [ "$YOLO" = "true" ]; then
 
   if [ "$YOLO_PAUSED" = "true" ]; then
     YOLO_PAUSED_AT=$(read_hook_state "$STATE_FILE" "yolo_paused_at" "0")
+    [[ "$YOLO_PAUSED_AT" =~ ^[0-9]+$ ]] || YOLO_PAUSED_AT="0"
     USAGE_WAIT=$(read_local_md_field "$IFLOW_CONFIG" "yolo_usage_wait" "true")
     USAGE_COOLDOWN=$(read_local_md_field "$IFLOW_CONFIG" "yolo_usage_cooldown" "18000")
+    [[ "$USAGE_COOLDOWN" =~ ^[0-9]+$ ]] || USAGE_COOLDOWN="18000"
 
     if [ "$USAGE_WAIT" = "true" ]; then
       NOW=$(date +%s)
