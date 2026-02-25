@@ -5,6 +5,10 @@ description: Creates precise specifications. Use when the user says 'write the s
 
 # Specification Phase
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 Create precise, testable requirements.
 
 ## YOLO Mode Overrides
@@ -21,12 +25,12 @@ If `[YOLO_MODE]` is active:
 ## Prerequisites
 
 Check for feature context:
-- Look for feature folder in `docs/features/`
+- Look for feature folder in `{iflow_artifacts_root}/features/`
 - If not found:
   - "No active feature. Would you like to /iflow-dev:brainstorm first to explore ideas?"
   - Do NOT proceed without user confirmation
 - If found:
-  - Check for `docs/features/{id}-{slug}/prd.md`
+  - Check for `{iflow_artifacts_root}/features/{id}-{slug}/prd.md`
   - If `prd.md` exists: Read for context, use as input for spec
   - If `prd.md` not found:
     ```
@@ -46,7 +50,7 @@ Check for feature context:
 
 ## Read Feature Context
 
-1. Find active feature folder in `docs/features/`
+1. Find active feature folder in `{iflow_artifacts_root}/features/`
 2. Read `.meta.json` for mode and context
 3. Adjust behavior based on mode:
    - Standard: Full process with optional verification
@@ -110,7 +114,7 @@ Check for feature context:
 
 ## Output: spec.md
 
-Write to `docs/features/{id}-{slug}/spec.md`:
+Write to `{iflow_artifacts_root}/features/{id}-{slug}/spec.md`:
 
 ```markdown
 # Specification: {Feature Name}

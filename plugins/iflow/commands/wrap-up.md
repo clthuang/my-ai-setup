@@ -7,15 +7,20 @@ argument-hint: ""
 
 Wrap up the current implementation with code review, retrospective, and merge/PR. This command is for work done outside the iflow feature workflow (e.g., after plan mode).
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_base_branch}` — base branch for merges (default: `main`)
+- `{iflow_release_script}` — path to release script (empty if not configured)
+
 ## YOLO Mode Overrides
 
 If `[YOLO_MODE]` is active:
 - Step 2a (tasks incomplete) → auto "Continue anyway"
 - Step 2b (docs no update needed) → auto "Skip"
 - Step 2b (docs updates found) → proceed with documentation-writer (no prompt needed)
-- Phase 4 (completion decision) → auto "Merge & Release (Recommended)"
+- Phase 4 (completion decision) → auto "Merge & Release (Recommended)" (or "Merge (Recommended)" if `{iflow_release_script}` is not configured)
 - **Git merge failure:** STOP and report. Do NOT attempt to resolve merge conflicts
-  autonomously. Output: "YOLO MODE STOPPED: Merge conflict on develop. Resolve manually."
+  autonomously. Output: "YOLO MODE STOPPED: Merge conflict on {iflow_base_branch}. Resolve manually."
 
 ---
 
@@ -205,13 +210,17 @@ Capture session learnings into project CLAUDE.md.
 
 ## Phase 4: Completion Decision
 
+The option labels depend on whether `{iflow_release_script}` is configured:
+
 ```
 AskUserQuestion:
   questions: [{
     "question": "Work complete. How would you like to finish?",
     "header": "Finish",
     "options": [
-      {"label": "Merge & Release (Recommended)", "description": "Merge to develop and run release script"},
+      {"label": "Merge & Release (Recommended)", "description": "Merge to {iflow_base_branch} and run release script"},
+      // ↑ Use "Merge (Recommended)" and description "Merge to {iflow_base_branch}"
+      //   if {iflow_release_script} is not configured
       {"label": "Create PR", "description": "Open pull request for team review"}
     ],
     "multiSelect": false
@@ -275,20 +284,23 @@ gh pr create --title "{Brief summary from commits}" --body "## Summary
 Output: "PR created: {url}"
 → Continue to Phase 6
 
-### If "Merge & Release":
+### If "Merge & Release" (or "Merge"):
 
 ```bash
-# Merge to develop
-git checkout develop
-git pull origin develop
+# Merge to base branch
+git checkout {iflow_base_branch}
+git pull origin {iflow_base_branch}
 git merge {current-branch}
 git push
-
-# Run release script
-./scripts/release.sh --ci
 ```
 
-Output: "Merged to develop. Release: v{version}"
+If `{iflow_release_script}` is set and the file exists at that path, run it:
+```bash
+{iflow_release_script}
+```
+Otherwise, skip the release step and output "No release script configured."
+
+Output: "Merged to {iflow_base_branch}." followed by "Release: v{version}" if release script ran, or "No release script configured." if not.
 → Continue to Phase 6
 
 ---
@@ -298,7 +310,7 @@ Output: "Merged to develop. Release: v{version}"
 ### Step 6a: Branch Cleanup
 
 Determine current branch:
-- If on `develop` or `main`: No branch cleanup needed
+- If on `{iflow_base_branch}` or `main`: No branch cleanup needed
 - If on a feature/topic branch:
   - After PR: Branch will be deleted when PR merged via GitHub
   - After Merge & Release: `git branch -d {branch-name}`

@@ -13,6 +13,7 @@ Claude Code plugin providing a structured feature development workflow—skills,
 - **Retro before cleanup** - Retrospective runs BEFORE branch deletion so context is still available.
 - **Edit *-dev plugins only** - Never edit `plugins/iflow/` directly. Make changes in `plugins/iflow-dev/`, then run release script to sync.
 - **Plugin portability** - Never use hardcoded `plugins/iflow-dev/` paths in agent, skill, or command files. Use two-location Glob: primary `~/.claude/plugins/cache/*/iflow*/*/...`, fallback `plugins/*/...` (dev workspace). Mark fallback lines with "Fallback" or "dev workspace" so `validate.sh` can distinguish them from violations.
+- **Project-aware design** - iflow is used across multiple projects. Paths resolution, configs, and state must be relative to the current project context — never assume a specific project root. The only global feature is the knowledge bank DB (`~/.claude/iflow/memory/`), which accumulates learnings across all projects.
 
 ## Working Standards
 
@@ -111,6 +112,14 @@ bash plugins/iflow-dev/hooks/tests/test-hooks.sh
 A hookify rule (`.claude/hookify.docs-sync.local.md`) will remind you on plugin component edits.
 
 **Agent model tiers:** Every `subagent_type:` dispatch must include `model:` (opus/sonnet/haiku) matching the agent's frontmatter. Verify with: `grep -rn 'subagent_type:' plugins/iflow-dev/ | wc -l` and confirm each has a nearby `model:` line.
+
+**Project-aware config:** `.claude/iflow-dev.local.md` fields injected at session start:
+- `artifacts_root` (default: `docs`) — root directory for features, brainstorms, projects, knowledge-bank
+- `base_branch` (default: `auto` — detects from remote HEAD, falls back to `main`) — merge target branch
+- `release_script` (default: empty) — path to release script, conditional execution
+- `backfill_scan_dirs` (default: empty) — comma-separated dirs to scan for knowledge banks
+
+Skills/commands reference these as `{iflow_artifacts_root}`, `{iflow_base_branch}`, `{iflow_release_script}`.
 
 **Agent concurrency:** `max_concurrent_agents` in `.claude/iflow-dev.local.md` controls max parallel Task dispatches (default: 5). Skills and commands batch accordingly.
 

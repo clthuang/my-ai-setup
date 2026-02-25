@@ -725,6 +725,93 @@ class TestCollectContextProjectDescription:
         assert "workflow system" in context
 
 
+class TestCollectContextCustomArtifactsRoot:
+    """collect_context with custom artifacts_root config."""
+
+    def test_finds_feature_under_custom_root(self, tmp_path):
+        """Should find active feature under custom artifacts_root."""
+        feature_dir = tmp_path / "custom-docs" / "features" / "024-test-feature"
+        feature_dir.mkdir(parents=True)
+
+        meta = {
+            "slug": "test-feature",
+            "status": "active",
+            "lastCompletedPhase": "design",
+        }
+        (feature_dir / ".meta.json").write_text(json.dumps(meta))
+        (feature_dir / "spec.md").write_text("# Test\n\nCustom root feature.")
+
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(
+            db=db, provider=None, config={"artifacts_root": "custom-docs"}
+        )
+
+        with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+            mock_result = mock.Mock()
+            mock_result.returncode = 0
+            mock_result.stdout = ""
+            mock_subprocess.run.return_value = mock_result
+
+            context = pipeline.collect_context(str(tmp_path))
+
+        assert context is not None
+        assert "test-feature" in context
+
+    def test_ignores_default_docs_with_custom_root(self, tmp_path):
+        """With custom artifacts_root, features under docs/ are not found."""
+        # Feature under default docs/ (should be ignored)
+        feature_dir = tmp_path / "docs" / "features" / "024-default-feature"
+        feature_dir.mkdir(parents=True)
+        (feature_dir / ".meta.json").write_text(json.dumps({
+            "slug": "default-feature",
+            "status": "active",
+            "lastCompletedPhase": "design",
+        }))
+        (feature_dir / "spec.md").write_text("# Default\n\nShould be ignored.")
+
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(
+            db=db, provider=None, config={"artifacts_root": "custom-docs"}
+        )
+
+        with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+            mock_result = mock.Mock()
+            mock_result.returncode = 0
+            mock_result.stdout = ""
+            mock_subprocess.run.return_value = mock_result
+
+            context = pipeline.collect_context(str(tmp_path))
+
+        # No feature found under custom-docs, and git diff is empty
+        assert context is None or "default-feature" not in context
+
+    def test_custom_base_branch_skipped_in_context(self, tmp_path):
+        """Custom base_branch should be added to skip set for branch filtering."""
+        db = MockDatabase()
+        pipeline = RetrievalPipeline(
+            db=db, provider=None,
+            config={"base_branch": "release"}
+        )
+
+        with mock.patch("semantic_memory.retrieval.subprocess") as mock_subprocess:
+            def mock_run(cmd, **kwargs):
+                result = mock.Mock()
+                if "rev-parse" in cmd:
+                    result.returncode = 0
+                    result.stdout = "release"
+                else:
+                    result.returncode = 0
+                    result.stdout = "file.py"
+                return result
+
+            mock_subprocess.run.side_effect = mock_run
+
+            context = pipeline.collect_context(str(tmp_path))
+
+        assert context is not None
+        assert "Branch:" not in context  # "release" should be skipped
+
+
 class TestCollectContextWordLimit:
     """collect_context respects the 100-word limit for spec description."""
 

@@ -7,9 +7,14 @@ description: Runs data-driven AORTA retrospective using retro-facilitator agent 
 
 Data-driven AORTA retrospective using retro-facilitator agent.
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+- `{iflow_base_branch}` — base branch for merges (default: `main`)
+
 ## Read Feature Context
 
-1. Find active feature folder in `docs/features/`
+1. Find active feature folder in `{iflow_artifacts_root}/features/`
 2. Read `.meta.json` for mode and context
 
 ## Process
@@ -34,10 +39,10 @@ Read and collect all intermediate data:
 
 **d. Git Summary** — Run via Bash:
 ```bash
-git log --oneline develop..HEAD | wc -l
+git log --oneline {iflow_base_branch}..HEAD | wc -l
 ```
 ```bash
-git diff --stat develop..HEAD
+git diff --stat {iflow_base_branch}..HEAD
 ```
 
 **e. Artifact Stats** — Read and count lines for each artifact:
@@ -96,7 +101,7 @@ Task tool call:
     Gather retrospective data for feature {id}-{slug}.
 
     Read:
-    - Feature folder contents (docs/features/{id}-{slug}/)
+    - Feature folder contents ({iflow_artifacts_root}/features/{id}-{slug}/)
     - Git log for this branch
     - .review-history.md if exists
 
@@ -136,7 +141,7 @@ Skip Step 4b (validation of pre-existing entries) during fallback.
 
 ### Step 3: Write retro.md
 
-Write `docs/features/{id}-{slug}/retro.md` using the `retro_md` field from the retro-facilitator agent response.
+Write `{iflow_artifacts_root}/features/{id}-{slug}/retro.md` using the `retro_md` field from the retro-facilitator agent response.
 
 The retro_md follows the AORTA format:
 
@@ -183,11 +188,11 @@ The retro_md follows the AORTA format:
 From the `act` section of the agent response, append entries to knowledge bank files:
 
 1. For each pattern in `act.patterns`:
-   - Append to `docs/knowledge-bank/patterns.md`
+   - Append to `{iflow_artifacts_root}/knowledge-bank/patterns.md`
 2. For each anti-pattern in `act.anti_patterns`:
-   - Append to `docs/knowledge-bank/anti-patterns.md`
+   - Append to `{iflow_artifacts_root}/knowledge-bank/anti-patterns.md`
 3. For each heuristic in `act.heuristics`:
-   - Append to `docs/knowledge-bank/heuristics.md`
+   - Append to `{iflow_artifacts_root}/knowledge-bank/heuristics.md`
 
 Each entry format:
 ```markdown
@@ -242,7 +247,7 @@ If `memory_semantic_enabled` is `false`: skip this step entirely.
 
 Performed by the orchestrating agent inline (not a sub-agent dispatch). Only validates `anti-patterns.md` and `heuristics.md` (not `patterns.md`).
 
-**a. Read all entries** from `docs/knowledge-bank/anti-patterns.md` and `docs/knowledge-bank/heuristics.md` (~15 entries total).
+**a. Read all entries** from `{iflow_artifacts_root}/knowledge-bank/anti-patterns.md` and `{iflow_artifacts_root}/knowledge-bank/heuristics.md` (~15 entries total).
 
 **b. Identify pre-existing entries** — exclude entries just added in Step 4 by comparing entry names against the retro-facilitator's `act.anti_patterns` and `act.heuristics` output. Only pre-existing entries proceed to validation.
 
@@ -260,7 +265,7 @@ Performed by the orchestrating agent inline (not a sub-agent dispatch). Only val
 **e. Staleness check** (mechanical, not LLM-judgment):
 
 1. For each pre-existing entry, extract the feature number NNN from `Last observed: Feature #{NNN}`
-2. Glob `docs/features/` directories, extract numeric prefix (pattern: `/^(\d+)-/`), count directories with numeric ID > NNN
+2. Glob `{iflow_artifacts_root}/features/` directories, extract numeric prefix (pattern: `/^(\d+)-/`), count directories with numeric ID > NNN
 3. If count >= 10: flag entry as STALE
 4. Surface all stale entries to user via AskUserQuestion:
    ```
@@ -303,7 +308,7 @@ For each NEW entry written in Step 4 (not pre-existing entries from 4b):
 ### Step 5: Commit
 
 ```bash
-git add docs/features/{id}-{slug}/retro.md docs/knowledge-bank/
+git add {iflow_artifacts_root}/features/{id}-{slug}/retro.md {iflow_artifacts_root}/knowledge-bank/
 git commit -m "docs: AORTA retrospective for feature {id}-{slug}"
 git push
 ```

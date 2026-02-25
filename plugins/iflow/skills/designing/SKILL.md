@@ -5,6 +5,10 @@ description: Creates design.md with architecture and contracts. Use when the use
 
 # Design Phase
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 Design the technical architecture.
 
 ## Prerequisites
@@ -14,7 +18,7 @@ Design the technical architecture.
 
 ## Read Feature Context
 
-1. Find active feature folder in `docs/features/`
+1. Find active feature folder in `{iflow_artifacts_root}/features/`
 2. Read `.meta.json` for mode and context
 3. Adjust behavior based on mode:
    - Standard: Full process with optional verification
@@ -77,7 +81,7 @@ For significant choices:
 
 ## Output: design.md
 
-Write to `docs/features/{id}-{slug}/design.md`:
+Write to `{iflow_artifacts_root}/features/{id}-{slug}/design.md`:
 
 ```markdown
 # Design: {Feature Name}

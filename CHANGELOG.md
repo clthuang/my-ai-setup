@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.26] - 2026-02-25
+
+### Added
+- Project-aware config fields: `artifacts_root`, `base_branch`, `release_script`, `backfill_scan_dirs` in `.claude/iflow-dev.local.md`
+- Auto-detection of base branch from `git symbolic-ref refs/remotes/origin/HEAD` with `main` fallback
+- Session context injection: `iflow_artifacts_root`, `iflow_base_branch`, `iflow_release_script` available to all skills and commands
+- Strategy-based documentation drift detection: plugin, API, CLI, and general project types each get appropriate checks
+- Config auto-provisioning guard: config file only created when `.claude/` directory already exists
+
+### Changed
+- All skills, commands, and agents now use `{iflow_artifacts_root}` instead of hardcoded `docs/` paths
+- All merge/branch operations now use `{iflow_base_branch}` instead of hardcoded `develop`
+- Release script invocation now conditional on `{iflow_release_script}` config
+- `detect_project_root()` simplified to use only `.git/` as project marker (removed `docs/features/` check)
+- `sync-cache.sh` exits gracefully when plugin not found (no more stale fallback path)
+- Backfill scan directories now configurable via `backfill_scan_dirs` config field
+
+### Fixed
+- Plugin could create unwanted `docs/features/` directories in non-iflow projects
+- Config file auto-provisioned even in projects without `.claude/` directory
+
 ## [3.0.25] - 2026-02-25
 
 ### Added

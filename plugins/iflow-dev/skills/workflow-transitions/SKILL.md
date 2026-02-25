@@ -5,6 +5,10 @@ description: Shared workflow boilerplate for phase commands. Use when a command 
 
 # Workflow Transitions
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 Shared procedures used by all phase commands (specify, design, create-plan, create-tasks, implement, finish). Commands reference these procedures instead of inlining identical boilerplate.
 
 ## YOLO Mode Overrides
@@ -118,12 +122,12 @@ If feature `.meta.json` has no `project_id` (null or absent): skip Step 5 entire
 
 If `project_id` is present:
 
-1. Resolve project directory: glob `docs/projects/{project_id}-*/`
+1. Resolve project directory: glob `{iflow_artifacts_root}/projects/{project_id}-*/`
 2. If directory not found: warn "Project artifacts missing for {project_id}, proceeding without project context" → skip remaining sub-steps
 3. Read `{project_dir}/prd.md` → store as `project_prd`
 4. Read `{project_dir}/roadmap.md` → store as `project_roadmap` (if not found: warn, set empty)
 5. For each `feature_ref` in `depends_on_features`:
-   a. Resolve feature directory: glob `docs/features/{feature_ref}/`
+   a. Resolve feature directory: glob `{iflow_artifacts_root}/features/{feature_ref}/`
    b. Read feature `.meta.json`, check `status == "completed"`
    c. If completed: read `spec.md` and `design.md`
    d. Store as `dependency_context[]`
@@ -154,7 +158,7 @@ Execute after phase work and reviews are done.
 ### Step 1: Auto-Commit
 
 ```bash
-git add {artifacts joined by space} docs/features/{id}-{slug}/.meta.json docs/features/{id}-{slug}/.review-history.md
+git add {artifacts joined by space} {iflow_artifacts_root}/features/{id}-{slug}/.meta.json {iflow_artifacts_root}/features/{id}-{slug}/.review-history.md
 git commit -m "phase({phaseName}): {slug} - approved"
 git push
 ```

@@ -5,6 +5,10 @@ argument-hint: <feature-description> [--prd=<path>]
 
 # /iflow-dev:create-feature Command
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 **Alternative entry point** for feature development. Use when you want to skip brainstorming.
 
 Recommended flow: `/iflow-dev:brainstorm` → (promotion) → `/iflow-dev:specify` → ...
@@ -21,7 +25,7 @@ If `[YOLO_MODE]` is active:
 
 Before creating, check if a feature is already active:
 
-1. Look in `docs/features/` for folders with `.meta.json` where `status: "active"`
+1. Look in `{iflow_artifacts_root}/features/` for folders with `.meta.json` where `status: "active"`
 2. If found:
    ```
    AskUserQuestion:
@@ -41,7 +45,7 @@ Before creating, check if a feature is already active:
 ## Gather Information
 
 1. **Get feature description** from argument or ask user
-2. **Determine feature ID**: Find highest number in `docs/features/` and add 1
+2. **Determine feature ID**: Find highest number in `{iflow_artifacts_root}/features/` and add 1
 3. **Create slug** from description (lowercase, hyphens, max 30 chars)
 
 ## Suggest Workflow Mode
@@ -73,7 +77,7 @@ Note: If "Full" indicators are detected in the description, swap the recommended
 
 ### For All Modes
 
-1. Create folder: `docs/features/{id}-{slug}/`
+1. Create folder: `{iflow_artifacts_root}/features/{id}-{slug}/`
 2. Create feature branch:
    ```bash
    git checkout -b feature/{id}-{slug}
@@ -89,7 +93,7 @@ Note: If "Full" indicators are detected in the description, swap the recommended
 
 ## Create Metadata File
 
-Write to `docs/features/{id}-{slug}/.meta.json`:
+Write to `{iflow_artifacts_root}/features/{id}-{slug}/.meta.json`:
 
 ```json
 {
@@ -114,7 +118,7 @@ Notes:
 
 If `--prd` argument provided (promotion from brainstorm):
 
-1. Copy the PRD file: `{prd-path}` → `docs/features/{id}-{slug}/prd.md`
+1. Copy the PRD file: `{prd-path}` → `{iflow_artifacts_root}/features/{id}-{slug}/prd.md`
 2. **Verify copy succeeded:** Confirm destination file exists and is non-empty
 3. If verification fails: Output error and STOP
 4. Add to `.meta.json`: `"brainstorm_source": "{prd-path}"`
@@ -131,13 +135,13 @@ If feature was promoted from a brainstorm that originated from a backlog item:
 2. **Parse for backlog source** using pattern `\*Source: Backlog #(\d{5})\*`
 3. **If found:**
    - Add `"backlog_source": "{id}"` to `.meta.json`
-   - Read `docs/backlog.md`
+   - Read `{iflow_artifacts_root}/backlog.md`
    - Find row matching `| {id} |`
    - Remove that row
    - Write updated backlog
    - Display: `Linked from backlog item #{id} (removed from backlog)`
 4. **If pattern not found:** No action, continue normally
-5. **If ID found but row missing:** Display warning `⚠️ Backlog item #{id} not found in docs/backlog.md`, continue with feature creation
+5. **If ID found but row missing:** Display warning `⚠️ Backlog item #{id} not found in {iflow_artifacts_root}/backlog.md`, continue with feature creation
 
 ## State Tracking
 
@@ -154,7 +158,7 @@ Apply the detecting-kanban skill:
 ```
 ✓ Feature {id}-{slug} created
   Mode: {mode}
-  Folder: docs/features/{id}-{slug}/
+  Folder: {iflow_artifacts_root}/features/{id}-{slug}/
   Branch: feature/{id}-{slug}
   PRD: Copied from brainstorm
   Linked from: Backlog #{backlog_id} (removed)  ← only if backlog source found
@@ -164,7 +168,7 @@ Apply the detecting-kanban skill:
 ```
 ✓ Feature {id}-{slug} created
   Mode: {mode}
-  Folder: docs/features/{id}-{slug}/
+  Folder: {iflow_artifacts_root}/features/{id}-{slug}/
   Branch: feature/{id}-{slug}
   Linked from: Backlog #{backlog_id} (removed)  ← only if backlog source found
 

@@ -4,11 +4,15 @@ description: List all active features and their branches
 
 # /iflow:list-features Command
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 List all active features.
 
 ## Gather Features
 
-1. **Scan docs/features/** for feature folders
+1. **Scan {iflow_artifacts_root}/features/** for feature folders
 2. **Read .meta.json** from each to get branch info
 3. **Determine status** from artifacts and metadata. Include features with `status: "planned"` in addition to active features.
 

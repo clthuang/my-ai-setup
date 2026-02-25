@@ -5,6 +5,10 @@ description: Guides a 6-stage process producing evidence-backed PRDs. Use when t
 
 # Brainstorming Phase
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 Guide divergent thinking through a structured 6-stage process that produces a PRD.
 
 ## YOLO Mode Overrides
@@ -34,8 +38,8 @@ These overrides take precedence over the PROHIBITED section for YOLO mode only.
   - Max 30 characters
   - Trim trailing hyphens
   - If empty, use "untitled"
-- Create file: `docs/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`
-  - Example: `docs/brainstorms/20260129-143052-api-caching.prd.md`
+- Create file: `{iflow_artifacts_root}/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`
+  - Example: `{iflow_artifacts_root}/brainstorms/20260129-143052-api-caching.prd.md`
 
 ### 2. Run 6-Stage Process
 

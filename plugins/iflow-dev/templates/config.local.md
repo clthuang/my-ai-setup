@@ -1,4 +1,10 @@
 ---
+# Project
+artifacts_root: docs
+base_branch: auto
+release_script:
+backfill_scan_dirs:
+
 # Workflow
 yolo_mode: false
 yolo_max_stop_blocks: 50

@@ -653,6 +653,50 @@ else
     log_error "Found $hardcoded_path_errors hardcoded plugin path(s) — use two-location Glob or base directory derivation instead"
 fi
 
+# Check for hardcoded artifact paths in component files
+echo "Checking Artifact Path Portability..."
+artifact_path_errors=0
+# Patterns that should use {iflow_artifacts_root} instead of hardcoded docs/
+artifact_patterns='docs/features/\|docs/brainstorms/\|docs/projects/\|docs/knowledge-bank/\|docs/backlog\|docs/rca/'
+while IFS= read -r md_file; do
+    [ -z "$md_file" ] && continue
+    while IFS= read -r match_line; do
+        [ -z "$match_line" ] && continue
+        # Skip lines that already use the config variable or are in Config Variables section
+        if echo "$match_line" | grep -q 'iflow_artifacts_root\|Config Variables'; then
+            continue
+        fi
+        log_error "$md_file: Hardcoded artifact path: $(echo "$match_line" | sed 's/^[[:space:]]*//' | head -c 120)"
+        ((artifact_path_errors++)) || true
+    done < <(grep -n "$artifact_patterns" "$md_file" 2>/dev/null || true)
+done < <(find ./plugins/iflow-dev/skills -name "SKILL.md" -type f 2>/dev/null; find ./plugins/iflow-dev/commands -name "*.md" -type f 2>/dev/null; find ./plugins/iflow-dev/agents -name "*.md" -type f 2>/dev/null)
+if [ $artifact_path_errors -eq 0 ]; then
+    log_success "No hardcoded artifact paths in component files"
+else
+    log_error "Found $artifact_path_errors hardcoded artifact path(s) — use {iflow_artifacts_root} instead"
+fi
+
+# Check for hardcoded branch targets in component files
+branch_target_errors=0
+branch_patterns='checkout develop\|pull.*origin.*develop\|merge.*develop\|develop\.\.HEAD\|develop\.\.\.'
+while IFS= read -r md_file; do
+    [ -z "$md_file" ] && continue
+    while IFS= read -r match_line; do
+        [ -z "$match_line" ] && continue
+        if echo "$match_line" | grep -q 'iflow_base_branch\|Config Variables'; then
+            continue
+        fi
+        log_error "$md_file: Hardcoded branch target: $(echo "$match_line" | sed 's/^[[:space:]]*//' | head -c 120)"
+        ((branch_target_errors++)) || true
+    done < <(grep -n "$branch_patterns" "$md_file" 2>/dev/null || true)
+done < <(find ./plugins/iflow-dev/skills -name "SKILL.md" -type f 2>/dev/null; find ./plugins/iflow-dev/commands -name "*.md" -type f 2>/dev/null)
+if [ $branch_target_errors -eq 0 ]; then
+    log_success "No hardcoded branch targets in component files"
+else
+    log_error "Found $branch_target_errors hardcoded branch target(s) — use {iflow_base_branch} instead"
+fi
+echo ""
+
 # Check for @plugins/ includes in command files
 at_include_errors=0
 while IFS= read -r cmd_file; do

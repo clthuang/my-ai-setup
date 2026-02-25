@@ -5,6 +5,10 @@ argument-hint: <task description>
 
 # /iflow:create-specialist-team Command
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 Create and deploy a team of specialists for a complex task.
 
 ## No Arguments
@@ -100,7 +104,7 @@ For each selected template:
    - Limit context to most relevant 10-15 files
 
 3. Gather workflow context:
-   - Glob for `docs/features/*/.meta.json`
+   - Glob for `{iflow_artifacts_root}/features/*/.meta.json`
    - Find the active feature (`"status": "active"`)
      - If multiple active features: use highest ID number, log warning
    - If found: extract id, slug, lastCompletedPhase, mode; determine next phase
@@ -113,7 +117,7 @@ For each selected template:
      Current phase: {lastCompletedPhase}
      Next phase: {next phase}
      Artifacts: {comma-separated existing artifacts}
-     Directory: docs/features/{id}-{slug}/
+     Directory: {iflow_artifacts_root}/features/{id}-{slug}/
      ```
    - If no active feature: "No active feature workflow. Specialist output is standalone."
    - If gathering fails (Glob error, malformed JSON): "Workflow context unavailable."
@@ -171,7 +175,7 @@ After all specialists complete:
 
 3. **Assess workflow routing** — determine which workflow phase matches the specialist outputs:
 
-   Read active feature state (Glob `docs/features/*/.meta.json`, find `"status": "active"`).
+   Read active feature state (Glob `{iflow_artifacts_root}/features/*/.meta.json`, find `"status": "active"`).
 
    **Phase-to-command mapping** (use phase names for sequence comparisons; command names only at dispatch time):
 

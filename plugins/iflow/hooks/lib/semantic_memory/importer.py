@@ -35,14 +35,15 @@ class MarkdownImporter:
         The MemoryDatabase instance to upsert entries into.
     """
 
-    def __init__(self, db: MemoryDatabase) -> None:
+    def __init__(self, db: MemoryDatabase, artifacts_root: str = "docs") -> None:
         self._db = db
+        self._artifacts_root = artifacts_root
 
     def import_all(self, project_root: str, global_store: str) -> dict:
         """Import entries from local and global knowledge bank files.
 
-        Scans ``{project_root}/docs/knowledge-bank/*.md`` (local) and
-        ``{global_store}/*.md`` (global) for each known category file.
+        Scans ``{project_root}/{artifacts_root}/knowledge-bank/*.md`` (local)
+        and ``{global_store}/*.md`` (global) for each known category file.
 
         Returns ``{"imported": N, "skipped": N}`` where *imported* counts
         entries actually upserted and *skipped* counts hash-matched entries.
@@ -51,7 +52,7 @@ class MarkdownImporter:
         imported = 0
         skipped = 0
 
-        local_kb = os.path.join(project_root, "docs", "knowledge-bank")
+        local_kb = os.path.join(project_root, self._artifacts_root, "knowledge-bank")
         for filename, category in CATEGORIES:
             filepath = os.path.join(local_kb, filename)
             entries = self._parse_markdown_entries(filepath, category)

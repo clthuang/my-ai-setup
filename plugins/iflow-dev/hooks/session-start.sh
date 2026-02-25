@@ -8,9 +8,40 @@ PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 PROJECT_ROOT="$(detect_project_root)"
 
+# Resolve artifacts_root from config (default: docs)
+resolve_artifacts_root() {
+    local config_file="${PROJECT_ROOT}/.claude/iflow-dev.local.md"
+    read_local_md_field "$config_file" "artifacts_root" "docs"
+}
+
+# Resolve base branch: explicit config > git symbolic-ref > main
+resolve_base_branch() {
+    local config_file="${PROJECT_ROOT}/.claude/iflow-dev.local.md"
+    local configured
+    configured=$(read_local_md_field "$config_file" "base_branch" "auto")
+
+    if [[ "$configured" != "auto" && -n "$configured" ]]; then
+        echo "$configured"
+        return
+    fi
+
+    # Auto-detect from remote HEAD
+    local remote_head
+    remote_head=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||') || true
+    if [[ -n "$remote_head" ]]; then
+        echo "$remote_head"
+        return
+    fi
+
+    # Fallback
+    echo "main"
+}
+
 # Find active feature (most recently modified .meta.json with status=active)
 find_active_feature() {
-    local features_dir="${PROJECT_ROOT}/docs/features"
+    local artifacts_root
+    artifacts_root=$(resolve_artifacts_root)
+    local features_dir="${PROJECT_ROOT}/${artifacts_root}/features"
 
     if [[ ! -d "$features_dir" ]]; then
         return 1
@@ -174,15 +205,17 @@ build_context() {
             # Show project affiliation if present
             if [[ -n "$project_id" ]]; then
                 local project_slug
+                local artifacts_root_val
+                artifacts_root_val=$(resolve_artifacts_root)
                 project_slug=$(python3 -c "
 import os, json, glob, sys
-dirs = glob.glob(os.path.join(sys.argv[1], 'docs/projects', sys.argv[2] + '-*/'))
+dirs = glob.glob(os.path.join(sys.argv[1], sys.argv[3], 'projects', sys.argv[2] + '-*/'))
 if dirs:
     with open(os.path.join(dirs[0], '.meta.json')) as f:
         print(json.load(f).get('slug', 'unknown'))
 else:
     print('unknown')
-" "$PROJECT_ROOT" "$project_id" 2>/dev/null)
+" "$PROJECT_ROOT" "$project_id" "$artifacts_root_val" 2>/dev/null)
                 context+="Project: ${project_id}-${project_slug}\n"
             fi
 
@@ -215,6 +248,16 @@ else:
     context+="\nmax_concurrent_agents: ${max_agents}"
 
     context+="\niflow_plugin_root: ${PLUGIN_ROOT}"
+
+    local artifacts_root_ctx base_branch_ctx release_script_ctx
+    artifacts_root_ctx=$(resolve_artifacts_root)
+    context+="\niflow_artifacts_root: ${artifacts_root_ctx}"
+    base_branch_ctx=$(resolve_base_branch)
+    context+="\niflow_base_branch: ${base_branch_ctx}"
+    release_script_ctx=$(read_local_md_field "$PROJECT_ROOT/.claude/iflow-dev.local.md" "release_script" "")
+    if [[ -n "$release_script_ctx" ]]; then
+        context+="\niflow_release_script: ${release_script_ctx}"
+    fi
 
     # Check optional dependency
     if ! check_claude_md_plugin; then
@@ -288,14 +331,11 @@ build_memory_context() {
 
 # Main
 main() {
-    # Auto-provision config from template if missing
+    # Auto-provision config from template if missing (only if .claude/ already exists)
     local config_file="${PROJECT_ROOT}/.claude/iflow-dev.local.md"
-    if [[ ! -f "$config_file" ]]; then
+    if [[ ! -f "$config_file" && -d "${PROJECT_ROOT}/.claude" ]]; then
         local template="${PLUGIN_ROOT}/templates/config.local.md"
-        if [[ -f "$template" ]]; then
-            mkdir -p "$(dirname "$config_file")"
-            cp "$template" "$config_file"
-        fi
+        [[ -f "$template" ]] && cp "$template" "$config_file"
     fi
 
     # Reset plan-review gate state from previous session

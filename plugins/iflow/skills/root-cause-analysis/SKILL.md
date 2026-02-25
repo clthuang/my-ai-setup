@@ -5,6 +5,10 @@ description: "Use when user says 'run RCA', 'thorough investigation', 'find ALL 
 
 # Root Cause Analysis
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 A structured 6-phase process for finding ALL contributing causes, not just the first one.
 
 ## Process Overview
@@ -91,7 +95,7 @@ Synthesize findings into root cause determination.
 Generate formal RCA report and offer workflow handoff.
 
 - **Actions:** Generate RCA report, offer handoff to /create-feature
-- **Output:** `docs/rca/{YYYYMMDD}-{HHMMSS}-{slug}.md`
+- **Output:** `{iflow_artifacts_root}/rca/{YYYYMMDD}-{HHMMSS}-{slug}.md`
 - **Reference:** [RCA Report Template](references/rca-report-template.md)
 
 Report must include:
@@ -107,7 +111,7 @@ Report must include:
 
 - **MUST** reproduce before analyzing (or document failed attempts)
 - **MUST** explore at least 3 hypothesis paths
-- **MUST NOT** modify production code (agent_sandbox/ and docs/rca/ only)
+- **MUST NOT** modify production code (agent_sandbox/ and {iflow_artifacts_root}/rca/ only)
 - **MUST NOT** propose fixes (report causes only, fixing is a separate step)
 
 ## Related Resources

@@ -13,6 +13,10 @@ import os
 import re
 
 DEFAULTS: dict[str, bool | int | float | str] = {
+    "artifacts_root": "docs",
+    "base_branch": "auto",
+    "release_script": "",
+    "backfill_scan_dirs": "",
     "activation_mode": "manual",
     "memory_semantic_enabled": True,
     "memory_vector_weight": 0.5,

@@ -5,6 +5,10 @@ argument-hint: <bug description or test failure>
 
 # Root Cause Analysis Command
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 Invoke the root-cause-analysis skill and dispatch the rca-investigator agent.
 
 ## Get Bug Description
@@ -49,7 +53,7 @@ Task tool call:
 
     {bug description from $ARGUMENTS or user input}
 
-    Follow the 6-phase RCA process. Generate a report at docs/rca/.
+    Follow the 6-phase RCA process. Generate a report at {iflow_artifacts_root}/rca/.
 ```
 
 ## Capture Learnings (REQUIRED)
@@ -58,7 +62,7 @@ You MUST capture learnings before presenting handoff options. This is not option
 
 ### Extract and Persist
 
-1. Glob `docs/rca/*.md` and read the most recently modified report
+1. Glob `{iflow_artifacts_root}/rca/*.md` and read the most recently modified report
 2. For each **root cause** (primary + contributing factors):
    - Call `store_memory` with:
      - `name`: concise title (max 60 chars)

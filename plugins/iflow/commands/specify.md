@@ -5,6 +5,10 @@ argument-hint: [--feature=<id-slug>]
 
 Invoke the specifying skill for the current feature context.
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 ## YOLO Mode Overrides
 
 If `[YOLO_MODE]` is active:
@@ -14,12 +18,12 @@ If `[YOLO_MODE]` is active:
 ## Determine Target Feature
 
 **If `--feature` argument provided:**
-- Use `docs/features/{feature}/` directly
+- Use `{iflow_artifacts_root}/features/{feature}/` directly
 - If folder doesn't exist: Error "Feature {feature} not found"
 - If `.meta.json` missing: Error "Feature {feature} has no metadata"
 
 **If no argument:**
-1. Scan `docs/features/` for folders with `.meta.json` where `status="active"`
+1. Scan `{iflow_artifacts_root}/features/` for folders with `.meta.json` where `status="active"`
 2. If none found: "No active feature found. Would you like to /iflow:brainstorm to explore ideas first?"
 3. If one found: Use that feature
 4. If multiple found:

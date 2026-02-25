@@ -7,9 +7,13 @@ description: Automatically updates documentation using agents. Use when the user
 
 Automatic documentation updates using documentation-researcher and documentation-writer agents.
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 ## Prerequisites
 
-- Feature folder in `docs/features/` with spec.md for context
+- Feature folder in `{iflow_artifacts_root}/features/` with spec.md for context
 - This skill is invoked automatically from `/iflow-dev:finish-feature`
 
 ## Process
@@ -32,7 +36,7 @@ Task tool call:
     - Existing docs that may need updates
     - What user-visible changes were made
     - What documentation patterns exist in project
-    - Ground truth drift: compare plugin components against README.md. Also check for the plugin README via Glob `~/.claude/plugins/cache/*/iflow*/*/README.md` or `plugins/iflow-dev/README.md` if exists (dev workspace) — if found, verify consistency there too
+    - Ground truth drift: detect project type and run the appropriate drift detection strategy
 
     Return findings as structured JSON.
 ```
@@ -74,9 +78,9 @@ Task tool call:
     Research findings: {JSON from researcher agent}
 
     Pay special attention to any `drift_detected` entries — these represent
-    components that exist on the filesystem but are missing from README.md
-    (or vice versa). Update README.md (root). If `plugins/iflow-dev/README.md` exists (dev workspace), update it too. Add missing entries to the appropriate
-    tables, remove stale entries, and correct component count headers.
+    documented items that don't match the filesystem (or vice versa).
+    Update the affected documentation files. Add missing entries,
+    remove stale entries, and correct any count headers.
 
     Also update CHANGELOG.md:
     - Add entries under the `## [Unreleased]` section

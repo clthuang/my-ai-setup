@@ -5,6 +5,10 @@ description: Defines phase sequence and validates transitions. Use when checking
 
 # Workflow State Management
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 Manage feature workflow state and validate phase transitions.
 
 ## Phase Sequence
@@ -102,7 +106,7 @@ When a phase command targets a feature with `status: "planned"`, handle the tran
    - If "Cancel": stop execution
 3. AskUserQuestion: mode selection
    - Options: "Standard (Recommended)" / "Full"
-4. Single-active-feature check: scan `docs/features/` for any `.meta.json` with `status: "active"`
+4. Single-active-feature check: scan `{iflow_artifacts_root}/features/` for any `.meta.json` with `status: "active"`
    - If found: AskUserQuestion "Feature {active-id}-{active-slug} is already active. Activate {id}-{slug} anyway?"
    - Options: "Continue" / "Cancel"
    - If "Cancel": stop execution
@@ -246,7 +250,7 @@ The `.meta.json` file in each feature folder:
   "created": "2026-01-30T00:00:00Z",
   "completed": null,
   "branch": "feature/006-feature-slug",
-  "brainstorm_source": "docs/brainstorms/20260130-143052-feature-slug.prd.md",
+  "brainstorm_source": "{iflow_artifacts_root}/brainstorms/20260130-143052-feature-slug.prd.md",
   "backlog_source": "00001",
   "lastCompletedPhase": "specify",
   "skippedPhases": [],

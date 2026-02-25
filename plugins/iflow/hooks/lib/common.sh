@@ -8,9 +8,9 @@
 detect_project_root() {
     local dir="${PWD}"
 
-    # Walk up to find .git or docs/features (project markers)
+    # Walk up to find .git (project marker)
     while [[ "$dir" != "/" ]]; do
-        if [[ -d "${dir}/.git" ]] || [[ -d "${dir}/docs/features" ]]; then
+        if [[ -d "${dir}/.git" ]]; then
             echo "$dir"
             return 0
         fi

@@ -66,8 +66,11 @@ EOF
     fi
 fi
 
-# Find active feature: scan docs/features/*/.meta.json for status="active"
-FEATURES_DIR="${PROJECT_ROOT}/docs/features"
+# Read artifacts_root from config
+ARTIFACTS_ROOT=$(read_local_md_field "$IFLOW_CONFIG" "artifacts_root" "docs")
+
+# Find active feature: scan {artifacts_root}/features/*/.meta.json for status="active"
+FEATURES_DIR="${PROJECT_ROOT}/${ARTIFACTS_ROOT}/features"
 if [[ ! -d "$FEATURES_DIR" ]]; then
     exit 0
 fi
