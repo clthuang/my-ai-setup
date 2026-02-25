@@ -7,6 +7,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
+install_err_trap
 PROJECT_ROOT="$(detect_project_root)"
 
 IFLOW_CONFIG="${PROJECT_ROOT}/.claude/iflow.local.md"

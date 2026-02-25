@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.27] - 2026-02-25
+
 ### Added
 - `scripts/doctor.sh` — standalone diagnostics script with OS-aware fix instructions for troubleshooting plugin health
 - `scripts/setup.sh` — interactive installer for first-time plugin configuration (venv, embedding provider, API keys, project init)
