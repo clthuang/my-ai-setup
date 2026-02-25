@@ -77,6 +77,7 @@ Note: If "Full" indicators are detected in the description, swap the recommended
 
 ### For All Modes
 
+0. Ensure parent exists: `mkdir -p {iflow_artifacts_root}/features/`
 1. Create folder: `{iflow_artifacts_root}/features/{id}-{slug}/`
 2. Create feature branch:
    ```bash

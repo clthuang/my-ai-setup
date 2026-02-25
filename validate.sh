@@ -714,6 +714,69 @@ else
 fi
 echo ""
 
+# Validate hook ERR trap usage
+echo "Checking Hook ERR Traps..."
+err_trap_missing=0
+for hook_script in plugins/iflow-dev/hooks/*.sh; do
+    [ -f "$hook_script" ] || continue
+    basename=$(basename "$hook_script")
+    # Skip non-hook scripts that don't source common.sh
+    case "$basename" in
+        cleanup-locks.sh|cleanup-sandbox.sh) continue ;;
+    esac
+    # Check if it sources common.sh and has install_err_trap
+    if grep -q 'source.*common\.sh' "$hook_script" 2>/dev/null; then
+        if ! grep -q 'install_err_trap' "$hook_script" 2>/dev/null; then
+            log_error "$hook_script: Sources common.sh but missing install_err_trap call"
+            ((err_trap_missing++)) || true
+        fi
+    fi
+done
+if [ $err_trap_missing -eq 0 ]; then
+    log_success "All hooks with common.sh have install_err_trap"
+fi
+echo ""
+
+# Validate entry-point mkdir guards
+echo "Checking Entry-Point mkdir Guards..."
+mkdir_missing=0
+mkdir_checks=(
+    "plugins/iflow-dev/skills/brainstorming/SKILL.md:mkdir"
+    "plugins/iflow-dev/commands/create-feature.md:mkdir"
+    "plugins/iflow-dev/commands/add-to-backlog.md:mkdir"
+    "plugins/iflow-dev/skills/root-cause-analysis/SKILL.md:mkdir"
+    "plugins/iflow-dev/skills/retrospecting/SKILL.md:mkdir"
+)
+for check in "${mkdir_checks[@]}"; do
+    file="${check%%:*}"
+    pattern="${check##*:}"
+    if [ -f "$file" ]; then
+        if ! grep -q "$pattern" "$file" 2>/dev/null; then
+            log_error "$file: Missing $pattern guard for directory creation"
+            ((mkdir_missing++)) || true
+        fi
+    fi
+done
+if [ $mkdir_missing -eq 0 ]; then
+    log_success "All entry-point files have mkdir guards"
+fi
+echo ""
+
+# Validate setup script exists
+echo "Checking Setup Scripts..."
+for script in plugins/iflow-dev/scripts/doctor.sh plugins/iflow-dev/scripts/setup.sh; do
+    if [ -f "$script" ]; then
+        if [ -x "$script" ]; then
+            log_success "$script exists and is executable"
+        else
+            log_error "$script exists but is not executable"
+        fi
+    else
+        log_warning "$script not found"
+    fi
+done
+echo ""
+
 # Summary
 echo "=========================================="
 echo "Validation Complete"

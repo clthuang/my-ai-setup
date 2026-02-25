@@ -301,8 +301,10 @@ Run automatically after Phase 5 completes.
 {
   "status": "completed",
   "completed": "{ISO timestamp}",
+  "lastCompletedPhase": "finish",
   "phases": {
     "finish": {
+      "status": "completed",
       "completed": "{ISO timestamp}"
     }
   }

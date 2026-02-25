@@ -7,7 +7,10 @@ from __future__ import annotations
 import os
 from typing import Protocol, runtime_checkable
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    np = None  # type: ignore[assignment]
 
 from pathlib import Path
 
@@ -647,6 +650,9 @@ def create_provider(config: dict) -> EmbeddingProvider | None:
     EmbeddingProvider | None
         A NormalizingWrapper-wrapped provider, or None.
     """
+    if np is None:
+        return None
+
     _load_dotenv_once()
 
     provider_name = config.get("memory_embedding_provider", "")

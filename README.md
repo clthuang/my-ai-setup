@@ -1,13 +1,58 @@
 # iflow Plugin
 
-> Structured feature development workflow for Claude Code
+> A Claude Code plugin that turns ideas into shipped features through structured phases — brainstorm, spec, design, plan, implement — with built-in quality gates, semantic memory, and autonomous operation.
+
+## What It Does
+
+iflow guides features from idea to merge through proven phases. Every phase has AI reviewers that catch issues before they compound. The plugin learns from retrospectives — memory persists across sessions and projects. It can run fully autonomously (YOLO mode) or step-by-step with user confirmation at each gate. Domain knowledge modules cover game design, crypto/DeFi, and data science.
 
 ## Installation
+
+### Prerequisites
+
+| Requirement | Version | Notes |
+|-------------|---------|-------|
+| Claude Code | latest | The CLI tool from Anthropic |
+| Python | 3.10+ | Required for semantic memory. Linux: also install `python3-venv` |
+| git | any | Required |
+
+Optional: `rsync` and `gtimeout` (macOS: `brew install coreutils`).
+
+### Install
 
 ```bash
 /plugin marketplace add clthuang/my-ai-setup
 /plugin install iflow@my-local-plugins
 ```
+
+Core dependencies auto-install on first session — keyword memory works immediately.
+
+### Setup semantic memory (recommended)
+
+The plugin auto-installs core dependencies on first launch. For semantic search (vs keyword-only), configure an embedding provider:
+
+```bash
+# Find your plugin root and run the interactive setup
+bash "$(ls -d ~/.claude/plugins/cache/*/iflow/*/scripts/setup.sh 2>/dev/null | head -1)"
+```
+
+The setup walks through provider selection, API key configuration, and project initialization.
+
+| Provider | API Key | Notes |
+|----------|---------|-------|
+| gemini | `GEMINI_API_KEY` | Free tier available (default) |
+| openai | `OPENAI_API_KEY` | text-embedding-3-small |
+| voyage | `VOYAGE_API_KEY` | voyage-3-lite |
+| ollama | — | Local; `ollama pull nomic-embed-text` |
+| none | — | Keyword-only search |
+
+### Troubleshooting
+
+```bash
+bash "$(ls -d ~/.claude/plugins/cache/*/iflow/*/scripts/doctor.sh 2>/dev/null | head -1)"
+```
+
+Read-only health check across 5 categories (system prerequisites, plugin environment, embedding provider, memory system, project context) with OS-specific fix commands.
 
 ## Quick Start
 
@@ -27,6 +72,84 @@ Then follow the phases:
 ```
 /iflow:specify → /iflow:design → /iflow:create-plan → /iflow:create-tasks → /iflow:implement → /iflow:finish-feature
 ```
+
+## Key Features
+
+### Autonomous Operation (YOLO Mode)
+
+```bash
+/iflow:secretary mode yolo              # Enable autonomous mode
+/iflow:secretary orchestrate <desc>     # Build end-to-end without pausing
+/iflow:secretary continue               # Resume from last completed phase
+```
+
+All quality gates (reviewers, phase validators) still run — YOLO mode only bypasses user confirmation at phase transitions. Safety boundaries stop execution on review failures, merge conflicts, or missing prerequisites.
+
+**Modes:** `manual` (default) | `aware` (session hints) | `yolo` (fully autonomous)
+
+### Semantic Memory
+
+Two MCP tools persist learnings across sessions:
+
+| Tool | Purpose |
+|------|---------|
+| `store_memory` | Save a pattern, anti-pattern, or heuristic to long-term memory |
+| `search_memory` | Search past learnings by topic using semantic similarity |
+
+Memory entries are injected automatically at session start. The global store (`~/.claude/iflow/memory/`) accumulates knowledge across all projects. See [README_FOR_DEV.md](./README_FOR_DEV.md) for configuration.
+
+### Domain Knowledge
+
+Built-in specialist knowledge for brainstorming and code review:
+- **Game design** — core loop analysis, engagement strategy, aesthetic direction, feasibility
+- **Crypto/DeFi** — protocol comparison, tokenomics, market strategy, risk assessment
+- **Data science** — methodology assessment, pitfall analysis, modeling approach, DS code review
+
+### Specialist Teams
+
+`/iflow:create-specialist-team` assembles ephemeral multi-perspective teams for complex tasks that need diverse expertise.
+
+## Commands
+
+### Core Workflow
+
+| Command | Purpose |
+|---------|---------|
+| `/iflow:brainstorm [topic]` | Explore ideas, produce evidence-backed PRD |
+| `/iflow:create-feature <desc>` | Skip brainstorming, create feature directly |
+| `/iflow:create-project <prd>` | Create project from PRD with AI-driven decomposition into features |
+| `/iflow:specify` | Write requirements (spec.md) |
+| `/iflow:design` | Define architecture (design.md) |
+| `/iflow:create-plan` | Plan implementation (plan.md) |
+| `/iflow:create-tasks` | Break into tasks (tasks.md) |
+| `/iflow:implement` | Write code with TDD and review |
+| `/iflow:finish-feature` | Merge, run retro, cleanup branch (iflow features) |
+| `/iflow:wrap-up` | Wrap up implementation - review, retro, merge or PR |
+
+### Utilities
+
+| Command | Purpose |
+|---------|---------|
+| `/iflow:show-status` | See current feature progress |
+| `/iflow:list-features` | List active features and branches |
+| `/iflow:retrospect` | Run retrospective on a feature |
+| `/iflow:add-to-backlog` | Capture ad-hoc ideas and todos |
+| `/iflow:remember` | Capture a learning to long-term memory |
+| `/iflow:cleanup-brainstorms` | Delete old brainstorm scratch files |
+| `/iflow:secretary` | Intelligent task routing to agents and skills (supports YOLO mode with orchestrate subcommand) |
+| `/iflow:create-specialist-team` | Create ephemeral specialist teams for complex tasks |
+| `/iflow:root-cause-analysis` | Investigate bugs systematically |
+| `/iflow:promptimize [file-path]` | Review a plugin prompt against best practices and return an improved version |
+| `/iflow:refresh-prompt-guidelines` | Scout latest prompt engineering best practices and update the guidelines document |
+| `/iflow:review-ds-analysis <file>` | Review data analysis for statistical pitfalls |
+| `/iflow:review-ds-code <file>` | Review DS Python code for anti-patterns |
+| `/iflow:init-ds-project <name>` | Scaffold a new data science project |
+| `/iflow:sync-cache` | Sync plugin source files to cache |
+| `/iflow:yolo [on\|off]` | Toggle YOLO autonomous mode on or off |
+
+## How It Works
+
+### Workflow
 
 ```mermaid
 flowchart TD
@@ -76,49 +199,45 @@ flowchart TD
 
 ![Workflow Overview](./docs/workflow-overview.png)
 
-## Commands
+### Review System
 
-### Core Workflow
+Every phase has a skeptic reviewer that challenges assumptions and a gatekeeper that validates completeness. Quality gates prevent issues from compounding across phases.
 
-| Command | Purpose |
-|---------|---------|
-| `/iflow:brainstorm [topic]` | Explore ideas, produce evidence-backed PRD |
-| `/iflow:create-feature <desc>` | Skip brainstorming, create feature directly |
-| `/iflow:create-project <prd>` | Create project from PRD with AI-driven decomposition into features |
-| `/iflow:specify` | Write requirements (spec.md) |
-| `/iflow:design` | Define architecture (design.md) |
-| `/iflow:create-plan` | Plan implementation (plan.md) |
-| `/iflow:create-tasks` | Break into tasks (tasks.md) |
-| `/iflow:implement` | Write code with TDD and review |
-| `/iflow:finish-feature` | Merge, run retro, cleanup branch (iflow features) |
-| `/iflow:wrap-up` | Wrap up implementation - review, retro, merge or PR |
+### File Structure
 
-### Utilities
+```
+docs/
+├── brainstorms/           # From /iflow:brainstorm
+├── features/{id}-{name}/  # From /iflow:create-feature
+│   ├── spec.md, design.md, plan.md, tasks.md
+│   └── .meta.json         # Phase tracking
+├── projects/{id}-{name}/  # From /iflow:create-project
+│   ├── prd.md             # Project PRD
+│   └── roadmap.md         # Dependency graph, milestones
+├── retrospectives/        # From /iflow:retrospect
+└── knowledge-bank/        # Accumulated learnings
+```
 
-| Command | Purpose |
-|---------|---------|
-| `/iflow:show-status` | See current feature progress |
-| `/iflow:list-features` | List active features and branches |
-| `/iflow:retrospect` | Run retrospective on a feature |
-| `/iflow:add-to-backlog` | Capture ad-hoc ideas and todos |
-| `/iflow:remember` | Capture a learning to long-term memory |
-| `/iflow:cleanup-brainstorms` | Delete old brainstorm scratch files |
-| `/iflow:secretary` | Intelligent task routing to agents and skills (supports YOLO mode with orchestrate subcommand) |
-| `/iflow:create-specialist-team` | Create ephemeral specialist teams for complex tasks |
-| `/iflow:root-cause-analysis` | Investigate bugs systematically |
-| `/iflow:promptimize [file-path]` | Review a plugin prompt against best practices and return an improved version |
-| `/iflow:refresh-prompt-guidelines` | Scout latest prompt engineering best practices and update the guidelines document |
-| `/iflow:review-ds-analysis <file>` | Review data analysis for statistical pitfalls |
-| `/iflow:review-ds-code <file>` | Review DS Python code for anti-patterns |
-| `/iflow:init-ds-project <name>` | Scaffold a new data science project |
-| `/iflow:sync-cache` | Sync plugin source files to cache |
-| `/iflow:yolo [on\|off]` | Toggle YOLO autonomous mode on or off |
+### Task Output Format
 
-## Skills
+Tasks are organized for parallel execution:
 
-Skills are internal capabilities that Claude uses automatically during the workflow. You don't invoke them directly.
+- **Dependency Graph**: Mermaid diagram showing task relationships
+- **Execution Strategy**: Groups tasks by parallel executability
+- **Task Details**: Each task includes:
+  - Dependencies and blocking relationships
+  - Exact file paths and step-by-step instructions
+  - Test commands or verification steps
+  - Binary "done when" criteria
+  - Time estimates (5-15 min each)
 
-### Workflow Phases
+## Reference
+
+iflow includes 29 skills and 28 agents that run automatically during the workflow. You don't invoke them directly.
+
+### Skills
+
+#### Workflow Phases
 
 | Skill | Purpose |
 |-------|---------|
@@ -132,7 +251,7 @@ Skills are internal capabilities that Claude uses automatically during the workf
 | implementing | Guides phased TDD implementation (Interface → RED-GREEN → REFACTOR) |
 | finishing-branch | Guides branch completion with PR or merge options |
 
-### Quality & Review
+#### Quality & Review
 
 | Skill | Purpose |
 |-------|---------|
@@ -142,14 +261,14 @@ Skills are internal capabilities that Claude uses automatically during the workf
 | workflow-state | Defines phase sequence and validates transitions |
 | workflow-transitions | Shared workflow boilerplate for phase commands (validation, branch check, commit, state update) |
 
-### Investigation
+#### Investigation
 
 | Skill | Purpose |
 |-------|---------|
 | systematic-debugging | Guides four-phase root cause investigation |
 | root-cause-analysis | Structured 6-phase process for finding ALL contributing causes |
 
-### Domain Knowledge
+#### Domain Knowledge
 
 | Skill | Purpose |
 |-------|---------|
@@ -161,13 +280,13 @@ Skills are internal capabilities that Claude uses automatically during the workf
 | spotting-ds-analysis-pitfalls | 15 common statistical pitfalls with diagnostic decision tree and mitigation checklists |
 | choosing-ds-modeling-approach | Predictive vs causal modeling, method selection flowchart, Rubin/Pearl frameworks, hybrid approaches |
 
-### Specialist Teams
+#### Specialist Teams
 
 | Skill | Purpose |
 |-------|---------|
 | creating-specialist-teams | Creates ephemeral specialist teams via template injection into generic-worker |
 
-### Maintenance
+#### Maintenance
 
 | Skill | Purpose |
 |-------|---------|
@@ -177,11 +296,9 @@ Skills are internal capabilities that Claude uses automatically during the workf
 | detecting-kanban | Detects Vibe-Kanban and provides TodoWrite fallback |
 | capturing-learnings | Guides model-initiated learning capture with configurable modes |
 
-## Agents
+### Agents
 
-Agents run as specialized subprocesses delegated by the workflow. They operate autonomously within their defined scope.
-
-### Reviewers
+#### Reviewers
 
 | Agent | Purpose |
 |-------|---------|
@@ -199,7 +316,7 @@ Agents run as specialized subprocesses delegated by the workflow. They operate a
 | ds-analysis-reviewer | Reviews data analysis for statistical pitfalls, methodology issues, and conclusion validity |
 | ds-code-reviewer | Reviews DS Python code for anti-patterns, pipeline quality, and best practices |
 
-### Workers
+#### Workers
 
 | Agent | Purpose |
 |-------|---------|
@@ -210,13 +327,13 @@ Agents run as specialized subprocesses delegated by the workflow. They operate a
 | code-simplifier | Identifies unnecessary complexity and suggests simplifications |
 | test-deepener | Systematically deepens test coverage after TDD scaffolding with spec-driven adversarial testing |
 
-### Advisory
+#### Advisory
 
 | Agent | Purpose |
 |-------|---------|
 | advisor | Applies strategic or domain advisory lens to brainstorm problems via template injection |
 
-### Researchers
+#### Researchers
 
 | Agent | Purpose |
 |-------|---------|
@@ -226,82 +343,13 @@ Agents run as specialized subprocesses delegated by the workflow. They operate a
 | investigation-agent | Read-only research agent for context gathering |
 | skill-searcher | Finds relevant existing skills for a given topic |
 
-### Orchestration
+#### Orchestration
 
 | Agent | Purpose |
 |-------|---------|
 | secretary-reviewer | Validates secretary routing recommendations before presenting to user |
 | rca-investigator | Finds all root causes through 6-phase systematic investigation |
 | retro-facilitator | Runs data-driven AORTA retrospective with full intermediate context |
-
-## Task Output Format
-
-Tasks are organized for parallel execution:
-
-- **Dependency Graph**: Mermaid diagram showing task relationships
-- **Execution Strategy**: Groups tasks by parallel executability
-- **Task Details**: Each task includes:
-  - Dependencies and blocking relationships
-  - Exact file paths and step-by-step instructions
-  - Test commands or verification steps
-  - Binary "done when" criteria
-  - Time estimates (5-15 min each)
-
-## File Structure
-
-```
-docs/
-├── brainstorms/           # From /iflow:brainstorm
-├── features/{id}-{name}/  # From /iflow:create-feature
-│   ├── spec.md, design.md, plan.md, tasks.md
-│   └── .meta.json         # Phase tracking
-├── projects/{id}-{name}/  # From /iflow:create-project
-│   ├── prd.md             # Project PRD
-│   └── roadmap.md         # Dependency graph, milestones
-├── retrospectives/        # From /iflow:retrospect
-└── knowledge-bank/        # Accumulated learnings
-```
-
-## Autonomous Operation (YOLO Mode)
-
-The secretary command can drive the entire feature workflow autonomously:
-
-```bash
-# Enable YOLO mode
-/iflow:secretary mode yolo
-
-# Build a feature end-to-end without pausing
-/iflow:secretary orchestrate build a validation helper for email format
-
-# Resume from last completed phase
-/iflow:secretary continue
-```
-
-In YOLO mode, the orchestrate subcommand chains all phases automatically:
-`brainstorm -> specify -> design -> create-plan -> create-tasks -> implement -> finish-feature -> merge`
-
-All quality gates (reviewers, phase validators) still run. YOLO mode only bypasses user confirmation prompts at phase transitions.
-
-**Safety boundaries** (YOLO mode stops and reports):
-- Implementation review fails after 5 iterations
-- Git merge conflict on develop
-- Pre-merge validation fails after 3 fix attempts
-- Hard prerequisite failures (missing design.md, plan.md, spec.md, or tasks.md)
-
-Resume after a stop: `/iflow:secretary continue`
-
-**Modes:** `manual` (default) | `aware` (session hints) | `yolo` (fully autonomous)
-
-## Memory
-
-The plugin includes a semantic memory system that persists learnings across sessions. Two MCP tools are available:
-
-| Tool | Purpose |
-|------|---------|
-| `store_memory` | Save a pattern, anti-pattern, or heuristic to long-term memory |
-| `search_memory` | Search past learnings by topic using semantic similarity |
-
-Memory entries are injected automatically at session start. See [README_FOR_DEV.md](./README_FOR_DEV.md) for setup and configuration.
 
 ## For Developers
 
@@ -310,3 +358,5 @@ See [README_FOR_DEV.md](./README_FOR_DEV.md) for:
 - Architecture and design principles
 - Release workflow
 - Validation
+
+Each project uses `.claude/iflow.local.md` for local settings (artifacts path, merge branch, memory config). Developers working on the plugin itself use `iflow-dev` — see [README_FOR_DEV.md](./README_FOR_DEV.md) for the full configuration reference.

@@ -12,7 +12,7 @@ List all active features.
 
 ## Gather Features
 
-1. **Scan {iflow_artifacts_root}/features/** for feature folders
+1. **Scan {iflow_artifacts_root}/features/** for feature folders. If the directory does not exist, display "No features found" and stop.
 2. **Read .meta.json** from each to get branch info
 3. **Determine status** from artifacts and metadata. Include features with `status: "planned"` in addition to active features.
 

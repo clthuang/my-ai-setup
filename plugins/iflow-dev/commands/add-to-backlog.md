@@ -17,17 +17,19 @@ Add an item to the centralized backlog at `{iflow_artifacts_root}/backlog.md`.
    ```
    Then stop.
 
-2. **Read or initialize backlog:**
+2. **Ensure directory exists:** `mkdir -p {iflow_artifacts_root}/`
+
+3. **Read or initialize backlog:**
    - Try to read `{iflow_artifacts_root}/backlog.md`
    - If file exists: Parse the table to find the highest existing ID (5-digit numbers like `00001`)
    - If file doesn't exist or has no entries: The next ID will be `00001`
 
-3. **Generate the new entry:**
+4. **Generate the new entry:**
    - ID: Next sequential 5-digit ID (e.g., `00001`, `00002`), zero-padded
    - Timestamp: Current time in ISO 8601 format (e.g., `2026-01-30T14:23:00Z`)
    - Description: The user's input (escape pipe characters `|` as `\|` if present)
 
-4. **Write to backlog:**
+5. **Write to backlog:**
    - If file doesn't exist, create it with this header:
      ```markdown
      # Backlog
@@ -37,7 +39,7 @@ Add an item to the centralized backlog at `{iflow_artifacts_root}/backlog.md`.
      ```
    - Append the new row: `| {ID} | {Timestamp} | {Description} |`
 
-5. **Confirm to user:**
+6. **Confirm to user:**
    ```
    Added to backlog: #{ID} - {Description}
    ```

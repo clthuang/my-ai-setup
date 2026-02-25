@@ -187,6 +187,8 @@ The retro_md follows the AORTA format:
 
 From the `act` section of the agent response, append entries to knowledge bank files:
 
+0. Ensure directory exists: `mkdir -p {iflow_artifacts_root}/knowledge-bank/`
+
 1. For each pattern in `act.patterns`:
    - Append to `{iflow_artifacts_root}/knowledge-bank/patterns.md`
 2. For each anti-pattern in `act.anti_patterns`:

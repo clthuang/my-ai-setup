@@ -21,7 +21,7 @@ Gather via git and file inspection:
 
 ## Section 1.5: Project Features
 
-Scan `{iflow_artifacts_root}/features/` for folders containing `.meta.json` where `project_id` is present and non-null.
+Scan `{iflow_artifacts_root}/features/` for folders containing `.meta.json` where `project_id` is present and non-null. If the directory does not exist, skip this section entirely.
 
 If any project-linked features found:
 1. Group features by `project_id`
@@ -35,7 +35,7 @@ If no project-linked features, omit this section entirely.
 
 ## Section 2: Open Features
 
-Scan `{iflow_artifacts_root}/features/` for folders containing `.meta.json` where status is NOT `"completed"` AND `project_id` is either absent or null. This excludes project-linked features (shown in Section 1.5) and completed standalone features.
+Scan `{iflow_artifacts_root}/features/` for folders containing `.meta.json` where status is NOT `"completed"` AND `project_id` is either absent or null. This excludes project-linked features (shown in Section 1.5) and completed standalone features. If the directory does not exist, show "None".
 
 For each open feature, show:
 - **ID**: from `.meta.json`
@@ -47,7 +47,7 @@ If no open features exist, show "None".
 
 ## Section 3: Open Brainstorms
 
-List files in `{iflow_artifacts_root}/brainstorms/` excluding `.gitkeep`. For each file, show:
+List files in `{iflow_artifacts_root}/brainstorms/` excluding `.gitkeep`. If the directory does not exist, show "None". For each file, show:
 - Filename
 - Age (e.g., "1 day ago", "3 days ago") based on file modification time
 
