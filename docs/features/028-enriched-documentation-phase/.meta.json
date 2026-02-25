@@ -1,0 +1,22 @@
+{
+  "id": "028",
+  "slug": "enriched-documentation-phase",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-02-25T17:15:00Z",
+  "branch": "feature/028-enriched-documentation-phase",
+  "brainstorm_source": "docs/brainstorms/20260225-165342-enriched-documentation-phase.prd.md",
+  "backlog_source": "00017",
+  "lastCompletedPhase": "specify",
+  "phases": {
+    "specify": {
+      "status": "completed",
+      "startedAt": "2026-02-25T17:20:00Z",
+      "completedAt": "2026-02-25T18:45:00Z",
+      "reviewerNotes": "Spec-reviewer approved at iteration 3/5. Phase-reviewer reached iteration cap (5/5) with 1 remaining warning about workflow-artifacts index page missing AC — addressed in final edit before commit.",
+      "phaseReview": {
+        "reviewerNotes": "Phase-reviewer cap reached. Final warning (workflow-artifacts index page) was fixed post-cap. All other issues resolved across 5 iterations."
+      }
+    }
+  }
+}
