@@ -5,6 +5,10 @@ description: Produces plan.md with dependencies and ordering. Use when the user 
 
 # Planning Phase
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 Create an ordered implementation plan.
 
 ## Prerequisites
@@ -13,7 +17,7 @@ Create an ordered implementation plan.
 
 ## Read Feature Context
 
-1. Find active feature folder in `docs/features/`
+1. Find active feature folder in `{iflow_artifacts_root}/features/`
 2. Read `.meta.json` for mode and context
 3. Adjust behavior based on mode:
    - Standard: Full process with optional verification
@@ -64,7 +68,7 @@ Not time estimates. Complexity indicators:
 
 ## Output: plan.md
 
-Write to `docs/features/{id}-{slug}/plan.md`:
+Write to `{iflow_artifacts_root}/features/{id}-{slug}/plan.md`:
 
 ```markdown
 # Plan: {Feature Name}

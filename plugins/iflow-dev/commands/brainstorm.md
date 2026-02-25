@@ -5,6 +5,10 @@ argument-hint: [topic or idea to explore]
 
 # /iflow-dev:brainstorm Command
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 ## Steps
 
 ### Step 1: Execute Brainstorming Skill
@@ -23,4 +27,4 @@ Invoke `/iflow-dev:brainstorming` skill which runs 7 stages:
 
 ### Step 2: Handle Output
 
-PRD saved to `docs/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`
+PRD saved to `{iflow_artifacts_root}/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`

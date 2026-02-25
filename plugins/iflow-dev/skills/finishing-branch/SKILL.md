@@ -7,11 +7,16 @@ description: Guides branch completion with PR or merge options. Use when the use
 
 Guide completion of development work with streamlined options.
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_base_branch}` — base branch for merges (default: `main`)
+- `{iflow_release_script}` — path to release script (empty if not configured)
+
 ## Base Branch
 
-The default base branch is `develop`. Feature branches merge to `develop`, not `main`.
+The default base branch is `{iflow_base_branch}`. Feature branches merge to `{iflow_base_branch}`.
 
-Releases from `develop` to `main` are handled by `scripts/release.sh`.
+If `{iflow_release_script}` is configured, releases are handled by that script.
 
 ## Core Principle
 
@@ -34,7 +39,7 @@ git push
 
 ### Step 2: Present Options
 
-Present exactly 2 options via AskUserQuestion:
+Present exactly 2 options via AskUserQuestion. The second option label depends on whether `{iflow_release_script}` is configured:
 
 ```
 AskUserQuestion:
@@ -43,7 +48,9 @@ AskUserQuestion:
     "header": "Finish",
     "options": [
       {"label": "Create PR", "description": "Open pull request for team review"},
-      {"label": "Merge & Release", "description": "Merge to develop and run release script"}
+      {"label": "Merge & Release", "description": "Merge to {iflow_base_branch} and run release script"}
+      // ↑ Use "Merge" (without "& Release") and description "Merge to {iflow_base_branch}"
+      //   if {iflow_release_script} is not configured
     ],
     "multiSelect": false
   }]
@@ -59,31 +66,36 @@ gh pr create --title "{title}" --body "..."
 Output: "PR created: {url}"
 Note: Branch will be deleted when PR is merged via GitHub.
 
-**Option 2: Merge & Release**
+**Option 2: Merge & Release** (or "Merge" if `{iflow_release_script}` is not configured)
 ```bash
-# Merge to develop
-git checkout develop
-git pull origin develop
+# Merge to base branch
+git checkout {iflow_base_branch}
+git pull origin {iflow_base_branch}
 git merge {feature-branch}
 git push
+```
 
-# Run release script
-./scripts/release.sh --ci
+If `{iflow_release_script}` is set and the file exists at that path, run it:
+```bash
+{iflow_release_script}
+```
+Otherwise, skip the release step and output "No release script configured."
 
+```bash
 # Delete feature branch
 git branch -d {feature-branch}
 ```
-Output: "Merged to develop. Released v{version}"
+Output: "Merged to {iflow_base_branch}." followed by "Released v{version}" if release script ran, or "No release script configured." if not.
 
 ## Quick Reference
 
 | Option | Merge | Push | Release | Delete Branch |
 |--------|-------|------|---------|---------------|
 | Create PR | - | Yes | - | GitHub deletes on merge |
-| Merge & Release | Yes | Yes | Yes | Yes (local) |
+| Merge (& Release) | Yes | Yes | If configured | Yes (local) |
 
 ## Red Flags - Never
 
 - Force-push without explicit request
 - Delete work without confirmation
-- Skip the release script on Merge & Release option
+- Skip the release script on Merge & Release option (when `{iflow_release_script}` is configured)

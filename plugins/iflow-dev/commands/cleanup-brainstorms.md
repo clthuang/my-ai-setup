@@ -5,13 +5,17 @@ argument-hint: "[--dry-run]"
 
 # /iflow-dev:cleanup-brainstorms Command
 
-Manage brainstorm scratch files in `docs/brainstorms/`.
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
+Manage brainstorm scratch files in `{iflow_artifacts_root}/brainstorms/`.
 
 ## Process
 
 ### 1. List Files
 
-List all files in `docs/brainstorms/` (exclude `.gitkeep`):
+List all files in `{iflow_artifacts_root}/brainstorms/` (exclude `.gitkeep`):
 
 ```
 Brainstorm scratch files:

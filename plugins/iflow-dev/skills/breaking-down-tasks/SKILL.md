@@ -5,6 +5,10 @@ description: Breaks plans into small, actionable tasks with dependency tracking.
 
 # Task Breakdown Phase
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 Create small, actionable, testable tasks with clear dependencies for parallel execution.
 
 ## Prerequisites
@@ -14,7 +18,7 @@ Create small, actionable, testable tasks with clear dependencies for parallel ex
 
 ## Read Feature Context
 
-1. Find active feature folder in `docs/features/`
+1. Find active feature folder in `{iflow_artifacts_root}/features/`
 2. Read `.meta.json` for mode and context
 3. Adjust behavior based on mode:
    - Standard: Full process with optional verification
@@ -94,7 +98,7 @@ Do NOT include time estimates on tasks. The "5-15 minutes" guideline is a sizing
 
 ## Output: tasks.md
 
-Write to `docs/features/{id}-{slug}/tasks.md`:
+Write to `{iflow_artifacts_root}/features/{id}-{slug}/tasks.md`:
 
 ```markdown
 # Tasks: {Feature Name}

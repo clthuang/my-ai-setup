@@ -384,6 +384,55 @@ class TestImportIntoDB:
 
 
 # ---------------------------------------------------------------------------
+# Custom artifacts_root tests
+# ---------------------------------------------------------------------------
+
+
+class TestCustomArtifactsRoot:
+    def test_custom_artifacts_root_finds_entries(self, db, tmp_path):
+        """Importer with custom artifacts_root finds knowledge-bank at custom path."""
+        custom_importer = MarkdownImporter(db=db, artifacts_root="my-docs")
+
+        kb_dir = tmp_path / "my-docs" / "knowledge-bank"
+        kb_dir.mkdir(parents=True)
+        (kb_dir / "anti-patterns.md").write_text(ANTI_PATTERNS_MD)
+        (kb_dir / "patterns.md").write_text("")
+        (kb_dir / "heuristics.md").write_text("")
+
+        result = custom_importer.import_all(str(tmp_path), str(tmp_path / "global"))
+        assert result["imported"] == 3
+        assert db.count_entries() == 3
+
+    def test_custom_artifacts_root_ignores_default_docs(self, db, tmp_path):
+        """Importer with custom artifacts_root does NOT read docs/knowledge-bank/."""
+        custom_importer = MarkdownImporter(db=db, artifacts_root="my-docs")
+
+        # Put entries under docs/ (should be ignored)
+        kb_dir = tmp_path / "docs" / "knowledge-bank"
+        kb_dir.mkdir(parents=True)
+        (kb_dir / "anti-patterns.md").write_text(ANTI_PATTERNS_MD)
+        (kb_dir / "patterns.md").write_text("")
+        (kb_dir / "heuristics.md").write_text("")
+
+        result = custom_importer.import_all(str(tmp_path), str(tmp_path / "global"))
+        assert result["imported"] == 0
+        assert db.count_entries() == 0
+
+    def test_default_artifacts_root_reads_docs(self, db, tmp_path):
+        """Default importer reads from docs/knowledge-bank/."""
+        default_importer = MarkdownImporter(db=db)
+
+        kb_dir = tmp_path / "docs" / "knowledge-bank"
+        kb_dir.mkdir(parents=True)
+        (kb_dir / "anti-patterns.md").write_text(ANTI_PATTERNS_MD)
+        (kb_dir / "patterns.md").write_text("")
+        (kb_dir / "heuristics.md").write_text("")
+
+        result = default_importer.import_all(str(tmp_path), str(tmp_path / "global"))
+        assert result["imported"] == 3
+
+
+# ---------------------------------------------------------------------------
 # Backfill discovery tests
 # ---------------------------------------------------------------------------
 
@@ -398,7 +447,7 @@ class TestDiscoverKnowledgeBankProjects:
         proj_b = tmp_path / "proj-b"
         (proj_b / "docs" / "knowledge-bank").mkdir(parents=True)
 
-        found = _discover_knowledge_bank_projects(str(tmp_path))
+        found = _discover_knowledge_bank_projects([str(tmp_path)])
         assert str(proj_a) in found
         assert str(proj_b) in found
 
@@ -409,7 +458,7 @@ class TestDiscoverKnowledgeBankProjects:
         (tmp_path / "proj-a" / "docs" / "knowledge-bank").mkdir(parents=True)
         (tmp_path / "proj-b" / "src").mkdir(parents=True)  # no KB
 
-        found = _discover_knowledge_bank_projects(str(tmp_path))
+        found = _discover_knowledge_bank_projects([str(tmp_path)])
         assert len(found) == 1
         assert "proj-a" in found[0]
 
@@ -417,5 +466,19 @@ class TestDiscoverKnowledgeBankProjects:
         """Non-existent base directory returns empty list."""
         from semantic_memory.backfill import _discover_knowledge_bank_projects
 
-        found = _discover_knowledge_bank_projects("/nonexistent/path")
+        found = _discover_knowledge_bank_projects(["/nonexistent/path"])
         assert found == []
+
+    def test_discover_multiple_base_dirs(self, tmp_path):
+        """Multiple base directories are scanned."""
+        from semantic_memory.backfill import _discover_knowledge_bank_projects
+
+        dir_a = tmp_path / "area-a"
+        dir_b = tmp_path / "area-b"
+        (dir_a / "proj-1" / "docs" / "knowledge-bank").mkdir(parents=True)
+        (dir_b / "proj-2" / "docs" / "knowledge-bank").mkdir(parents=True)
+
+        found = _discover_knowledge_bank_projects([str(dir_a), str(dir_b)])
+        assert len(found) == 2
+        assert any("proj-1" in f for f in found)
+        assert any("proj-2" in f for f in found)

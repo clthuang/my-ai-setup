@@ -4,6 +4,11 @@ description: Show workspace dashboard with features, branches, and brainstorms
 
 # /iflow-dev:show-status Command
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+- `{iflow_base_branch}` — base branch for the project (default: `main`)
+
 Display a workspace dashboard with current context, open features, and brainstorms.
 
 ## Section 1: Current Context
@@ -11,17 +16,17 @@ Display a workspace dashboard with current context, open features, and brainstor
 Gather via git and file inspection:
 
 1. **Current branch**: Run `git rev-parse --abbrev-ref HEAD`
-2. **Current feature**: If branch matches `feature/{id}-{slug}`, read `docs/features/{id}-{slug}/.meta.json` to get feature name and determine current phase (first missing artifact from: spec.md, design.md, plan.md, tasks.md — or "implement" if all exist). Show "None" if not on a feature branch.
+2. **Current feature**: If branch matches `feature/{id}-{slug}`, read `{iflow_artifacts_root}/features/{id}-{slug}/.meta.json` to get feature name and determine current phase (first missing artifact from: spec.md, design.md, plan.md, tasks.md — or "implement" if all exist). Show "None" if not on a feature branch.
 3. **Other branches**: Run `git branch` and list all local branches except the current one. Show "None" if only one branch exists.
 
 ## Section 1.5: Project Features
 
-Scan `docs/features/` for folders containing `.meta.json` where `project_id` is present and non-null.
+Scan `{iflow_artifacts_root}/features/` for folders containing `.meta.json` where `project_id` is present and non-null.
 
 If any project-linked features found:
 1. Group features by `project_id`
 2. For each project_id:
-   a. Resolve project directory via glob `docs/projects/{project_id}-*/`
+   a. Resolve project directory via glob `{iflow_artifacts_root}/projects/{project_id}-*/`
    b. Read project `.meta.json` to get slug
    c. Display heading: `## Project: {project_id}-{slug}`
    d. List all features for that project as bullets: `- {id}-{slug} ({status}[, phase: {phase}])` — include ALL statuses (planned, active, completed, abandoned)
@@ -30,7 +35,7 @@ If no project-linked features, omit this section entirely.
 
 ## Section 2: Open Features
 
-Scan `docs/features/` for folders containing `.meta.json` where status is NOT `"completed"` AND `project_id` is either absent or null. This excludes project-linked features (shown in Section 1.5) and completed standalone features.
+Scan `{iflow_artifacts_root}/features/` for folders containing `.meta.json` where status is NOT `"completed"` AND `project_id` is either absent or null. This excludes project-linked features (shown in Section 1.5) and completed standalone features.
 
 For each open feature, show:
 - **ID**: from `.meta.json`
@@ -42,7 +47,7 @@ If no open features exist, show "None".
 
 ## Section 3: Open Brainstorms
 
-List files in `docs/brainstorms/` excluding `.gitkeep`. For each file, show:
+List files in `{iflow_artifacts_root}/brainstorms/` excluding `.gitkeep`. For each file, show:
 - Filename
 - Age (e.g., "1 day ago", "3 days ago") based on file modification time
 
@@ -56,7 +61,7 @@ When on a feature branch:
 ## Current Context
 Branch: feature/018-show-status-upgrade
 Feature: 018-show-status-upgrade (phase: design)
-Other branches: main, develop
+Other branches: main, {iflow_base_branch}
 
 ## Project: P001-crypto-tracker
 - 021-auth (active, phase: design)
@@ -79,7 +84,7 @@ When not on a feature branch:
 
 ```
 ## Current Context
-Branch: develop
+Branch: {iflow_base_branch}
 Feature: None
 Other branches: main
 

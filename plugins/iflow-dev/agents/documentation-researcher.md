@@ -93,23 +93,58 @@ Read spec.md **In Scope** section. Identify changes by audience:
 - Code quality improvements
 - Test additions
 
-### Step 2b: Ground Truth Comparison
+### Step 2b: Ground Truth Comparison (Strategy-Based)
 
-Compare the **filesystem** (source of truth) against what README files claim. This catches drift that accumulates across features even when individual features have no doc-worthy changes.
+Compare the **filesystem** (source of truth) against what documentation claims. The strategy depends on the project type detected in Step 0.
+
+#### Step 0: Detect Project Type
+
+Check the project to determine the drift detection strategy:
+
+1. **Plugin project** — `.claude-plugin/plugin.json` exists → use Strategy A
+2. **API project** — framework markers: `routes/`, `app.py`, `server.ts`, `openapi.yaml`, `swagger.json`, or a framework config (`fastapi`, `express`, `django`, `flask` in dependencies) → use Strategy B
+3. **CLI project** — CLI markers: `bin/`, CLI framework in dependencies (`click`, `commander`, `clap`, `cobra`), or `man/` directory → use Strategy C
+4. **General project** — none of the above → use Strategy D
+
+#### Strategy A: Plugin Project
 
 **Check both:**
 - `README.md` (root — primary user-facing doc)
-- Plugin README: Glob `~/.claude/plugins/cache/*/iflow*/*/README.md` — first match. Fallback: `plugins/iflow-dev/README.md` if exists (dev workspace).
+- Plugin README: Glob `~/.claude/plugins/cache/*/iflow*/*/README.md` — first match. Fallback (dev workspace): check if a plugin README exists under `plugins/*/README.md`.
 
 **Commands:**
-For each component type below, use two-location Glob: first try `~/.claude/plugins/cache/*/iflow*/*/` prefix, then fall back to `plugins/iflow-dev/` (dev workspace):
+For each component type below, use two-location Glob: first try `~/.claude/plugins/cache/*/iflow*/*/` prefix, then fall back to `plugins/*/` (dev workspace):
 1. Glob `{plugin_path}/commands/*.md` → extract command names → Grep each README for the command name (both prefixed variants) → flag missing entries
 2. Glob `{plugin_path}/skills/*/SKILL.md` → extract skill names from directory paths → Grep each README's Skills section → flag missing entries
 3. Glob `{plugin_path}/agents/*.md` → extract agent names → Grep each README's Agents section → flag missing entries
 4. **Reverse check:** For each entry in a README table, verify the corresponding file still exists on the filesystem. Flag stale entries that reference deleted components.
 5. **Count check:** If the plugin README has component count headers (e.g., `| Skills | 19 |`), compare against actual filesystem counts and flag mismatches.
 
-Any discrepancy found here is a drift entry — add it to `drift_detected` in the output.
+#### Strategy B: API Project
+
+1. **Route scanning:** Glob for route definition files (`routes/*.ts`, `routes/*.py`, `app/**/*.py`, etc.)
+2. **API doc comparison:** Check if `docs/api.md`, `openapi.yaml`, `swagger.json`, or similar exist. Compare documented endpoints against actual route definitions.
+3. **Flag undocumented endpoints** as drift entries.
+4. **Flag stale documented endpoints** that no longer exist in code.
+
+#### Strategy C: CLI Project
+
+1. **Command scanning:** Glob for command definitions (`commands/*.ts`, `src/commands/`, `bin/*`, etc.)
+2. **README comparison:** Check README usage/commands section against actual command implementations.
+3. **Flag undocumented commands** and **stale documented commands**.
+
+#### Strategy D: General Project
+
+1. **README accuracy:** Check README claims about project structure against filesystem (e.g., "modules in `src/`" — verify `src/` exists and structure matches).
+2. **Config documentation:** If config files exist (`.env.example`, `config/`), check if README documents configuration options.
+3. **CHANGELOG completeness:** Check if recent commits have corresponding CHANGELOG entries.
+
+#### Common to all strategies
+
+- **CHANGELOG check**: Verify `[Unreleased]` section reflects recent changes.
+- **README accuracy check**: Verify top-level claims (description, installation, usage) are still accurate.
+
+Any discrepancy found is a drift entry — add it to `drift_detected` in the output.
 
 ### Step 2c: CHANGELOG State Check
 

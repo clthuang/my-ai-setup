@@ -24,9 +24,10 @@ if [[ -f "$INSTALLED_PLUGINS" ]]; then
     CACHE_PLUGIN_PROD=$(grep -o '"installPath": *"[^"]*my-local-plugins/iflow/[^"]*"' "$INSTALLED_PLUGINS" 2>/dev/null | head -1 | sed 's/"installPath": *"\([^"]*\)"/\1/' || true)
 fi
 
-# Fallback to dev path if not installed
+# Exit gracefully if iflow-dev not found in installed_plugins.json
 if [[ -z "$CACHE_PLUGIN_DEV" ]]; then
-    CACHE_PLUGIN_DEV="$HOME/.claude/plugins/cache/my-local-plugins/iflow-dev/1.2.0-dev"
+    echo '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":""}}'
+    exit 0
 fi
 
 # Sync iflow-dev (primary development plugin)

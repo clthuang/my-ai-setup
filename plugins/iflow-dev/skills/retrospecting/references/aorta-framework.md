@@ -1,5 +1,9 @@
 # AORTA Framework
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 A retrospective framework designed for agentic coding workflows where every decision, review, and iteration is recorded in structured data.
 
 Unlike traditional retrospective formats (4Ls, Start-Stop-Continue) that rely on participant feelings and memory, AORTA operates on logged evidence: phase timestamps, review iteration counts, reviewer feedback, and artifact metrics.
@@ -59,9 +63,9 @@ Unlike traditional retrospective formats (4Ls, Start-Stop-Continue) that rely on
 
 | Type | Target File | What to Capture |
 |------|------------|----------------|
-| Patterns | `docs/knowledge-bank/patterns.md` | Approaches that worked well |
-| Anti-patterns | `docs/knowledge-bank/anti-patterns.md` | Approaches that caused problems |
-| Heuristics | `docs/knowledge-bank/heuristics.md` | Rules of thumb discovered |
+| Patterns | `{iflow_artifacts_root}/knowledge-bank/patterns.md` | Approaches that worked well |
+| Anti-patterns | `{iflow_artifacts_root}/knowledge-bank/anti-patterns.md` | Approaches that caused problems |
+| Heuristics | `{iflow_artifacts_root}/knowledge-bank/heuristics.md` | Rules of thumb discovered |
 
 **Entry format:**
 

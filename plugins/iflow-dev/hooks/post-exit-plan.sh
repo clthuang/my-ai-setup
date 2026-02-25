@@ -14,10 +14,13 @@ if [[ "$enabled" != "true" ]]; then
     echo '{}'; exit 0
 fi
 
+# Read artifacts_root from config
+artifacts_root=$(read_local_md_field "$config_file" "artifacts_root" "docs")
+
 # Detect active iflow feature (affects section 4 guidance)
 has_active=$(python3 -c "
 import os, json, glob
-features = glob.glob(os.path.join('$PROJECT_ROOT', 'docs/features/*/.meta.json'))
+features = glob.glob(os.path.join('$PROJECT_ROOT', '${artifacts_root}/features/*/.meta.json'))
 for f in features:
     try:
         with open(f) as fh:

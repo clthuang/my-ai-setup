@@ -823,6 +823,224 @@ TMPL
     teardown_yolo_test
 }
 
+# === Config Injection Tests ===
+
+# Test: session-start injects iflow_artifacts_root
+test_session_start_injects_artifacts_root() {
+    log_test "session-start injects iflow_artifacts_root"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+---
+artifacts_root: docs
+---
+TMPL
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$("${HOOKS_DIR}/session-start.sh" 2>/dev/null)
+
+    if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'iflow_artifacts_root: docs' in d['hookSpecificOutput']['additionalContext']" 2>/dev/null; then
+        log_pass
+    else
+        log_fail "Expected iflow_artifacts_root in context"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: session-start injects iflow_base_branch
+test_session_start_injects_base_branch() {
+    log_test "session-start injects iflow_base_branch"
+
+    setup_yolo_test
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$("${HOOKS_DIR}/session-start.sh" 2>/dev/null)
+
+    if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'iflow_base_branch:' in d['hookSpecificOutput']['additionalContext']" 2>/dev/null; then
+        log_pass
+    else
+        log_fail "Expected iflow_base_branch in context"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: explicit base_branch overrides auto-detection
+test_base_branch_explicit_overrides_auto() {
+    log_test "explicit base_branch overrides auto-detection"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+---
+base_branch: develop
+---
+TMPL
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$("${HOOKS_DIR}/session-start.sh" 2>/dev/null)
+
+    if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'iflow_base_branch: develop' in d['hookSpecificOutput']['additionalContext']" 2>/dev/null; then
+        log_pass
+    else
+        log_fail "Expected iflow_base_branch: develop in context"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: base_branch defaults to main when no remote and no config
+test_base_branch_defaults_to_main() {
+    log_test "base_branch defaults to main (no remote, no config)"
+
+    setup_yolo_test
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$("${HOOKS_DIR}/session-start.sh" 2>/dev/null)
+
+    if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'iflow_base_branch: main' in d['hookSpecificOutput']['additionalContext']" 2>/dev/null; then
+        log_pass
+    else
+        log_fail "Expected iflow_base_branch: main in context"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: config NOT auto-provisioned when .claude/ doesn't exist
+test_config_not_provisioned_without_claude_dir() {
+    log_test "config NOT auto-provisioned when .claude/ doesn't exist"
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "${tmpdir}/.git"
+    # No .claude/ directory
+
+    cd "$tmpdir"
+    "${HOOKS_DIR}/session-start.sh" 2>/dev/null > /dev/null
+
+    if [[ ! -f "${tmpdir}/.claude/iflow-dev.local.md" ]]; then
+        log_pass
+    else
+        log_fail "Config was created despite no .claude/ directory"
+    fi
+
+    cd "${PROJECT_ROOT}"
+    rm -rf "$tmpdir"
+}
+
+# Test: config IS auto-provisioned when .claude/ exists
+test_config_provisioned_with_claude_dir() {
+    log_test "config IS auto-provisioned when .claude/ exists"
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    mkdir -p "${tmpdir}/.git"
+    mkdir -p "${tmpdir}/.claude"
+
+    cd "$tmpdir"
+    "${HOOKS_DIR}/session-start.sh" 2>/dev/null > /dev/null
+
+    if [[ -f "${tmpdir}/.claude/iflow-dev.local.md" ]]; then
+        log_pass
+    else
+        log_fail "Config was NOT created despite .claude/ existing"
+    fi
+
+    cd "${PROJECT_ROOT}"
+    rm -rf "$tmpdir"
+}
+
+# === Custom Artifacts Root Tests ===
+
+# Test: yolo-stop finds features under custom artifacts_root
+test_yolo_stop_custom_artifacts_root() {
+    log_test "yolo-stop finds features under custom artifacts_root"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+---
+yolo_mode: true
+yolo_max_stop_blocks: 50
+artifacts_root: custom-path
+---
+TMPL
+    mkdir -p "${YOLO_TMPDIR}/custom-path/features/099-test-feature"
+    cat > "${YOLO_TMPDIR}/custom-path/features/099-test-feature/.meta.json" << 'META'
+{"id":"099","slug":"test-feature","status":"active","lastCompletedPhase":"specify"}
+META
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$(echo '{"stop_hook_active":false}' | "${HOOKS_DIR}/yolo-stop.sh" 2>/dev/null)
+
+    if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['decision'] == 'block'; assert 'design' in d['reason']" 2>/dev/null; then
+        log_pass
+    else
+        log_fail "Expected block with 'design' next phase under custom-path, got: $output"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: yolo-stop ignores features under default docs/ when artifacts_root is custom
+test_yolo_stop_ignores_default_with_custom_root() {
+    log_test "yolo-stop ignores docs/ features when artifacts_root=custom-path"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+---
+yolo_mode: true
+yolo_max_stop_blocks: 50
+artifacts_root: custom-path
+---
+TMPL
+    # Features under docs/ (should be ignored)
+    mkdir -p "${YOLO_TMPDIR}/docs/features/099-test-feature"
+    cat > "${YOLO_TMPDIR}/docs/features/099-test-feature/.meta.json" << 'META'
+{"id":"099","slug":"test-feature","status":"active","lastCompletedPhase":"specify"}
+META
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$(echo '{"stop_hook_active":false}' | "${HOOKS_DIR}/yolo-stop.sh" 2>/dev/null)
+
+    # No feature found under custom-path, so should allow
+    if [[ -z "$output" ]]; then
+        log_pass
+    else
+        log_fail "Expected empty output (no feature under custom-path), got: $output"
+    fi
+
+    teardown_yolo_test
+}
+
+# Test: session-start injects custom artifacts_root value
+test_session_start_custom_artifacts_root() {
+    log_test "session-start injects custom artifacts_root value"
+
+    setup_yolo_test
+    cat > "${YOLO_TMPDIR}/.claude/iflow-dev.local.md" << 'TMPL'
+---
+artifacts_root: my-docs
+---
+TMPL
+
+    cd "$YOLO_TMPDIR"
+    local output
+    output=$("${HOOKS_DIR}/session-start.sh" 2>/dev/null)
+
+    if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'iflow_artifacts_root: my-docs' in d['hookSpecificOutput']['additionalContext']" 2>/dev/null; then
+        log_pass
+    else
+        log_fail "Expected iflow_artifacts_root: my-docs in context"
+    fi
+
+    teardown_yolo_test
+}
+
 # === Path Portability Tests ===
 
 # Helper: find plugin component dir (relative to PROJECT_ROOT)
@@ -1003,6 +1221,25 @@ main() {
     test_pre_exit_plan_resets_stale_counter
     test_pre_exit_plan_valid_json_on_deny
     test_pre_exit_plan_allows_in_yolo_mode
+
+    echo ""
+    echo "--- Config Injection Tests ---"
+    echo ""
+
+    test_session_start_injects_artifacts_root
+    test_session_start_injects_base_branch
+    test_base_branch_explicit_overrides_auto
+    test_base_branch_defaults_to_main
+    test_config_not_provisioned_without_claude_dir
+    test_config_provisioned_with_claude_dir
+
+    echo ""
+    echo "--- Custom Artifacts Root Tests ---"
+    echo ""
+
+    test_yolo_stop_custom_artifacts_root
+    test_yolo_stop_ignores_default_with_custom_root
+    test_session_start_custom_artifacts_root
 
     echo ""
     echo "--- Path Portability Tests ---"

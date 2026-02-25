@@ -37,6 +37,14 @@ class TestReadConfigDefaults:
         assert result["memory_model_capture_mode"] == "ask-first"
         assert result["memory_silent_capture_budget"] == 5
 
+    def test_new_project_config_defaults(self, tmp_path):
+        """Project-awareness fields have correct defaults."""
+        result = read_config(str(tmp_path))
+        assert result["artifacts_root"] == "docs"
+        assert result["base_branch"] == "auto"
+        assert result["release_script"] == ""
+        assert result["backfill_scan_dirs"] == ""
+
     def test_default_types(self, tmp_path):
         result = read_config(str(tmp_path))
         assert isinstance(result["memory_semantic_enabled"], bool)

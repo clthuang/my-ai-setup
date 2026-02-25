@@ -5,7 +5,11 @@ argument-hint: "[--feature=<id-slug>]"
 
 Invoke the designing skill for the current feature context.
 
-Read docs/features/ to find active feature, then follow the workflow below.
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
+Read {iflow_artifacts_root}/features/ to find active feature, then follow the workflow below.
 
 ## YOLO Mode Overrides
 
