@@ -14,24 +14,31 @@ if [[ "$enabled" != "true" ]]; then
     echo '{}'; exit 0
 fi
 
-# Inject review instructions
-context="## Plan Mode: Review Before Approval\n\n"
-context+="After writing your plan but BEFORE calling ExitPlanMode, you MUST run plan review:\n\n"
-context+="1. Read the full plan file content you just wrote\n"
-context+="2. Dispatch the plan-reviewer agent:\n"
-context+="   \`\`\`\n"
-context+="   Task tool:\n"
-context+="     subagent_type: iflow-dev:plan-reviewer\n"
-context+="     model: opus\n"
-context+="     prompt: |\n"
-context+="       Review this plan for failure modes, untested assumptions,\n"
-context+="       dependency accuracy, and feasibility.\n"
-context+="       ## Plan\n"
-context+="       {paste full plan file content here}\n"
-context+="       Return JSON: {\"approved\": bool, \"issues\": [...], \"summary\": \"...\"}\n"
-context+="   \`\`\`\n"
-context+="3. If reviewer returns blocker issues: edit the plan file to address them, then re-review (max 3 iterations)\n"
-context+="4. Once approved (or max iterations reached): call ExitPlanMode\n"
+# Build context using heredoc to avoid escaping nightmares
+context=$(cat <<'CTX'
+CRITICAL OVERRIDE — Phase 5 prerequisite:
+
+### Phase 4.5: Plan Review (MANDATORY before ExitPlanMode)
+
+You MUST complete these steps BEFORE calling ExitPlanMode. Do NOT call ExitPlanMode until the reviewer approves.
+
+1. Read the full plan file you wrote
+2. Dispatch plan-reviewer:
+   ```
+   Task tool:
+     subagent_type: iflow-dev:plan-reviewer
+     model: opus
+     prompt: |
+       Review this plan for failure modes, untested assumptions,
+       dependency accuracy, and feasibility.
+       ## Plan
+       {paste full plan content}
+       Return JSON: {"approved": bool, "issues": [...], "summary": "..."}
+   ```
+3. If blocker issues: edit plan, re-review (max 3 iterations)
+4. THEN call ExitPlanMode
+CTX
+)
 
 escaped=$(escape_json "$context")
 cat <<EOF

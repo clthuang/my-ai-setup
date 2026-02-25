@@ -99,9 +99,29 @@ For each selected template:
    - Grep for relevant code patterns
    - Limit context to most relevant 10-15 files
 
-3. Fill template placeholders:
+3. Gather workflow context:
+   - Glob for `docs/features/*/.meta.json`
+   - Find the active feature (`"status": "active"`)
+     - If multiple active features: use highest ID number, log warning
+   - If found: extract id, slug, lastCompletedPhase, mode; determine next phase
+     using the canonical phase sequence (matches .meta.json values):
+       brainstorm → specify → design → create-plan → create-tasks → implement → finish
+     Check which artifacts exist (prd.md, spec.md, design.md, plan.md, tasks.md)
+   - Format as:
+     ```
+     Active feature: {id}-{slug} ({mode} mode)
+     Current phase: {lastCompletedPhase}
+     Next phase: {next phase}
+     Artifacts: {comma-separated existing artifacts}
+     Directory: docs/features/{id}-{slug}/
+     ```
+   - If no active feature: "No active feature workflow. Specialist output is standalone."
+   - If gathering fails (Glob error, malformed JSON): "Workflow context unavailable."
+
+4. Fill template placeholders:
    - `{TASK_DESCRIPTION}` — the specific assignment for this specialist
    - `{CODEBASE_CONTEXT}` — relevant files and patterns found
+   - `{WORKFLOW_CONTEXT}` — workflow state gathered in step 3
    - `{SUCCESS_CRITERIA}` — what constitutes successful output
    - `{OUTPUT_FORMAT}` — structured format for findings
    - `{SCOPE_BOUNDARIES}` — what the specialist should NOT do
@@ -149,17 +169,67 @@ After all specialists complete:
 {Actionable follow-ups based on combined findings}
 ```
 
-3. Offer follow-up:
+3. **Assess workflow routing** — determine which workflow phase matches the specialist outputs:
+
+   Read active feature state (Glob `docs/features/*/.meta.json`, find `"status": "active"`).
+
+   **Phase-to-command mapping** (use phase names for sequence comparisons; command names only at dispatch time):
+
+   | Phase name (.meta.json) | Command (Skill dispatch) |
+   |------------------------|--------------------------|
+   | brainstorm | iflow-dev:brainstorm |
+   | specify | iflow-dev:specify |
+   | design | iflow-dev:design |
+   | create-plan | iflow-dev:create-plan |
+   | create-tasks | iflow-dev:create-tasks |
+   | implement | iflow-dev:implement |
+   | finish | iflow-dev:finish-feature |
+
+   #### If no active feature:
+   | Output signals | Recommended action |
+   |---------------|-------------------|
+   | Research/exploration findings, problem framing | `/brainstorm` — seed brainstorm with findings |
+   | Detailed requirements, acceptance criteria | `/create-feature` — findings are specified enough |
+   | Code fixes already implemented | Done — standalone fix, no feature needed |
+   | General analysis | `/brainstorm` — formalize into a feature |
+
+   #### If active feature exists:
+   Determine next phase from `lastCompletedPhase`. Check if specialist output aligns:
+
+   | Output signals | Suggested phase (.meta.json name) |
+   |---------------|----------------------------------|
+   | Research, trade-off analysis, recommendations | `specify` (if brainstorm done) |
+   | Requirements, acceptance criteria, success criteria | `specify` |
+   | Architecture, components, interfaces, contracts | `design` |
+   | Prioritized action items, implementation plan | `create-plan` |
+   | Code changes, tests added, implementation complete | `implement` (continue) or `finish` |
+   | Coverage gaps, test results | `implement` (address gaps) |
+
+   If the suggested phase is later than next phase in the sequence, recommend next phase instead
+   (prerequisites must be satisfied first). When output matches multiple categories, prefer the
+   phase closest to the next phase in the sequence — this minimizes phase-skipping.
+
+4. **Present workflow-aware follow-up:**
+
 ```
 AskUserQuestion:
   questions: [{
     question: "What would you like to do with these results?",
     header: "Follow-up",
     options: [
-      { label: "Implement", description: "Act on the recommendations" },
-      { label: "Deep dive", description: "Investigate specific findings" },
+      { label: "Continue to /{recommended-phase}", description: "{reason} (Recommended)" },
+      { label: "Deep dive", description: "Investigate specific findings further" },
       { label: "Done", description: "Results are sufficient" }
     ],
     multiSelect: false
   }]
 ```
+
+   If user selects the recommended phase:
+     `Skill({ skill: "iflow-dev:{phase-command}", args: "{synthesized context}" })`
+
+   If user selects "Deep dive":
+     Offer focused follow-up team (existing behavior).
+
+   **YOLO override:** If `[YOLO_MODE]` active, skip AskUserQuestion and directly invoke
+   the recommended phase.
