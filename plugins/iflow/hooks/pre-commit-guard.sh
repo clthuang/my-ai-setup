@@ -54,24 +54,6 @@ is_protected_branch() {
     [[ "$branch" == "main" || "$branch" == "master" ]]
 }
 
-# Check if commit touches protected iflow plugin directory
-touches_protected_iflow() {
-    local command="$1"
-    # Check if any staged files are in plugins/iflow/ (not plugins/iflow-dev/)
-    local staged_files
-    staged_files=$(run_git_in_command_context "$command" diff --cached --name-only 2>/dev/null || echo "")
-
-    # Check for plugins/iflow/ but not plugins/iflow-dev/
-    if echo "$staged_files" | grep -q '^plugins/iflow/' && ! echo "$staged_files" | grep -q '^plugins/iflow-dev/'; then
-        return 0
-    fi
-    # Also check if only iflow (not iflow-dev) files are staged
-    if echo "$staged_files" | grep '^plugins/iflow/' | grep -v '^plugins/iflow-dev/' | grep -q .; then
-        return 0
-    fi
-    return 1
-}
-
 # Check if test files exist in the project
 has_test_files() {
     local patterns=(
@@ -160,18 +142,6 @@ main() {
     # Only process git commit commands
     if [[ ! "$command" =~ git[[:space:]]+commit ]]; then
         output_allow
-        exit 0
-    fi
-
-    # IFLOW_RELEASE bypass - allow release script to modify protected files
-    if [[ "${IFLOW_RELEASE:-}" == "1" ]]; then
-        output_allow "Release mode: bypassing iflow protection"
-        exit 0
-    fi
-
-    # Check if commit touches protected plugins/iflow/ directory
-    if touches_protected_iflow "$command"; then
-        output_block "Changes to plugins/iflow/ are blocked. The iflow plugin is production-only and updated via release script. Please make your changes in plugins/iflow-dev/ instead. To bypass (release only): IFLOW_RELEASE=1 git commit ..."
         exit 0
     fi
 

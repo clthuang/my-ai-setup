@@ -10,20 +10,16 @@ This repo uses a git-flow branching model with automated releases via convention
 | `develop` | Integration branch (default for development) |
 | `feature/*` | Feature branches (created by iflow workflow) |
 
-## Two-Plugin Model
+## Single-Plugin Model
 
-Two plugins coexist in this repository:
+One plugin, branch-based separation:
 
-| Plugin | Purpose | Directory | Version Format |
-|--------|---------|-----------|----------------|
-| `iflow-dev` | Development work | `plugins/iflow-dev/` | X.Y.Z-dev |
-| `iflow` | Stable releases | `plugins/iflow/` | X.Y.Z |
+| Branch | Purpose | Version Format |
+|--------|---------|----------------|
+| `develop` | Active development (dogfood) | X.Y.Z-dev |
+| `main` | Stable releases | X.Y.Z |
 
-**Key points:**
-- All development happens in `plugins/iflow-dev/`
-- `plugins/iflow/` is **read-only** - updated only via release script
-- The pre-commit hook blocks direct commits to `plugins/iflow/`
-- Use `IFLOW_RELEASE=1` to bypass protection (release script only)
+All plugin code lives in `plugins/iflow/`. Development happens on `develop`, releases merge to `main` with a version tag.
 
 ## Development Workflow
 
@@ -70,12 +66,11 @@ From the develop branch with a clean working tree:
 
 1. Validate preconditions (on develop, clean tree, has origin)
 2. Calculate version from code change percentage since last tag
-3. Copy `plugins/iflow-dev/` to `plugins/iflow/`
-4. Convert all `iflow-dev:` references to `iflow:`
-5. Update plugin.json files with appropriate versions
-6. Update marketplace.json with both versions
-7. Commit with `IFLOW_RELEASE=1` bypass, push develop
-8. Merge develop to main, create and push git tag
+3. Strip `-dev` suffix from plugin.json and marketplace.json
+4. Promote CHANGELOG [Unreleased] entries
+5. Commit on develop, push
+6. Merge develop → main (no-ff), tag, push
+7. Bump develop to next `-dev` version
 
 ## Local Development Setup
 
@@ -91,13 +86,13 @@ In Claude Code:
 
 ```
 /plugin marketplace add .claude-plugin/marketplace.json
-/plugin install iflow-dev@my-local-plugins
+/plugin install iflow@my-local-plugins
 ```
 
 After making changes to plugin files, sync the cache:
 
 ```
-/iflow-dev:sync-cache
+/iflow:sync-cache
 ```
 
 ## For Public Users
@@ -200,7 +195,7 @@ flowchart TD
 
 ## Skills
 
-Skills are instructions Claude follows for specific development practices. Located in `plugins/iflow-dev/skills/{name}/SKILL.md`.
+Skills are instructions Claude follows for specific development practices. Located in `plugins/iflow/skills/{name}/SKILL.md`.
 
 ### Workflow Phases
 | Skill | Purpose |
@@ -257,7 +252,7 @@ Skills are instructions Claude follows for specific development practices. Locat
 
 ## Commands
 
-Commands are user-invoked entry points. Located in `plugins/iflow-dev/commands/{name}.md`. See [README.md](README.md) for the full list. Notable utility commands:
+Commands are user-invoked entry points. Located in `plugins/iflow/commands/{name}.md`. See [README.md](README.md) for the full list. Notable utility commands:
 
 | Command | Purpose |
 |---------|---------|
@@ -266,7 +261,7 @@ Commands are user-invoked entry points. Located in `plugins/iflow-dev/commands/{
 
 ## Agents
 
-Agents are isolated subprocesses spawned by the workflow. Located in `plugins/iflow-dev/agents/{name}.md`.
+Agents are isolated subprocesses spawned by the workflow. Located in `plugins/iflow/agents/{name}.md`.
 
 **Reviewers (13):**
 - `brainstorm-reviewer` — Reviews brainstorm artifacts with universal + type-specific criteria before promotion
@@ -333,19 +328,11 @@ Hooks execute automatically at lifecycle points.
 
 SessionStart hooks match `startup|resume|clear` only -- they do not fire on `compact` events, preserving context window savings from compaction.
 
-Defined in `plugins/iflow-dev/hooks/hooks.json`.
+Defined in `plugins/iflow/hooks/hooks.json`.
 
 ### Hook Protection
 
-The `pre-commit-guard` hook enforces two protections:
-
-1. **Protected branches**: Prompts for confirmation when committing to main/master/develop
-2. **Production plugin protection**: Blocks commits that touch `plugins/iflow/`
-
-To bypass protection (release script only):
-```bash
-IFLOW_RELEASE=1 git commit -m "chore(release): v1.2.0"
-```
+The `pre-commit-guard` hook warns when committing to protected branches (main/master) and reminds about running tests.
 
 ## Workflow Details
 
@@ -395,7 +382,7 @@ The secretary command supports a `[YOLO_MODE]` flag that enables fully autonomou
 
 1. User sets mode: `/secretary mode yolo`
 2. User invokes: `/secretary build X`
-3. Secretary command reads `.claude/iflow-dev.local.md`, detects `activation_mode: yolo`
+3. Secretary command reads `.claude/iflow.local.md`, detects `activation_mode: yolo`
 4. Command performs routing inline (discover agents and skills, match patterns, select best route)
 5. YOLO overrides skip clarification, reviewer gate, and user confirmation
 6. Workflow patterns redirect to orchestrate subcommand which chains phases via Skill
@@ -469,12 +456,12 @@ Universal entries are promoted to a global store at `~/.claude/iflow/memory/` du
 
 **Semantic Retrieval:** Memory uses embedding-based retrieval with cosine similarity and hybrid ranking. SQLite database (`memory.db`) stores embeddings for semantic search. Legacy fallback (observation-count ranking) activates when semantic memory is disabled or no API key is set.
 
-**MCP Tools:** Two MCP tools are exposed via `plugins/iflow-dev/mcp/memory_server.py`:
+**MCP Tools:** Two MCP tools are exposed via `plugins/iflow/mcp/memory_server.py`:
 - `store_memory` -- Save a learning (name, description, reasoning, category, references) to long-term memory with automatic embedding generation. Optional `confidence` parameter (high/medium/low, defaults to medium) controls retrieval ranking weight.
 - `search_memory` -- Search long-term memory for relevant learnings using hybrid retrieval (vector similarity + BM25 keyword search)
 
 **Setup:**
-1. Install dependencies: `cd plugins/iflow-dev && uv sync --extra gemini`
+1. Install dependencies: `cd plugins/iflow && uv sync --extra gemini`
 2. Add API key to `.env` in project root: `GEMINI_API_KEY=your-key`
 3. Memory is enabled by default — no config changes needed
 
@@ -485,7 +472,7 @@ Without an API key, memory still works via FTS5 keyword search and prominence ra
 - **Ollama (local):** `uv sync --extra ollama`, run `ollama pull nomic-embed-text`, set `memory_embedding_provider: ollama` and `memory_embedding_model: nomic-embed-text` (no API key needed)
 - **Voyage:** `uv sync --extra voyage`, add `VOYAGE_API_KEY=your-key` to `.env`, set `memory_embedding_provider: voyage` and `memory_embedding_model: voyage-3`
 
-**Configuration** (in `.claude/iflow-dev.local.md`):
+**Configuration** (in `.claude/iflow.local.md`):
 - `plan_mode_review` — Enable plan review hooks for Claude Code plan mode (default: true)
 - `memory_semantic_enabled` — Enable semantic retrieval (default: true)
 - `memory_embedding_provider` — Provider for embeddings (default: gemini)
@@ -500,12 +487,12 @@ Without an API key, memory still works via FTS5 keyword search and prominence ra
 
 See [Component Authoring Guide](./docs/dev_guides/component-authoring.md).
 
-All components are created in the `plugins/iflow-dev/` directory:
+All components are created in the `plugins/iflow/` directory:
 
-**Skills:** `plugins/iflow-dev/skills/{name}/SKILL.md` — Instructions Claude follows
-**Agents:** `plugins/iflow-dev/agents/{name}.md` — Isolated workers with specific focus
-**Commands:** `plugins/iflow-dev/commands/{name}.md` — User-invocable entry points
-**Hooks:** `plugins/iflow-dev/hooks/` — Lifecycle automation scripts
+**Skills:** `plugins/iflow/skills/{name}/SKILL.md` — Instructions Claude follows
+**Agents:** `plugins/iflow/agents/{name}.md` — Isolated workers with specific focus
+**Commands:** `plugins/iflow/commands/{name}.md` — User-invocable entry points
+**Hooks:** `plugins/iflow/hooks/` — Lifecycle automation scripts
 
 ## Validation
 

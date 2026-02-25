@@ -66,7 +66,7 @@ When work is done outside the workflow, recover by creating feature artifacts af
 - Trade-off: Artifacts are reconstructed, not organic; less detailed than if created during work
 
 ### Pattern: Two-Plugin Coexistence
-Maintain separate dev (iflow-dev/) and production (iflow/) plugin directories.
+Maintain separate dev (iflow/) and production (iflow/) plugin directories.
 - Used in: Feature #012
 - Benefit: Clean releases via copy, no branch-based transformations
 - Protection: Pre-commit hook blocks direct commits to production plugin

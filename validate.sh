@@ -298,21 +298,12 @@ validate_plugin_json() {
         return 1
     fi
 
-    # Validate version format based on plugin name
+    # Validate version format: X.Y.Z or X.Y.Z-dev
     local version=$(jq -r '.version // empty' "$file")
     if [ -n "$version" ]; then
-        if [ "$name" = "iflow-dev" ]; then
-            # iflow-dev must have X.Y.Z-dev format
-            if ! echo "$version" | grep -qE "^[0-9]+\.[0-9]+\.[0-9]+-dev$"; then
-                log_error "$file: iflow-dev version '$version' must be in X.Y.Z-dev format"
-                return 1
-            fi
-        elif [ "$name" = "iflow" ]; then
-            # iflow must have X.Y.Z format (no -dev suffix)
-            if ! echo "$version" | grep -qE "^[0-9]+\.[0-9]+\.[0-9]+$"; then
-                log_error "$file: iflow version '$version' must be in X.Y.Z format (no -dev suffix)"
-                return 1
-            fi
+        if ! echo "$version" | grep -qE "^[0-9]+\.[0-9]+\.[0-9]+(-dev)?$"; then
+            log_error "$file: version '$version' must be in X.Y.Z or X.Y.Z-dev format"
+            return 1
         fi
     fi
 
@@ -619,11 +610,11 @@ echo "Checking Path Portability..."
 hardcoded_path_errors=0
 while IFS= read -r md_file; do
     [ -z "$md_file" ] && continue
-    # Skip dev-only files, READMEs, and this plan
+    # Skip dev-only files, READMEs, and plans
     case "$md_file" in
         */sync-cache.md|*/README*.md|*/plan*.md) continue ;;
     esac
-    # Search for hardcoded plugins/iflow-dev/ paths with 1-line context
+    # Search for hardcoded plugins/iflow/ paths with 1-line context
     # Skip lines (or preceding context lines) with fallback/conditional markers
     prev_line=""
     while IFS= read -r match_line; do
@@ -632,7 +623,7 @@ while IFS= read -r md_file; do
             prev_line=""
             continue
         fi
-        if echo "$match_line" | grep -q 'plugins/iflow-dev/' 2>/dev/null; then
+        if echo "$match_line" | grep -q 'plugins/iflow/' 2>/dev/null; then
             is_fallback=0
             for check_line in "$match_line" "$prev_line"; do
                 case "$check_line" in
@@ -645,8 +636,8 @@ while IFS= read -r md_file; do
             fi
         fi
         prev_line="$match_line"
-    done < <(grep -B1 'plugins/iflow-dev/' "$md_file" 2>/dev/null || true)
-done < <(find ./plugins/iflow-dev/agents ./plugins/iflow-dev/skills ./plugins/iflow-dev/commands -name "*.md" -type f 2>/dev/null)
+    done < <(grep -B1 'plugins/iflow/' "$md_file" 2>/dev/null || true)
+done < <(find ./plugins/iflow/agents ./plugins/iflow/skills ./plugins/iflow/commands -name "*.md" -type f 2>/dev/null)
 if [ $hardcoded_path_errors -eq 0 ]; then
     log_success "No hardcoded plugin paths in component files"
 else
@@ -669,7 +660,7 @@ while IFS= read -r md_file; do
         log_error "$md_file: Hardcoded artifact path: $(echo "$match_line" | sed 's/^[[:space:]]*//' | head -c 120)"
         ((artifact_path_errors++)) || true
     done < <(grep -n "$artifact_patterns" "$md_file" 2>/dev/null || true)
-done < <(find ./plugins/iflow-dev/skills -name "SKILL.md" -type f 2>/dev/null; find ./plugins/iflow-dev/commands -name "*.md" -type f 2>/dev/null; find ./plugins/iflow-dev/agents -name "*.md" -type f 2>/dev/null)
+done < <(find ./plugins/iflow/skills -name "SKILL.md" -type f 2>/dev/null; find ./plugins/iflow/commands -name "*.md" -type f 2>/dev/null; find ./plugins/iflow/agents -name "*.md" -type f 2>/dev/null)
 if [ $artifact_path_errors -eq 0 ]; then
     log_success "No hardcoded artifact paths in component files"
 else
@@ -689,7 +680,7 @@ while IFS= read -r md_file; do
         log_error "$md_file: Hardcoded branch target: $(echo "$match_line" | sed 's/^[[:space:]]*//' | head -c 120)"
         ((branch_target_errors++)) || true
     done < <(grep -n "$branch_patterns" "$md_file" 2>/dev/null || true)
-done < <(find ./plugins/iflow-dev/skills -name "SKILL.md" -type f 2>/dev/null; find ./plugins/iflow-dev/commands -name "*.md" -type f 2>/dev/null)
+done < <(find ./plugins/iflow/skills -name "SKILL.md" -type f 2>/dev/null; find ./plugins/iflow/commands -name "*.md" -type f 2>/dev/null)
 if [ $branch_target_errors -eq 0 ]; then
     log_success "No hardcoded branch targets in component files"
 else
@@ -706,7 +697,7 @@ while IFS= read -r cmd_file; do
         log_error "$cmd_file: @include with hardcoded path: $(echo "$match_line" | sed 's/^[[:space:]]*//' | head -c 120)"
         ((at_include_errors++)) || true
     done < <(grep -n '@plugins/' "$cmd_file" 2>/dev/null || true)
-done < <(find ./plugins/iflow-dev/commands -name "*.md" -type f 2>/dev/null)
+done < <(find ./plugins/iflow/commands -name "*.md" -type f 2>/dev/null)
 if [ $at_include_errors -eq 0 ]; then
     log_success "No @plugins/ includes in command files"
 else
@@ -717,7 +708,7 @@ echo ""
 # Validate hook ERR trap usage
 echo "Checking Hook ERR Traps..."
 err_trap_missing=0
-for hook_script in plugins/iflow-dev/hooks/*.sh; do
+for hook_script in plugins/iflow/hooks/*.sh; do
     [ -f "$hook_script" ] || continue
     basename=$(basename "$hook_script")
     # Skip non-hook scripts that don't source common.sh
@@ -741,11 +732,11 @@ echo ""
 echo "Checking Entry-Point mkdir Guards..."
 mkdir_missing=0
 mkdir_checks=(
-    "plugins/iflow-dev/skills/brainstorming/SKILL.md:mkdir"
-    "plugins/iflow-dev/commands/create-feature.md:mkdir"
-    "plugins/iflow-dev/commands/add-to-backlog.md:mkdir"
-    "plugins/iflow-dev/skills/root-cause-analysis/SKILL.md:mkdir"
-    "plugins/iflow-dev/skills/retrospecting/SKILL.md:mkdir"
+    "plugins/iflow/skills/brainstorming/SKILL.md:mkdir"
+    "plugins/iflow/commands/create-feature.md:mkdir"
+    "plugins/iflow/commands/add-to-backlog.md:mkdir"
+    "plugins/iflow/skills/root-cause-analysis/SKILL.md:mkdir"
+    "plugins/iflow/skills/retrospecting/SKILL.md:mkdir"
 )
 for check in "${mkdir_checks[@]}"; do
     file="${check%%:*}"
@@ -764,7 +755,7 @@ echo ""
 
 # Validate setup script exists
 echo "Checking Setup Scripts..."
-for script in plugins/iflow-dev/scripts/doctor.sh plugins/iflow-dev/scripts/setup.sh; do
+for script in plugins/iflow/scripts/doctor.sh plugins/iflow/scripts/setup.sh; do
     if [ -f "$script" ]; then
         if [ -x "$script" ]; then
             log_success "$script exists and is executable"

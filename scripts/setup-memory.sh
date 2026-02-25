@@ -44,7 +44,7 @@ while [[ "$PROJECT_ROOT" != "/" ]]; do
 done
 [[ -d "$PROJECT_ROOT/.git" ]] || die "Could not find .git directory above $SCRIPT_DIR"
 
-PLUGIN_DIR="$PROJECT_ROOT/plugins/iflow-dev"
+PLUGIN_DIR="$PROJECT_ROOT/plugins/iflow"
 VENV_DIR="$PLUGIN_DIR/.venv"
 
 [[ -f "$PLUGIN_DIR/pyproject.toml" ]] || die "Expected $PLUGIN_DIR/pyproject.toml not found"
@@ -157,7 +157,7 @@ if [[ -z "$PROVIDER_FOUND" ]]; then
     die "No embedding provider found. Set GEMINI_API_KEY, OPENAI_API_KEY, or VOYAGE_API_KEY in .env"
 fi
 
-info "Active provider will be determined by .claude/iflow-dev.local.md config"
+info "Active provider will be determined by .claude/iflow.local.md config"
 
 # --- Step 5: Register project -----------------------------------------------
 
