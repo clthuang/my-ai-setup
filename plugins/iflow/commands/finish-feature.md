@@ -7,6 +7,12 @@ argument-hint: [feature-id]
 
 Complete a feature and clean up.
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+- `{iflow_base_branch}` — base branch for merges (default: `main`)
+- `{iflow_release_script}` — path to release script (empty if not configured)
+
 ## YOLO Mode Overrides
 
 If `[YOLO_MODE]` is active:
@@ -14,9 +20,9 @@ If `[YOLO_MODE]` is active:
 - Step 2b (docs no update needed AND `changelog_state.needs_entry` is false) → auto "Skip"
 - Step 2b (docs no update needed BUT `changelog_state.needs_entry` is true) → proceed with documentation-writer for CHANGELOG only
 - Step 2b (docs updates found) → proceed with documentation-writer (no prompt needed)
-- Phase 4 (completion decision) → auto "Merge & Release (Recommended)"
+- Phase 4 (completion decision) → auto "Merge & Release (Recommended)" (or "Merge (Recommended)" if `{iflow_release_script}` is not configured)
 - **Git merge failure:** STOP and report. Do NOT attempt to resolve merge conflicts
-  autonomously. Output: "YOLO MODE STOPPED: Merge conflict on develop. Resolve manually,
+  autonomously. Output: "YOLO MODE STOPPED: Merge conflict on {iflow_base_branch}. Resolve manually,
   then run /secretary continue"
 
 ## Determine Feature
@@ -190,13 +196,17 @@ Capture session learnings into project CLAUDE.md.
 
 Present only two options:
 
+The option labels depend on whether `{iflow_release_script}` is configured:
+
 ```
 AskUserQuestion:
   questions: [{
     "question": "Feature {id}-{slug} complete. How would you like to finish?",
     "header": "Finish",
     "options": [
-      {"label": "Merge & Release (Recommended)", "description": "Merge to develop and run release script"},
+      {"label": "Merge & Release (Recommended)", "description": "Merge to {iflow_base_branch} and run release script"},
+      // ↑ Use "Merge (Recommended)" and description "Merge to {iflow_base_branch}"
+      //   if {iflow_release_script} is not configured
       {"label": "Create PR", "description": "Open pull request for team review"}
     ],
     "multiSelect": false
@@ -260,20 +270,23 @@ gh pr create --title "Feature: {slug}" --body "## Summary
 Output: "PR created: {url}"
 → Continue to Phase 6
 
-### If "Merge & Release":
+### If "Merge & Release" (or "Merge"):
 
 ```bash
-# Merge to develop
-git checkout develop
-git pull origin develop
+# Merge to base branch
+git checkout {iflow_base_branch}
+git pull origin {iflow_base_branch}
 git merge feature/{id}-{slug}
 git push
-
-# Run release script
-./scripts/release.sh --ci
 ```
 
-Output: "Merged to develop. Release: v{version}"
+If `{iflow_release_script}` is set and the file exists at that path, run it:
+```bash
+{iflow_release_script}
+```
+Otherwise, skip the release step and output "No release script configured."
+
+Output: "Merged to {iflow_base_branch}." followed by "Release: v{version}" if release script ran, or "No release script configured." if not.
 → Continue to Phase 6
 
 ---
@@ -299,8 +312,8 @@ Run automatically after Phase 5 completes.
 ### Step 6b: Delete temporary files
 
 ```bash
-rm docs/features/{id}-{slug}/.review-history.md 2>/dev/null || true
-rm docs/features/{id}-{slug}/implementation-log.md 2>/dev/null || true
+rm {iflow_artifacts_root}/features/{id}-{slug}/.review-history.md 2>/dev/null || true
+rm {iflow_artifacts_root}/features/{id}-{slug}/implementation-log.md 2>/dev/null || true
 ```
 
 ### Step 6c: Delete Feature Branch

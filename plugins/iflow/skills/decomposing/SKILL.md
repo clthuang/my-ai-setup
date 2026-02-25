@@ -5,12 +5,16 @@ description: Orchestrates project decomposition -- decomposer + reviewer cycle, 
 
 # Project Decomposition
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 Decomposes a project PRD into modules and features through an AI decomposer/reviewer cycle.
 
 ## Prerequisites
 
 Expects inputs:
-- `project_dir` (string): path to `docs/projects/{id}-{slug}/`
+- `project_dir` (string): path to `{iflow_artifacts_root}/projects/{id}-{slug}/`
 - `prd_content` (string): full PRD markdown text
 - `expected_lifetime` (string): e.g. "3-months", "6-months", "1-year", "2-years"
 
@@ -152,7 +156,7 @@ Max 3 iterations. After Step 3 returns `review_result`:
 
 ## Step 5: Name-to-ID-Slug Mapping
 
-1. Scan `docs/features/` for all `{NNN}-*` directories. Extract numeric prefixes, find the highest `NNN`. If none exist, start at 0.
+1. Scan `{iflow_artifacts_root}/features/` for all `{NNN}-*` directories. Extract numeric prefixes, find the highest `NNN`. If none exist, start at 0.
 2. Flatten all features across all modules from `decomposition` into a single ordered list (preserve module order, then feature order within module).
 3. Assign sequential IDs starting from `NNN + 1`.
 4. Derive slug from each feature name:
@@ -216,8 +220,8 @@ For each feature in `execution_order`:
 
 1. Look up feature data from `mapped_decomposition` (name, description, module, depends_on, complexity).
 2. Derive `{id}` and `{slug}` from the `{id}-{slug}` string.
-3. Create directory `docs/features/{id}-{slug}/`.
-4. Write `docs/features/{id}-{slug}/.meta.json`:
+3. Create directory `{iflow_artifacts_root}/features/{id}-{slug}/`.
+4. Write `{iflow_artifacts_root}/features/{id}-{slug}/.meta.json`:
    ```json
    {
      "id": "{id}",

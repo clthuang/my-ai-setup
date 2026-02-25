@@ -1,6 +1,10 @@
 # PRD Output Format Template
 
-Write to `docs/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`:
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
+Write to `{iflow_artifacts_root}/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`:
 
 ```markdown
 # PRD: {Feature Name}

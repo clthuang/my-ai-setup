@@ -30,23 +30,28 @@ def _read_registry(registry_path: str) -> list[str]:
 
 
 def _discover_knowledge_bank_projects(
-    base_dir: str | None = None,
+    base_dirs: list[str] | None = None,
 ) -> list[str]:
-    """Scan for directories with docs/knowledge-bank/ under *base_dir*.
+    """Scan for directories with a knowledge-bank/ under *base_dirs*.
 
-    Defaults to ``~/projects`` when *base_dir* is ``None``.
+    Defaults to ``[~/projects]`` when *base_dirs* is ``None``.
+    Checks both ``docs/knowledge-bank/`` and any other ``*/knowledge-bank/``
+    patterns one level deep.
     """
-    if base_dir is None:
-        base_dir = os.path.expanduser("~/projects")
-    if not os.path.isdir(base_dir):
-        return []
+    if base_dirs is None:
+        base_dirs = [os.path.expanduser("~/projects")]
     found: list[str] = []
-    for name in sorted(os.listdir(base_dir)):
-        candidate = os.path.join(base_dir, name)
-        if os.path.isdir(candidate):
-            kb = os.path.join(candidate, "docs", "knowledge-bank")
-            if os.path.isdir(kb):
-                found.append(candidate)
+    for base_dir in base_dirs:
+        base_dir = os.path.expanduser(base_dir.strip())
+        if not os.path.isdir(base_dir):
+            continue
+        for name in sorted(os.listdir(base_dir)):
+            candidate = os.path.join(base_dir, name)
+            if os.path.isdir(candidate):
+                kb = os.path.join(candidate, "docs", "knowledge-bank")
+                if os.path.isdir(kb):
+                    if candidate not in found:
+                        found.append(candidate)
     return found
 
 
@@ -63,6 +68,10 @@ def backfill(
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     db = MemoryDatabase(db_path)
 
+    # Read config for project-aware settings
+    config = read_config(project_root)
+    artifacts_root = str(config.get("artifacts_root", "docs"))
+
     try:
         # 0. Optionally reset inflated observation counts
         if reset_observation_counts:
@@ -77,7 +86,12 @@ def backfill(
         if registry_path:
             project_roots = _read_registry(registry_path)
         if discover:
-            for p in _discover_knowledge_bank_projects():
+            # Use configured scan dirs or default to ~/projects
+            scan_dirs_raw = str(config.get("backfill_scan_dirs", ""))
+            base_dirs: list[str] | None = None
+            if scan_dirs_raw:
+                base_dirs = [d.strip() for d in scan_dirs_raw.split(",") if d.strip()]
+            for p in _discover_knowledge_bank_projects(base_dirs):
                 if p not in project_roots:
                     project_roots.append(p)
         if project_root not in project_roots:
@@ -87,7 +101,7 @@ def backfill(
         before = db.count_entries()
 
         # 3. Import from all registered projects
-        importer = MarkdownImporter(db)
+        importer = MarkdownImporter(db, artifacts_root=artifacts_root)
         total_imported = 0
         total_skipped = 0
         for proj in project_roots:
@@ -103,7 +117,6 @@ def backfill(
         new_entries = after - before
 
         # 4. Create provider and generate embeddings
-        config = read_config(project_root)
         provider = create_provider(config)
 
         embedded = 0

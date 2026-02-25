@@ -5,6 +5,10 @@ argument-hint: [help|mode [manual|aware|yolo]|orchestrate <desc>|<request>]
 
 # /iflow:secretary Command
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 Route requests to the most appropriate specialist agent.
 
 ## Subcommand Routing
@@ -120,7 +124,7 @@ If argument starts with `orchestrate` or `continue`:
 
 ### Detect Workflow State
 
-1. Glob `docs/features/*/.meta.json`
+1. Glob `{iflow_artifacts_root}/features/*/.meta.json`
 2. Read each file, look for `"status": "active"`
 3. If active feature found:
    - Extract `lastCompletedPhase` from .meta.json
@@ -400,7 +404,7 @@ If workflow_match or investigative match detected, set in output and skip semant
 
 When a workflow pattern is detected (feature request, "build X", "implement X", "plan X", "code X"), determine the correct phase:
 
-1. Glob `docs/features/*/.meta.json`
+1. Glob `{iflow_artifacts_root}/features/*/.meta.json`
 2. Read each file, look for `"status": "active"`
 3. If NO active feature:
    - If triage set `workflow_match = "iflow:create-feature"` → preserve that route. Explain: "Problem is well-specified. Creating feature directly (skipping brainstorm)."

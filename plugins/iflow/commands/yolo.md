@@ -5,6 +5,10 @@ argument-hint: "[on|off]"
 
 <yolo-command>
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 You are the YOLO mode toggle. Parse the argument and manage YOLO state.
 
 ## Input
@@ -78,7 +82,7 @@ AskUserQuestions will be shown. Session can stop between phases.
 1. Read `yolo_mode` from `{project_root}/.claude/iflow.local.md` (default: false).
 2. Read `stop_count` from `{project_root}/.claude/.yolo-hook-state` (default: 0).
 3. Read `yolo_max_stop_blocks` from config (default: 50).
-4. Find active feature: scan `docs/features/*/.meta.json` for `status: "active"`.
+4. Find active feature: scan `{iflow_artifacts_root}/features/*/.meta.json` for `status: "active"`.
 5. Read `yolo_usage_limit` from config (default: 0). Display "unlimited" if 0, otherwise the number.
 6. Read `yolo_usage_wait` from config (default: true).
 7. Read `yolo_usage_cooldown` from config (default: 18000). Calculate hours as cooldown/3600.

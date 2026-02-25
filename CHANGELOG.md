@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.26] - 2026-02-25
+
 ### Added
 - Project-aware config fields: `artifacts_root`, `base_branch`, `release_script`, `backfill_scan_dirs` in `.claude/iflow-dev.local.md`
 - Auto-detection of base branch from `git symbolic-ref refs/remotes/origin/HEAD` with `main` fallback

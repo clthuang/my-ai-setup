@@ -56,6 +56,7 @@ class RetrievalPipeline:
         self._db = db
         self._provider = provider
         self._config = config
+        self._artifacts_root = config.get("artifacts_root", "docs")
 
     # ------------------------------------------------------------------
     # Context collection
@@ -66,7 +67,7 @@ class RetrievalPipeline:
 
         Gathers up to seven signal types:
 
-        1. Active feature slug (from ``docs/features/*/.meta.json``)
+        1. Active feature slug (from ``{artifacts_root}/features/*/.meta.json``)
         2. Feature description (first paragraph of ``spec.md`` / ``prd.md``)
         3. Current phase (``lastCompletedPhase`` from ``.meta.json``)
         4. Project-level description (``CLAUDE.md``, ``README.md``,
@@ -102,8 +103,12 @@ class RetrievalPipeline:
             signals.append(project_desc)
 
         # 5. Branch name (skip generic names that add no signal)
+        base_branch = self._config.get("base_branch", "auto")
+        skip_branches = {"main", "master", "develop", "HEAD"}
+        if base_branch not in ("auto", ""):
+            skip_branches.add(base_branch)
         branch = self._git_branch_name(project_root)
-        if branch and branch not in ("main", "master", "develop", "HEAD"):
+        if branch and branch not in skip_branches:
             signals.append(f"Branch: {branch}")
 
         # 6a. Git committed changes
@@ -203,7 +208,7 @@ class RetrievalPipeline:
         Returns ``(meta_dict, feature_dir)`` or ``(None, None)`` if no
         active feature is found.
         """
-        pattern = os.path.join(project_root, "docs", "features", "*", ".meta.json")
+        pattern = os.path.join(project_root, self._artifacts_root, "features", "*", ".meta.json")
         meta_paths = glob.glob(pattern)
 
         best_meta: dict | None = None

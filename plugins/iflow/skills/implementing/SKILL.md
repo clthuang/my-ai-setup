@@ -5,6 +5,10 @@ description: Dispatches per-task implementer agents from tasks.md, collecting re
 
 # Implementation Phase
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 Execute the implementation plan with a structured per-task dispatch approach.
 
 ## Prerequisites
@@ -19,7 +23,7 @@ For complex implementations:
 
 ## Read Feature Context
 
-1. Find active feature folder in `docs/features/`
+1. Find active feature folder in `{iflow_artifacts_root}/features/`
 2. Read `.meta.json` for mode and context
 3. Adjust behavior based on mode:
    - Standard: Full process with optional verification
@@ -81,9 +85,9 @@ Check the feature's `.meta.json` for a `project_id` field. If absent or null, sk
 
 If `project_id` is present (non-null):
 
-1. **Resolve project directory:** Glob `docs/projects/{project_id}-*/`. If not found, log warning and skip project context entirely.
+1. **Resolve project directory:** Glob `{iflow_artifacts_root}/projects/{project_id}-*/`. If not found, log warning and skip project context entirely.
 2. **Load project goals:** Read the project's `prd.md`. Extract `## Problem Statement` and `## Goals` sections (heading through next `##`). Summarize to 2-3 bullet points (~100 tokens).
-3. **Load feature dependency status:** Read this feature's `.meta.json` `depends_on_features` list. If absent or empty, omit dependencies from the block. For each reference: glob `docs/features/{ref}-*/`, read its `.meta.json` `status` field. Categorize into completed[], in-progress[], blocked[].
+3. **Load feature dependency status:** Read this feature's `.meta.json` `depends_on_features` list. If absent or empty, omit dependencies from the block. For each reference: glob `{iflow_artifacts_root}/features/{ref}-*/`, read its `.meta.json` `status` field. Categorize into completed[], in-progress[], blocked[].
 4. **Load priority signal:** Read the project's `roadmap.md` if it exists. Find the milestone containing this feature's ID or slug. Extract milestone name and position (~50 tokens). If `roadmap.md` missing, omit priority signal.
 5. **Format the block** (~200-500 tokens total):
 

@@ -5,6 +5,10 @@ argument-hint: --prd=<path>
 
 # /iflow:create-project Command
 
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
 Create a project from a PRD and invoke AI-driven decomposition into features.
 
 ## Step 1: Accept PRD
@@ -21,7 +25,7 @@ If no `--prd` argument: ask user for PRD path via AskUserQuestion.
 
 ## Step 3: Derive Project ID
 
-1. Scan `docs/projects/` for existing `P{NNN}-*` directories
+1. Scan `{iflow_artifacts_root}/projects/` for existing `P{NNN}-*` directories
 2. Extract highest NNN, increment by 1
 3. If no projects exist, start at P001
 4. Zero-pad to 3 digits
@@ -50,8 +54,8 @@ AskUserQuestion:
 
 ## Step 6: Create Project Directory
 
-1. Create `docs/projects/` if it doesn't exist
-2. Create `docs/projects/P{NNN}-{slug}/`
+1. Create `{iflow_artifacts_root}/projects/` if it doesn't exist
+2. Create `{iflow_artifacts_root}/projects/P{NNN}-{slug}/`
 
 ## Step 7: Write Project .meta.json
 
@@ -72,7 +76,7 @@ AskUserQuestion:
 
 ## Step 8: Copy PRD
 
-1. Copy PRD content to `docs/projects/P{NNN}-{slug}/prd.md`
+1. Copy PRD content to `{iflow_artifacts_root}/projects/P{NNN}-{slug}/prd.md`
 2. Verify copy: confirm destination file exists and is non-empty
 3. If verification fails: show error, stop
 
@@ -81,7 +85,7 @@ AskUserQuestion:
 ```
 Project P{NNN}-{slug} created
   Lifetime: {expected_lifetime}
-  Directory: docs/projects/P{NNN}-{slug}/
+  Directory: {iflow_artifacts_root}/projects/P{NNN}-{slug}/
   PRD: Copied
 
 Invoking decomposition...
@@ -90,7 +94,7 @@ Invoking decomposition...
 ## Step 10: Invoke Decomposition
 
 Invoke the decomposing skill as inline continuation (not subprocess). Pass context:
-- `project_dir`: `docs/projects/P{NNN}-{slug}/`
+- `project_dir`: `{iflow_artifacts_root}/projects/P{NNN}-{slug}/`
 - `prd_content`: full PRD markdown text
 - `expected_lifetime`: selected lifetime value
 
@@ -103,4 +107,4 @@ Follow the decomposing skill steps from this point forward.
 | PRD file not found | Show error with path, stop |
 | PRD file empty | Show error, stop |
 | PRD copy verification fails | Show error, stop |
-| `docs/projects/` doesn't exist | Create it (Step 6) |
+| `{iflow_artifacts_root}/projects/` doesn't exist | Create it (Step 6) |

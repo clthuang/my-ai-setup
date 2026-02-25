@@ -3,7 +3,11 @@ description: Add an item to the backlog for capturing ad-hoc ideas, todos, or fi
 argument-hint: <description>
 ---
 
-Add an item to the centralized backlog at `docs/backlog.md`.
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
+Add an item to the centralized backlog at `{iflow_artifacts_root}/backlog.md`.
 
 ## Instructions
 
@@ -14,7 +18,7 @@ Add an item to the centralized backlog at `docs/backlog.md`.
    Then stop.
 
 2. **Read or initialize backlog:**
-   - Try to read `docs/backlog.md`
+   - Try to read `{iflow_artifacts_root}/backlog.md`
    - If file exists: Parse the table to find the highest existing ID (5-digit numbers like `00001`)
    - If file doesn't exist or has no entries: The next ID will be `00001`
 
@@ -47,7 +51,7 @@ Output:
 Added to backlog: #00001 - Fix the login timeout bug
 ```
 
-And `docs/backlog.md` now contains:
+And `{iflow_artifacts_root}/backlog.md` now contains:
 ```markdown
 # Backlog
 
