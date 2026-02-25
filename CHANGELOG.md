@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-02-25
+
 ### Changed
 - Review phase (Step 7 in `/implement`) now selectively re-runs only failed reviewers instead of all 3 every iteration, reducing redundant agent dispatches
 - Added mandatory final validation round (all 3 reviewers) after individual passes to catch regressions from fixes
