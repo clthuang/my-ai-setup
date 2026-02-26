@@ -56,7 +56,7 @@ flowchart TD
 |------|-------|
 | Skills | 29 |
 | Agents | 28 |
-| Commands | 26 |
+| Commands | 27 |
 | Hooks | 11 |
 | MCP Tools | 2 |
 
@@ -97,6 +97,7 @@ flowchart TD
 | `/iflow:refresh-prompt-guidelines` | Scout latest prompt engineering best practices and update the guidelines document |
 | `/iflow:review-ds-analysis <file>` | Review data analysis for statistical pitfalls |
 | `/iflow:review-ds-code <file>` | Review DS Python code for anti-patterns |
+| `/iflow:generate-docs` | Generate three-tier documentation scaffold or update existing docs |
 | `/iflow:remember` | Capture a learning to long-term memory for future session recall |
 | `/iflow:yolo [on\|off]` | Toggle YOLO autonomous mode |
 
@@ -155,7 +156,7 @@ Stage 2: PHASE-REVIEWER (Execution Readiness)
 
 ### Implementation Review
 
-The `/iflow:implement` command uses three reviewers:
+The `/iflow:implement` command uses three reviewers in an iterative loop (up to 5 iterations). Only reviewers that failed re-run in intermediate iterations — passing reviewers are skipped. When all three have individually passed, a mandatory final validation round runs all three regardless to confirm end-to-end correctness.
 
 | Reviewer | Focus | Validation |
 |----------|-------|------------|

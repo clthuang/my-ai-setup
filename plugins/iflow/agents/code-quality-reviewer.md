@@ -22,6 +22,9 @@ assistant: "I'll use the code-quality-reviewer agent to review the implementatio
 
 # Code Quality Reviewer Agent
 
+> **Note on Tools:** If specific tools like `Context7` or `WebSearch` are unavailable or return errors (e.g., when running via a local model proxy), gracefully degrade. Proceed with your review using only the provided file contexts and static analysis.
+
+
 You review implementation quality after spec compliance is confirmed.
 
 ## Prerequisites

@@ -17,9 +17,8 @@ Use these values from session context (injected at session start):
 
 If `[YOLO_MODE]` is active:
 - Step 2a (tasks incomplete) → auto "Continue anyway"
-- Step 2b (docs no update needed AND `changelog_state.needs_entry` is false) → auto "Skip"
-- Step 2b (docs no update needed BUT `changelog_state.needs_entry` is true) → proceed with documentation-writer for CHANGELOG only
-- Step 2b (docs updates found) → proceed with documentation-writer (no prompt needed)
+- Step 2b (scaffold gate) → auto-select Skip
+- Step 2b (researcher no_updates_needed + empty affected_tiers) → auto-select Skip
 - Phase 4 (completion decision) → auto "Merge & Release (Recommended)" (or "Merge (Recommended)" if `{iflow_release_script}` is not configured)
 - **Git merge failure:** STOP and report. Do NOT attempt to resolve merge conflicts
   autonomously. Output: "YOLO MODE STOPPED: Merge conflict on {iflow_base_branch}. Resolve manually,
@@ -73,84 +72,202 @@ AskUserQuestion:
 If "Run /iflow:implement": Execute `/iflow:implement`, then return to Phase 2.
 If "Run /iflow:implement until done": Loop `/iflow:implement` until no incomplete tasks, then continue.
 
-### Step 2b: Documentation Update (Automatic)
+### Step 2b: Documentation Update (Enriched)
 
-Run documentation update automatically using agents:
+#### Mode Resolution
 
-1. **Dispatch documentation-researcher agent:**
+<!-- SYNC: tier-resolution -->
+1. Parse `iflow_doc_tiers` from session context — split on comma, trim whitespace, filter to recognized values (`user-guide`, `dev-guide`, `technical`). If `iflow_doc_tiers` is not set or empty, default to all three tiers.
+2. For each recognized tier, check if `docs/{tier}/` exists (relative to project root).
+3. If any enabled tier directory is missing → `mode = scaffold`. If all enabled tier directories exist → `mode = incremental`.
 
-```
-Task tool call:
-  description: "Research documentation context"
-  subagent_type: iflow:documentation-researcher
-  model: sonnet
-  prompt: |
-    Research current documentation state for feature {id}-{slug}.
+<!-- SYNC: enriched-doc-dispatch -->
+#### Doc-Schema Resolution
 
-    Feature context:
-    - spec.md: {content summary}
-    - Files changed: {list from git diff}
+4. Resolve doc-schema content: Glob `~/.claude/plugins/cache/*/iflow*/*/references/doc-schema.md` — use first match. Fallback (dev workspace): `plugins/iflow/references/doc-schema.md`.
+5. Read the resolved file content, store as `{doc_schema_content}`.
+6. Replace all occurrences of `{iflow_artifacts_root}` in `{doc_schema_content}` with the actual session value.
 
-    Find:
-    - Existing docs that may need updates
-    - What user-visible changes were made
-    - What documentation patterns exist in project
+#### Scaffold UX Gate (scaffold mode only)
 
-    Return findings as structured JSON.
-```
-
-2. **Evaluate researcher findings:**
-
-If `no_updates_needed: true`:
+If `mode = scaffold`:
 
 ```
 AskUserQuestion:
   questions: [{
-    "question": "No user-visible changes detected. Skip documentation?",
-    "header": "Docs",
+    "question": "Documentation scaffold needed — some tier directories are missing. How to proceed?",
+    "header": "Documentation Scaffold",
     "options": [
-      {"label": "Skip", "description": "No documentation updates needed"},
-      {"label": "Write anyway", "description": "Force documentation update"}
+      {"label": "Skip", "description": "Skip documentation scaffolding for now"},
+      {"label": "Scaffold", "description": "Create missing tier directories and seed files"},
+      {"label": "Defer", "description": "Skip scaffolding — handle later"}
     ],
     "multiSelect": false
   }]
 ```
 
-If "Skip": Continue to Phase 3.
+If "Skip" or "Defer": Continue to Phase 3 (no documentation updates).
+If "Scaffold": Continue with enriched documentation flow below.
 
-3. **Dispatch documentation-writer agent:**
+**YOLO override:** Auto-select "Skip" (never auto-scaffold during finish-feature).
+
+<!-- SYNC: enriched-doc-dispatch -->
+#### Pre-Computed Git Timestamps
+
+For each enabled tier, compute the last-modified timestamp from source paths:
+
+- **user-guide:** `git log -1 --format=%aI -- README.md package.json setup.py pyproject.toml bin/`
+- **dev-guide:** `git log -1 --format=%aI -- src/ test/ Makefile .github/ CONTRIBUTING.md docker-compose.yml`
+- **technical:** `git log -1 --format=%aI -- src/ docs/technical/`
+
+If any command returns empty, use `"no-source-commits"` for that tier. Store as JSON map:
+
+```json
+{
+  "user-guide": "2026-02-25T10:30:00-05:00",
+  "dev-guide": "no-source-commits",
+  "technical": "2026-02-24T14:15:00-05:00"
+}
+```
+
+<!-- SYNC: enriched-doc-dispatch -->
+#### Researcher Dispatch
 
 ```
 Task tool call:
-  description: "Update documentation"
+  description: "Research documentation state for feature {id}-{slug}"
+  subagent_type: iflow:documentation-researcher
+  model: sonnet
+  prompt: |
+    Research current documentation state for feature {id}-{slug}.
+
+    Mode: {mode}
+    Enabled tiers: {enabled_tiers}
+
+    Feature context:
+    - Git diff (staged + unstaged): {git diff output against base branch}
+    - Recent commits: {git log --oneline -20}
+
+    Doc-schema reference:
+    {doc_schema_content}
+
+    Pre-computed tier timestamps:
+    {timestamps_json}
+
+    Analyze which tiers need updates based on the feature changes and
+    source-path timestamps. Return structured JSON with:
+    - no_updates_needed: boolean
+    - affected_tiers: list of tier names that need doc updates
+    - findings: per-tier analysis of what changed and what docs need updating
+```
+
+#### Researcher Evaluation Gate
+
+If researcher returns `no_updates_needed: true` AND `affected_tiers` is empty:
+
+```
+AskUserQuestion:
+  questions: [{
+    "question": "Documentation researcher found no updates needed. Skip documentation?",
+    "header": "Documentation",
+    "options": [
+      {"label": "Skip documentation", "description": "No documentation updates needed"},
+      {"label": "Force update", "description": "Run documentation writer anyway"}
+    ],
+    "multiSelect": false
+  }]
+```
+
+**YOLO override:** Auto-select "Skip documentation".
+
+If "Skip documentation": Continue to Phase 3.
+
+#### Writer Dispatch
+
+Build writer context from: researcher findings + mode + enabled tiers + `{doc_schema_content}` + ADR context (read `design.md` if it exists in feature artifacts directory).
+
+**Budget breakdown:**
+- **Scaffold mode:** 1 researcher (done) + up to 3 tier writers (sequential, one per affected tier) + 1 README/CHANGELOG writer = 5 max dispatches
+- **Incremental mode:** 1 researcher (done) + 1 tier writer (handles all affected tiers) + 1 README/CHANGELOG writer = 3 max dispatches
+
+**Tier writer dispatch (scaffold mode — one per affected tier, sequential):**
+
+```
+Task tool call:
+  description: "Write {tier} documentation for feature {id}-{slug}"
   subagent_type: iflow:documentation-writer
   model: sonnet
   prompt: |
-    Update documentation based on research findings.
+    Write documentation for the {tier} tier.
 
+    Mode: scaffold
     Feature: {id}-{slug}
-    Research findings: {JSON from researcher agent}
+    Research findings: {researcher findings for this tier}
+    Doc-schema: {doc_schema_content}
+    ADR context: {design.md content if exists, else "none"}
 
-    Pay special attention to any `drift_detected` entries — these represent
-    components that exist on the filesystem but are missing from README.md
-    (or vice versa). Update README.md (root). If `plugins/iflow/README.md` exists (dev workspace), update it too.
-    Add missing entries to the appropriate tables, remove stale entries,
-    and correct component count headers.
+    Create the docs/{tier}/ directory and seed files per doc-schema.
+    Return summary of files created.
+```
 
-    Also update CHANGELOG.md:
-    - Add entries under the `## [Unreleased]` section
-    - Use Keep a Changelog categories: Added, Changed, Fixed, Removed
-    - Only include user-visible changes (new commands, skills, config options, behavior changes)
-    - Skip internal refactoring, test additions, and code quality changes
+**Tier writer dispatch (incremental mode — single dispatch for all affected tiers):**
 
-    Write necessary documentation updates.
+```
+Task tool call:
+  description: "Update documentation for feature {id}-{slug}"
+  subagent_type: iflow:documentation-writer
+  model: sonnet
+  prompt: |
+    Update documentation for affected tiers.
+
+    Mode: incremental
+    Feature: {id}-{slug}
+    Affected tiers: {affected_tiers}
+    Research findings: {researcher findings}
+    Doc-schema: {doc_schema_content}
+    ADR context: {design.md content if exists, else "none"}
+
+    Update existing docs in affected tier directories.
     Return summary of changes made.
 ```
 
-4. **Commit documentation changes:**
+<!-- SYNC: readme-changelog-dispatch -->
+#### README/CHANGELOG Writer Dispatch
+
+```
+Task tool call:
+  description: "Update README and CHANGELOG for feature {id}-{slug}"
+  subagent_type: iflow:documentation-writer
+  model: sonnet
+  prompt: |
+    Update README.md and CHANGELOG.md based on feature changes.
+
+    Feature: {id}-{slug}
+    Research findings: {researcher findings}
+
+    README.md:
+    - Pay special attention to any drift_detected entries — components that
+      exist on the filesystem but are missing from README.md (or vice versa).
+    - Update README.md (root). If plugins/iflow/README.md exists (dev workspace),
+      update it too.
+    - Add missing entries to appropriate tables, remove stale entries,
+      correct component count headers.
+
+    CHANGELOG.md:
+    - Add entries under the ## [Unreleased] section
+    - Use Keep a Changelog categories: Added, Changed, Fixed, Removed
+    - Only include user-visible changes (new commands, skills, config options,
+      behavior changes)
+    - Skip internal refactoring, test additions, and code quality changes
+
+    Return summary of changes made.
+```
+
+#### Documentation Commit
+
 ```bash
-git add -A
-git commit -m "docs: update documentation for feature {id}-{slug}"
+git add docs/ README.md CHANGELOG.md
+git commit -m "docs: update documentation"
 git push
 ```
 

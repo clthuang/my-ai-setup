@@ -22,6 +22,9 @@ assistant: "I'll use the brainstorm-reviewer agent to check if the brainstorm me
 
 # Brainstorm Reviewer Agent
 
+> **Note on Tools:** If specific tools like `Context7` or `WebSearch` are unavailable or return errors (e.g., when running via a local model proxy), gracefully degrade. Proceed with your review using only the provided file contexts and static analysis.
+
+
 You validate that a brainstorm artifact is ready for promotion to a feature.
 
 ## Your Single Question
