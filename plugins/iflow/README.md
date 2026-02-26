@@ -56,7 +56,7 @@ flowchart TD
 |------|-------|
 | Skills | 29 |
 | Agents | 28 |
-| Commands | 26 |
+| Commands | 27 |
 | Hooks | 11 |
 | MCP Tools | 2 |
 
@@ -97,6 +97,7 @@ flowchart TD
 | `/iflow:refresh-prompt-guidelines` | Scout latest prompt engineering best practices and update the guidelines document |
 | `/iflow:review-ds-analysis <file>` | Review data analysis for statistical pitfalls |
 | `/iflow:review-ds-code <file>` | Review DS Python code for anti-patterns |
+| `/iflow:generate-docs` | Generate three-tier documentation scaffold or update existing docs |
 | `/iflow:remember` | Capture a learning to long-term memory for future session recall |
 | `/iflow:yolo [on\|off]` | Toggle YOLO autonomous mode |
 

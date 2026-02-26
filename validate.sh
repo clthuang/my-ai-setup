@@ -108,8 +108,8 @@ validate_agent_fields() {
     # Check model field
     if echo "$frontmatter" | grep -q "^model:"; then
         local model=$(echo "$frontmatter" | grep "^model:" | sed 's/^model:[[:space:]]*//')
-        if ! echo "inherit sonnet opus haiku" | grep -qw "$model"; then
-            log_error "$file: Invalid model '$model' (must be inherit, sonnet, opus, or haiku)"
+        if ! echo "$model" | grep -qE "^[a-zA-Z0-9_\.\/-]+$"; then
+            log_error "$file: Invalid model '$model' (must be alphanumeric with hyphens, underscores, dots, or slashes)"
         fi
     else
         log_warning "$file: Missing 'model' field (defaults to inherit)"
@@ -390,11 +390,11 @@ while IFS= read -r cmd_file; do
     if echo "$local_content" | head -1 | grep -q "^---$"; then
         cmd_frontmatter=$(echo "$local_content" | sed -n '/^---$/,/^---$/p' | sed '1d;$d')
 
-        # Validate model field if present (must be sonnet, opus, or haiku)
+        # Validate model field if present (can now be any valid proxy model string)
         if echo "$cmd_frontmatter" | grep -q "^model:"; then
             cmd_model=$(echo "$cmd_frontmatter" | grep "^model:" | sed 's/^model:[[:space:]]*//')
-            if ! echo "sonnet opus haiku" | grep -qw "$cmd_model"; then
-                log_error "$cmd_file: Invalid model '$cmd_model' (must be sonnet, opus, or haiku)"
+            if ! echo "$cmd_model" | grep -qE "^[a-zA-Z0-9_\.\/-]+$"; then
+                log_error "$cmd_file: Invalid model '$cmd_model' (must be alphanumeric with hyphens, underscores, dots, or slashes)"
             fi
         fi
 

@@ -8,6 +8,7 @@ argument-hint: [help|mode [manual|aware|yolo]|orchestrate <desc>|<request>]
 ## Config Variables
 Use these values from session context (injected at session start):
 - `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+- `{iflow_reviewer_model}` — model to use for the secretary reviewer gate (default: `haiku`, overridable for local proxy users)
 
 Route requests to the most appropriate specialist agent.
 
@@ -495,7 +496,7 @@ When invoking the reviewer:
 ```
 Task({
   subagent_type: "iflow:secretary-reviewer",
-  model: "haiku",
+  model: "{iflow_reviewer_model}",
   description: "Validate routing recommendation",
   prompt: "Discovered agents: {agent list with descriptions}\n
            User intent: {clarified intent}\n

@@ -256,6 +256,7 @@ Commands are user-invoked entry points. Located in `plugins/iflow/commands/{name
 
 | Command | Purpose |
 |---------|---------|
+| `generate-docs` | Generate three-tier documentation scaffold or update existing docs |
 | `promptimize` | Review a plugin prompt against best practices and return an improved version |
 | `refresh-prompt-guidelines` | Scout latest prompt engineering best practices and update the guidelines document |
 

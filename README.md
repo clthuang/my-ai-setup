@@ -144,6 +144,7 @@ Built-in specialist knowledge for brainstorming and code review:
 | `/iflow:review-ds-analysis <file>` | Review data analysis for statistical pitfalls |
 | `/iflow:review-ds-code <file>` | Review DS Python code for anti-patterns |
 | `/iflow:init-ds-project <name>` | Scaffold a new data science project |
+| `/iflow:generate-docs` | Generate three-tier documentation scaffold or update existing docs |
 | `/iflow:sync-cache` | Sync plugin source files to cache |
 | `/iflow:yolo [on\|off]` | Toggle YOLO autonomous mode on or off |
 

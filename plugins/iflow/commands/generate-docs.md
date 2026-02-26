@@ -21,6 +21,7 @@ If `[YOLO_MODE]` is active:
 
 ## Step 1: Parse and Validate Tiers
 
+<!-- SYNC: tier-resolution -->
 1. Read `iflow_doc_tiers` from session context
 2. Split on comma, trim whitespace from each value
 3. Filter to only recognized values: `user-guide`, `dev-guide`, `technical`
@@ -45,6 +46,7 @@ For each recognized tier from Step 1, check if `docs/{tier}/` exists relative to
 
 ## Step 3: Pre-Compute Git Timestamps
 
+<!-- SYNC: enriched-doc-dispatch -->
 For each enabled tier, compute the timestamp of the most recent source change using the tier-to-source monitored directories from doc-schema:
 
 - **user-guide:** `git log -1 --format=%aI -- README.md package.json setup.py pyproject.toml bin/`

@@ -76,6 +76,7 @@ If "Run /iflow:implement until done": Loop `/iflow:implement` until no incomplet
 
 #### Mode Resolution
 
+<!-- SYNC: tier-resolution -->
 1. Parse `iflow_doc_tiers` from session context — split on comma, trim whitespace, filter to recognized values (`user-guide`, `dev-guide`, `technical`). If `iflow_doc_tiers` is not set or empty, default to all three tiers.
 2. For each recognized tier, check if `docs/{tier}/` exists (relative to project root).
 3. If any enabled tier directory is missing → `mode = scaffold`. If all enabled tier directories exist → `mode = incremental`.
@@ -230,6 +231,7 @@ Task tool call:
     Return summary of changes made.
 ```
 
+<!-- SYNC: readme-changelog-dispatch -->
 #### README/CHANGELOG Writer Dispatch
 
 ```

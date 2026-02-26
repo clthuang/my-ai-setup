@@ -312,7 +312,7 @@ Return summary of changes:
 
 ## Prompt Size Awareness
 
-If this agent prompt exceeds 400 lines, the tier-to-source mapping table should be referenced from doc-schema.md (injected in dispatch context) rather than repeated here. The doc schema reference is always available in the dispatch context.
+The tier-to-source mapping is defined in doc-schema.md (always injected in dispatch context). Do not duplicate it here.
 
 ## Writing Guidelines
 
