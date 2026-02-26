@@ -107,7 +107,7 @@ skills/{skill-name}/
 name: agent-name
 description: What this agent does. Use when [delegation criteria].
 tools: [Allowed tools - omit to inherit all]
-model: [Optional: haiku for speed, sonnet for quality]
+model: [Optional: haiku, sonnet, or proxy string like ollama/llama-3]
 ---
 
 [System prompt defining agent behavior]
