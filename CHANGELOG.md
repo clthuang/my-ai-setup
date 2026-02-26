@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-02-26
+
 ### Added
 - Multi-provider LLM support via local proxy (e.g. LiteLLM/Ollama). Agent frontmatters now accept any valid proxy model string (e.g. `ollama/qwen2.5-coder`).
 - Overridable `{iflow_reviewer_model}` config variable for secretary router gating.
