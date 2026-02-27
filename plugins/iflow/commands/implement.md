@@ -310,7 +310,12 @@ Task tool call:
     - Formatting
     - Holistic flow
 
-    Return assessment with approval status.
+    Return your assessment as JSON:
+    {
+      "approved": true/false,
+      "issues": [{"severity": "blocker|warning|suggestion", "category": "readability|kiss|yagni|formatting|flow", "description": "...", "location": "...", "suggestion": "..."}],
+      "summary": "..."
+    }
 ```
 
 **Fallback detection (I9):** After receiving the code-quality-reviewer's response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: code-quality-reviewer did not confirm artifact reads` to `.review-history.md`. Proceed regardless.
@@ -339,7 +344,12 @@ Task tool call:
     - Data protection
     - OWASP top 10
 
-    Return JSON with approval status and vulnerabilities.
+    Return your assessment as JSON:
+    {
+      "approved": true/false,
+      "issues": [{"severity": "blocker|warning|suggestion", "category": "injection|auth|crypto|exposure|config", "description": "...", "location": "...", "suggestion": "..."}],
+      "summary": "..."
+    }
 ```
 
 **Fallback detection (I9):** After receiving the security-reviewer's response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: security-reviewer did not confirm artifact reads` to `.review-history.md`. Proceed regardless.
