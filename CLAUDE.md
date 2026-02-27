@@ -123,6 +123,8 @@ A hookify rule (`.claude/hookify.docs-sync.local.md`) will remind you on plugin 
 
 **Agent model tiers:** Every `subagent_type:` dispatch must include `model:` (opus/sonnet/haiku) matching the agent's frontmatter. Verify with: `grep -rn 'subagent_type:' plugins/iflow/ | wc -l` and confirm each has a nearby `model:` line.
 
+**Reviewer prompt consistency:** All reviewer dispatch prompts in command files must include explicit JSON return schema blocks (`{approved, issues[], summary}`). Plain prose like "Return assessment with approval status" gets caught late in implement review. Verify with: `grep -n 'Return.*assessment\|Return.*JSON\|Return.*approval' plugins/iflow/commands/*.md`
+
 **Project-aware config:** `.claude/iflow.local.md` fields injected at session start:
 - `artifacts_root` (default: `docs`) — root directory for features, brainstorms, projects, knowledge-bank
 - `base_branch` (default: `auto` — detects from remote HEAD, falls back to `main`) — merge target branch
