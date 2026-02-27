@@ -947,6 +947,436 @@ test_generate_docs_adr_scan_cap_at_10() {
 
 
 # ============================================================
+# Dimension 6: Deepened Coverage (Phase B) — test-deepener
+# ============================================================
+
+# derived_from: spec:TD7 (finish-feature Phase 2b must NOT invoke updating-docs skill)
+# Anticipate: If finish-feature delegates to updating-docs skill instead of inlining
+# the dispatch, it would add an unnecessary indirection layer and diverge from TD7.
+# Challenge: We grep for the skill name in the Phase 2b section specifically.
+# Verify: Removing the inline dispatch and adding a skill invocation would fail this test.
+test_td7_finish_feature_phase2b_no_updating_docs_skill() {
+    log_test "TD7: finish-feature Phase 2b does NOT reference updating-docs skill"
+
+    if [[ ! -f "$FINISH_FEATURE_CMD" ]]; then log_fail "File not found"; return; fi
+    # Given the Phase 2b section in finish-feature
+    # When we search for updating-docs skill invocation within Step 2b
+    local phase2b_content
+    phase2b_content=$(sed -n '/### Step 2b:/,/^---$/p' "$FINISH_FEATURE_CMD")
+    # Then it does NOT invoke updating-docs skill (it inlines the dispatch per TD7)
+    if echo "$phase2b_content" | grep -qi 'updating-docs'; then
+        log_fail "finish-feature Phase 2b references updating-docs skill (violates TD7)"
+    else
+        log_pass
+    fi
+}
+
+# derived_from: spec:TD7 (wrap-up Phase 2b must NOT invoke updating-docs skill)
+# Anticipate: Same as above — wrap-up should inline dispatch, not delegate to skill.
+test_td7_wrap_up_phase2b_no_updating_docs_skill() {
+    log_test "TD7: wrap-up Phase 2b does NOT reference updating-docs skill"
+
+    if [[ ! -f "$WRAP_UP_CMD" ]]; then log_fail "File not found"; return; fi
+    # Given the Phase 2b/Step 2b section in wrap-up
+    local phase2b_content
+    phase2b_content=$(sed -n '/### Step 2b:/,/^---$/p' "$WRAP_UP_CMD")
+    # Then it does NOT invoke updating-docs skill
+    if echo "$phase2b_content" | grep -qi 'updating-docs'; then
+        log_fail "wrap-up Phase 2b references updating-docs skill (violates TD7)"
+    else
+        log_pass
+    fi
+}
+
+# derived_from: spec:ADR-supersession (case-insensitive matching documented in writer)
+# Anticipate: If case-insensitive is removed, "Authentication Strategy" would not
+# match "authentication strategy" — causing duplicate ADRs instead of supersession.
+test_adr_supersession_case_insensitive_documented() {
+    log_test "documentation-writer ADR supersession specifies case-insensitive matching"
+
+    if [[ ! -f "$WRITER_AGENT" ]]; then log_fail "File not found"; return; fi
+    # Given the Supersession Matching section
+    # Then it documents case-insensitive comparison
+    if grep -qi 'case-insensitive' "$WRITER_AGENT"; then
+        log_pass
+    else
+        log_fail "Missing case-insensitive specification in supersession matching"
+    fi
+}
+
+# derived_from: spec:ADR-format-detection (writer documents both heading and table formats)
+# Anticipate: If only one format is documented, design.md files using the other
+# format would not be correctly parsed for ADR extraction.
+test_adr_format_detection_heading_and_table() {
+    log_test "documentation-writer ADR extraction documents both heading and table format detection"
+
+    if [[ ! -f "$WRITER_AGENT" ]]; then log_fail "File not found"; return; fi
+    # Given the Format Detection section
+    local has_table has_heading
+    has_table=$(grep -c 'Table format' "$WRITER_AGENT" || true)
+    has_heading=$(grep -c 'Heading format' "$WRITER_AGENT" || true)
+    # Then both formats are documented
+    if [[ "$has_table" -ge 1 ]] && [[ "$has_heading" -ge 1 ]]; then
+        log_pass
+    else
+        log_fail "Missing format detection docs (table:$has_table, heading:$has_heading)"
+    fi
+}
+
+# derived_from: dimension:adversarial (SYNC labels used in SKILL.md all appear in commands)
+# Anticipate: If a SYNC label exists in the skill but not in a command that should
+# share the synchronized section, edits to one would drift from the other.
+# This is a bidirectional consistency check — not just presence, but label matching.
+test_sync_labels_bidirectional_skill_to_commands() {
+    log_test "SYNC labels in SKILL.md all appear in at least one command file"
+
+    if [[ ! -f "$UPDATING_DOCS_SKILL" ]]; then log_fail "File not found"; return; fi
+    # Given SYNC labels in the skill file
+    local labels
+    labels=$(grep -o '<!-- SYNC: [^ ]*' "$UPDATING_DOCS_SKILL" | sed 's/<!-- SYNC: //' | sort -u)
+    # When we check each label against the command files
+    local missing=0
+    local missing_labels=""
+    while IFS= read -r label; do
+        local found=0
+        grep -q "<!-- SYNC: $label -->" "$FINISH_FEATURE_CMD" 2>/dev/null && found=1
+        grep -q "<!-- SYNC: $label -->" "$WRAP_UP_CMD" 2>/dev/null && found=1
+        grep -q "<!-- SYNC: $label -->" "$GENERATE_DOCS_CMD" 2>/dev/null && found=1
+        if [[ "$found" -eq 0 ]]; then
+            ((missing++)) || true
+            missing_labels+=" $label"
+        fi
+    done <<< "$labels"
+    # Then all labels are found in at least one command
+    if [[ "$missing" -eq 0 ]]; then
+        log_pass
+    else
+        log_fail "SYNC labels from SKILL.md missing in all commands:$missing_labels"
+    fi
+}
+
+# derived_from: spec:affected_tiers (researcher output uses exact field name affected_tiers)
+# Anticipate: If the field name is misspelled (e.g., affectedTiers, affected_tier),
+# the writer dispatch would fail to read tier assignments.
+# Verify: Renaming the field in the output schema would fail this test.
+test_researcher_affected_tiers_exact_field_name() {
+    log_test "documentation-researcher output schema uses exact field name 'affected_tiers'"
+
+    if [[ ! -f "$RESEARCHER_AGENT" ]]; then log_fail "File not found"; return; fi
+    # Given the Output Format section
+    # Then it contains the exact JSON key "affected_tiers" (quoted, in schema)
+    if grep -q '"affected_tiers"' "$RESEARCHER_AGENT"; then
+        log_pass
+    else
+        log_fail "Missing exact field name '\"affected_tiers\"' in output schema"
+    fi
+}
+
+# derived_from: spec:researcher-output (researcher output schema includes changelog_state)
+# Anticipate: If changelog_state is missing, the writer would not know whether
+# CHANGELOG entries are needed, leading to missing changelog updates.
+test_researcher_changelog_state_in_output_schema() {
+    log_test "documentation-researcher output schema includes changelog_state field"
+
+    if [[ ! -f "$RESEARCHER_AGENT" ]]; then log_fail "File not found"; return; fi
+    if grep -q '"changelog_state"' "$RESEARCHER_AGENT"; then
+        log_pass
+    else
+        log_fail "Missing changelog_state field in researcher output schema"
+    fi
+}
+
+# derived_from: spec:researcher-output (researcher output schema includes project_type)
+# Anticipate: If project_type is removed, drift detection strategy selection
+# would be invisible to downstream consumers.
+test_researcher_project_type_in_output_schema() {
+    log_test "documentation-researcher output schema includes project_type field"
+
+    if [[ ! -f "$RESEARCHER_AGENT" ]]; then log_fail "File not found"; return; fi
+    if grep -q '"project_type"' "$RESEARCHER_AGENT"; then
+        log_pass
+    else
+        log_fail "Missing project_type field in researcher output schema"
+    fi
+}
+
+# derived_from: spec:researcher-output (researcher output schema includes no_updates_needed)
+# Anticipate: Without this boolean, the evaluation gate cannot determine whether
+# to prompt the user to skip documentation.
+test_researcher_no_updates_needed_in_output_schema() {
+    log_test "documentation-researcher output schema includes no_updates_needed field"
+
+    if [[ ! -f "$RESEARCHER_AGENT" ]]; then log_fail "File not found"; return; fi
+    if grep -q '"no_updates_needed"' "$RESEARCHER_AGENT"; then
+        log_pass
+    else
+        log_fail "Missing no_updates_needed field in researcher output schema"
+    fi
+}
+
+# derived_from: spec:writer-output (writer output schema includes updates_skipped)
+# Anticipate: Without updates_skipped, there would be no record of which files
+# were intentionally skipped and why.
+test_writer_updates_skipped_in_output_schema() {
+    log_test "documentation-writer output schema includes updates_skipped field"
+
+    if [[ ! -f "$WRITER_AGENT" ]]; then log_fail "File not found"; return; fi
+    if grep -q '"updates_skipped"' "$WRITER_AGENT"; then
+        log_pass
+    else
+        log_fail "Missing updates_skipped field in writer output schema"
+    fi
+}
+
+# derived_from: dimension:mutation-arithmetic (finish-feature dispatch budget scaffold=5, incremental=3)
+# Anticipate: If budget numbers in finish-feature diverge from SKILL.md, one would
+# over-dispatch while the other under-dispatches. Both must agree.
+# Verify: Changing 5 to 4 or 3 to 2 in finish-feature would fail this test.
+test_finish_feature_dispatch_budget_matches_spec() {
+    log_test "finish-feature dispatch budget documents scaffold=5 and incremental=3 max dispatches"
+
+    if [[ ! -f "$FINISH_FEATURE_CMD" ]]; then log_fail "File not found"; return; fi
+    # Given the Writer Dispatch section in finish-feature
+    local has_five has_three
+    has_five=$(grep -c '5 max dispatches' "$FINISH_FEATURE_CMD" || true)
+    has_three=$(grep -c '3 max dispatches' "$FINISH_FEATURE_CMD" || true)
+    if [[ "$has_five" -ge 1 ]] && [[ "$has_three" -ge 1 ]]; then
+        log_pass
+    else
+        log_fail "Budget mismatch in finish-feature (5-max:$has_five, 3-max:$has_three)"
+    fi
+}
+
+# derived_from: dimension:mutation-arithmetic (wrap-up dispatch budget is always 3 max)
+# Anticipate: wrap-up is always incremental, so budget should be 3 max only.
+# If scaffold budget (5) appears, it contradicts the incremental-only constraint.
+test_wrap_up_dispatch_budget_matches_spec() {
+    log_test "wrap-up dispatch budget documents 3 max dispatches (incremental only)"
+
+    if [[ ! -f "$WRAP_UP_CMD" ]]; then log_fail "File not found"; return; fi
+    local has_three
+    has_three=$(grep -c '3 max dispatches' "$WRAP_UP_CMD" || true)
+    if [[ "$has_three" -ge 1 ]]; then
+        log_pass
+    else
+        log_fail "wrap-up missing '3 max dispatches' budget documentation"
+    fi
+}
+
+# derived_from: spec:tier-validation (generate-docs filters to recognized tier values only)
+# Anticipate: If the recognized values list is incomplete or wrong, valid tiers
+# would be filtered out or invalid tiers would pass through.
+# Verify: Removing "technical" from the recognized list would fail this test.
+test_generate_docs_tier_filter_to_recognized_values() {
+    log_test "generate-docs.md filters tiers to recognized values: user-guide, dev-guide, technical"
+
+    if [[ ! -f "$GENERATE_DOCS_CMD" ]]; then log_fail "File not found"; return; fi
+    # Given Step 1 in generate-docs
+    local missing=0
+    grep -q '`user-guide`' "$GENERATE_DOCS_CMD" || ((missing++)) || true
+    grep -q '`dev-guide`' "$GENERATE_DOCS_CMD" || ((missing++)) || true
+    grep -q '`technical`' "$GENERATE_DOCS_CMD" || ((missing++)) || true
+    if [[ "$missing" -eq 0 ]]; then
+        log_pass
+    else
+        log_fail "Missing $missing of 3 recognized tier names in generate-docs filter"
+    fi
+}
+
+# derived_from: spec:scaffolding (doc-schema defines three tier directory paths)
+# Anticipate: If a tier directory path is missing from the schema, scaffold mode
+# would not know which directory to create for that tier.
+test_doc_schema_three_tier_directories_documented() {
+    log_test "doc-schema.md defines user-guide, dev-guide, technical as tier headings"
+
+    if [[ ! -f "$DOC_SCHEMA" ]]; then log_fail "File not found"; return; fi
+    # Given the doc-schema file
+    local missing=0
+    grep -q '^## user-guide$' "$DOC_SCHEMA" || ((missing++)) || true
+    grep -q '^## dev-guide$' "$DOC_SCHEMA" || ((missing++)) || true
+    grep -q '^## technical$' "$DOC_SCHEMA" || ((missing++)) || true
+    # Then all 3 tier headings exist as exact ## headings (not sub-headings)
+    if [[ "$missing" -eq 0 ]]; then
+        log_pass
+    else
+        log_fail "Missing $missing of 3 exact tier headings (## user-guide, ## dev-guide, ## technical)"
+    fi
+}
+
+# derived_from: spec:drift-detection (researcher compares last-updated vs injected timestamp)
+# Anticipate: If the comparison logic description is removed, the researcher would
+# not know HOW to detect drift, only that it should.
+# Verify: Deleting the comparison instruction would fail this test.
+test_researcher_drift_compares_last_updated_vs_timestamp() {
+    log_test "documentation-researcher drift detection compares last-updated vs tier timestamp"
+
+    if [[ ! -f "$RESEARCHER_AGENT" ]]; then log_fail "File not found"; return; fi
+    # Given Step 2d in the researcher
+    # Then it documents comparing last-updated against injected timestamp
+    if grep -q 'last-updated.*<.*tier timestamp\|last-updated.*<.*injected' "$RESEARCHER_AGENT"; then
+        log_pass
+    else
+        log_fail "Missing comparison logic between last-updated and tier timestamp"
+    fi
+}
+
+# derived_from: spec:frontmatter (writer specifies ISO 8601 UTC Z suffix)
+# Anticipate: Without the Z suffix specification, timestamps could be written
+# with timezone offsets (+05:00) instead, breaking drift comparison.
+# Verify: Removing "UTC" or "Z" from the spec would fail this test.
+test_writer_iso8601_utc_z_suffix_documented() {
+    log_test "documentation-writer specifies ISO 8601 with UTC Z suffix for last-updated"
+
+    if [[ ! -f "$WRITER_AGENT" ]]; then log_fail "File not found"; return; fi
+    # Given the YAML Frontmatter Handling section
+    if grep -q 'UTC.*Z\|Z.*suffix\|UTC timezone suffix' "$WRITER_AGENT"; then
+        log_pass
+    else
+        log_fail "Missing ISO 8601 UTC Z suffix specification in writer"
+    fi
+}
+
+# derived_from: spec:preservation (writer documents preservation of content outside markers)
+# Anticipate: Without this rule, the writer could modify user-written content
+# that exists outside section markers, causing data loss.
+# Verify: Removing the preservation rule would fail this test.
+test_writer_preservation_outside_markers_documented() {
+    log_test "documentation-writer documents preserving content outside markers"
+
+    if [[ ! -f "$WRITER_AGENT" ]]; then log_fail "File not found"; return; fi
+    if grep -q 'outside.*markers.*preserved\|Content.*outside.*markers' "$WRITER_AGENT"; then
+        log_pass
+    else
+        log_fail "Missing preservation-outside-markers rule"
+    fi
+}
+
+# derived_from: dimension:mutation-line-deletion (finish-feature uses correct doc-schema Glob pattern)
+# Anticipate: If the Glob path changes, finish-feature would fail to find doc-schema,
+# causing the enriched doc dispatch to proceed without schema context.
+test_finish_feature_doc_schema_glob_pattern() {
+    log_test "finish-feature uses doc-schema Glob path matching plugin portability convention"
+
+    if [[ ! -f "$FINISH_FEATURE_CMD" ]]; then log_fail "File not found"; return; fi
+    # Given the doc-schema resolution section
+    if grep -q 'plugins/cache/\*/iflow\*/\*/references/doc-schema.md' "$FINISH_FEATURE_CMD"; then
+        log_pass
+    else
+        log_fail "Missing portable doc-schema Glob pattern in finish-feature"
+    fi
+}
+
+# derived_from: dimension:mutation-line-deletion (wrap-up uses same doc-schema Glob pattern as finish-feature)
+# Anticipate: If wrap-up uses a different path than finish-feature, one would find
+# the schema while the other would not, causing inconsistent behavior.
+test_wrap_up_doc_schema_glob_pattern() {
+    log_test "wrap-up uses doc-schema Glob path matching plugin portability convention"
+
+    if [[ ! -f "$WRAP_UP_CMD" ]]; then log_fail "File not found"; return; fi
+    if grep -q 'plugins/cache/\*/iflow\*/\*/references/doc-schema.md' "$WRAP_UP_CMD"; then
+        log_pass
+    else
+        log_fail "Missing portable doc-schema Glob pattern in wrap-up"
+    fi
+}
+
+# derived_from: dimension:mutation-return-value (finish-feature documents no-source-commits fallback)
+# Anticipate: If the fallback string is missing or changed, empty git log results
+# would leave tier timestamps undefined instead of using a safe sentinel.
+test_finish_feature_no_source_commits_fallback() {
+    log_test "finish-feature documents no-source-commits fallback for empty git log"
+
+    if [[ ! -f "$FINISH_FEATURE_CMD" ]]; then log_fail "File not found"; return; fi
+    if grep -q 'no-source-commits' "$FINISH_FEATURE_CMD"; then
+        log_pass
+    else
+        log_fail "Missing no-source-commits fallback in finish-feature"
+    fi
+}
+
+# derived_from: dimension:mutation-return-value (wrap-up documents no-source-commits fallback)
+test_wrap_up_no_source_commits_fallback() {
+    log_test "wrap-up documents no-source-commits fallback for empty git log"
+
+    if [[ ! -f "$WRAP_UP_CMD" ]]; then log_fail "File not found"; return; fi
+    if grep -q 'no-source-commits' "$WRAP_UP_CMD"; then
+        log_pass
+    else
+        log_fail "Missing no-source-commits fallback in wrap-up"
+    fi
+}
+
+# derived_from: spec:ADR-naming (writer documents ADR slug format: lowercase, hyphens)
+# Anticipate: If the slug format is not documented, ADR filenames could use
+# spaces or mixed case, breaking filesystem conventions.
+test_adr_slug_format_lowercase_hyphens() {
+    log_test "documentation-writer ADR slug format specifies lowercase with hyphens"
+
+    if [[ ! -f "$WRITER_AGENT" ]]; then log_fail "File not found"; return; fi
+    if grep -q 'lowercase.*hyphens\|lowercase.*spaces.*punctuation.*replaced.*hyphens' "$WRITER_AGENT"; then
+        log_pass
+    else
+        log_fail "Missing lowercase/hyphens specification for ADR slug format"
+    fi
+}
+
+# derived_from: spec:researcher-output (tier_drift entries have required subfields: tier, file, last_updated, latest_source_change, reason)
+# Anticipate: If a required subfield is missing from the schema example, the writer
+# would not receive complete drift information for remediation.
+# Verify: Removing any of the 5 subfields would fail this test.
+test_researcher_tier_drift_field_has_required_subfields() {
+    log_test "documentation-researcher tier_drift entries have 5 required subfields"
+
+    if [[ ! -f "$RESEARCHER_AGENT" ]]; then log_fail "File not found"; return; fi
+    local missing=0
+    # Check within the tier_drift array example in the output schema
+    grep -q '"tier":' "$RESEARCHER_AGENT" || ((missing++)) || true
+    grep -q '"file":' "$RESEARCHER_AGENT" || ((missing++)) || true
+    grep -q '"last_updated":' "$RESEARCHER_AGENT" || ((missing++)) || true
+    grep -q '"latest_source_change":' "$RESEARCHER_AGENT" || ((missing++)) || true
+    grep -q '"reason":' "$RESEARCHER_AGENT" || ((missing++)) || true
+    if [[ "$missing" -eq 0 ]]; then
+        log_pass
+    else
+        log_fail "Missing $missing of 5 required tier_drift subfields"
+    fi
+}
+
+# derived_from: dimension:mutation-boundary-shift (create-adr and supersede-adr are distinct actions)
+# Anticipate: If create-adr and supersede-adr are merged into a single action,
+# the output would lose the distinction between new ADRs and supersession updates.
+test_writer_create_adr_and_supersede_adr_actions_distinct() {
+    log_test "documentation-writer defines create-adr and supersede-adr as separate action values"
+
+    if [[ ! -f "$WRITER_AGENT" ]]; then log_fail "File not found"; return; fi
+    # Given the Action Values table
+    local create_count supersede_count
+    create_count=$(grep -c '`create-adr`\|create-adr' "$WRITER_AGENT" || true)
+    supersede_count=$(grep -c '`supersede-adr`\|supersede-adr' "$WRITER_AGENT" || true)
+    # Then both appear and are distinct entries
+    if [[ "$create_count" -ge 1 ]] && [[ "$supersede_count" -ge 1 ]]; then
+        log_pass
+    else
+        log_fail "create-adr ($create_count) and supersede-adr ($supersede_count) not both present as distinct actions"
+    fi
+}
+
+# derived_from: spec:TD7-prerequisites (SKILL.md documents that finish-feature and wrap-up do NOT invoke this skill)
+# Anticipate: If this disclaimer is removed from the skill, future editors might
+# incorrectly wire finish-feature/wrap-up to invoke the skill, violating TD7.
+test_skill_not_invoked_by_finish_or_wrap_up() {
+    log_test "updating-docs SKILL.md documents that finish-feature and wrap-up do NOT invoke this skill"
+
+    if [[ ! -f "$UPDATING_DOCS_SKILL" ]]; then log_fail "File not found"; return; fi
+    if grep -q 'do NOT invoke this skill\|they do NOT invoke this skill' "$UPDATING_DOCS_SKILL"; then
+        log_pass
+    else
+        log_fail "Missing TD7 disclaimer in skill prerequisites"
+    fi
+}
+
+
+# ============================================================
 # Run all tests
 # ============================================================
 main() {
@@ -1042,6 +1472,36 @@ main() {
     test_researcher_documents_both_modes
     test_doc_schema_has_four_project_types
     test_generate_docs_adr_scan_cap_at_10
+
+    echo ""
+    echo "--- Dimension 6: Deepened Coverage (Phase B) ---"
+    echo ""
+
+    test_td7_finish_feature_phase2b_no_updating_docs_skill
+    test_td7_wrap_up_phase2b_no_updating_docs_skill
+    test_adr_supersession_case_insensitive_documented
+    test_adr_format_detection_heading_and_table
+    test_sync_labels_bidirectional_skill_to_commands
+    test_researcher_affected_tiers_exact_field_name
+    test_researcher_changelog_state_in_output_schema
+    test_researcher_project_type_in_output_schema
+    test_researcher_no_updates_needed_in_output_schema
+    test_writer_updates_skipped_in_output_schema
+    test_finish_feature_dispatch_budget_matches_spec
+    test_wrap_up_dispatch_budget_matches_spec
+    test_generate_docs_tier_filter_to_recognized_values
+    test_doc_schema_three_tier_directories_documented
+    test_researcher_drift_compares_last_updated_vs_timestamp
+    test_writer_iso8601_utc_z_suffix_documented
+    test_writer_preservation_outside_markers_documented
+    test_finish_feature_doc_schema_glob_pattern
+    test_wrap_up_doc_schema_glob_pattern
+    test_finish_feature_no_source_commits_fallback
+    test_wrap_up_no_source_commits_fallback
+    test_adr_slug_format_lowercase_hyphens
+    test_researcher_tier_drift_field_has_required_subfields
+    test_writer_create_adr_and_supersede_adr_actions_distinct
+    test_skill_not_invoked_by_finish_or_wrap_up
 
     echo ""
     echo "=========================================="
