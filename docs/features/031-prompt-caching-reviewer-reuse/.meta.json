@@ -5,7 +5,7 @@
   "status": "active",
   "created": "2026-02-28T12:00:00Z",
   "branch": "feature/031-prompt-caching-reviewer-reuse",
-  "lastCompletedPhase": "create-plan",
+  "lastCompletedPhase": "create-tasks",
   "phases": {
     "specify": {
       "status": "completed",
@@ -34,7 +34,8 @@
       }
     },
     "create-tasks": {
-      "status": "in-progress",
+      "status": "completed",
+      "completed": "2026-02-28T20:30:00Z",
       "started": "2026-02-28T16:40:00Z",
       "stages": {
         "taskReview": {
