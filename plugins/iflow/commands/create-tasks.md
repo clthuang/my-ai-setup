@@ -195,7 +195,7 @@ d. **Branch on result (strict threshold):**
 
 Phase-reviewer iteration budget: max 5 (independent of Stage 1).
 
-Set `phase_iteration = 0`.
+Set `phase_iteration = 1`.
 
 After Stage 1 completes, invoke phase-reviewer:
 

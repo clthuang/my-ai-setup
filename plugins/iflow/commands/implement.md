@@ -868,7 +868,7 @@ resume_state["implementer"].last_iteration = {iteration}
 After the implementer fix dispatch completes (whether fresh or resumed), commit the changes and capture delta for subsequent reviewer resume dispatches:
 
 ```
-Bash: git add -A && git diff --cached --quiet && echo NO_CHANGES || (git commit -m "iflow: implement review iteration {n} fixes" && echo COMMIT_OK || echo COMMIT_FAILED)
+Bash: git add {space-separated list of files from files_changed} && git diff --cached --quiet && echo NO_CHANGES || (git commit -m "iflow: implement review iteration {n} fixes" && echo COMMIT_OK || echo COMMIT_FAILED)
 ```
 
 Handle the three outcomes:

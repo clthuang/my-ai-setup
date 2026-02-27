@@ -60,13 +60,18 @@ CREATE_TASKS_CMD="${PLUGIN_DIR}/commands/create-tasks.md"
 IMPLEMENT_CMD="${PLUGIN_DIR}/commands/implement.md"
 IMPLEMENTING_SKILL="${PLUGIN_DIR}/skills/implementing/SKILL.md"
 
-# All 6 changed files
-CHANGED_FILES=(
+# Command files (dispatch blocks with Required Artifacts, resume logic, etc.)
+COMMAND_FILES=(
     "$SPECIFY_CMD"
     "$DESIGN_CMD"
     "$CREATE_PLAN_CMD"
     "$CREATE_TASKS_CMD"
     "$IMPLEMENT_CMD"
+)
+
+# All changed files (commands + skill)
+CHANGED_FILES=(
+    "${COMMAND_FILES[@]}"
     "$IMPLEMENTING_SKILL"
 )
 
@@ -147,10 +152,10 @@ test_create_tasks_review_target_stays_inline() {
 
 # derived_from: spec:R3 (every dispatch site has a Required Artifacts block)
 test_all_changed_files_have_required_artifacts() {
-    log_test "All changed files (except design Stage 0) have Required Artifacts blocks"
+    log_test "All command files (except design Stage 0) have Required Artifacts blocks"
 
     local missing=0
-    for file in "${CHANGED_FILES[@]}"; do
+    for file in "${COMMAND_FILES[@]}"; do
         if [[ ! -f "$file" ]]; then
             ((missing++)) || true
             continue

@@ -385,7 +385,7 @@ e. **Mark stage completed:**
 
 Phase-reviewer iteration budget: max 5 (independent of Stage 3).
 
-Set `phase_iteration = 0`.
+Set `phase_iteration = 1`.
 
 a. **Mark stage started:**
    ```json
