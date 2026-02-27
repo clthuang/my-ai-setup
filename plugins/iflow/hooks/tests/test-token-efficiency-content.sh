@@ -828,6 +828,129 @@ test_resume_in_all_reviewer_loops() {
     fi
 }
 
+# derived_from: spec:R4 (JSON schema before artifact content in each dispatch block — ordering regression)
+test_json_schema_before_artifact_content() {
+    log_test "JSON schema ('approved') appears before artifact content section in each dispatch block"
+
+    local failures=0
+
+    # specify.md: "approved" must appear before "## Spec (what"
+    if [[ -f "$SPECIFY_CMD" ]]; then
+        local schema_line content_line
+        schema_line=$(grep -n '"approved"' "$SPECIFY_CMD" | head -1 | cut -d: -f1)
+        content_line=$(grep -n '## Spec (what' "$SPECIFY_CMD" | head -1 | cut -d: -f1)
+        if [[ -z "$schema_line" ]]; then
+            echo "  DETAIL: specify.md: no '\"approved\"' found" >&2
+            ((failures++)) || true
+        elif [[ -z "$content_line" ]]; then
+            echo "  DETAIL: specify.md: no '## Spec (what' found" >&2
+            ((failures++)) || true
+        elif [[ "$schema_line" -ge "$content_line" ]]; then
+            echo "  DETAIL: specify.md: '\"approved\"' at line $schema_line >= '## Spec (what' at line $content_line" >&2
+            ((failures++)) || true
+        fi
+    fi
+
+    # design.md: "approved" must appear before "## Design (what"
+    if [[ -f "$DESIGN_CMD" ]]; then
+        local schema_line content_line
+        schema_line=$(grep -n '"approved"' "$DESIGN_CMD" | head -1 | cut -d: -f1)
+        content_line=$(grep -n '## Design (what' "$DESIGN_CMD" | head -1 | cut -d: -f1)
+        if [[ -z "$schema_line" ]]; then
+            echo "  DETAIL: design.md: no '\"approved\"' found" >&2
+            ((failures++)) || true
+        elif [[ -z "$content_line" ]]; then
+            echo "  DETAIL: design.md: no '## Design (what' found" >&2
+            ((failures++)) || true
+        elif [[ "$schema_line" -ge "$content_line" ]]; then
+            echo "  DETAIL: design.md: '\"approved\"' at line $schema_line >= '## Design (what' at line $content_line" >&2
+            ((failures++)) || true
+        fi
+    fi
+
+    # create-plan.md: "approved" must appear before "## Plan (what"
+    if [[ -f "$CREATE_PLAN_CMD" ]]; then
+        local schema_line content_line
+        schema_line=$(grep -n '"approved"' "$CREATE_PLAN_CMD" | head -1 | cut -d: -f1)
+        content_line=$(grep -n '## Plan (what' "$CREATE_PLAN_CMD" | head -1 | cut -d: -f1)
+        if [[ -z "$schema_line" ]]; then
+            echo "  DETAIL: create-plan.md: no '\"approved\"' found" >&2
+            ((failures++)) || true
+        elif [[ -z "$content_line" ]]; then
+            echo "  DETAIL: create-plan.md: no '## Plan (what' found" >&2
+            ((failures++)) || true
+        elif [[ "$schema_line" -ge "$content_line" ]]; then
+            echo "  DETAIL: create-plan.md: '\"approved\"' at line $schema_line >= '## Plan (what' at line $content_line" >&2
+            ((failures++)) || true
+        fi
+    fi
+
+    # create-tasks.md: "approved" must appear before "## Tasks (what"
+    if [[ -f "$CREATE_TASKS_CMD" ]]; then
+        local schema_line content_line
+        schema_line=$(grep -n '"approved"' "$CREATE_TASKS_CMD" | head -1 | cut -d: -f1)
+        content_line=$(grep -n '## Tasks (what' "$CREATE_TASKS_CMD" | head -1 | cut -d: -f1)
+        if [[ -z "$schema_line" ]]; then
+            echo "  DETAIL: create-tasks.md: no '\"approved\"' found" >&2
+            ((failures++)) || true
+        elif [[ -z "$content_line" ]]; then
+            echo "  DETAIL: create-tasks.md: no '## Tasks (what' found" >&2
+            ((failures++)) || true
+        elif [[ "$schema_line" -ge "$content_line" ]]; then
+            echo "  DETAIL: create-tasks.md: '\"approved\"' at line $schema_line >= '## Tasks (what' at line $content_line" >&2
+            ((failures++)) || true
+        fi
+    fi
+
+    # implement.md: "approved" must appear before "## Implementation files" (7a block)
+    # and before "## Files changed" (7b/7c blocks)
+    if [[ -f "$IMPLEMENT_CMD" ]]; then
+        # 7a: implementation-reviewer — "approved" before "## Implementation files"
+        local schema_line content_line
+        schema_line=$(grep -n '"approved"' "$IMPLEMENT_CMD" | head -1 | cut -d: -f1)
+        content_line=$(grep -n '## Implementation files' "$IMPLEMENT_CMD" | head -1 | cut -d: -f1)
+        if [[ -z "$schema_line" ]]; then
+            echo "  DETAIL: implement.md: no '\"approved\"' found" >&2
+            ((failures++)) || true
+        elif [[ -z "$content_line" ]]; then
+            echo "  DETAIL: implement.md: no '## Implementation files' found" >&2
+            ((failures++)) || true
+        elif [[ "$schema_line" -ge "$content_line" ]]; then
+            echo "  DETAIL: implement.md: '\"approved\"' at line $schema_line >= '## Implementation files' at line $content_line" >&2
+            ((failures++)) || true
+        fi
+
+        # 7b/7c: code-quality-reviewer and security-reviewer — "approved" before "## Files changed"
+        # Each reviewer's schema must appear before its own "## Files changed" section
+        # Only check "## Files changed" occurrences that fall within reviewer dispatch blocks
+        # (i.e., after the first "approved" in the file — skips code-simplifier's block at line 80)
+        local first_approved_line
+        first_approved_line=$(grep -n '"approved"' "$IMPLEMENT_CMD" | head -1 | cut -d: -f1)
+        while IFS= read -r fc_line; do
+            [[ -z "$fc_line" ]] && continue
+            # Skip "## Files changed" that appear before the first reviewer schema
+            [[ "$fc_line" -le "$first_approved_line" ]] && continue
+            local found_preceding=0
+            while IFS= read -r ap_line; do
+                [[ -z "$ap_line" ]] && continue
+                if [[ "$ap_line" -lt "$fc_line" ]]; then
+                    found_preceding=1
+                fi
+            done < <(grep -n '"approved"' "$IMPLEMENT_CMD" | cut -d: -f1)
+            if [[ "$found_preceding" -eq 0 ]]; then
+                echo "  DETAIL: implement.md: '## Files changed' at line $fc_line has no preceding '\"approved\"'" >&2
+                ((failures++)) || true
+            fi
+        done < <(grep -n '## Files changed' "$IMPLEMENT_CMD" | cut -d: -f1)
+    fi
+
+    if [[ "$failures" -eq 0 ]]; then
+        log_pass
+    else
+        log_fail "$failures ordering violation(s): JSON schema must appear before artifact content section"
+    fi
+}
+
 # derived_from: dimension:mutation-exact-count (implement.md LAZY-LOAD-WARNING count matches dispatch count minus Phase B)
 test_implement_i9_count_matches_dispatches() {
     log_test "implement.md: LAZY-LOAD-WARNING count (6) matches dispatch sites minus Phase B (7-1=6)"
@@ -1012,6 +1135,7 @@ main() {
     echo ""
 
     test_resume_in_all_reviewer_loops
+    test_json_schema_before_artifact_content
     test_implement_i9_count_matches_dispatches
     test_required_artifacts_header_level_consistent
     test_spec_reference_is_path_not_inline
