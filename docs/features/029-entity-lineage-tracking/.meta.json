@@ -1,0 +1,19 @@
+{
+  "id": "029",
+  "slug": "entity-lineage-tracking",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-02-27T05:45:00Z",
+  "branch": "feature/029-entity-lineage-tracking",
+  "brainstorm_source": "docs/brainstorms/20260227-054029-entity-lineage-tracking.prd.md",
+  "backlog_source": "00019",
+  "lastCompletedPhase": "specify",
+  "phases": {
+    "specify": {
+      "startedAt": "2026-02-27T06:00:00Z",
+      "completedAt": "2026-02-27T06:35:00Z",
+      "iterations": 3,
+      "reviewerNotes": "Approved at spec-reviewer iteration 3/5, phase-reviewer iteration 1/5. 6 blockers found and resolved across 2 iterations."
+    }
+  }
+}
