@@ -100,14 +100,16 @@ If simplifications found:
 
 Dispatch test-deepener agent in two phases. Phase A generates spec-driven test outlines without implementation access. Phase B writes executable tests.
 
-**Phase A — Generate test outlines from spec only:**
-
-**PRD resolution (I8):** Before dispatching Phase A, resolve the PRD reference:
+**PRD resolution (I8) — resolve once, reuse in Steps 6, 7a, 7e:**
 1. Check if `{feature_path}/prd.md` exists
 2. If exists → PRD line = `- PRD: {feature_path}/prd.md`
 3. If not → check `.meta.json` for `brainstorm_source`
    a. If found → PRD line = `- PRD: {brainstorm_source path}`
    b. If not → PRD line = `- PRD: No PRD — feature created without brainstorm`
+
+Store the resolved PRD line for reuse below.
+
+**Phase A — Generate test outlines from spec only:**
 
 ```
 Task tool call:
@@ -250,12 +252,7 @@ Execute review cycle with three reviewers:
 
 **7a. Implementation Review (4-Level Validation):**
 
-**PRD resolution (I8):** Before dispatching, resolve the PRD reference:
-1. Check if `{feature_path}/prd.md` exists
-2. If exists → PRD line = `- PRD: {feature_path}/prd.md`
-3. If not → check `.meta.json` for `brainstorm_source`
-   a. If found → PRD line = `- PRD: {brainstorm_source path}`
-   b. If not → PRD line = `- PRD: No PRD — feature created without brainstorm`
+Use the PRD line resolved in Step 6 (I8).
 
 ```
 Task tool call:
@@ -405,12 +402,7 @@ If the final validation round fails (e.g., security passed in iter 1, but a qual
 
 **Implementer fix dispatch** (only includes issues from failed reviewers):
 
-**PRD resolution (I8):** Before dispatching, resolve the PRD reference:
-1. Check if `{feature_path}/prd.md` exists
-2. If exists → PRD line = `- PRD: {feature_path}/prd.md`
-3. If not → check `.meta.json` for `brainstorm_source`
-   a. If found → PRD line = `- PRD: {brainstorm_source path}`
-   b. If not → PRD line = `- PRD: No PRD — feature created without brainstorm`
+Use the PRD line resolved in Step 6 (I8).
 
 ```
 Task tool call:
