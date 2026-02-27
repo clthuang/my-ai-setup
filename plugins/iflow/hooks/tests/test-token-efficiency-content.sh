@@ -9,7 +9,7 @@
 # - Mandatory-read language ("You MUST read") and confirmation directive ("Files read:")
 # - I8 PRD resolution completeness (3-step logic at every site)
 # - I9 Fallback detection (LAZY-LOAD-WARNING) at every dispatch site
-# - "Fresh dispatch per iteration" replaced "always a NEW Task"
+# - resume: pattern present in all 5 command files (reviewer loops use resume on iteration 2+)
 # - Stage 0 research agents remain untouched (no Required Artifacts injected)
 # - review-target not in Required Artifacts blocks
 # - Implementation file lists stay inline (not in Required Artifacts)
@@ -807,22 +807,24 @@ test_i8_prd_resolution_present_in_all_commands() {
 # Dimension 5: Mutation Mindset — behavioral pinning
 # ============================================================
 
-# derived_from: dimension:mutation-line-deletion (Fresh dispatch per iteration present in all reviewer loops)
-test_fresh_dispatch_in_all_reviewer_loops() {
-    log_test "'Fresh dispatch per iteration' present in all files with reviewer loops"
+# derived_from: dimension:mutation-line-deletion (resume: present in all reviewer loops)
+test_resume_in_all_reviewer_loops() {
+    log_test "'resume:' present in all 5 command files (reviewer loops use resume on iteration 2+)"
 
-    local files_with_loops=("$SPECIFY_CMD" "$DESIGN_CMD" "$CREATE_PLAN_CMD" "$CREATE_TASKS_CMD")
+    local all_cmd_files=("$SPECIFY_CMD" "$DESIGN_CMD" "$CREATE_PLAN_CMD" "$CREATE_TASKS_CMD" "$IMPLEMENT_CMD")
     local missing=0
-    for file in "${files_with_loops[@]}"; do
+    local missing_files=()
+    for file in "${all_cmd_files[@]}"; do
         [[ ! -f "$file" ]] && continue
-        if ! grep -q 'Fresh dispatch per iteration' "$file"; then
+        if ! grep -q 'resume:' "$file"; then
             ((missing++)) || true
+            missing_files+=("$(basename "$file")")
         fi
     done
     if [[ "$missing" -eq 0 ]]; then
         log_pass
     else
-        log_fail "$missing file(s) missing 'Fresh dispatch per iteration'"
+        log_fail "$missing file(s) missing 'resume:': ${missing_files[*]}"
     fi
 }
 
@@ -1009,7 +1011,7 @@ main() {
     echo "--- Dimension 5: Mutation Mindset ---"
     echo ""
 
-    test_fresh_dispatch_in_all_reviewer_loops
+    test_resume_in_all_reviewer_loops
     test_implement_i9_count_matches_dispatches
     test_required_artifacts_header_level_consistent
     test_spec_reference_is_path_not_inline
