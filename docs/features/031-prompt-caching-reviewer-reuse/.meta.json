@@ -5,12 +5,24 @@
   "status": "active",
   "created": "2026-02-28T12:00:00Z",
   "branch": "feature/031-prompt-caching-reviewer-reuse",
-  "lastCompletedPhase": "specify",
+  "lastCompletedPhase": "design",
   "phases": {
     "specify": {
       "status": "completed",
       "started": "2026-02-28T12:05:00Z",
       "completed": "2026-02-28T12:30:00Z"
+    },
+    "design": {
+      "status": "completed",
+      "started": "2026-02-28T12:35:00Z",
+      "completed": "2026-02-28T14:55:00Z",
+      "stages": {
+        "research": { "started": "2026-02-28T12:35:00Z", "completed": "2026-02-28T12:45:00Z", "skipped": false },
+        "architecture": { "started": "2026-02-28T12:50:00Z", "completed": "2026-02-28T13:10:00Z" },
+        "interface": { "started": "2026-02-28T13:10:00Z", "completed": "2026-02-28T13:25:00Z" },
+        "designReview": { "started": "2026-02-28T13:25:00Z", "completed": "2026-02-28T14:35:00Z", "iterations": 3, "reviewerNotes": [] },
+        "handoffReview": { "started": "2026-02-28T14:35:00Z", "completed": "2026-02-28T14:55:00Z", "iterations": 2, "approved": true, "reviewerNotes": [] }
+      }
     }
   }
 }
