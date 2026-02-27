@@ -60,8 +60,8 @@ Reviewer iteration counts suggest complexity: 2 = straightforward, 3 = moderate,
 - Feature #021 plan had 6 iterations (highest), mostly from dependency graph contradictions
 - If plan iterations exceed 3, check for structural issues (dual representations, missing test cases)
 - Source: Feature #021
-- Last observed: Feature #028
-- Observation count: 6
+- Last observed: Feature #029
+- Observation count: 7
 
 ### Circuit Breaker Hits as Assumption Signals
 Circuit breaker hits in design review indicate a fundamental assumption mismatch, not incremental quality issues. When design review hits 5 iterations, the root cause is typically a wrong foundational assumption (e.g., wrong file format) rather than accumulated small issues.
@@ -160,4 +160,32 @@ When the phase-reviewer (gatekeeper) hits the 5-iteration cap in 3 or more of 5 
 - Source: Feature #028 — phase-reviewer hit cap in 4/5 phases (specify, design-review, design-handoff, create-tasks both stages). Feature involved 8 files with coordinated dispatch logic across 3 commands and a skill.
 - Confidence: medium
 - Last observed: Feature #028
+- Observation count: 1
+
+### Budget 30-40 Pre-Implementation Review Iterations for Multi-Integration MCP Features
+Multi-integration MCP server features (DB + backfill + server + bootstrap + hooks) should budget 30-40 pre-implementation review iterations. Reviewer caps should be framed as expected behavior, not quality failure. The combinatorial surface area of SQL schema + MCP tools + backfill logic + stdio transport creates enumerable invariants that reviewers discover incrementally.
+- Source: Feature #029 — 32 pre-implementation iterations, 5 of 6 reviewer sequences hit caps, yet implementation completed in 5 iterations with 184 tests passing
+- Confidence: high
+- Last observed: Feature #029
+- Observation count: 1
+
+### Specificity Cascade Signal in Task Review
+When task review blocker counts escalate per iteration (e.g., 0→1→7→5→3) rather than converge, each resolved ambiguity is revealing adjacent underspecification one abstraction level deeper. This is a specificity cascade — not a quality problem. Budget extra iterations and expect the cascade to bottom out when concrete types (DDL, CTE bind parameters, CHECK constraints) are reached.
+- Source: Feature #029, create-tasks phase — blocker counts escalated through 5 iterations as method signature → parameter contract → DDL → CHECK constraint → CTE semantics were progressively specified
+- Confidence: high
+- Last observed: Feature #029
+- Observation count: 1
+
+### Design Handoff Pre-Flight Checklist
+Before submitting design.md to handoff review, verify: (1) test strategy section exists, (2) all TD alternatives documented, (3) dependency sets enumerated per component, (4) merge/conflict semantics specified. Would reduce handoff iterations from 5 to 2-3.
+- Source: Feature #029 — handoff review hit 5-iteration cap; most iterations addressed items that a pre-flight checklist would have caught
+- Confidence: medium
+- Last observed: Feature #029
+- Observation count: 1
+
+### AC Traceability Pass for Two-Layer Architectures
+For features with separated storage and rendering layers, add an explicit traceability task mapping each acceptance criterion to BOTH storage AND rendering functions. Gaps between layers are invisible until end-to-end output testing.
+- Source: Feature #029 — AC-5 depends_on_features stored correctly in DB but _format_entity_label ignored the metadata field; gap invisible until implementation iter 2
+- Confidence: medium
+- Last observed: Feature #029
 - Observation count: 1

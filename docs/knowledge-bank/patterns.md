@@ -155,8 +155,8 @@ When a workflow has nested iteration loops, make budgets independent.
 Heavy upfront review investment (15-30+ pre-implementation review iterations) correlates with clean implementation (0-1 actionable issues across all reviewers). Front-loading review effort shifts risk discovery to phases where changes are cheap (text edits) rather than expensive (code changes).
 - Observed in: Feature #022, implementation phase
 - Confidence: high
-- Last observed: Feature #028
-- Observation count: 3
+- Last observed: Feature #029
+- Observation count: 4
 
 ### Pattern: Template Indentation Matching
 When inserting blocks into existing prompt templates, read the target file first and match its specific indentation level (which may differ per file). Prevents downstream formatting issues.
@@ -240,4 +240,25 @@ For patterns where multiple transformations apply to one file, build the complet
 - Observed in: Feature #027, implementation iter 7 — quality reviewer flagged 3 sequential writes to same file; restructured to compose-then-write
 - Confidence: high
 - Last observed: Feature #027
+- Observation count: 1
+
+### Pattern: INSERT OR IGNORE for Idempotent Entity Registration
+For entity registries backed by SQLite, INSERT OR IGNORE provides correct idempotency across backfill re-runs, server restarts, and duplicate calls without application-level dedup logic. Combine with a metadata marker (e.g., `backfill_complete`) to skip re-scans.
+- Used in: Feature #029
+- Confidence: high
+- Last observed: Feature #029
+- Observation count: 1
+
+### Pattern: Recursive CTE + Depth Guard for Tree Registries
+Use a single recursive CTE (not Python-side recursion) for tree traversal in SQL-backed registries. Eliminates O(N) round trips, enables depth guards at the SQL layer, and returns depth values directly usable for indentation. Default `max_depth=50`.
+- Used in: Feature #029, implement iter 1
+- Confidence: high
+- Last observed: Feature #029
+- Observation count: 1
+
+### Pattern: Topological Backfill Ordering for Entity Registries
+Backfill scanners must process entities in parent-first order (backlog -> brainstorm -> project -> feature). Combine with synthetic 'orphaned' and 'external' entity stubs for nodes whose parent cannot be found.
+- Used in: Feature #029, design iter 2
+- Confidence: high
+- Last observed: Feature #029
 - Observation count: 1
