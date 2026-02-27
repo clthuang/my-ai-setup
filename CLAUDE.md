@@ -72,6 +72,12 @@ plugins/iflow/.venv/bin/python -m pytest plugins/iflow/mcp/test_memory_server.py
 # Run MCP bootstrap wrapper tests
 bash plugins/iflow/mcp/test_run_memory_server.sh
 
+# Run entity registry tests (database, backfill, server helpers — 184 tests)
+plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/ -v
+
+# Run entity server bootstrap wrapper tests
+bash plugins/iflow/mcp/test_entity_server.sh
+
 # Run hook integration tests
 bash plugins/iflow/hooks/tests/test-hooks.sh
 
@@ -93,6 +99,7 @@ bash scripts/release.sh --ci
 
 - **Knowledge bank:** `docs/knowledge-bank/{patterns,anti-patterns,heuristics}.md` — updated by retrospectives
 - **Global memory store:** `~/.claude/iflow/memory/` — cross-project entries injected at session start
+- **Entity registry DB:** `~/.claude/iflow/entities/entities.db` — cross-project entity lineage (overridable via `ENTITY_DB_PATH` env var)
 - **Hook subprocess safety:** Always suppress stderr (`2>/dev/null`) for Python/external calls in hooks to prevent corrupting JSON output
 - **Semantic memory CLI:** Find plugin root first: `PLUGIN_ROOT=$(ls -d ~/.claude/plugins/cache/*/iflow*/*/hooks 2>/dev/null | head -1 | xargs dirname)`, then `PYTHONPATH="$PLUGIN_ROOT/hooks/lib" "$PLUGIN_ROOT/.venv/bin/python" -m semantic_memory.writer`. Fallback (dev workspace): `PYTHONPATH=plugins/iflow/hooks/lib python3 -m semantic_memory.writer`
 
@@ -115,6 +122,8 @@ bash scripts/release.sh --ci
 A hookify rule (`.claude/hookify.docs-sync.local.md`) will remind you on plugin component edits.
 
 **Agent model tiers:** Every `subagent_type:` dispatch must include `model:` (opus/sonnet/haiku) matching the agent's frontmatter. Verify with: `grep -rn 'subagent_type:' plugins/iflow/ | wc -l` and confirm each has a nearby `model:` line.
+
+**Reviewer prompt consistency:** All reviewer dispatch prompts in command files must include explicit JSON return schema blocks (`{approved, issues[], summary}`). Plain prose like "Return assessment with approval status" gets caught late in implement review. Verify with: `grep -n 'Return.*assessment\|Return.*JSON\|Return.*approval' plugins/iflow/commands/*.md`
 
 **Project-aware config:** `.claude/iflow.local.md` fields injected at session start:
 - `artifacts_root` (default: `docs`) — root directory for features, brainstorms, projects, knowledge-bank

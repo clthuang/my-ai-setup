@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Reliable knowledge bank persistence in retrospecting skill — DB writes via store_memory MCP now happen before markdown updates, with recovery check for interrupted retros
+
 ## [4.1.1] - 2026-02-27
 
 ### Added

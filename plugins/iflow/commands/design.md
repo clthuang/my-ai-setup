@@ -204,7 +204,16 @@ a. **Mark stage started:**
    }
    ```
 
-b. **Invoke design-reviewer:** Use the Task tool to spawn design-reviewer (the skeptic):
+b. **Invoke design-reviewer:**
+
+   **PRD resolution (I8):** Before dispatching, resolve the PRD reference:
+   1. Check if `{feature_path}/prd.md` exists
+   2. If exists → PRD line = `- PRD: {feature_path}/prd.md`
+   3. If not → check `.meta.json` for `brainstorm_source`
+      a. If found → PRD line = `- PRD: {brainstorm_source path}`
+      b. If not → PRD line = `- PRD: No PRD — feature created without brainstorm`
+
+   Use the Task tool to spawn design-reviewer (the skeptic):
    ```
    Task tool call:
      description: "Review design quality"
@@ -213,11 +222,11 @@ b. **Invoke design-reviewer:** Use the Task tool to spawn design-reviewer (the s
      prompt: |
        Review this design for robustness and completeness.
 
-       ## PRD (original requirements)
-       {content of prd.md, or "None - feature created without brainstorm"}
-
-       ## Spec (what we must satisfy)
-       {content of spec.md}
+       ## Required Artifacts
+       You MUST read the following files before beginning your review.
+       After reading, confirm: "Files read: {name} ({N} lines), ..." in a single line.
+       {resolved PRD line from I8}
+       - Spec: {feature_path}/spec.md
 
        ## Design (what we're reviewing)
        {content of design.md}
@@ -245,6 +254,8 @@ b. **Invoke design-reviewer:** Use the Task tool to spawn design-reviewer (the s
 c. **Parse response:** Extract the `approved` field from reviewer's JSON response.
    - If response is not valid JSON, ask reviewer to retry with correct format.
 
+   **Fallback detection (I9):** Search the agent's response for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: design-reviewer did not confirm artifact reads` to `.review-history.md`. Proceed regardless.
+
 d. **Branch on result (strict threshold):**
    - **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
    - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
@@ -253,7 +264,7 @@ d. **Branch on result (strict threshold):**
      - Append iteration to `.review-history.md` using format below
      - Increment iteration counter in state
      - Address all blocker AND warning issues by revising design.md
-     - Return to step b (always a NEW Task tool dispatch per iteration)
+     - Return to step b (Fresh dispatch per iteration — Phase 1 behavior. Phase 2 design defines resume support.)
    - If FAIL AND iteration == max:
      - Store unresolved concerns in `stages.designReview.reviewerNotes`
      - Proceed to Stage 4 with warning
@@ -299,7 +310,10 @@ a. **Mark stage started:**
    }
    ```
 
-b. **Invoke phase-reviewer** (always a NEW Task tool dispatch per iteration):
+b. **Invoke phase-reviewer** (Fresh dispatch per iteration — Phase 1 behavior. Phase 2 design defines resume support.):
+
+   **PRD resolution (I8):** Before dispatching, resolve the PRD reference (same logic as Stage 3).
+
    ```
    Task tool call:
      description: "Review design for phase sufficiency"
@@ -308,14 +322,12 @@ b. **Invoke phase-reviewer** (always a NEW Task tool dispatch per iteration):
      prompt: |
        Validate this design is ready for implementation planning.
 
-       ## PRD (original requirements)
-       {content of prd.md, or "None - feature created without brainstorm"}
-
-       ## Spec (requirements)
-       {content of spec.md}
-
-       ## Design (what you're reviewing)
-       {content of design.md}
+       ## Required Artifacts
+       You MUST read the following files before beginning your review.
+       After reading, confirm: "Files read: {name} ({N} lines), ..." in a single line.
+       {resolved PRD line from I8}
+       - Spec: {feature_path}/spec.md
+       - Design: {feature_path}/design.md
 
        ## Domain Reviewer Outcome
        - Reviewer: design-reviewer
@@ -336,6 +348,8 @@ b. **Invoke phase-reviewer** (always a NEW Task tool dispatch per iteration):
        }
    ```
 
+   **Fallback detection (I9):** Search the agent's response for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: phase-reviewer did not confirm artifact reads` to `.review-history.md`. Proceed regardless.
+
 c. **Branch on result (strict threshold):**
    - **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
    - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
@@ -344,7 +358,7 @@ c. **Branch on result (strict threshold):**
      - Append to `.review-history.md` with "Stage 4: Handoff Review" marker
      - Increment phase_iteration
      - Address all blocker AND warning issues by revising design.md
-     - Return to step b (new agent instance)
+     - Return to step b (Fresh dispatch per iteration — Phase 1 behavior. Phase 2 design defines resume support.)
    - If FAIL AND phase_iteration == 5:
      - Store concerns in `stages.handoffReview.reviewerNotes`
      - Proceed to auto-commit with warning

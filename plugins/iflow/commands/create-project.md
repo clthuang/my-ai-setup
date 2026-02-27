@@ -80,6 +80,65 @@ AskUserQuestion:
 2. Verify copy: confirm destination file exists and is non-empty
 3. If verification fails: show error, stop
 
+## Step 8b: Register Entities
+
+After the PRD is copied, register entities in the entity registry. All MCP calls are wrapped in failure handling: if any MCP call fails, warn `"Entity registration failed: {error}"` but do NOT block project creation. Continue with Step 9.
+
+### 1. Parse Brainstorm for Backlog Source
+
+Read the copied PRD content from `{iflow_artifacts_root}/projects/P{NNN}-{slug}/prd.md`.
+
+Parse for backlog source marker using pattern `\*Source: Backlog #(\d{5})\*`.
+
+Extract the brainstorm filename stem from the `--prd` path (e.g., `20260227-054029-entity-lineage-tracking` from `{iflow_artifacts_root}/brainstorms/20260227-054029-entity-lineage-tracking.prd.md`).
+
+### 2. Register Backlog Entity (if backlog marker found)
+
+If the backlog source pattern matched:
+
+```
+register_entity(
+  entity_type="backlog",
+  entity_id="{5-digit backlog id}",
+  name="Backlog #{id}",
+  status="promoted"
+)
+```
+
+Set the brainstorm-to-backlog parent relationship:
+```
+set_parent(
+  type_id="brainstorm:{filename-stem}",
+  parent_type_id="backlog:{5-digit backlog id}"
+)
+```
+
+### 3. Register Brainstorm Entity
+
+Extract the title from the PRD first heading (e.g., `# PRD: Feature Name` -> `Feature Name`).
+
+```
+register_entity(
+  entity_type="brainstorm",
+  entity_id="{filename-stem}",
+  name="{title}",
+  artifact_path="{prd-path}"
+)
+```
+
+### 4. Register Project Entity
+
+```
+register_entity(
+  entity_type="project",
+  entity_id="P{NNN}",
+  name="{slug}",
+  artifact_path="{iflow_artifacts_root}/projects/P{NNN}-{slug}/",
+  status="active",
+  parent_type_id="brainstorm:{filename-stem}"
+)
+```
+
 ## Step 9: Output
 
 ```

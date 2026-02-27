@@ -130,6 +130,7 @@ Built-in specialist knowledge for brainstorming and code review:
 
 | Command | Purpose |
 |---------|---------|
+| `/iflow:show-lineage` | Display entity lineage tree for the current feature branch or a specified entity |
 | `/iflow:show-status` | See current feature progress |
 | `/iflow:list-features` | List active features and branches |
 | `/iflow:retrospect` | Run retrospective on a feature |

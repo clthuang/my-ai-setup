@@ -74,10 +74,15 @@ Apply extractSectionWithFallback for each identifier. If any extraction returns 
 - Features 002-016 predate the traceability template
 
 **Assemble context for dispatch:**
-- `spec.md`: always loaded in full
 - `design.md`: scoped sections joined in order (or full file if any extraction failed or fallback triggered)
 - `plan.md`: scoped sections joined in order (or full file if any extraction failed or fallback triggered)
-- `prd.md`: extract `## Problem Statement` and `## Goals` sections only
+- `prd.md` (I8 resolve_prd): resolve the PRD file path before dispatch:
+  1. Check if `{feature_path}/prd.md` exists
+  2. If exists → PRD path = `{feature_path}/prd.md`
+  3. If not → check `.meta.json` for `brainstorm_source`
+     a. If found → PRD path = brainstorm_source value
+     b. If not → PRD line = `- PRD: No PRD — feature created without brainstorm`
+- `spec.md`: referenced in Required Artifacts block — agent reads via Read tool on demand
 
 **Load project context (conditional):**
 
@@ -114,18 +119,20 @@ Task tool call:
 
     {## Project Context block, if prepared above — omit entirely if not project-linked}
 
-    ## Spec
-    {spec.md content}
+    ## Required Artifacts
+    You MUST read the following files before beginning your work.
+    After reading, confirm: "Files read: {name} ({N} lines), ..." in a single line.
+    - Spec: {feature_path}/spec.md
+    {resolve_prd() output — emit "- PRD: {path}" or "- PRD: No PRD — feature created without brainstorm"}
 
-    ## Design
-    {design.md content}
+    ## Design Context (scoped)
+    {design.md scoped sections via extractSection()}
 
-    ## Plan
-    {plan.md content}
-
-    ## PRD Context
-    {Problem Statement + Goals from prd.md}
+    ## Plan Context (scoped)
+    {plan.md scoped sections via extractSection()}
 ```
+
+**Fallback detection (I9):** After receiving the agent's response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: implementer did not confirm artifact reads` to `.review-history.md`. Proceed regardless — this is observational only.
 
 **c. Collect report**
 

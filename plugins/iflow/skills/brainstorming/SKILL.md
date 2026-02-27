@@ -262,6 +262,34 @@ Analyze this problem from your advisory perspective. Return JSON per the advisor
 
 **Exit condition:** PRD file written with all sections populated.
 
+**Entity Registration:** After the PRD file is written, register the brainstorm entity. If any MCP call fails, warn `"Entity registration failed: {error}"` but do NOT block brainstorm creation. Continue to Stage 4.
+
+1. **Extract brainstorm stem** from the PRD filename: the stem is the filename without directory and without the `.prd.md` extension (e.g., `20260227-143052-api-caching` from `{iflow_artifacts_root}/brainstorms/20260227-143052-api-caching.prd.md`)
+
+2. **Parse for backlog source** in the PRD content using pattern `\*Source: Backlog #(\d{5})\*`
+
+3. **If backlog marker found**, register the backlog entity (idempotent):
+   ```
+   register_entity(
+     entity_type="backlog",
+     entity_id="{5-digit backlog id}",
+     name="Backlog #{id}"
+   )
+   ```
+   Set `parent_type_id` for the brainstorm to `"backlog:{5-digit backlog id}"` in step 4.
+
+4. **Register brainstorm entity:**
+   Extract the title from the PRD first heading (e.g., `# PRD: API Caching` -> `API Caching`).
+   ```
+   register_entity(
+     entity_type="brainstorm",
+     entity_id="{stem}",
+     name="{title from PRD}",
+     artifact_path="{iflow_artifacts_root}/brainstorms/{filename}",
+     parent_type_id="{backlog parent if found, otherwise omit}"
+   )
+   ```
+
 ---
 ### Stage 4: CRITICAL REVIEW AND CORRECTION
 

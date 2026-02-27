@@ -56,9 +56,9 @@ flowchart TD
 |------|-------|
 | Skills | 29 |
 | Agents | 28 |
-| Commands | 27 |
+| Commands | 28 |
 | Hooks | 11 |
-| MCP Tools | 2 |
+| MCP Tools | 8 |
 
 ## Commands
 
@@ -82,6 +82,7 @@ flowchart TD
 **Anytime:**
 | Command | Purpose |
 |---------|---------|
+| `/iflow:show-lineage` | Display entity lineage tree for the current feature branch or a specified entity |
 | `/iflow:show-status` | See current feature state |
 | `/iflow:list-features` | See all active features |
 | `/iflow:retrospect` | Capture learnings |
@@ -199,6 +200,8 @@ The `/iflow:implement` command uses three reviewers in an iterative loop (up to 
 
 ## MCP Tools
 
+### Memory Server
+
 The memory server (`mcp/memory_server.py`) exposes two tools for long-term semantic memory:
 
 | Tool | Purpose |
@@ -211,6 +214,21 @@ The server is declared in `plugin.json` via `mcpServers` and bootstrapped by `mc
 ```bash
 $PLUGIN_ROOT/.venv/bin/pip install "google-genai>=1.0,<2"
 ```
+
+### Entity Registry Server
+
+The entity registry server (`mcp/entity_server.py`) exposes six tools for entity lineage tracking:
+
+| Tool | Purpose |
+|------|---------|
+| `register_entity` | Register a new entity (feature, project, brainstorm) with type and status |
+| `set_parent` | Set a parent-child relationship between two entities |
+| `get_entity` | Retrieve entity details by type_id |
+| `get_lineage` | Get the full lineage tree for an entity (ancestors and descendants) |
+| `update_entity` | Update entity name, status, or metadata |
+| `export_lineage_markdown` | Export lineage tree as a markdown file |
+
+The server is bootstrapped by `mcp/run-entity-server.sh` and declared in `plugin.json` via `mcpServers`.
 
 ## Setup
 

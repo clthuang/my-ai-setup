@@ -82,8 +82,8 @@ Designing parsers against assumed format without verifying against actual files.
 - Observed in: Feature #022, design phase iteration 3
 - Cost: Design circuit breaker hit (5 iterations); task parser regex was checkbox-based but actual tasks.md uses heading-based format
 - Instead: Read actual target files before writing parsers; add "verified against: <file path>" annotation to design documents
-- Last observed: Feature #023
-- Observation count: 2
+- Last observed: Feature #029
+- Observation count: 3
 
 ### Anti-Pattern: Post-Approval Informational Iterations
 Continuing review iterations after approval when all remaining issues are informational ("no change needed"). Adds wall-clock time without producing artifact changes.
@@ -180,4 +180,49 @@ Embedding literal year values (e.g., "2026") in search queries or date-sensitive
 - Instead: Use dynamic placeholders like {current year} with instructions to resolve at runtime
 - Confidence: high
 - Last observed: Feature #027
+- Observation count: 1
+
+### Anti-Pattern: Two-Layer Architecture Without AC Traceability
+Implementing a storage layer and a rendering/presentation layer for the same spec ACs without an explicit traceability map. The storage layer satisfies the data model; the rendering layer silently omits required fields. Gap is invisible until end-to-end output testing.
+- Observed in: Feature #029, implement iter 2 — AC-5 depends_on_features stored in DB but _format_entity_label ignored metadata
+- Cost: Blocker at implementation iter 2; required 7 new tests
+- Instead: For separated storage+rendering layers, map each AC to both the storage AND rendering functions
+- Confidence: high
+- Last observed: Feature #029
+- Observation count: 1
+
+### Anti-Pattern: Python-Side Recursion Against Relational DB for Tree Traversal
+Using Python-side recursion (or N+1 queries) for tree traversal when the backing store is SQL. Produces O(N^2) or O(N) round-trip patterns and has no natural depth limit.
+- Observed in: Feature #029, implement iters 1+3 — N+1 export recursion and O(N^2) set comprehension in render_tree
+- Cost: Security and quality warnings requiring 2 fix iterations
+- Instead: Use recursive CTEs with max_depth guard; do all tree work in SQL
+- Confidence: high
+- Last observed: Feature #029
+- Observation count: 1
+
+### Anti-Pattern: Dispatching Reviewers with Compressed Artifacts
+When large artifacts (>200 lines) are compressed by prompt compression before reaching a reviewer agent, the reviewer receives summaries instead of full content, producing false-positive blockers. Feature #030 had 2 full review iterations consumed and 8 false-positive blockers total across create-plan and create-tasks phases.
+- Observed in: Feature #030, create-plan chain iter 1 + create-tasks iter 2
+- Cost: 2 full review iterations wasted on false positives
+- Instead: Pre-declare artifact completeness with line-count headers; add reviewer instruction to flag truncated artifacts as process errors
+- Confidence: high
+- Last observed: Feature #030
+- Observation count: 1
+
+### Anti-Pattern: Reviewer Output Format as Plain Prose Instead of JSON Schema
+Specifying reviewer return format as plain prose ("Return assessment with approval status") instead of an explicit JSON schema block. Caught late in implement review rather than design phase, doubling correction cost per iteration.
+- Observed in: Feature #030, implement iters 1–2 — code-quality-reviewer (7b) and security-reviewer (7c) both had prose return format
+- Cost: 2 additional implement review iterations
+- Instead: All reviewer dispatch prompts must include explicit JSON return schema with approved/issues/summary structure
+- Confidence: high
+- Last observed: Feature #030
+- Observation count: 1
+
+### Anti-Pattern: Design Label References Without Inline Reproduction
+Referencing design templates by label name (e.g., "I1 template", "I8 format") in plan/tasks documents without reproducing the template content inline. Forces cross-document lookup and blocks reviewers who cannot verify completeness.
+- Observed in: Feature #030, plan iter 1 + task iters 2–4 — I1, I8, I9 templates and {feature_path} not reproduced
+- Cost: 3 consecutive task-review iterations addressing same root cause; cap reached
+- Instead: Reproduce all cross-task templates verbatim in a Shared Templates section
+- Confidence: high
+- Last observed: Feature #030
 - Observation count: 1

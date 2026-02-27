@@ -239,6 +239,23 @@ For each feature in `execution_order`:
    ```
    Note: `mode` and `branch` are null for planned features -- set during planned-to-active transition.
 
+5. **Register feature entity** in the entity registry. If the MCP call fails, warn `"Entity registration failed for {id}-{slug}: {error}"` but do NOT block feature creation. Continue with the next feature.
+
+   Build the `depends_on_features` metadata as a list of `"feature:{dep-id}-{dep-slug}"` strings from the feature's `depends_on` array.
+
+   Call `register_entity` MCP tool:
+   ```
+   register_entity(
+     entity_type="feature",
+     entity_id="{id}-{slug}",
+     name="{feature name from decomposition}",
+     artifact_path="{iflow_artifacts_root}/features/{id}-{slug}/",
+     status="planned",
+     parent_type_id="project:{project P-ID}",
+     metadata='{"depends_on_features": ["feature:{dep-id}-{dep-slug}", ...]}'
+   )
+   ```
+
 ## Step 9: Generate roadmap.md
 
 Write `{project_dir}/roadmap.md` with this structure:
