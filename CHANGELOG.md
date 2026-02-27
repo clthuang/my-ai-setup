@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Enriched documentation phase with three-tier doc schema (`doc-schema.md` reference file), mode-aware dispatch (scaffold vs incremental), and drift detection
+- `doc_tiers` config variable injected at session start for per-project tier opt-out
+- `/iflow:generate-docs` command as standalone entry point for documentation generation
+- 79 content regression tests for enriched documentation dispatch logic
+
+### Changed
+- Documentation researcher agent extended with tier discovery, drift detection, and mode-aware output
+- Documentation writer agent extended with section markers, YAML frontmatter, ADR extraction, and tier guidance
+- `updating-docs` skill extended with mode parameter, dispatch budgets, doc-schema injection, and SYNC markers
+- `finish-feature` and `wrap-up` commands Phase 2b replaced with enriched documentation dispatch inline (per TD7)
+
 ## [4.1.0] - 2026-02-26
 
 ### Added
