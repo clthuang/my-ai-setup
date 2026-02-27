@@ -222,20 +222,14 @@ b. **Invoke design-reviewer:**
      prompt: |
        Review this design for robustness and completeness.
 
+       Your job: Find weaknesses before implementation does.
+       Be the skeptic. Challenge assumptions. Find gaps.
+
        ## Required Artifacts
        You MUST read the following files before beginning your review.
        After reading, confirm: "Files read: {name} ({N} lines), ..." in a single line.
        {resolved PRD line from I8}
        - Spec: {feature_path}/spec.md
-
-       ## Design (what we're reviewing)
-       {content of design.md}
-
-       ## Iteration Context
-       This is iteration {n} of {max}.
-
-       Your job: Find weaknesses before implementation does.
-       Be the skeptic. Challenge assumptions. Find gaps.
 
        Return your assessment as JSON:
        {
@@ -249,6 +243,12 @@ b. **Invoke design-reviewer:**
          }],
          "summary": "..."
        }
+
+       ## Design (what we're reviewing)
+       {content of design.md}
+
+       ## Iteration Context
+       This is iteration {n} of {max}.
    ```
 
 c. **Parse response:** Extract the `approved` field from reviewer's JSON response.
@@ -329,16 +329,9 @@ b. **Invoke phase-reviewer** (Fresh dispatch per iteration — Phase 1 behavior.
        - Spec: {feature_path}/spec.md
        - Design: {feature_path}/design.md
 
-       ## Domain Reviewer Outcome
-       - Reviewer: design-reviewer
-       - Result: {APPROVED at iteration {n}/{max} | FAILED at iteration cap ({max}/{max})}
-       - Unresolved issues: {list of remaining blocker/warning descriptions, or "none"}
-
        ## Next Phase Expectations
        Plan needs: Components defined, interfaces specified,
        dependencies identified, risks noted.
-
-       This is phase-review iteration {phase_iteration}/5.
 
        Return your assessment as JSON:
        {
@@ -346,6 +339,13 @@ b. **Invoke phase-reviewer** (Fresh dispatch per iteration — Phase 1 behavior.
          "issues": [{"severity": "blocker|warning|suggestion", "description": "...", "location": "...", "suggestion": "..."}],
          "summary": "..."
        }
+
+       ## Domain Reviewer Outcome
+       - Reviewer: design-reviewer
+       - Result: {APPROVED at iteration {n}/{max} | FAILED at iteration cap ({max}/{max})}
+       - Unresolved issues: {list of remaining blocker/warning descriptions, or "none"}
+
+       This is phase-review iteration {phase_iteration}/5.
    ```
 
    **Fallback detection (I9):** Search the agent's response for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: phase-reviewer did not confirm artifact reads` to `.review-history.md`. Proceed regardless.
