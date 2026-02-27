@@ -10,7 +10,9 @@ import os
 from collections import defaultdict
 
 
-def render_tree(entities: list[dict], root_type_id: str) -> str:
+def render_tree(
+    entities: list[dict], root_type_id: str, max_depth: int = 50
+) -> str:
     """Render a flat list of entity dicts as a Unicode box-drawing tree.
 
     Parameters
@@ -20,6 +22,8 @@ def render_tree(entities: list[dict], root_type_id: str) -> str:
         entity_type, status, parent_type_id, created_at.
     root_type_id:
         The type_id of the root node for this tree.
+    max_depth:
+        Maximum tree depth to render (default 50).
 
     Returns
     -------
@@ -38,26 +42,46 @@ def render_tree(entities: list[dict], root_type_id: str) -> str:
         tid = entity["type_id"]
         by_id[tid] = entity
         parent = entity.get("parent_type_id")
-        if parent is not None and parent in {e["type_id"] for e in entities}:
+        if parent is not None and parent in by_id:
             children[parent].append(tid)
 
     if root_type_id not in by_id:
         return ""
 
     lines: list[str] = []
-    _render_node(by_id, children, root_type_id, "", True, True, lines)
+    _render_node(by_id, children, root_type_id, "", True, True, lines, 0, max_depth)
     return "\n".join(lines)
 
 
 def _format_entity_label(entity: dict) -> str:
-    """Format a single entity as: type_id -- "name" (status, date)."""
+    """Format a single entity as: type_id -- "name" (status, date) [depends on: ...].
+
+    When the entity's ``metadata`` JSON contains a non-empty
+    ``depends_on_features`` list, a ``[depends on: feature:xxx, ...]``
+    annotation is appended (AC-5 / design I7).
+    """
     date_part = entity["created_at"][:10]
     status = entity.get("status")
     if status:
         paren = f"({status}, {date_part})"
     else:
         paren = f"({date_part})"
-    return f'{entity["type_id"]} \u2014 "{entity["name"]}" {paren}'
+
+    label = f'{entity["type_id"]} \u2014 "{entity["name"]}" {paren}'
+
+    # AC-5: append depends_on_features annotation when present
+    metadata_str = entity.get("metadata")
+    if metadata_str:
+        try:
+            meta = json.loads(metadata_str)
+            deps = meta.get("depends_on_features")
+            if isinstance(deps, list) and deps:
+                dep_refs = ", ".join(f"feature:{d}" for d in deps)
+                label += f" [depends on: {dep_refs}]"
+        except (json.JSONDecodeError, ValueError, TypeError):
+            pass  # malformed metadata -- skip annotation gracefully
+
+    return label
 
 
 def _render_node(
@@ -68,8 +92,19 @@ def _render_node(
     is_last: bool,
     is_root: bool,
     lines: list[str],
+    depth: int = 0,
+    max_depth: int = 50,
 ) -> None:
-    """Recursively render a node and its children."""
+    """Recursively render a node and its children.
+
+    Parameters
+    ----------
+    depth:
+        Current depth in the tree (0 for root).
+    max_depth:
+        Maximum depth to render. When exceeded, a truncation indicator
+        is appended instead of recursing further.
+    """
     entity = by_id[type_id]
     label = _format_entity_label(entity)
 
@@ -84,9 +119,16 @@ def _render_node(
         child_prefix = prefix + ("   " if is_last else "\u2502  ")
 
     kids = children.get(type_id, [])
+    if kids and depth >= max_depth:
+        lines.append(f"{child_prefix}\u2514\u2500 ... (depth limit reached)")
+        return
+
     for i, kid_id in enumerate(kids):
         kid_is_last = (i == len(kids) - 1)
-        _render_node(by_id, children, kid_id, child_prefix, kid_is_last, False, lines)
+        _render_node(
+            by_id, children, kid_id, child_prefix, kid_is_last, False, lines,
+            depth + 1, max_depth,
+        )
 
 
 def parse_metadata(metadata_str: str | None) -> dict | None:
@@ -119,22 +161,29 @@ def resolve_output_path(
     Parameters
     ----------
     output_path:
-        Path to resolve. If absolute, returned as-is.
-        If relative, joined with artifacts_root.
+        Path to resolve. Relative paths are joined with artifacts_root.
         If None, returns None.
     artifacts_root:
-        Base directory for relative path resolution.
+        Base directory for relative path resolution. The resolved path
+        must remain within this directory (path containment check).
 
     Returns
     -------
     str | None
-        Resolved absolute path, or None if output_path is None.
+        Resolved absolute path, or None if output_path is None or if
+        the resolved path escapes artifacts_root.
     """
     if output_path is None:
         return None
     if os.path.isabs(output_path):
-        return output_path
-    return os.path.join(artifacts_root, output_path)
+        resolved = os.path.realpath(output_path)
+    else:
+        resolved = os.path.realpath(os.path.join(artifacts_root, output_path))
+    # Path containment: ensure resolved path stays within artifacts_root
+    real_root = os.path.realpath(artifacts_root)
+    if not (resolved.startswith(real_root + os.sep) or resolved == real_root):
+        return None
+    return resolved
 
 
 def _process_register_entity(
@@ -187,6 +236,51 @@ def _process_register_entity(
         return f"Registered entity: {type_id}"
     except Exception as exc:
         return f"Error registering entity: {exc}"
+
+
+def _process_export_lineage_markdown(
+    db,
+    type_id: str | None,
+    output_path: str | None,
+    artifacts_root: str,
+) -> str:
+    """Export entity lineage as markdown, optionally writing to a file.
+
+    Parameters
+    ----------
+    db:
+        An EntityDatabase instance.
+    type_id:
+        If provided, export only the tree rooted at this entity.
+        If None, export all trees.
+    output_path:
+        If provided, write markdown to this file path (relative paths
+        resolved against artifacts_root). Returns confirmation.
+        If None, returns the markdown string directly.
+    artifacts_root:
+        Base directory for relative path resolution.
+
+    Returns
+    -------
+    str
+        Markdown string or file-write confirmation.
+        Never raises exceptions.
+    """
+    try:
+        md = db.export_lineage_markdown(type_id)
+        resolved = resolve_output_path(output_path, artifacts_root)
+        if resolved is not None:
+            parent_dir = os.path.dirname(resolved)
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
+            with open(resolved, "w") as f:
+                f.write(md)
+            return f"Exported lineage to {resolved}"
+        if output_path is not None and resolved is None:
+            return f"Error exporting lineage: path escapes artifacts root"
+        return md
+    except Exception as exc:
+        return f"Error exporting lineage: {exc}"
 
 
 def _process_get_lineage(

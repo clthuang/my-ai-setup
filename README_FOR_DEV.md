@@ -179,6 +179,14 @@ flowchart TD
         MB --> MCP2[search_memory]
     end
 
+    subgraph ENT["Entity Registry · 6 MCP tools"]
+        direction TB
+        ET1[register_entity] ~~~ ET2[set_parent] ~~~ ET3[get_entity]
+        ET4[get_lineage] ~~~ ET5[update_entity] ~~~ ET6[export_lineage_markdown]
+        ET1 --> EB[("entities.db<br/>~/.claude/iflow/entities/")]
+        ET4 --> EB
+    end
+
     MCP2 -.->|"injected at<br/>session start"| U
 ```
 
@@ -259,6 +267,7 @@ Commands are user-invoked entry points. Located in `plugins/iflow/commands/{name
 | `generate-docs` | Generate three-tier documentation scaffold or update existing docs |
 | `promptimize` | Review a plugin prompt against best practices and return an improved version |
 | `refresh-prompt-guidelines` | Scout latest prompt engineering best practices and update the guidelines document |
+| `show-lineage` | Display entity lineage tree for a given entity (ancestors or descendants) |
 
 ## Agents
 
@@ -483,6 +492,26 @@ Without an API key, memory still works via FTS5 keyword search and prominence ra
 - `memory_injection_enabled` — Enable memory injection at session start (default: true)
 - `memory_injection_limit` — Max entries to inject per session (default: 20)
 - `max_concurrent_agents` — Max parallel Task dispatches across skills and commands (default: 5)
+
+## Entity Registry
+
+The entity registry tracks the lineage of iflow artifacts (backlog items, brainstorms, projects, features) and their parent-child relationships in a SQLite database.
+
+**Database:** `~/.claude/iflow/entities/entities.db`
+
+**MCP Server:** `plugins/iflow/mcp/entity_server.py` (bootstrapped via `plugins/iflow/mcp/run-entity-server.sh`)
+
+**MCP Tools (6):**
+- `register_entity` -- Register a new entity (backlog, brainstorm, project, or feature) with optional parent link and metadata
+- `set_parent` -- Set or change the parent of an entity (with circular reference detection)
+- `get_entity` -- Retrieve a single entity by type_id
+- `get_lineage` -- Traverse the entity hierarchy upward (toward root) or downward (toward leaves) with depth limiting
+- `update_entity` -- Update mutable fields (name, status, artifact_path, metadata) of an existing entity
+- `export_lineage_markdown` -- Export entity lineage as a markdown tree, optionally writing to a file
+
+**Backfill Scanner:** `plugins/iflow/hooks/lib/entity_registry/backfill.py` scans existing artifact directories (features/, brainstorms/, projects/, backlog.md) and registers entities in topological order (backlog -> brainstorm -> project -> feature). Runs once on first server start; subsequent runs are skipped via a `backfill_complete` metadata marker.
+
+**Command:** `/iflow:show-lineage` displays the entity lineage tree for a given entity, showing ancestors or descendants with Unicode box-drawing formatting.
 
 ## Creating Components
 

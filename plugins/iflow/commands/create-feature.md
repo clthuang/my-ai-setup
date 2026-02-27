@@ -138,11 +138,74 @@ If feature was promoted from a brainstorm that originated from a backlog item:
    - Add `"backlog_source": "{id}"` to `.meta.json`
    - Read `{iflow_artifacts_root}/backlog.md`
    - Find row matching `| {id} |`
-   - Remove that row
+   - **Annotate the row** (do NOT remove it):
+     - If the Description column does NOT contain `(promoted →`: append ` (promoted → feature:{id}-{slug})` to the Description column
+     - If the Description column already contains `(promoted → ...)`: replace the closing `)` with `, feature:{id}-{slug})` (supports multiple promotions)
    - Write updated backlog
-   - Display: `Linked from backlog item #{id} (removed from backlog)`
+   - Display: `Linked from backlog item #{id} (promoted)`
 4. **If pattern not found:** No action, continue normally
 5. **If ID found but row missing:** Display warning `⚠️ Backlog item #{id} not found in {iflow_artifacts_root}/backlog.md`, continue with feature creation
+
+## Register Entities
+
+After Handle PRD Source and Handle Backlog Source sections complete, register entities in the entity registry. All MCP calls are wrapped in failure handling: if any MCP call fails, warn `"Entity registration failed: {error}"` but do NOT block feature creation. Continue with the rest of the command.
+
+### 1. Register Backlog Entity (if backlog_source found)
+
+If `backlog_source` was found in the Handle Backlog Source step:
+
+Call `register_entity` MCP tool (idempotent — safe if entity already exists):
+```
+register_entity(
+  entity_type="backlog",
+  entity_id="{backlog_source id}",
+  name="{description text from the backlog.md row}",
+  status="promoted"
+)
+```
+
+### 2. Register Brainstorm Entity (if brainstorm_source found)
+
+If `brainstorm_source` was set (i.e., `--prd` was provided):
+
+Extract the filename stem from the brainstorm_source path (e.g., `20260227-054029-entity-lineage-tracking` from `{iflow_artifacts_root}/brainstorms/20260227-054029-entity-lineage-tracking.prd.md`).
+
+Call `register_entity` MCP tool (idempotent):
+```
+register_entity(
+  entity_type="brainstorm",
+  entity_id="{filename-stem}",
+  name="{slug}",
+  artifact_path="{brainstorm_source path}"
+)
+```
+
+If brainstorm has a backlog parent (backlog_source was found), set the parent relationship:
+```
+set_parent(
+  type_id="brainstorm:{filename-stem}",
+  parent_type_id="backlog:{backlog_source id}"
+)
+```
+
+### 3. Register Feature Entity
+
+Derive the parent_type_id:
+- If `brainstorm_source` exists: `parent_type_id = "brainstorm:{filename-stem}"`
+- Else if `backlog_source` exists (no brainstorm): `parent_type_id = "backlog:{backlog_source id}"`
+- Else: `parent_type_id = null` (no parent)
+
+Call `register_entity` MCP tool:
+```
+register_entity(
+  entity_type="feature",
+  entity_id="{id}-{slug}",
+  name="{slug}",
+  artifact_path="{iflow_artifacts_root}/features/{id}-{slug}/",
+  status="active",
+  parent_type_id="{derived parent_type_id}"
+)
+```
 
 ## State Tracking
 
@@ -162,7 +225,7 @@ Apply the detecting-kanban skill:
   Folder: {iflow_artifacts_root}/features/{id}-{slug}/
   Branch: feature/{id}-{slug}
   PRD: Copied from brainstorm
-  Linked from: Backlog #{backlog_id} (removed)  ← only if backlog source found
+  Linked from: Backlog #{backlog_id} (promoted)  ← only if backlog source found
 ```
 
 **If `--prd` NOT provided (direct creation):**
@@ -171,7 +234,7 @@ Apply the detecting-kanban skill:
   Mode: {mode}
   Folder: {iflow_artifacts_root}/features/{id}-{slug}/
   Branch: feature/{id}-{slug}
-  Linked from: Backlog #{backlog_id} (removed)  ← only if backlog source found
+  Linked from: Backlog #{backlog_id} (promoted)  ← only if backlog source found
 
   Note: No PRD. /specify will gather requirements.
 ```

@@ -10,6 +10,7 @@ import glob
 import json
 import os
 import re
+import sys
 
 from entity_registry.database import EntityDatabase
 
@@ -80,6 +81,13 @@ def _scan_backlog(db: EntityDatabase, artifacts_root: str) -> None:
         # Split produces ['', cell1, cell2, ..., ''] for | delimited rows
         cells = [c for c in cells if c]
         if len(cells) < 3:
+            # Skip separator rows silently (all dashes), log others
+            raw_cells = [c.strip() for c in line.split("|") if c.strip()]
+            if raw_cells and not all(c.startswith("-") for c in raw_cells):
+                print(
+                    f"entity-server: backfill: skipping malformed backlog row: {line!r}",
+                    file=sys.stderr,
+                )
             continue
         item_id = cells[0]
         # Skip header row and separator row
@@ -110,18 +118,7 @@ def _scan_brainstorms(db: EntityDatabase, artifacts_root: str) -> None:
     prd_files = sorted(glob.glob(os.path.join(bs_dir, "*.prd.md")))
     for path in prd_files:
         stem = _brainstorm_stem(path)
-        content = _read_file(path)
-        parent_type_id = _derive_parent("brainstorm", {}, content)
-
-        db.register_entity(
-            entity_type="brainstorm",
-            entity_id=stem,
-            name=stem,
-            artifact_path=path,
-        )
-        if parent_type_id:
-            _safe_set_parent(db, f"brainstorm:{stem}", parent_type_id)
-
+        _register_brainstorm(db, path, stem)
         registered_stems.add(stem)
 
     # Phase 2: .md files (only unregistered stems)
@@ -134,18 +131,7 @@ def _scan_brainstorms(db: EntityDatabase, artifacts_root: str) -> None:
         if stem in registered_stems:
             continue
 
-        content = _read_file(path)
-        parent_type_id = _derive_parent("brainstorm", {}, content)
-
-        db.register_entity(
-            entity_type="brainstorm",
-            entity_id=stem,
-            name=stem,
-            artifact_path=path,
-        )
-        if parent_type_id:
-            _safe_set_parent(db, f"brainstorm:{stem}", parent_type_id)
-
+        _register_brainstorm(db, path, stem)
         registered_stems.add(stem)
 
 
@@ -212,7 +198,7 @@ def _scan_features(db: EntityDatabase, artifacts_root: str) -> None:
             # Ensure parent exists (register synthetic if needed)
             if db.get_entity(parent_type_id) is None:
                 _register_synthetic_for_missing_parent(
-                    db, parent_type_id, meta, artifacts_root
+                    db, parent_type_id, meta
                 )
             if db.get_entity(parent_type_id) is not None:
                 db.set_parent(type_id, parent_type_id)
@@ -269,7 +255,7 @@ def _derive_parent(
     if entity_type == "project":
         bs_source = meta.get("brainstorm_source")
         if bs_source:
-            stem = _extract_brainstorm_stem(bs_source)
+            stem = _brainstorm_stem(bs_source)
             return f"brainstorm:{stem}"
         return None
 
@@ -282,7 +268,7 @@ def _derive_parent(
         # Priority 2: brainstorm_source
         bs_source = meta.get("brainstorm_source")
         if bs_source:
-            stem = _extract_brainstorm_stem(bs_source)
+            stem = _brainstorm_stem(bs_source)
             return f"brainstorm:{stem}"
 
         # Priority 3: backlog_source (handled separately in _scan_features)
@@ -319,7 +305,6 @@ def _register_synthetic_for_missing_parent(
     db: EntityDatabase,
     parent_type_id: str,
     meta: dict,
-    artifacts_root: str,
 ) -> None:
     """Register a synthetic entity for a missing parent reference.
 
@@ -334,7 +319,7 @@ def _register_synthetic_for_missing_parent(
 
     if p_type == "brainstorm":
         bs_source = meta.get("brainstorm_source", "")
-        if _is_external_path(bs_source, artifacts_root):
+        if _is_external_path(bs_source):
             _register_synthetic(
                 db, "brainstorm", p_id,
                 f"External: {bs_source}", "external",
@@ -361,6 +346,21 @@ def _register_synthetic_for_missing_parent(
 # ---------------------------------------------------------------------------
 
 
+def _register_brainstorm(db: EntityDatabase, path: str, stem: str) -> None:
+    """Read a brainstorm file, register it, and set its parent if derivable."""
+    content = _read_file(path)
+    parent_type_id = _derive_parent("brainstorm", {}, content)
+
+    db.register_entity(
+        entity_type="brainstorm",
+        entity_id=stem,
+        name=stem,
+        artifact_path=path,
+    )
+    if parent_type_id:
+        _safe_set_parent(db, f"brainstorm:{stem}", parent_type_id)
+
+
 def _brainstorm_stem(path: str) -> str:
     """Extract the stem from a brainstorm file path.
 
@@ -375,26 +375,9 @@ def _brainstorm_stem(path: str) -> str:
     return basename
 
 
-def _extract_brainstorm_stem(source_path: str) -> str:
-    """Extract the brainstorm stem from a brainstorm_source path.
-
-    'docs/brainstorms/20260227-054029-entity-lineage-tracking.prd.md'
-      -> '20260227-054029-entity-lineage-tracking'
-    """
-    return _brainstorm_stem(source_path)
-
-
-def _is_external_path(path: str, artifacts_root: str) -> bool:
-    """Check if a path refers to a location outside artifacts_root."""
-    if not path:
-        return False
-    if os.path.isabs(path) or path.startswith("~"):
-        return True
-    # Relative path starting with the artifacts_root is internal
-    # A relative path not under artifacts_root is considered external
-    # In practice, brainstorm_source is typically relative to project root
-    # which may or may not coincide with artifacts_root
-    return False
+def _is_external_path(path: str) -> bool:
+    """Check if a path is absolute or home-relative (external)."""
+    return bool(path) and (os.path.isabs(path) or path.startswith("~"))
 
 
 def _read_file(path: str) -> str | None:
@@ -420,9 +403,13 @@ def _read_json(path: str) -> dict | None:
 def _safe_set_parent(
     db: EntityDatabase, type_id: str, parent_type_id: str
 ) -> None:
-    """Set parent, silently skipping if parent doesn't exist in DB."""
+    """Set parent, logging a warning if the operation fails."""
     if db.get_entity(parent_type_id) is not None:
         try:
             db.set_parent(type_id, parent_type_id)
-        except ValueError:
-            pass
+        except ValueError as exc:
+            print(
+                f"entity-server: backfill: set_parent {type_id}->{parent_type_id} "
+                f"skipped: {exc}",
+                file=sys.stderr,
+            )

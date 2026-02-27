@@ -451,6 +451,257 @@ class TestIdempotencyAndPriority:
 
 
 # ---------------------------------------------------------------------------
+# Deepened tests: BDD, Adversarial, Error, Mutation
+# ---------------------------------------------------------------------------
+
+
+class TestMissingMetaJsonHandledGracefully:
+    """Adversarial: missing .meta.json in feature dir is silently skipped.
+    derived_from: dimension:adversarial
+    """
+
+    def test_missing_meta_json_handled_gracefully(self, tmp_path):
+        # Given a features directory with a feature folder but no .meta.json
+        (tmp_path / "brainstorms").mkdir()
+        (tmp_path / "projects").mkdir()
+        feat_dir = tmp_path / "features" / "040-no-meta"
+        feat_dir.mkdir(parents=True)
+        # (no .meta.json written)
+
+        db = EntityDatabase(str(tmp_path / "test.db"))
+        try:
+            from entity_registry.backfill import run_backfill
+
+            # When running backfill
+            run_backfill(db, str(tmp_path))
+
+            # Then no entity is registered for this feature (no crash)
+            assert db.get_entity("feature:040-no-meta") is None
+            # And backfill completes successfully
+            assert db.get_metadata("backfill_complete") == "1"
+        finally:
+            db.close()
+
+
+class TestMalformedMetaJsonInFeature:
+    """Adversarial: malformed .meta.json in feature dir is handled gracefully.
+    derived_from: dimension:adversarial
+    """
+
+    def test_malformed_meta_json_in_feature_dir(self, tmp_path):
+        # Given a feature directory with malformed JSON
+        (tmp_path / "brainstorms").mkdir()
+        (tmp_path / "projects").mkdir()
+        feat_dir = tmp_path / "features" / "041-bad-json"
+        feat_dir.mkdir(parents=True)
+        (feat_dir / ".meta.json").write_text("{invalid json content!!")
+
+        db = EntityDatabase(str(tmp_path / "test.db"))
+        try:
+            from entity_registry.backfill import run_backfill
+
+            # When running backfill
+            run_backfill(db, str(tmp_path))
+
+            # Then the malformed feature is skipped (no crash)
+            assert db.get_entity("feature:041-bad-json") is None
+            # And backfill still completes
+            assert db.get_metadata("backfill_complete") == "1"
+        finally:
+            db.close()
+
+
+class TestBackfillPartialFailureRecovery:
+    """Error propagation: partial failure does not corrupt state.
+    derived_from: dimension:error_propagation
+    """
+
+    def test_backfill_partial_failure_does_not_corrupt_state(self, tmp_path):
+        # Given two features: one valid, one with invalid meta JSON
+        (tmp_path / "brainstorms").mkdir()
+        (tmp_path / "projects").mkdir()
+        (tmp_path / "features").mkdir()
+
+        # Valid feature
+        valid_feat = tmp_path / "features" / "050-valid"
+        valid_feat.mkdir(parents=True)
+        (valid_feat / ".meta.json").write_text(json.dumps({
+            "id": "050", "slug": "valid",
+        }))
+
+        # Malformed feature
+        bad_feat = tmp_path / "features" / "051-broken"
+        bad_feat.mkdir(parents=True)
+        (bad_feat / ".meta.json").write_text("NOT JSON!!!")
+
+        db = EntityDatabase(str(tmp_path / "test.db"))
+        try:
+            from entity_registry.backfill import run_backfill
+
+            # When running backfill
+            run_backfill(db, str(tmp_path))
+
+            # Then the valid feature is registered
+            valid = db.get_entity("feature:050-valid")
+            assert valid is not None
+            assert valid["name"] == "050-valid"
+
+            # And the broken feature is skipped
+            broken = db.get_entity("feature:051-broken")
+            assert broken is None
+
+            # And backfill completes (state is consistent)
+            assert db.get_metadata("backfill_complete") == "1"
+        finally:
+            db.close()
+
+
+class TestMetaJsonExtraFieldsAccepted:
+    """Adversarial: .meta.json with extra unexpected fields is accepted.
+    derived_from: dimension:adversarial
+    """
+
+    def test_meta_json_with_extra_unexpected_fields_accepted(self, tmp_path):
+        # Given a feature .meta.json with extra unknown fields
+        (tmp_path / "brainstorms").mkdir()
+        (tmp_path / "projects").mkdir()
+        feat_dir = tmp_path / "features" / "042-extra-fields"
+        feat_dir.mkdir(parents=True)
+        (feat_dir / ".meta.json").write_text(json.dumps({
+            "id": "042",
+            "slug": "extra-fields",
+            "name": "Extra Fields Feature",
+            "unknown_key": "should_not_break",
+            "another_key": 42,
+        }))
+
+        db = EntityDatabase(str(tmp_path / "test.db"))
+        try:
+            from entity_registry.backfill import run_backfill
+
+            # When running backfill
+            run_backfill(db, str(tmp_path))
+
+            # Then the feature is registered successfully
+            entity = db.get_entity("feature:042-extra-fields")
+            assert entity is not None
+            assert entity["name"] == "Extra Fields Feature"
+        finally:
+            db.close()
+
+
+class TestParentReferenceToNonexistentEntity:
+    """Error propagation: parent reference to nonexistent entity produces warning.
+    derived_from: dimension:error_propagation, spec:AC-9
+    """
+
+    def test_parent_reference_to_nonexistent_entity_creates_synthetic(self, tmp_path):
+        # Given a feature referencing a brainstorm that does not exist on disk
+        (tmp_path / "brainstorms").mkdir()
+        (tmp_path / "projects").mkdir()
+        feat_dir = tmp_path / "features" / "043-orphan-parent"
+        feat_dir.mkdir(parents=True)
+        (feat_dir / ".meta.json").write_text(json.dumps({
+            "id": "043",
+            "slug": "orphan-parent",
+            "brainstorm_source": "docs/brainstorms/20260301-missing.prd.md",
+        }))
+
+        db = EntityDatabase(str(tmp_path / "test.db"))
+        try:
+            from entity_registry.backfill import run_backfill
+
+            # When running backfill
+            run_backfill(db, str(tmp_path))
+
+            # Then a synthetic orphaned brainstorm is created
+            synthetic = db.get_entity("brainstorm:20260301-missing")
+            assert synthetic is not None
+            assert synthetic["status"] == "orphaned"
+
+            # And the feature is parented to it
+            feature = db.get_entity("feature:043-orphan-parent")
+            assert feature is not None
+            assert feature["parent_type_id"] == "brainstorm:20260301-missing"
+        finally:
+            db.close()
+
+
+class TestDeriveParentFeatureProjectPriority:
+    """Mutation mindset: project_id takes priority over brainstorm_source.
+    derived_from: dimension:mutation_mindset
+    """
+
+    def test_derive_parent_project_id_overrides_brainstorm_source(self):
+        # Given meta with both project_id and brainstorm_source
+        from entity_registry.backfill import _derive_parent
+
+        result = _derive_parent(
+            "feature",
+            {
+                "project_id": "P001",
+                "brainstorm_source": "docs/brainstorms/20260227-something.prd.md",
+            },
+            None,
+        )
+        # Then project_id takes priority
+        assert result == "project:P001"
+        # Mutation check: if brainstorm_source was checked first, this would fail
+
+
+class TestBrainstormStemExtraction:
+    """Boundary: various brainstorm path formats.
+    derived_from: dimension:boundary_values
+    """
+
+    def test_brainstorm_stem_prd_md(self):
+        from entity_registry.backfill import _brainstorm_stem
+
+        assert _brainstorm_stem("docs/brainstorms/20260227-lineage.prd.md") == "20260227-lineage"
+
+    def test_brainstorm_stem_md(self):
+        from entity_registry.backfill import _brainstorm_stem
+
+        assert _brainstorm_stem("brainstorms/20260130-slug.md") == "20260130-slug"
+
+    def test_brainstorm_stem_no_extension(self):
+        from entity_registry.backfill import _brainstorm_stem
+
+        assert _brainstorm_stem("brainstorms/just-a-file") == "just-a-file"
+
+    def test_brainstorm_stem_bare_filename(self):
+        from entity_registry.backfill import _brainstorm_stem
+
+        assert _brainstorm_stem("20260227-test.prd.md") == "20260227-test"
+
+
+class TestIsExternalPath:
+    """Boundary: external path detection edge cases.
+    derived_from: dimension:boundary_values
+    """
+
+    def test_absolute_path_is_external(self):
+        from entity_registry.backfill import _is_external_path
+
+        assert _is_external_path("/home/user/plans/plan.prd.md") is True
+
+    def test_home_relative_path_is_external(self):
+        from entity_registry.backfill import _is_external_path
+
+        assert _is_external_path("~/.claude/plans/plan.md") is True
+
+    def test_relative_path_is_not_external(self):
+        from entity_registry.backfill import _is_external_path
+
+        assert _is_external_path("docs/brainstorms/test.prd.md") is False
+
+    def test_empty_string_is_not_external(self):
+        from entity_registry.backfill import _is_external_path
+
+        assert _is_external_path("") is False
+
+
+# ---------------------------------------------------------------------------
 # Task 3.10: Backfill complete marker and partial recovery tests
 # ---------------------------------------------------------------------------
 
