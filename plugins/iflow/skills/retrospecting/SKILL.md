@@ -19,6 +19,41 @@ Use these values from session context (injected at session start):
 
 ## Process
 
+### Step 0: Recovery Check for Interrupted Retros
+
+Before assembling context, check if a previous retro run was interrupted after writing `retro.md` but before completing knowledge bank updates.
+
+1. Check if `{iflow_artifacts_root}/features/{id}-{slug}/retro.md` exists
+2. If it does NOT exist → skip to Step 1 (fresh run)
+3. If it exists, check for completed KB updates:
+   - Grep each KB markdown file (`patterns.md`, `anti-patterns.md`, `heuristics.md`) for `Last observed: Feature #{id}`
+   - Call `search_memory` MCP with `query: "Feature {id}"`, `limit: 20` — check for DB entries referencing this feature
+4. If retro.md exists AND both KB markdown entries AND DB entries are present → retro already completed, skip to Step 5 (commit)
+5. If retro.md exists but KB markdown OR DB entries are missing → recovery needed:
+   - Parse the "Act (Knowledge Bank Updates)" section from retro.md
+   - Extract patterns, anti-patterns, and heuristics entries with their metadata
+
+**YOLO mode:** Auto-select "Resume" without prompting.
+
+**Normal mode:**
+```
+AskUserQuestion:
+  questions: [{
+    "question": "retro.md exists but knowledge bank updates are incomplete. How should we proceed?",
+    "header": "Retro Recovery",
+    "options": [
+      {"label": "Resume", "description": "Persist missing KB/DB entries from existing retro.md"},
+      {"label": "Re-run", "description": "Discard existing retro.md and run full retrospective"},
+      {"label": "Skip", "description": "Leave retro as-is, proceed to commit"}
+    ],
+    "multiSelect": false
+  }]
+```
+
+- **Resume**: Jump to Step 3a using parsed entries, then continue through Steps 3b, 4, 4c, 5
+- **Re-run**: Continue to Step 1 (overwrite retro.md)
+- **Skip**: Jump to Step 5
+
 ### Step 1: Assemble Context Bundle
 
 Read and collect all intermediate data:
@@ -123,7 +158,7 @@ Task tool call:
 
 If using fallback, generate retro.md in the legacy format (What Went Well / What Could Improve / Learnings Captured).
 
-**Fallback learning persistence:** After writing retro.md, also execute Steps 4, 4a, and 4c
+**Fallback learning persistence:** After writing retro.md, also execute Steps 3a, 4, and 4c
 using the investigation-agent's JSON output. Map fields:
 - `patterns` array → Step 4 patterns entries
 - `anti_patterns` array → Step 4 anti-patterns entries
@@ -183,6 +218,46 @@ The retro_md follows the AORTA format:
 - Total review iterations: {count}
 ```
 
+### Step 3a: Persist Learnings to DB via store_memory MCP
+
+For each entry in `act.patterns`, `act.anti_patterns`, `act.heuristics` from the retro-facilitator response:
+
+Call `store_memory` MCP tool with:
+- `name` — entry name
+- `description` — the learning text
+- `reasoning` — reasoning from agent (or empty string)
+- `category` — one of `patterns`, `anti-patterns`, `heuristics`
+- `references` — `["{provenance}"]`
+- `confidence` — confidence from agent (or `"medium"`)
+
+Track each entry's name in a local list for verification in Step 3b.
+
+**Fallback** if `store_memory` MCP is unavailable:
+```bash
+PLUGIN_ROOT=$(ls -d ~/.claude/plugins/cache/*/iflow*/*/hooks 2>/dev/null | head -1 | xargs dirname)
+if [[ -n "$PLUGIN_ROOT" ]] && [[ -x "$PLUGIN_ROOT/.venv/bin/python" ]]; then
+  PYTHONPATH="$PLUGIN_ROOT/hooks/lib" "$PLUGIN_ROOT/.venv/bin/python" -m semantic_memory.writer \
+    --action upsert --global-store ~/.claude/iflow/memory \
+    --entry-json '{"name":"...","description":"...","reasoning":"...","category":"...","source":"retro","confidence":"...","references":"[...]"}'
+else
+  # dev workspace fallback
+  PYTHONPATH=plugins/iflow/hooks/lib python3 -m semantic_memory.writer \
+    --action upsert --global-store ~/.claude/iflow/memory \
+    --entry-json '{"name":"...","description":"...","reasoning":"...","category":"...","source":"retro","confidence":"...","references":"[...]"}'
+fi
+```
+
+On failure: log to stderr, continue (do not block retro completion).
+
+### Step 3b: Verify DB Entries
+
+After all `store_memory` calls in Step 3a:
+
+1. Call `search_memory` MCP with `query: "Feature {id} retrospective learnings"`, `limit: 20`
+2. For each entry stored in Step 3a, check its name appears in search results
+3. Missing entries: retry `store_memory` once per missing entry
+4. Output: `"DB persistence: {n}/{total} entries verified"`
+
 ### Step 4: Update Knowledge Bank
 
 From the `act` section of the agent response, append entries to knowledge bank files:
@@ -212,38 +287,6 @@ If a knowledge-bank file doesn't exist, create it with a header:
 
 Accumulated learnings from feature retrospectives.
 ```
-
-#### Step 4a: Semantic Memory Dual-Write
-
-If `memory_semantic_enabled` is `true` in config (read via `read_local_md_field` from `.claude/iflow.local.md`, default `true`):
-
-For each entry written in Step 4, also write to semantic memory:
-1. Extract from agent response: `keywords` (default `[]`), `reasoning` (default `""`)
-2. Build entry JSON:
-   ```json
-   {
-     "name": "{entry name}",
-     "description": "{text from agent}",
-     "reasoning": "{reasoning from agent, or empty string}",
-     "category": "{patterns|anti-patterns|heuristics}",
-     "keywords": {keywords array from agent, or []},
-     "references": ["{provenance}"],
-     "confidence": "{confidence}",
-     "source": "retro",
-     "source_project": "{PROJECT_ROOT}"
-   }
-   ```
-3. Invoke writer CLI:
-   ```bash
-   PYTHONPATH="${plugin_dir}/hooks/lib" ${plugin_dir}/.venv/bin/python -m semantic_memory.writer \
-     --action upsert \
-     --global-store "$HOME/.claude/iflow/memory" \
-     --project-root "$PROJECT_ROOT" \
-     --entry-json '{...escaped JSON...}'
-   ```
-4. On writer failure: log to stderr, continue (do not block retro completion)
-
-If `memory_semantic_enabled` is `false`: skip this step entirely.
 
 ### Step 4b: Validate Knowledge Bank (Pre-Existing Entries)
 
@@ -323,6 +366,7 @@ git push
 | `.meta.json` has no phase data | Agent notes "insufficient data", produces minimal retro |
 | retro-facilitator agent fails | Fall back to investigation-agent (Step 2 fallback) |
 | No git data available | Omit git summary from context bundle |
+| `retro.md` exists but KB not updated | Recovery via Step 0 — parse Act section, persist missing entries |
 
 ## Output
 
