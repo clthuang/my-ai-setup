@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.1] - 2026-02-27
+
 ### Added
 - Enriched documentation phase with three-tier doc schema (`doc-schema.md` reference file), mode-aware dispatch (scaffold vs incremental), and drift detection
 - `doc_tiers` config variable injected at session start for per-project tier opt-out
