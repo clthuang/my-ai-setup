@@ -2,12 +2,13 @@
   "id": "029",
   "slug": "entity-lineage-tracking",
   "mode": "standard",
-  "status": "active",
+  "status": "completed",
+  "completed": "2026-02-27T17:00:00Z",
   "created": "2026-02-27T05:45:00Z",
   "branch": "feature/029-entity-lineage-tracking",
   "brainstorm_source": "docs/brainstorms/20260227-054029-entity-lineage-tracking.prd.md",
   "backlog_source": "00019",
-  "lastCompletedPhase": "implement",
+  "lastCompletedPhase": "finish",
   "phases": {
     "design": {
       "startedAt": "2026-02-27T06:40:00Z",
@@ -62,7 +63,9 @@
       "reviewerNotes": ["All 3 reviewers approved. Implementation reviewer passed at iter 3, security at iter 2, quality at iter 4. Final validation (iter 5) confirmed all 3 pass. 184 tests passing. Key fixes: AC-5/I7 depends_on_features rendering, O(N^2) set comprehension, silent error swallowing, depth guards, path containment."]
     },
     "finish": {
-      "startedAt": "2026-02-27T16:40:00Z"
+      "startedAt": "2026-02-27T16:40:00Z",
+      "status": "completed",
+      "completed": "2026-02-27T17:00:00Z"
     },
     "specify": {
       "startedAt": "2026-02-27T06:00:00Z",
