@@ -155,14 +155,28 @@ When a workflow has nested iteration loops, make budgets independent.
 Heavy upfront review investment (15-30+ pre-implementation review iterations) correlates with clean implementation (0-1 actionable issues across all reviewers). Front-loading review effort shifts risk discovery to phases where changes are cheap (text edits) rather than expensive (code changes).
 - Observed in: Feature #022, implementation phase
 - Confidence: high
-- Last observed: Feature #025
-- Observation count: 2
+- Last observed: Feature #028
+- Observation count: 3
 
 ### Pattern: Template Indentation Matching
 When inserting blocks into existing prompt templates, read the target file first and match its specific indentation level (which may differ per file). Prevents downstream formatting issues.
 - Observed in: Feature #022, Task 1.5
 - Confidence: medium
 - Last observed: Feature #022
+- Observation count: 1
+
+### Pattern: SYNC Markers for Copy-Paste Cross-File Consistency
+When identical dispatch logic must live in 3+ files with no include mechanism, place a named HTML comment marker (e.g., `<!-- SYNC: enriched-doc-dispatch -->`) at each copy site. Use `grep -c` on the marker string to verify all copies are present. The expected count becomes a grep-verifiable contract.
+- Observed in: Feature #028, design handoff phase — TD7 decision for 3-file dispatch duplication across updating-docs SKILL.md, finish-feature.md, and wrap-up.md
+- Confidence: high
+- Last observed: Feature #028
+- Observation count: 1
+
+### Pattern: Pre-computed Shell Values Preserve Agent READ-ONLY Constraints
+When agent logic conceptually requires shell execution (git timestamps, file sizes, directory listings), the calling command should pre-compute these values and inject them as context rather than assigning shell operations to the agent. This preserves the agent's READ-ONLY tool constraint without sacrificing capability.
+- Observed in: Feature #028, design iter 3 — researcher agent (Read/Glob/Grep only) could not run git log for drift detection; resolved by adding timestamp pre-computation step to calling commands (I9, I10)
+- Confidence: high
+- Last observed: Feature #028
 - Observation count: 1
 
 <!-- Example format:
