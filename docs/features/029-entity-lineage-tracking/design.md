@@ -517,10 +517,15 @@ if python3 -c "import mcp.server.fastmcp" 2>/dev/null; then
     exec python3 "$SERVER_SCRIPT"
 fi
 
-# Bootstrap: create venv and install core deps (one-time)
+# Bootstrap: create venv and install core deps (one-time) using uv
 echo "entity-server: bootstrapping venv at $VENV_DIR..." >&2
-python3 -m venv "$VENV_DIR"
-"$VENV_DIR/bin/pip" install -q "mcp>=1.0,<2" >&2
+if command -v uv &>/dev/null; then
+    uv venv "$VENV_DIR" >&2
+    uv pip install --python "$VENV_DIR/bin/python" "mcp>=1.0,<2" >&2
+else
+    python3 -m venv "$VENV_DIR"
+    "$VENV_DIR/bin/pip" install -q "mcp>=1.0,<2" >&2
+fi
 exec "$VENV_DIR/bin/python" "$SERVER_SCRIPT"
 ```
 
