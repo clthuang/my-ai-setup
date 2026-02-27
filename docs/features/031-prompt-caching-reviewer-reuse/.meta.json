@@ -1,0 +1,16 @@
+{
+  "id": "031",
+  "slug": "prompt-caching-reviewer-reuse",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-02-28T12:00:00Z",
+  "branch": "feature/031-prompt-caching-reviewer-reuse",
+  "lastCompletedPhase": "specify",
+  "phases": {
+    "specify": {
+      "status": "completed",
+      "started": "2026-02-28T12:05:00Z",
+      "completed": "2026-02-28T12:30:00Z"
+    }
+  }
+}
