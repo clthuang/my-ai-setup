@@ -72,11 +72,10 @@ Task tool call:
 
     Feature: {feature name}
 
-    ## Spec (acceptance criteria)
-    {content of spec.md}
-
-    ## Design (architecture to follow)
-    {content of design.md}
+    ## Required Artifacts
+    You MUST read the following files before beginning your review.
+    After reading, confirm: "Files read: {name} ({N} lines), ..." in a single line.
+    - Design: {feature_path}/design.md
 
     ## Files changed
     {list of files created/modified}
@@ -90,6 +89,8 @@ Task tool call:
     Return your assessment as JSON with simplifications array.
 ```
 
+**Fallback detection (I9):** After receiving the code-simplifier's response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: code-simplifier did not confirm artifact reads` to `.review-history.md`. Proceed regardless.
+
 If simplifications found:
 - Apply approved simplifications
 - Verify tests still pass
@@ -100,6 +101,14 @@ If simplifications found:
 Dispatch test-deepener agent in two phases. Phase A generates spec-driven test outlines without implementation access. Phase B writes executable tests.
 
 **Phase A — Generate test outlines from spec only:**
+
+**PRD resolution (I8):** Before dispatching Phase A, resolve the PRD reference:
+1. Check if `{feature_path}/prd.md` exists
+2. If exists → PRD line = `- PRD: {feature_path}/prd.md`
+3. If not → check `.meta.json` for `brainstorm_source`
+   a. If found → PRD line = `- PRD: {brainstorm_source path}`
+   b. If not → PRD line = `- PRD: No PRD — feature created without brainstorm`
+
 ```
 Task tool call:
   description: "Generate test outlines from spec"
@@ -112,22 +121,20 @@ Task tool call:
 
     Feature: {feature name from .meta.json slug}
 
-    ## Spec (acceptance criteria — your primary test oracle)
-    {content of spec.md}
-
-    ## Design (error handling contracts, performance constraints)
-    {content of design.md}
-
-    ## Tasks (what was supposed to be built)
-    {content of tasks.md}
-
-    ## PRD Goals
-    {Problem Statement + Goals sections from prd.md}
+    ## Required Artifacts
+    You MUST read the following files before beginning your work.
+    After reading, confirm: "Files read: {name} ({N} lines), ..." in a single line.
+    - Spec: {feature_path}/spec.md
+    - Design: {feature_path}/design.md
+    - Tasks: {feature_path}/tasks.md
+    {resolved PRD line from I8}
 
     Generate Given/When/Then test outlines for all applicable dimensions.
     Return as structured JSON with dimension, scenario name, given/when/then text,
     and derived_from reference to spec criterion.
 ```
+
+**Fallback detection (I9):** After receiving the test-deepener Phase A response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: test-deepener did not confirm artifact reads` to `.review-history.md`. Proceed regardless.
 
 **Phase A validation:** If `outlines` array is empty, log warning: "Test deepening Phase A returned no outlines — skipping test deepening" and proceed to Step 7.
 
@@ -242,6 +249,14 @@ Values: `pending` (not yet reviewed), `passed`, `failed`.
 Execute review cycle with three reviewers:
 
 **7a. Implementation Review (4-Level Validation):**
+
+**PRD resolution (I8):** Before dispatching, resolve the PRD reference:
+1. Check if `{feature_path}/prd.md` exists
+2. If exists → PRD line = `- PRD: {feature_path}/prd.md`
+3. If not → check `.meta.json` for `brainstorm_source`
+   a. If found → PRD line = `- PRD: {brainstorm_source path}`
+   b. If not → PRD line = `- PRD: No PRD — feature created without brainstorm`
+
 ```
 Task tool call:
   description: "Review implementation against requirements chain"
@@ -250,20 +265,14 @@ Task tool call:
   prompt: |
     Validate implementation against full requirements chain with 4-level validation.
 
-    ## PRD (original requirements)
-    {content of prd.md or brainstorm file}
-
-    ## Spec (acceptance criteria)
-    {content of spec.md}
-
-    ## Design (architecture to follow)
-    {content of design.md}
-
-    ## Plan (implementation plan)
-    {content of plan.md}
-
-    ## Tasks (what should be done)
-    {content of tasks.md}
+    ## Required Artifacts
+    You MUST read the following files before beginning your review.
+    After reading, confirm: "Files read: {name} ({N} lines), ..." in a single line.
+    {resolved PRD line from I8}
+    - Spec: {feature_path}/spec.md
+    - Design: {feature_path}/design.md
+    - Plan: {feature_path}/plan.md
+    - Tasks: {feature_path}/tasks.md
 
     ## Implementation files
     {list of files with code}
@@ -277,6 +286,8 @@ Task tool call:
     Return JSON with approval status, level results, issues, and evidence.
 ```
 
+**Fallback detection (I9):** After receiving the implementation-reviewer's response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: implementation-reviewer did not confirm artifact reads` to `.review-history.md`. Proceed regardless.
+
 **7b. Code Quality Review:**
 ```
 Task tool call:
@@ -286,20 +297,11 @@ Task tool call:
   prompt: |
     Review implementation quality.
 
-    ## PRD (original requirements)
-    {content of prd.md or brainstorm file}
-
-    ## Spec (acceptance criteria)
-    {content of spec.md}
-
-    ## Design (architecture to follow)
-    {content of design.md}
-
-    ## Plan (implementation plan)
-    {content of plan.md}
-
-    ## Tasks (what should be done)
-    {content of tasks.md}
+    ## Required Artifacts
+    You MUST read the following files before beginning your review.
+    After reading, confirm: "Files read: {name} ({N} lines), ..." in a single line.
+    - Design: {feature_path}/design.md
+    - Spec: {feature_path}/spec.md
 
     ## Files changed
     {list of files}
@@ -314,6 +316,8 @@ Task tool call:
     Return assessment with approval status.
 ```
 
+**Fallback detection (I9):** After receiving the code-quality-reviewer's response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: code-quality-reviewer did not confirm artifact reads` to `.review-history.md`. Proceed regardless.
+
 **7c. Security Review:**
 ```
 Task tool call:
@@ -323,20 +327,11 @@ Task tool call:
   prompt: |
     Review implementation for security vulnerabilities.
 
-    ## PRD (original requirements)
-    {content of prd.md or brainstorm file}
-
-    ## Spec (acceptance criteria)
-    {content of spec.md}
-
-    ## Design (architecture to follow)
-    {content of design.md}
-
-    ## Plan (implementation plan)
-    {content of plan.md}
-
-    ## Tasks (what should be done)
-    {content of tasks.md}
+    ## Required Artifacts
+    You MUST read the following files before beginning your review.
+    After reading, confirm: "Files read: {name} ({N} lines), ..." in a single line.
+    - Design: {feature_path}/design.md
+    - Spec: {feature_path}/spec.md
 
     ## Files changed
     {list of files}
@@ -349,6 +344,8 @@ Task tool call:
 
     Return JSON with approval status and vulnerabilities.
 ```
+
+**Fallback detection (I9):** After receiving the security-reviewer's response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: security-reviewer did not confirm artifact reads` to `.review-history.md`. Proceed regardless.
 
 **7d. Selective Dispatch Logic:**
 
@@ -407,6 +404,14 @@ If the final validation round fails (e.g., security passed in iter 1, but a qual
 - Circuit breaker still applies to total iterations
 
 **Implementer fix dispatch** (only includes issues from failed reviewers):
+
+**PRD resolution (I8):** Before dispatching, resolve the PRD reference:
+1. Check if `{feature_path}/prd.md` exists
+2. If exists → PRD line = `- PRD: {feature_path}/prd.md`
+3. If not → check `.meta.json` for `brainstorm_source`
+   a. If found → PRD line = `- PRD: {brainstorm_source path}`
+   b. If not → PRD line = `- PRD: No PRD — feature created without brainstorm`
+
 ```
 Task tool call:
   description: "Fix review issues iteration {n}"
@@ -415,20 +420,14 @@ Task tool call:
   prompt: |
     Fix the following review issues:
 
-    ## PRD (original requirements)
-    {content of prd.md or brainstorm file}
-
-    ## Spec (acceptance criteria)
-    {content of spec.md}
-
-    ## Design (architecture to follow)
-    {content of design.md}
-
-    ## Plan (implementation plan)
-    {content of plan.md}
-
-    ## Tasks (what should be done)
-    {content of tasks.md}
+    ## Required Artifacts
+    You MUST read the following files before beginning your work.
+    After reading, confirm: "Files read: {name} ({N} lines), ..." in a single line.
+    {resolved PRD line from I8}
+    - Spec: {feature_path}/spec.md
+    - Design: {feature_path}/design.md
+    - Plan: {feature_path}/plan.md
+    - Tasks: {feature_path}/tasks.md
 
     ## Implementation files
     {list of files with code}
@@ -438,6 +437,8 @@ Task tool call:
 
     After fixing, return summary of changes made.
 ```
+
+**Fallback detection (I9):** After receiving the implementer's response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: implementer did not confirm artifact reads` to `.review-history.md`. Proceed regardless.
 
 **Circuit breaker (iteration >= 5):**
 ```
