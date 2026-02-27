@@ -189,3 +189,24 @@ For features with separated storage and rendering layers, add an explicit tracea
 - Confidence: medium
 - Last observed: Feature #029
 - Observation count: 1
+
+### Reviewer Iteration Count as Structural Gap Signal
+If 3+ review iterations address the same issue category, the underlying section has a structural gap — restructure it, don't add more notes. Adding incremental comments to an ill-structured section does not converge.
+- Source: Feature #030, design — R3 implications recurred iters 1, 3, 4, 5; only resolved when restructured as a behavioral change table
+- Confidence: high
+- Last observed: Feature #030
+- Observation count: 1
+
+### Pre-Declare Artifact Completeness in Large-Artifact Dispatches
+Add a line-count header before large artifacts (>200 lines) in reviewer dispatches: "Full plan.md — 255 lines, complete content follows." Instruct reviewers to flag truncated artifacts as process errors before evaluating content. Makes prompt compression detectable.
+- Source: Feature #030, create-plan + create-tasks — both false-positive incidents involved artifacts over 200 lines
+- Confidence: high
+- Last observed: Feature #030
+- Observation count: 1
+
+### Scope Grep Audit Steps to Changed Files with Pre-Declared False Positives
+Grep verification steps in plans must scope to the explicit list of changed files (not full directory) and enumerate expected false positives with rationale. Eliminates the multi-iteration correction pattern for false positive lists.
+- Source: Feature #030, plan iters 1–4 + task iter 4 — grep false positive list required 4 corrections before scoping to 6 changed files
+- Confidence: high
+- Last observed: Feature #030
+- Observation count: 1

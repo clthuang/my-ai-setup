@@ -8,6 +8,9 @@
   "backlog_source": "00021",
   "lastCompletedPhase": "implement",
   "phases": {
+    "finish": {
+      "started": "2026-02-28T02:10:00+08:00"
+    },
     "implement": {
       "started": "2026-02-28T00:20:00+08:00",
       "completed": "2026-02-28T02:05:00+08:00",

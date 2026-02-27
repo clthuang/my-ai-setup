@@ -199,3 +199,30 @@ Using Python-side recursion (or N+1 queries) for tree traversal when the backing
 - Confidence: high
 - Last observed: Feature #029
 - Observation count: 1
+
+### Anti-Pattern: Dispatching Reviewers with Compressed Artifacts
+When large artifacts (>200 lines) are compressed by prompt compression before reaching a reviewer agent, the reviewer receives summaries instead of full content, producing false-positive blockers. Feature #030 had 2 full review iterations consumed and 8 false-positive blockers total across create-plan and create-tasks phases.
+- Observed in: Feature #030, create-plan chain iter 1 + create-tasks iter 2
+- Cost: 2 full review iterations wasted on false positives
+- Instead: Pre-declare artifact completeness with line-count headers; add reviewer instruction to flag truncated artifacts as process errors
+- Confidence: high
+- Last observed: Feature #030
+- Observation count: 1
+
+### Anti-Pattern: Reviewer Output Format as Plain Prose Instead of JSON Schema
+Specifying reviewer return format as plain prose ("Return assessment with approval status") instead of an explicit JSON schema block. Caught late in implement review rather than design phase, doubling correction cost per iteration.
+- Observed in: Feature #030, implement iters 1–2 — code-quality-reviewer (7b) and security-reviewer (7c) both had prose return format
+- Cost: 2 additional implement review iterations
+- Instead: All reviewer dispatch prompts must include explicit JSON return schema with approved/issues/summary structure
+- Confidence: high
+- Last observed: Feature #030
+- Observation count: 1
+
+### Anti-Pattern: Design Label References Without Inline Reproduction
+Referencing design templates by label name (e.g., "I1 template", "I8 format") in plan/tasks documents without reproducing the template content inline. Forces cross-document lookup and blocks reviewers who cannot verify completeness.
+- Observed in: Feature #030, plan iter 1 + task iters 2–4 — I1, I8, I9 templates and {feature_path} not reproduced
+- Cost: 3 consecutive task-review iterations addressing same root cause; cap reached
+- Instead: Reproduce all cross-task templates verbatim in a Shared Templates section
+- Confidence: high
+- Last observed: Feature #030
+- Observation count: 1

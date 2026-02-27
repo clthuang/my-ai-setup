@@ -262,3 +262,31 @@ Backfill scanners must process entities in parent-first order (backlog -> brains
 - Confidence: high
 - Last observed: Feature #029
 - Observation count: 1
+
+### Pattern: Shared Templates in tasks.md for Cross-Task Design Patterns
+When design.md defines templates, format patterns, or variable definitions referenced by multiple tasks, reproduce them verbatim in a "Shared Templates" section at the top of tasks.md. Tasks must be self-contained — referencing design labels without inline reproduction forces cross-document lookup and blocks reviewers.
+- Used in: Feature #030, create-tasks — task-reviewer iter 4 blocker, cap with {feature_path} undefined
+- Confidence: high
+- Last observed: Feature #030
+- Observation count: 1
+
+### Pattern: Artifact-Under-Review Stays Inline in Reviewer Dispatch
+The artifact being reviewed (e.g., spec.md for spec-reviewer, design.md for design-reviewer) stays inline in the dispatch prompt. Only upstream context artifacts (PRD, spec for a design review) are lazy-loaded via Required Artifacts references.
+- Used in: Feature #030, design iters 3–4
+- Confidence: high
+- Last observed: Feature #030
+- Observation count: 1
+
+### Pattern: Behavioral Changes Require Explicit Before/After Documentation
+When a feature modifies agent context (adding/removing artifacts from dispatches), document the change as a behavioral change with an explicit before/after table — not as "transport optimization." Include Agent, Artifact Added/Removed, and Rationale columns.
+- Used in: Feature #030, design iter 4 + plan iter 1
+- Confidence: high
+- Last observed: Feature #030
+- Observation count: 1
+
+### Pattern: Zero-Deviation Implementation via Binary Done-When Criteria
+When tasks contain binary done-when criteria, verbatim templates, and scoped grep patterns, implementation achieves zero deviations. 18 tasks in Feature #030 completed with 0 deviations.
+- Used in: Feature #030, implement phase — 18 tasks, 0 deviations
+- Confidence: high
+- Last observed: Feature #030
+- Observation count: 1
