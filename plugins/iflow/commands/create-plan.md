@@ -62,10 +62,10 @@ b. **Invoke plan-reviewer:**
        - Spec: {feature_path}/spec.md
        - Design: {feature_path}/design.md
 
+       Return JSON: {"approved": bool, "issues": [{"severity": "blocker|warning|suggestion", "description": "...", "location": "...", "suggestion": "..."}], "summary": "..."}
+
        ## Plan (what you're reviewing)
        {content of plan.md}
-
-       Return JSON: {"approved": bool, "issues": [{"severity": "blocker|warning|suggestion", "description": "...", "location": "...", "suggestion": "..."}], "summary": "..."}
    ```
 
 c. **Parse response:** Extract `approved` field.
@@ -110,18 +110,18 @@ e. **Invoke phase-reviewer** (Fresh dispatch per iteration — Phase 1 behavior.
        - Design: {feature_path}/design.md
        - Plan: {feature_path}/plan.md
 
+       ## Next Phase Expectations
+       Tasks needs: Ordered steps with dependencies,
+       all design items covered, clear sequencing.
+
+       Return JSON: {"approved": bool, "issues": [{"severity": "blocker|warning|suggestion", "description": "...", "location": "...", "suggestion": "..."}], "summary": "..."}
+
        ## Domain Reviewer Outcome
        - Reviewer: plan-reviewer
        - Result: {APPROVED at iteration {n}/{max} | FAILED at iteration cap ({max}/{max})}
        - Unresolved issues: {list of remaining blocker/warning descriptions, or "none"}
 
-       ## Next Phase Expectations
-       Tasks needs: Ordered steps with dependencies,
-       all design items covered, clear sequencing.
-
        This is phase-review iteration {phase_iteration}/5.
-
-       Return JSON: {"approved": bool, "issues": [{"severity": "blocker|warning|suggestion", "description": "...", "location": "...", "suggestion": "..."}], "summary": "..."}
    ```
 
 f. **Parse response:** Extract `approved` field.
