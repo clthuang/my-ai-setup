@@ -60,14 +60,14 @@ Reviewer iteration counts suggest complexity: 2 = straightforward, 3 = moderate,
 - Feature #021 plan had 6 iterations (highest), mostly from dependency graph contradictions
 - If plan iterations exceed 3, check for structural issues (dual representations, missing test cases)
 - Source: Feature #021
-- Last observed: Feature #029
-- Observation count: 7
+- Last observed: Feature #031
+- Observation count: 8
 
 ### Circuit Breaker Hits as Assumption Signals
 Circuit breaker hits in design review indicate a fundamental assumption mismatch, not incremental quality issues. When design review hits 5 iterations, the root cause is typically a wrong foundational assumption (e.g., wrong file format) rather than accumulated small issues.
 - Source: Feature #022, design phase
-- Last observed: Feature #023
-- Observation count: 2
+- Last observed: Feature #031
+- Observation count: 3
 
 ### Per-File Anchor Verification for Cross-Cutting Changes
 Cross-cutting changes touching 14+ files benefit from explicit per-file insertion anchor verification in the plan phase. Every insertion point needs unique verification when files have different structures.
@@ -209,4 +209,18 @@ Grep verification steps in plans must scope to the explicit list of changed file
 - Source: Feature #030, plan iters 1–4 + task iter 4 — grep false positive list required 4 corrections before scoping to 6 changed files
 - Confidence: high
 - Last observed: Feature #030
+- Observation count: 1
+
+### Double Circuit Breaker Indicates Structural Authoring Problem
+If both stages of a two-stage review hit the circuit breaker (iteration cap), the artifact has a structural problem that iteration cannot fix. Stop and re-examine the approach: the issue categories from unresolved warnings point to the structural root cause.
+- Source: Feature #031, create-tasks phase — both taskReview (5/5) and chainReview (5/5) hit cap; unresolved warnings pointed to placeholder syntax and verification weakness — both are authoring-pattern issues
+- Confidence: high
+- Last observed: Feature #031
+- Observation count: 1
+
+### Plan Review Iterations Scale With Concern Domains
+Plan review iterations scale with the number of distinct concern domains in the feature. Features touching git operations, prompt engineering, and test infrastructure simultaneously should expect 4+ plan review iterations.
+- Source: Feature #031, create-plan phase — 8 iterations across git operations (5 issues), test regression (2 issues), dependency ordering (3 issues), and verification feasibility (2 issues)
+- Confidence: medium
+- Last observed: Feature #031
 - Observation count: 1
