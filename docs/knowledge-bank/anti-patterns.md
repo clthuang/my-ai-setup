@@ -93,6 +93,15 @@ Continuing review iterations after approval when all remaining issues are inform
 - Last observed: Feature #022
 - Observation count: 1
 
+### Anti-Pattern: Spec-Level Numeric Divergence Deferred to Implementation
+When a numeric mismatch between spec and design (counts, caps, limits) is flagged during design review but resolved with a "spec should be updated during implementation" note rather than an immediate cross-artifact fix, the divergence propagates to handoff review and plan review before being resolved. Each propagation consumes a full review iteration from each downstream reviewer.
+- Observed in: Feature #028, design iter 4 through handoff iter 1 — scaffold dispatch cap (spec=4, design=5) survived 3+ review iterations with a deferred note before handoff reviewer forced immediate spec.md edit
+- Cost: 2 extra review iterations (one handoff, traceable plan iteration) from a fix that took one edit
+- Instead: Numeric spec-design mismatches must be fixed immediately — edit spec.md in the same review response that identifies the mismatch
+- Confidence: high
+- Last observed: Feature #028
+- Observation count: 1
+
 <!-- Example format:
 ### Anti-Pattern: Premature Optimization
 Optimizing before measuring actual performance.
@@ -134,8 +143,8 @@ Asserting that a required element is missing without verifying its absence in th
 - Cost: 6 wasted blocker rebuttals across 3 phases
 - Instead: Before classifying an element as absent, verify it is genuinely not present in the full artifact
 - Confidence: high
-- Last observed: 2026-02-22
-- Observation count: 1
+- Last observed: Feature #028
+- Observation count: 2
 
 ### Anti-Pattern: Flagging Annotated Spec Deviations as Implementation Failures
 When a spec-design deviation is annotated in the design document (TD-* entry) and acknowledged in the spec, treating it as a spec failure during implementation review wastes a circuit-breaker slot on a non-fixable issue.

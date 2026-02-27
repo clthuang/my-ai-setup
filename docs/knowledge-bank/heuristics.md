@@ -60,8 +60,8 @@ Reviewer iteration counts suggest complexity: 2 = straightforward, 3 = moderate,
 - Feature #021 plan had 6 iterations (highest), mostly from dependency graph contradictions
 - If plan iterations exceed 3, check for structural issues (dual representations, missing test cases)
 - Source: Feature #021
-- Last observed: Feature #027
-- Observation count: 5
+- Last observed: Feature #028
+- Observation count: 6
 
 ### Circuit Breaker Hits as Assumption Signals
 Circuit breaker hits in design review indicate a fundamental assumption mismatch, not incremental quality issues. When design review hits 5 iterations, the root cause is typically a wrong foundational assumption (e.g., wrong file format) rather than accumulated small issues.
@@ -153,4 +153,11 @@ Standard mode is sufficient for features that introduce new standalone component
 - Source: Feature #027 — Standard mode produced complete 3,228-line feature in 5.6 hours without modifying existing components
 - Confidence: medium
 - Last observed: Feature #027
+- Observation count: 1
+
+### Phase-Reviewer Cap Saturation Rate as Feature Scope Signal
+When the phase-reviewer (gatekeeper) hits the 5-iteration cap in 3 or more of 5 phases, the feature has complex multi-file coordination requiring explicit inter-artifact invariants. Budget an extra 30-60 minutes per capped phase for the additional resolution iterations. This is distinct from a quality problem — it reflects the number of enumerable invariants that must be explicitly stated across artifacts.
+- Source: Feature #028 — phase-reviewer hit cap in 4/5 phases (specify, design-review, design-handoff, create-tasks both stages). Feature involved 8 files with coordinated dispatch logic across 3 commands and a skill.
+- Confidence: medium
+- Last observed: Feature #028
 - Observation count: 1
