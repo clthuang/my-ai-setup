@@ -271,16 +271,28 @@ Task tool call:
     - Plan: {feature_path}/plan.md
     - Tasks: {feature_path}/tasks.md
 
-    ## Implementation files
-    {list of files with code}
-
     Validate all 4 levels:
     - Level 1: Task completeness
     - Level 2: Spec compliance
     - Level 3: Design alignment
     - Level 4: PRD delivery
 
-    Return JSON with approval status, level results, issues, and evidence.
+    Return JSON with approval status, level results, issues, and evidence:
+    {
+      "approved": true/false,
+      "levels": {
+        "tasks": {"passed": true/false, "issues_count": 0},
+        "spec": {"passed": true/false, "issues_count": 0},
+        "design": {"passed": true/false, "issues_count": 0},
+        "prd": {"passed": true/false, "issues_count": 0}
+      },
+      "issues": [{"severity": "blocker|warning|suggestion", "level": "tasks|spec|design|prd", "category": "missing|extra|misunderstood|incomplete", "description": "...", "location": "...", "suggestion": "..."}],
+      "evidence": {"verified": [], "missing": []},
+      "summary": "..."
+    }
+
+    ## Implementation files
+    {list of files with code}
 ```
 
 **Fallback detection (I9):** After receiving the implementation-reviewer's response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: implementation-reviewer did not confirm artifact reads` to `.review-history.md`. Proceed regardless.
@@ -300,9 +312,6 @@ Task tool call:
     - Design: {feature_path}/design.md
     - Spec: {feature_path}/spec.md
 
-    ## Files changed
-    {list of files}
-
     Check:
     - Readability
     - KISS principle
@@ -316,6 +325,9 @@ Task tool call:
       "issues": [{"severity": "blocker|warning|suggestion", "category": "readability|kiss|yagni|formatting|flow", "description": "...", "location": "...", "suggestion": "..."}],
       "summary": "..."
     }
+
+    ## Files changed
+    {list of files}
 ```
 
 **Fallback detection (I9):** After receiving the code-quality-reviewer's response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: code-quality-reviewer did not confirm artifact reads` to `.review-history.md`. Proceed regardless.
@@ -335,9 +347,6 @@ Task tool call:
     - Design: {feature_path}/design.md
     - Spec: {feature_path}/spec.md
 
-    ## Files changed
-    {list of files}
-
     Check:
     - Input validation
     - Authentication/authorization
@@ -350,6 +359,9 @@ Task tool call:
       "issues": [{"severity": "blocker|warning|suggestion", "category": "injection|auth|crypto|exposure|config", "description": "...", "location": "...", "suggestion": "..."}],
       "summary": "..."
     }
+
+    ## Files changed
+    {list of files}
 ```
 
 **Fallback detection (I9):** After receiving the security-reviewer's response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: security-reviewer did not confirm artifact reads` to `.review-history.md`. Proceed regardless.
