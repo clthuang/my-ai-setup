@@ -86,8 +86,6 @@ b. **Invoke task-reviewer:**
        ## Tasks (what you're reviewing)
        {content of tasks.md}
    ```
-   (Fresh dispatch per iteration — Phase 1 behavior. Phase 2 design defines resume support.)
-
    After fresh dispatch: capture the `agent_id` from the Task tool result. Record the character count of the prompt above as `prompt_length`. Capture current HEAD SHA via `Bash: git rev-parse HEAD`. Store in resume_state:
    ```
    resume_state["task-reviewer"] = {
@@ -173,7 +171,7 @@ d. **Branch on result (strict threshold):**
      - Append iteration to `.review-history.md` using format below
      - Increment iteration counter
      - Address all blocker AND warning issues by revising tasks.md
-     - Return to step 4b (Fresh dispatch per iteration — Phase 1 behavior. Phase 2 design defines resume support.)
+     - Return to step 4b
    - If FAIL AND iteration == max:
      - Note concerns in `.meta.json` taskReview.concerns
      - Proceed to Stage 2 (step 5)
@@ -199,7 +197,7 @@ Phase-reviewer iteration budget: max 5 (independent of Stage 1).
 
 Set `phase_iteration = 0`.
 
-After Stage 1 completes, invoke phase-reviewer (Fresh dispatch per iteration — Phase 1 behavior. Phase 2 design defines resume support.):
+After Stage 1 completes, invoke phase-reviewer:
 
 **PRD resolution (I8):** Before dispatching, resolve the PRD reference (same logic as Stage 1).
 
@@ -325,7 +323,7 @@ Task tool call:
   - Append to `.review-history.md` with "Stage 2: Chain Review" marker
   - Increment phase_iteration
   - Address all blocker AND warning issues
-  - Return to phase-reviewer invocation (Fresh dispatch per iteration — Phase 1 behavior. Phase 2 design defines resume support.)
+  - Return to phase-reviewer invocation
 - If FAIL AND phase_iteration == 5:
   - Store concerns in `.meta.json` chainReview.concerns
   - Proceed to step 5b with warning

@@ -257,8 +257,6 @@ b. **Invoke design-reviewer:**
        ## Iteration Context
        This is iteration {n} of {max}.
    ```
-   (Fresh dispatch per iteration — Phase 1 behavior. Phase 2 design defines resume support.)
-
    After fresh dispatch: capture the `agent_id` from the Task tool result. Record the character count of the prompt above as `prompt_length`. Capture current HEAD SHA via `Bash: git rev-parse HEAD`. Store in resume_state:
    ```
    resume_state["design-reviewer"] = {
@@ -350,7 +348,7 @@ d. **Branch on result (strict threshold):**
      - Append iteration to `.review-history.md` using format below
      - Increment iteration counter in state
      - Address all blocker AND warning issues by revising design.md
-     - Return to step b (Fresh dispatch per iteration — Phase 1 behavior. Phase 2 design defines resume support.)
+     - Return to step b
    - If FAIL AND iteration == max:
      - Store unresolved concerns in `stages.designReview.reviewerNotes`
      - Proceed to Stage 4 with warning
@@ -403,8 +401,6 @@ b. **Invoke phase-reviewer:**
    **Dispatch decision for phase-reviewer:**
 
    **If phase_iteration == 1 OR resume_state["phase-reviewer"] is missing/empty OR resume_state["phase-reviewer"].agent_id is null** — use fresh I1-R4 dispatch:
-
-   (Fresh dispatch per iteration — Phase 1 behavior. Phase 2 design defines resume support.)
 
    ```
    Task tool call:
@@ -522,7 +518,7 @@ c. **Branch on result (strict threshold):**
      - Append to `.review-history.md` with "Stage 4: Handoff Review" marker
      - Increment phase_iteration
      - Address all blocker AND warning issues by revising design.md
-     - Return to step b (Fresh dispatch per iteration — Phase 1 behavior. Phase 2 design defines resume support.)
+     - Return to step b
    - If FAIL AND phase_iteration == 5:
      - Store concerns in `stages.handoffReview.reviewerNotes`
      - Proceed to auto-commit with warning

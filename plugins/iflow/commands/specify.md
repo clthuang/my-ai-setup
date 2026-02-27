@@ -99,8 +99,6 @@ b. **Invoke spec-reviewer:**
        ## Iteration Context
        This is iteration {n} of {max}.
    ```
-   (Fresh dispatch per iteration — Phase 1 behavior. Phase 2 design defines resume support.)
-
    After fresh dispatch: capture the `agent_id` from the Task tool result. Record the character count of the prompt above as `prompt_length`. Capture current HEAD SHA via `Bash: git rev-parse HEAD`. Store in resume_state:
    ```
    resume_state["spec-reviewer"] = {
@@ -186,7 +184,7 @@ d. **Branch on result (strict threshold):**
      - Append iteration to `.review-history.md` with "Stage 1: Spec-Reviewer Review" marker
      - Increment iteration counter
      - Address all blocker AND warning issues by revising spec.md
-     - Return to step 4b (Fresh dispatch per iteration — Phase 1 behavior. Phase 2 design defines resume support.)
+     - Return to step 4b
    - If FAIL AND iteration == max:
      - Note concerns in `.meta.json` reviewerNotes
      - Proceed to Stage 2 with warning
@@ -204,8 +202,6 @@ e. **Invoke phase-reviewer:**
    **Dispatch decision for phase-reviewer:**
 
    **If phase_iteration == 1 OR resume_state["phase-reviewer"] is missing/empty OR resume_state["phase-reviewer"].agent_id is null** — use fresh I1-R4 dispatch:
-
-   (Fresh dispatch per iteration — Phase 1 behavior. Phase 2 design defines resume support.)
 
    ```
    Task tool call:
@@ -322,7 +318,7 @@ f. **Branch on result (strict threshold):**
      - Append to `.review-history.md` with "Stage 2: Phase Review" marker
      - Increment phase_iteration
      - Address all blocker AND warning issues
-     - Return to step e (Fresh dispatch per iteration — Phase 1 behavior. Phase 2 design defines resume support.)
+     - Return to step e
    - If FAIL AND phase_iteration == 5:
      - Store concerns in `.meta.json` phaseReview.reviewerNotes
      - Proceed to auto-commit with warning
