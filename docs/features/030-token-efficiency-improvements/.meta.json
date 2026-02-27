@@ -1,0 +1,11 @@
+{
+  "id": "030",
+  "slug": "token-efficiency-improvements",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-02-27T18:00:00+08:00",
+  "branch": "feature/030-token-efficiency-improvements",
+  "backlog_source": "00021",
+  "lastCompletedPhase": null,
+  "phases": {}
+}
