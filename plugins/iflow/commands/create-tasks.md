@@ -62,9 +62,6 @@ b. **Invoke task-reviewer:**
        - Design: {feature_path}/design.md
        - Plan: {feature_path}/plan.md
 
-       ## Tasks (what you're reviewing)
-       {content of tasks.md}
-
        Validate:
        1. Plan fidelity - every plan item has tasks
        2. Task executability - any engineer can start immediately
@@ -78,6 +75,9 @@ b. **Invoke task-reviewer:**
          "issues": [{"severity": "blocker|warning|suggestion", "task": "...", "description": "...", "suggestion": "..."}],
          "summary": "..."
        }
+
+       ## Tasks (what you're reviewing)
+       {content of tasks.md}
    ```
 
 c. **Parse response:** Extract the `approved` field from reviewer's JSON response.
@@ -140,16 +140,9 @@ Task tool call:
     - Plan: {feature_path}/plan.md
     - Tasks: {feature_path}/tasks.md
 
-    ## Domain Reviewer Outcome
-    - Reviewer: task-reviewer
-    - Result: {APPROVED at iteration {n}/{max} | FAILED at iteration cap ({max}/{max})}
-    - Unresolved issues: {list of remaining blocker/warning descriptions, or "none"}
-
     ## Next Phase Expectations
     Implement needs: Small actionable tasks (<15 min each),
     clear acceptance criteria per task, dependency graph for parallel execution.
-
-    This is phase-review iteration {phase_iteration}/5.
 
     Return your assessment as JSON:
     {
@@ -157,6 +150,13 @@ Task tool call:
       "issues": [{"severity": "blocker|warning|suggestion", "description": "...", "location": "...", "suggestion": "..."}],
       "summary": "..."
     }
+
+    ## Domain Reviewer Outcome
+    - Reviewer: task-reviewer
+    - Result: {APPROVED at iteration {n}/{max} | FAILED at iteration cap ({max}/{max})}
+    - Unresolved issues: {list of remaining blocker/warning descriptions, or "none"}
+
+    This is phase-review iteration {phase_iteration}/5.
 ```
 
 **Fallback detection (I9):** Search the agent's response for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: phase-reviewer did not confirm artifact reads` to `.review-history.md`. Proceed regardless.
