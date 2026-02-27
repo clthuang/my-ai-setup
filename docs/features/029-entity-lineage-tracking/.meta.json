@@ -7,7 +7,7 @@
   "branch": "feature/029-entity-lineage-tracking",
   "brainstorm_source": "docs/brainstorms/20260227-054029-entity-lineage-tracking.prd.md",
   "backlog_source": "00019",
-  "lastCompletedPhase": "create-plan",
+  "lastCompletedPhase": "create-tasks",
   "phases": {
     "design": {
       "startedAt": "2026-02-27T06:40:00Z",
@@ -26,6 +26,34 @@
       "planReviewIterations": 5,
       "phaseReviewIterations": 5,
       "reviewerNotes": ["Approved at iteration 5/5 (cap). 2 blockers + 7 warnings resolved in iteration 1, all subsequent iterations had zero blockers. Final 3 warnings are informational (spec/design phasing divergence, multi-promotion format detail, parallel import concern) — all addressed with clarifying notes.", "Phase-reviewer: Approved at iteration 5/5 (cap). 2 blockers resolved (C9/C10 assignments, interface I2/I3/I4/I7 assignments). 5 warnings resolved (parallelism wording, refactor phases, rollback gates, done-when criteria, critical path label)."]
+    },
+    "create-tasks": {
+      "startedAt": "2026-02-27T10:40:00Z",
+      "completedAt": "2026-02-27T12:05:00Z",
+      "taskReview": {
+        "iterations": 5,
+        "approved": false,
+        "concerns": [
+          "Phase 2B implementation tasks (3.3, 3.5, 3.7, 3.9, 3.11) lack function-level detail compared to Phase 1 TDD tasks",
+          "Task 4.5 server startup test needs DB isolation mechanism for cleanup",
+          "Task 6.1 Done-when mentions set_parent but Action section does not include set_parent call",
+          "Task 1.7 triggers were created in Task 1.3 but test is written in 1.6 — breaks strict RED-GREEN TDD pattern",
+          "Task 1.18 refactor has non-binary done-when (grep output reviewed)",
+          "Task 3.12 missing explicit test command in done-when",
+          "Task 4.3 missing PYTHONUNBUFFERED=1 export",
+          "Task 4.2 references design I2/I3/I4 but doesn't specify what to verify",
+          "Task 5.1 non-binary done-when (manually verify)"
+        ]
+      },
+      "chainReview": {
+        "iterations": 5,
+        "approved": false,
+        "concerns": [
+          "Task 3.12 grep pattern name constraint may be too specific for implementer naming choices",
+          "Task 1.7 mixes verify and fix concerns (acceptable as-is per reviewer)",
+          "Task 4.5 timeout/sleep values may cause flaky tests on slow machines"
+        ]
+      }
     },
     "specify": {
       "startedAt": "2026-02-27T06:00:00Z",
