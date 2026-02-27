@@ -2,10 +2,11 @@
   "id": "031",
   "slug": "prompt-caching-reviewer-reuse",
   "mode": "standard",
-  "status": "active",
+  "status": "completed",
   "created": "2026-02-28T12:00:00Z",
+  "completed": "2026-02-28T23:59:00Z",
   "branch": "feature/031-prompt-caching-reviewer-reuse",
-  "lastCompletedPhase": "implement",
+  "lastCompletedPhase": "finish",
   "phases": {
     "specify": {
       "status": "completed",
@@ -40,6 +41,10 @@
       "reviewIterations": 3,
       "reviewResult": "approved",
       "testsDeepenedCount": 50
+    },
+    "finish": {
+      "status": "completed",
+      "completed": "2026-02-28T23:59:00Z"
     },
     "create-tasks": {
       "status": "completed",
