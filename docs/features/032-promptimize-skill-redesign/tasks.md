@@ -221,7 +221,7 @@ Add Accept all handler:
 ### Task 4.3: Add Accept some handler — dimension selection and anchoring
 **File:** `plugins/iflow/commands/promptimize.md`
 **Plan ref:** P4 step 3, first half (design C9 steps 1-3)
-**Depends on:** 4.2
+**Depends on:** 4.1
 **AC:** Presents dimension multiSelect (overlapping as single option); starts from `original_content`; for selected dims calls `match_anchors_in_original` to locate anchor regions; anchor match failure for any block degrades to Accept all / Reject
 
 Add Accept some handler (part 1 — selection and anchoring):
