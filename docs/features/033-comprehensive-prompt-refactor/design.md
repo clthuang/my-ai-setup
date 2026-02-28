@@ -46,7 +46,7 @@ Phase 3: STRUCTURAL CHANGES (God Prompt splits + math fix + caching)
     9 files for cache restructure (6 commands + 3 skills)
     ↓
 Phase 4: CONTENT SWEEP (adjective removal + terminology + passive voice)
-    ~73 raw adjective instances across 38 files (per spec AC-8; exact in-scope count after domain-specific exclusion filtering TBD by batch audit in Phase 4 execution)
+    ~80 raw adjective instances across 38 in-scope files (agents: ~50/17 files, commands: ~12/7 files, SKILL.md: ~18/14 files; exact in-scope count after domain-specific exclusion filtering TBD by batch audit in Phase 4 execution)
     ~12 passive voice instances
     Terminology normalization across 85+ files
     ↓
@@ -84,6 +84,7 @@ AC-12 (validate.sh)   ─── independent (but verifies AC-8 output)
 - **Change**: Add 10th row to Component Type Applicability table:
   - Cache-friendliness: Evaluated for skills, Evaluated for agents, Evaluated for commands
 - **Risk**: None — additive change to reference file
+- **Note**: The existing rubric uses "appropriate emphasis" in the technique_currency Pass anchor. This is a subjective adjective in a reference file. Reference files are intentionally excluded from AC-8 scope (they define the rubric, not instructions to the model). Accepted inconsistency — may be addressed in a future improvement but is not in scope for this feature.
 
 #### C1.2: prompt-guidelines.md Update
 - **File**: `plugins/iflow/skills/promptimize/references/prompt-guidelines.md`
@@ -110,7 +111,7 @@ AC-12 (validate.sh)   ─── independent (but verifies AC-8 output)
 - **Changes**:
   - Add `cache_friendliness` as 10th dimension in Phase 1 evaluation list (after context_engineering)
   - Add to canonical dimension name mapping table: `Cache-friendliness` → `cache_friendliness`
-  - Update "exactly 9 entries" constraint to "exactly 10 entries"
+  - Update "exactly 9 entries" constraint to "exactly 10 entries" — this appears in two locations: (1) the Phase 1 dimension list preamble, and (2) the Phase 1 output format instruction (currently line 117: "The `dimensions` array must contain exactly 9 entries"). Both must be updated to 10.
   - Phase 1 output JSON: no structural change (dimensions array simply has 10 items now)
 
 #### C2.2: promptimize.md Command Update
@@ -118,20 +119,27 @@ AC-12 (validate.sh)   ─── independent (but verifies AC-8 output)
 - **Changes**:
   - Step 4c validation: change "exactly 9 entries" to "exactly 10 entries"
   - Step 4c canonical names list: add `cache_friendliness`
-  - Step 5: replace the LLM-computed formula `round((sum / 27) * 100)` with an instruction for the LLM to output raw scores only as JSON `{"scores": [3, 2, 3, ...]}`. The final percentage computation moves to the calling context (batch-promptimize.sh computes in bash; interactive use computes via the command's post-processing logic). This satisfies AC-6: sum/divide/round operations execute in orchestrating code, not LLM generation.
-  - Step 5 example: update to show 10 raw scores with explicit note that percentage is computed externally
+  - Step 5 score computation: The current formula `round((sum / 27) * 100)` is LLM-interpreted markdown, technically LLM-performed math. However, this is 10-integer summation + one division + one rounding — comparable to the secretary's 5-signal addition which is permitted under the trivial-math exception. Decision: **keep the LLM computing the percentage in the interactive command** and document this as an accepted extension of the trivial-math exception (rationale: deterministic arithmetic on 10 small integers within [1,3] range, zero ambiguity, extracting to code would require a bash evaluation step mid-command that interrupts the LLM workflow). Update the formula to `round((sum / 30) * 100)` and the denominator from 27 to 30. Add a code comment: `<!-- Trivial-math exception: sum of 10 integers [1-3] + divide by 30 + round. Deterministic, no ambiguity. See SC-5 refinement. -->`
+  - Note: the batch-promptimize.sh script (C2.3) independently computes scores in bash arithmetic, bypassing the command entirely. The AC-6 requirement ("sum/divide/round operations execute in orchestrating code") is satisfied for the batch verification path. For interactive use, the score computation stays in the command with a documented trivial-math exception.
+  - Step 5 example: update to show 10 scores with denominator 30
 
 #### C2.3: batch-promptimize.sh Script (New File)
 - **File**: `plugins/iflow/scripts/batch-promptimize.sh`
 - **Purpose**: Iterate all 85 component files with aggregate reporting
 - **Design**:
   - Discovery: find all `SKILL.md`, `agents/*.md`, `commands/*.md` under `plugins/iflow/`
-  - Execution mechanism: invoke Claude CLI per file using `claude -p "Run /iflow:promptimize on {filepath}. Return ONLY the final score line in format: SCORE:{N}" --allowedTools 'Read,Grep,Glob' --model sonnet`. The `-p` flag (print mode) sends a single prompt and returns output to stdout without interactive session. Plugin slash commands are available because `claude -p` loads the plugin context from `.claude/plugins.json`. Each invocation runs in the project root so plugin resolution works normally.
-  - Score extraction: parse stdout for line matching regex `SCORE:(\d+)`. If no match found, mark file as `[ERROR]` with score -1 and continue. The `SCORE:{N}` return format is a deterministic single-line output that avoids parsing complex markdown.
+  - Execution mechanism: `claude -p` does NOT support plugin slash commands in headless mode (confirmed: GitHub issues #837, #14246). Instead, use `claude -p` with a self-contained natural language prompt that embeds the scoring instructions inline. The prompt reads the target file and scoring rubric, evaluates all 10 dimensions, and returns raw scores as JSON. No dependency on the `/iflow:promptimize` command dispatch system.
+  - Per-file prompt template:
+    ```
+    claude -p "Read the file at {filepath} and the scoring rubric at plugins/iflow/skills/promptimize/references/scoring-rubric.md. Evaluate the file against all 10 dimensions in the rubric. For each dimension, assign Pass(3), Partial(2), or Fail(1). Return ONLY a JSON object: {\"scores\": {\"clarity_and_specificity\": N, \"structural_organization\": N, \"behavioral_constraints\": N, \"error_handling_guidance\": N, \"output_format_specification\": N, \"context_engineering\": N, \"role_and_identity\": N, \"technique_currency\": N, \"domain_alignment\": N, \"cache_friendliness\": N}}" --allowedTools 'Read,Grep,Glob' --model sonnet 2>/dev/null
+    ```
+  - Score extraction: parse stdout for JSON object matching `{"scores": {...}}`. Extract all 10 integer values, sum them in bash. If JSON parsing fails, mark file as `[ERROR]`.
+  - Score computation: `total_score=$(( (sum * 100 + 15) / 30 ))` — integer rounding in bash arithmetic (15 = 30/2, half-divisor rounding). No LLM math.
   - Concurrency: max 5 parallel background processes (`&` + `wait`); configurable via `--max-parallel`
   - Output: per-file score line, aggregate summary (count, mean, min, files below 80)
   - Exit code: 0 if all files ≥80, 1 if any file <80
   - Timeout: 120 seconds per file invocation (via `timeout 120 claude -p ...`); files exceeding timeout marked as `[TIMEOUT]`
+  - Note: this approach bypasses the promptimize command's multi-step workflow (grade → rewrite → report). It only performs the grading step. This is intentional — the batch script is for SC-1 score verification, not rewriting.
 
 ### Phase 3: Structural Changes — Components
 
@@ -159,6 +167,7 @@ AC-12 (validate.sh)   ─── independent (but verifies AC-8 output)
   ```
 - **Agent file**: `agents/ds-code-reviewer.md` — unchanged. Each chain invokes same agent with narrower scope
 - **JSON schema**: Add typed schema block to each chain's dispatch prompt (see Interface Design)
+- **Orchestration mechanism**: The LLM executing the command file orchestrates the chains sequentially via conversation context. It dispatches Chain 1 via Task(), receives the JSON result in its conversation context, then dispatches Chain 2, then constructs Chain 3's prompt by including both prior JSON results as inline text in the `## Prior Chain Results` section. This is the standard command orchestration pattern used across all iflow command files. Context growth is bounded — each chain returns a compact JSON object (not the full file content).
 - **Chain error handling**: If Chain 1 or Chain 2 fails (Task() returns error or invalid JSON), do NOT proceed to Chain 3. Instead, return an error response: `{approved: false, issues: [{severity: "blocker", description: "Chain {N} failed: {error}"}], summary: "Review incomplete due to chain failure"}`. If Chain 3 fails, return the raw Chain 1+2 results concatenated as a degraded response with a warning header.
 
 #### C3.2: review-ds-analysis.md God Prompt Split
@@ -186,7 +195,9 @@ AC-12 (validate.sh)   ─── independent (but verifies AC-8 output)
 - **Chain error handling**: Same policy as C3.1 — Chain 1/2 failure halts before Chain 3; Chain 3 failure returns degraded Chain 1+2 results
 
 #### C3.3: Math-in-LLM Fixes
-- **promptimize.md command**: Step 5 currently contains the formula `round((sum/27)*100)` as markdown text that the LLM interprets during command execution. This IS LLM-performed math (division + rounding), violating AC-6. The fix: rewrite Step 5 to instruct the LLM to output raw dimension scores only (as a JSON array of 10 integers), then add a post-processing step where the command's orchestrating logic (the skill runner / command dispatcher) computes the final percentage. Implementation: the promptimize command's Step 5 becomes "Output the 10 raw scores as JSON: `{\"scores\": [3, 2, 3, ...]}`. The final percentage is computed by the calling script." The batch-promptimize.sh script and any direct command invocation will extract the scores array and compute `round((sum/30)*100)` in bash arithmetic (`$(( (sum * 100 + 15) / 30 ))` for rounding).
+- **promptimize.md command**: Step 5 formula `round((sum/27)*100)` is LLM-interpreted. Two paths diverge:
+  - **Batch path (batch-promptimize.sh)**: Score computation happens entirely in bash arithmetic — the batch script collects raw dimension scores and computes `$(( (sum * 100 + 15) / 30 ))`. AC-6 fully satisfied for the batch verification path.
+  - **Interactive path (direct `/iflow:promptimize` invocation)**: The LLM computes `round((sum/30)*100)`. This is documented as a trivial-math exception (10-integer sum + divide by constant + round — deterministic arithmetic comparable to the secretary's 5-signal counting). Code comment added per C2.2.
 - **promptimize SKILL.md**: The skill's Phase 1 outputs raw dimension scores — no math here. No change needed.
 - **secretary.md**: The complexity scoring (5-signal additive counting) remains inline as LLM computation. Add a code comment documenting the trivial-math exception: `<!-- Trivial-math exception: 5-signal additive integer counting (SC-5). Addition only, no division/rounding. -->`
 
@@ -250,15 +261,8 @@ AC-12 (validate.sh)   ─── independent (but verifies AC-8 output)
   while IFS= read -r md_file; do
       # Skip reference files (contain rubric examples and domain definitions)
       case "$md_file" in */references/*) continue ;; esac
-      # Use grep -n to get line-level matches, then filter out known exclusion patterns:
-      # - Lines inside code blocks (``` fenced blocks)
-      # - Lines in YAML frontmatter (between --- markers)
-      # - Known domain-specific compounds: "sufficient sample size", "appropriate statistical test",
-      #   "appropriate test", "sufficient data", "robust standard error"
-      # Implementation: pipe grep output through awk that tracks code-block state and
-      # filters domain-specific compounds via negative lookahead-equivalent patterns
       matches=$(grep -cEi "$adjective_pattern" "$md_file" 2>/dev/null || true)
-      # Subtract domain-specific matches
+      # Subtract domain-specific compound matches (AC-8 exclusion boundary)
       domain_matches=$(grep -cEi '(sufficient sample|appropriate (statistical |stat )?test|sufficient data|robust standard error)' "$md_file" 2>/dev/null || true)
       net_matches=$((matches - domain_matches))
       if [ "$net_matches" -gt 0 ]; then
@@ -269,6 +273,7 @@ AC-12 (validate.sh)   ─── independent (but verifies AC-8 output)
   ```
 - **Behavior**: Fails with descriptive output if violations found
 - **False positive mitigation**: Domain-specific compound terms (statistical terminology used in ds-review checklists) are subtracted from raw match count per AC-8 exclusion boundary
+- **Known limitation**: Code-fence exclusion is not implemented (grep cannot track multi-line code-block state). In practice, code examples in component files rarely contain the target adjective patterns, and the `*/references/*` exclusion already removes the highest-density false positive source. If code-fence false positives emerge during Phase 4, they can be addressed with an allowlist file.
 
 #### C5.2: Hookify Rule
 - **File**: `.claude/hookify.promptimize-reminder.local.md`
@@ -286,7 +291,12 @@ AC-12 (validate.sh)   ─── independent (but verifies AC-8 output)
   5. Run pre and post versions, compare: same approval decision, issue count within +/-1, no new issue categories, severity distribution shift ≤1 level
   6. **JSON structure comparison note**: For `review-ds-code.md` and `review-ds-analysis.md`, the God Prompt split (C3.1/C3.2) changes the intermediate chain schemas but Chain 3's synthesis output preserves the same top-level schema as the pre-split single dispatch (same field names, same types). The AC-13 "same JSON structure" check applies to the Chain 3 synthesis output, not the intermediate chain outputs.
   7. If any pilot fails → halt and investigate before proceeding to remaining files
-- **Secretary routing verification**: 5+ representative prompts confirming same agent selection
+- **Representative inputs per pilot file**:
+  - `design-reviewer.md`: complete design, design missing interfaces, design with consistency issues
+  - `secretary.md`: 5 routing prompts — direct agent match, ambiguous request, help subcommand, orchestrate subcommand, no-match request
+  - `brainstorming/SKILL.md`: new topic brainstorm, continuation with research results, brainstorm with advisory team
+  - `review-ds-code.md`: clean notebook, notebook with anti-patterns, mixed-quality notebook
+  - `review-ds-analysis.md`: sound methodology, analysis with statistical pitfalls, analysis with missing reproducibility info
 - **Pilot sequencing**: Pilot files are verified AFTER all Phase 1-4 changes are applied to them (not incrementally per phase). This ensures the behavioral equivalence check captures the combined effect of all changes.
 
 ---
@@ -296,7 +306,7 @@ AC-12 (validate.sh)   ─── independent (but verifies AC-8 output)
 | # | Decision | Rationale | Alternative Considered |
 |---|----------|-----------|----------------------|
 | TD-1 | Same agent files called multiple times with narrower scope (no new agent files) | Avoids agent duplication; the existing agent system prompts define the review knowledge, and each chain only needs a scope subset | Creating separate focused agents per chain — rejected because it duplicates review criteria across files |
-| TD-2 | Batch-promptimize as shell script with `claude -p` (print mode) | Native parallelism via `&` + `wait`; `-p` flag sends single prompt to stdout with plugin context loaded; avoids recursive command-scoring-command issue; score extracted via deterministic `SCORE:{N}` line format | Python script — rejected because shell is simpler and matches existing validate.sh pattern |
+| TD-2 | Batch-promptimize as shell script with `claude -p` + inline scoring prompt | Native parallelism via `&` + `wait`; `-p` flag sends natural language prompt with embedded scoring instructions (slash commands not available in headless mode per GitHub #837/#14246); raw scores returned as JSON, percentage computed in bash | Python script — rejected because shell is simpler; using `/iflow:promptimize` via `-p` — rejected because slash commands unavailable in headless mode |
 | TD-3 | Cache restructure uses block movement, not content rewriting | Minimizes risk of behavioral changes; only repositioning existing text blocks | Rewriting files from scratch — rejected because behavioral equivalence verification would be impractical |
 | TD-4 | Secretary trivial-math stays inline with documented exception | 5-signal additive counting is deterministic for LLMs; extracting to code adds complexity without reliability gain | Moving to code — rejected per SC-5 trivial-math exception |
 | TD-5 | Adjective removal uses grep + manual filter, not automated rewrite | Each adjective needs a context-specific measurable replacement; automated rewrite cannot determine the right criterion | Full automated replacement — rejected because replacements require semantic understanding of context |
@@ -417,13 +427,16 @@ Each chain's dispatch prompt includes this typed schema block:
 
 **Invocation per file:**
 ```bash
-timeout 120 claude -p "Run /iflow:promptimize on {filepath}. Return ONLY the final score line in format: SCORE:{N}" \
+timeout 120 claude -p "Read the file at {filepath} and the scoring rubric at \
+plugins/iflow/skills/promptimize/references/scoring-rubric.md. Evaluate the file \
+against all 10 dimensions. For each dimension, assign Pass(3), Partial(2), or Fail(1). \
+Return ONLY a JSON object: {\"scores\": {\"clarity_and_specificity\": N, ...all 10 dims...}}" \
   --allowedTools 'Read,Grep,Glob' --model sonnet 2>/dev/null
 ```
 
-**Score extraction:** Parse stdout for regex `SCORE:([0-9]+)`. If no match: mark `[ERROR]`. If timeout: mark `[TIMEOUT]`.
+**Score extraction:** Parse stdout for JSON object `{"scores": {...}}` using `grep -oP '\{"scores":\s*\{[^}]+\}\}'` or Python one-liner. Extract all 10 integer values. If JSON parsing fails: mark `[ERROR]`. If timeout: mark `[TIMEOUT]`.
 
-**Score computation:** The promptimize command outputs raw dimension scores. The batch script extracts these and computes `$(( (sum * 100 + 15) / 30 ))` (integer rounding of `sum/30*100`) in bash arithmetic — no LLM math.
+**Score computation:** Sum the 10 dimension scores in bash, then compute `$(( (sum * 100 + 15) / 30 ))` — integer rounding of `sum/30*100` in bash arithmetic (15 = 30/2, half-divisor rounding). No LLM math.
 
 **Output Format:**
 ```
