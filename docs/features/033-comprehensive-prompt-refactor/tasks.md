@@ -22,13 +22,13 @@
 - **Deps**: T01
 - **Why**: Plan Step 0.1 / AC-13 — capture pre-refactor behavioral outputs for equivalence comparison
 - **Files**: Same 5 pilot files as T01
-- **Action**: For each pilot file, invoke with representative inputs and capture outputs. Use Claude Code's built-in tools (these are the actual tool names in the Claude Code environment, not pseudo-code):
-  - `design-reviewer.md` (agent): Use the **Agent tool** with `subagent_type: "iflow:design-reviewer"`. Input: a 200-word feature design document with 3 components, 2 interfaces, and 1 missing dependency → capture JSON output (approval decision + issues array)
-  - `secretary.md` (command): Use the **Skill tool** with `skill: "iflow:secretary"`. Run 5 routing prompts: (1) "review auth for security issues" (direct agent), (2) "help" (help subcommand), (3) "make the app better" (ambiguous), (4) "orchestrate build login" (orchestrate), (5) "translate to French" (no-match) → capture agent selection per prompt
-  - `brainstorming/SKILL.md` (skill): Use the **Skill tool** with `skill: "iflow:brainstorming"`, args: "Add rate limiting to API endpoints" → capture stage progression through Stage 1-3
-  - `review-ds-code.md` (command): Use the **Skill tool** with `skill: "iflow:review-ds-code"`. Input: a notebook description with 3 anti-patterns (global imports, no docstrings, hardcoded paths) and 2 correct patterns → capture JSON output
-  - `review-ds-analysis.md` (command): Use the **Skill tool** with `skill: "iflow:review-ds-analysis"`. Input: an analysis description with 1 p-hacking instance, 1 missing confidence interval, and 1 correct methodology → capture JSON output
-- **Done**: All 5 baseline outputs recorded in `baseline-behaviors.md` (behavioral outputs, separate from `baseline-scores.md` which holds numeric scores).
+- **Action**: For each pilot file, invoke with representative inputs and capture outputs. Create `docs/features/033-comprehensive-prompt-refactor/baseline-behaviors.md` to store all results (separate from `baseline-scores.md` which holds numeric scores). Invocation methods:
+  - `design-reviewer.md` (agent): Run `claude -p` with the design-reviewer agent prompt and a 200-word feature design document containing 3 components, 2 interfaces, and 1 missing dependency → capture JSON output (approval decision + issues array)
+  - `secretary.md` (command): Run `/iflow:secretary` with 5 routing prompts: (1) "review auth for security issues" (direct agent), (2) "help" (help subcommand), (3) "make the app better" (ambiguous), (4) "orchestrate build login" (orchestrate), (5) "translate to French" (no-match) → capture agent selection per prompt
+  - `brainstorming/SKILL.md` (skill): Run `/iflow:brainstorming` with args "Add rate limiting to API endpoints" → capture stage progression through Stage 1-3
+  - `review-ds-code.md` (command): Run `/iflow:review-ds-code` with a notebook description containing 3 anti-patterns (global imports, no docstrings, hardcoded paths) and 2 correct patterns → capture JSON output
+  - `review-ds-analysis.md` (command): Run `/iflow:review-ds-analysis` with an analysis description containing 1 p-hacking instance, 1 missing confidence interval, and 1 correct methodology → capture JSON output
+- **Done**: `baseline-behaviors.md` exists with all 5 baseline outputs recorded.
 - [ ] Status
 
 ### T03: Store reproducible test inputs [Group: B]
@@ -92,7 +92,7 @@
   - `test_skill_lists_all_9_dimension_names` → `test_skill_lists_all_10_dimension_names` (add `cache_friendliness`)
   - `test_skill_canonical_name_mapping_table_has_9_entries` → `test_skill_canonical_name_mapping_table_has_10_entries` (add `cache_friendliness`)
   - `test_cmd_score_formula_contains_27_and_100` → `test_cmd_score_formula_contains_30_and_100` (grep `'30'` instead of `'27'`)
-  - Update ALL runner invocations to new function names (grep for old names to find all call sites — 7 renames above covers all dimension-related test functions)
+  - Update runner invocations for the 7 renamed functions above (grep for old function names in `test-promptimize-content.sh` to find all call sites)
 - **Done**: `bash plugins/iflow/hooks/tests/test-promptimize-content.sh` runs and tests FAIL (Red — source files still say 9).
 - [ ] Status
 
@@ -133,7 +133,7 @@
   - Working directory guard: verify `plugins/iflow/skills/promptimize/references/scoring-rubric.md` exists
   - CLI args: `--max-parallel N`, `--threshold N` (default 80), `--help`
   - `chmod +x` the script
-- **Done**: (1) Script is executable. (2) `--help` runs without error. (3) Rubric guard fails gracefully outside project root. (4) Grep for `$(( ` returns >=1 match (bash arithmetic for percentage). (5) The `claude -p` calls request per-dimension scores (1-3) from the LLM; the final percentage calculation (`(sum * 100 + 15) / 30`) is performed in bash, not by the LLM.
+- **Done**: (1) Script is executable. (2) `--help` runs without error. (3) Rubric guard fails gracefully outside project root. (4) Grep for `'\$((  '` (escaped dollar-paren) returns >=1 match confirming bash arithmetic for percentage. (5) The `claude -p` calls request per-dimension scores (1-3) from the LLM; the final percentage calculation (`(sum * 100 + 15) / 30`) is performed in bash, not by the LLM.
 - [ ] Status
 
 ### T11: Smoke test batch-promptimize.sh [Group: G]
@@ -163,7 +163,7 @@
   - Add scope leakage filtering between Chain 2 and Chain 3
   - Add output size warning (>5KB)
   - Add chain output handling: extract JSON from response, treat invalid JSON as chain failure
-- **Done**: File has 3 separate `Task()` dispatch blocks. Grep for "SCOPE RESTRICTION" returns 2 matches. Typed schema blocks present. Chain error handling present.
+- **Done**: (1) File has 3 separate `Task()` dispatch blocks. (2) `grep -c 'SCOPE RESTRICTION' plugins/iflow/commands/review-ds-code.md` returns 2. (3) `grep -c '"type":\|"properties":' plugins/iflow/commands/review-ds-code.md` returns >=3 (typed schemas). (4) `grep -c 'chain.*fail\|halt\|degraded' plugins/iflow/commands/review-ds-code.md` returns >=2 (error handling).
 - [ ] Status
 
 **Commit after T12**: `iflow: split review-ds-code.md into 3-chain dispatch`
@@ -195,7 +195,7 @@
 - **Why**: Plan Step 3.4 / SC-3, AC-3 — static content must precede dynamic content for prompt caching
 - **File**: `plugins/iflow/commands/secretary.md`
 - **Action**: Extract static content (Specialist Fast-Path table, routing tables, rules, PROHIBITED section, YOLO overrides) into `## Static Reference Tables` section at top. Convert inline table references to named anchors. Move all dynamic content (`$ARGUMENTS`, feature context) to bottom. This is the TD-3 exception file — requires limited content rewriting beyond block movement.
-- **Done**: (1) Read the restructured file and confirm: all `## Static Reference Tables` content (Specialist Fast-Path, routing tables, rules) appears before any `$ARGUMENTS` or `{feature_path}` markers. Verify with: `grep -n 'ARGUMENTS\|{feature_path}\|Static Reference' plugins/iflow/commands/secretary.md` — static section line number < all dynamic marker line numbers. (2) Run 3 routing prompts via the Skill tool (`skill: "iflow:secretary"`) to verify no silent breakage: (a) "review auth for security issues" → expect iflow:security-reviewer match, (b) "help" → expect help subcommand output, (c) "make the app better" → expect clarification question (ambiguous intent).
+- **Done**: (1) Read the restructured file and confirm: all `## Static Reference Tables` content (Specialist Fast-Path, routing tables, rules) appears before any `$ARGUMENTS` or `{feature_path}` markers. Verify with: `grep -n 'ARGUMENTS\|{feature_path}\|Static Reference' plugins/iflow/commands/secretary.md` — static section line number < all dynamic marker line numbers. (2) Run 3 routing prompts via `/iflow:secretary` to verify no silent breakage: (a) `/iflow:secretary review auth for security issues` → expect iflow:security-reviewer match, (b) `/iflow:secretary help` → expect help subcommand output, (c) `/iflow:secretary make the app better` → expect clarification question (ambiguous intent).
 - [ ] Status
 
 ### T16: Restructure brainstorming/SKILL.md for prompt caching [Group: H]
@@ -211,7 +211,7 @@
 - **Why**: Plan Step 3.4 / SC-3, AC-3 — static-before-dynamic for 2 command files
 - **Files**: `plugins/iflow/commands/specify.md`, `plugins/iflow/commands/design.md`
 - **Action**: For each file, move static content (reviewer templates, schemas, YOLO overrides, rules) above dynamic content (ARGUMENTS, feature_path, iteration state). Block-movement only.
-- **Done**: For each file, run: `git diff HEAD -- {filepath}` — added line count equals removed line count (confirming move-only changes, no net content added/deleted). All dynamic markers (`ARGUMENTS`, `{feature_path}`) appear after all static sections.
+- **Done**: For each file (`plugins/iflow/commands/specify.md`, `plugins/iflow/commands/design.md`), run: `git diff HEAD -- <file>` — added line count equals removed line count (confirming move-only changes, no net content added/deleted). All dynamic markers (`ARGUMENTS`, `{feature_path}`) appear after all static sections.
 - [ ] Status
 
 ### T18: Restructure create-plan.md and create-tasks.md for prompt caching [Group: H]
@@ -242,9 +242,9 @@
 - **Deps**: T17, T18, T19, T20
 - **Why**: Plan Step 3.4 / SC-3 — verify all 7 non-pilot restructured files are content-preserving moves only
 - **Action**: For the 7 non-pilot restructured files (specify.md, design.md, create-plan.md, create-tasks.md, implement.md, implementing/SKILL.md, retrospecting/SKILL.md), run automated diff check:
-  - For each file: `git diff HEAD -- {filepath} | grep -c '^+'` and `git diff HEAD -- {filepath} | grep -c '^-'` — added count must equal removed count (move-only)
-  - For each file, verify dynamic markers appear after static content: `grep -n 'ARGUMENTS\|{feature_path}\|{iteration}\|{phase_iteration}' {filepath}` — all line numbers must be greater than `grep -n '## Static\|## Rules\|## Workflow\|## Error' {filepath} | tail -1` (last static section)
-  - Verify each file has a named static section before the first dynamic marker
+  - Step 1: For each file, verify move-only: `git diff HEAD -- <file> | grep -c '^+'` and `git diff HEAD -- <file> | grep -c '^-'` — added count must equal removed count
+  - Step 2: For each file, verify dynamic-after-static ordering. First get last static section line: `grep -n '## Static\|## Rules\|## Workflow\|## Error' <file> | tail -1 | cut -d: -f1`. Then get first dynamic marker line: `grep -n 'ARGUMENTS\|{feature_path}\|{iteration}\|{phase_iteration}' <file> | head -1 | cut -d: -f1`. Confirm: first dynamic line > last static line
+  - Step 3: Verify each file has a named static section before the first dynamic marker
 - **Done**: All 7 files pass: (1) added lines == removed lines, (2) dynamic markers after static content per grep line number comparison above.
 - [ ] Status
 
@@ -257,7 +257,7 @@
 ### T22: Run pre-sweep adjective audit [Group: K]
 - **Deps**: T12, T13, T15-T20 (God Prompt splits + cache restructure must be done before content sweep)
 - **Why**: Plan Step 4.0 / SC-2, AC-8 — definitive audit before adjective removal
-- **Action**: Run `grep -rlEi '\bappropriate\b|\bsufficient\b|\brobust\b|\bthorough\b|\bproper\b|\badequate\b|\breasonable\b' plugins/iflow/{agents,skills,commands} --include='*.md' | grep -v '/references/'`. For each file, count raw matches and domain-specific compound matches. Store definitive file list in `docs/features/033-comprehensive-prompt-refactor/adjective-audit.md`.
+- **Action**: Run in bash (brace expansion requires bash, not sh): `grep -rlEi '\bappropriate\b|\bsufficient\b|\brobust\b|\bthorough\b|\bproper\b|\badequate\b|\breasonable\b' plugins/iflow/agents plugins/iflow/skills plugins/iflow/commands --include='*.md' | grep -v '/references/'`. For each file, count raw matches and domain-specific compound matches. Store definitive file list in `docs/features/033-comprehensive-prompt-refactor/adjective-audit.md`.
 - **Done**: `adjective-audit.md` exists with exact file list and per-file net match counts (raw minus compounds).
 - [ ] Status
 
@@ -305,7 +305,7 @@
 - **Why**: Plan Step 4.3 / SC-4, AC-11 — enforce consistent terminology per component-authoring.md convention
 - **Files**: All 85 prompt files + 3 READMEs
 - **Action**: Run: `grep -rn '\bStage\b\|\bStep\b\|\bPhase\b' plugins/iflow/{agents,skills,commands} README.md README_FOR_DEV.md plugins/iflow/README.md --include='*.md' > /tmp/terminology-audit.txt`. For each match, verify conformance: Stage = top-level skill divisions only, Step = command sections and skill sub-items, Phase = workflow-state phase names only. Violations: "Step" used as top-level division in a skill, "Stage" used in a command, "Phase" used outside workflow-state context. Fix all violations.
-- **Done**: Re-run grep, verify all instances in files touched by T23-T28 conform to convention. Scope bounded to files modified in content sweep: `git diff --name-only $(git log --oneline | grep 'iflow: complete content sweep' | head -1 | cut -d' ' -f1)^..HEAD -- 'plugins/iflow/'`. If no commit tag yet (mid-phase), use `git diff --name-only HEAD~10 -- 'plugins/iflow/'` as fallback. Zero violations in those files.
+- **Done**: Re-run grep on all files listed in `adjective-audit.md` (the definitive file list from T22). Zero terminology violations in those files.
 - [ ] Status
 
 ### T29: Verify hook scripts after terminology changes [Group: N]
@@ -320,7 +320,7 @@
 - **Why**: Plan Step 3.4 + 4.1 + 4.2 + 4.3 / SC-3 — confirm static-first ordering survived all editing passes
 - **File**: `plugins/iflow/commands/secretary.md`
 - **Action**: After all secretary.md edits complete, re-verify that static content still precedes dynamic content. Run 3 routing prompts to confirm functional equivalence: (1) "review auth for security issues" → expect iflow:security-reviewer, (2) "help" → expect help output, (3) "make the app better" → expect clarification question.
-- **Done**: (1) Static-first ordering confirmed via `grep -n 'ARGUMENTS\|{feature_path}\|Static Reference' plugins/iflow/commands/secretary.md` — static section line < all dynamic markers. (2) Run 3 routing prompts via the Skill tool (`skill: "iflow:secretary"`) with same inputs as T15: (a) "review auth for security issues" → iflow:security-reviewer, (b) "help" → help output, (c) "make the app better" → clarification question. All 3 match expected results.
+- **Done**: (1) Static-first ordering confirmed via `grep -n 'ARGUMENTS\|{feature_path}\|Static Reference' plugins/iflow/commands/secretary.md` — static section line < all dynamic markers. (2) Run 3 routing prompts via `/iflow:secretary` with same inputs as T15: (a) `/iflow:secretary review auth for security issues` → iflow:security-reviewer, (b) `/iflow:secretary help` → help output, (c) `/iflow:secretary make the app better` → clarification question. All 3 match expected results.
 - [ ] Status
 
 **Commit after T22-T30**: `iflow: complete content sweep — adjectives, passive voice, terminology`
@@ -360,15 +360,15 @@
 - **Deps**: T33, T03 (stored test inputs)
 - **Why**: Plan Step 5.3 / AC-13 — verify refactored prompt produces equivalent behavioral output
 - **File**: `plugins/iflow/agents/design-reviewer.md`
-- **Action**: Use the **Agent tool** with `subagent_type: "iflow:design-reviewer"` to dispatch with 2-3 representative inputs from `test-inputs/design-reviewer-input.md` (complete design, missing interfaces, consistency issues). Compare pre/post outputs from `baseline-behaviors.md`: same JSON structure, same approval decision, issue count +/-1, no new categories, severity shift <=1 level.
-- **Done**: Behavioral equivalence verified for design-reviewer.md — approval decision matches baseline, issue count within +/-1, no new severity categories.
+- **Action**: Run `claude -p` with the design-reviewer agent prompt (read from `plugins/iflow/agents/design-reviewer.md`) and 2-3 representative inputs from `test-inputs/design-reviewer-input.md` (complete design, missing interfaces, consistency issues). Compare pre/post outputs from `baseline-behaviors.md`: same JSON structure, same approval decision, issue count +/-1, no new categories, severity shift <=1 level.
+- **Done**: Behavioral equivalence verified for design-reviewer.md — (1) approval decision matches baseline, (2) issue count within +/-1, (3) no new severity categories.
 - [ ] Status
 
 ### T35: Pilot behavioral verification — secretary.md [Group: Q]
 - **Deps**: T33, T03
 - **Why**: Plan Step 5.3 / AC-13 — verify secretary routing decisions unchanged
 - **File**: `plugins/iflow/commands/secretary.md`
-- **Action**: Use the **Skill tool** with `skill: "iflow:secretary"` to run 5 routing prompts from `test-inputs/secretary-routing-prompts.md`. Compare pre/post outputs from `baseline-behaviors.md`: same agent selection for each prompt.
+- **Action**: Run `/iflow:secretary` with each of the 5 routing prompts from `test-inputs/secretary-routing-prompts.md`. Compare pre/post outputs from `baseline-behaviors.md`: same agent selection for each prompt.
 - **Done**: All 5 routing prompts return same agent selection as baseline.
 - [ ] Status
 
@@ -376,8 +376,8 @@
 - **Deps**: T33, T03
 - **Why**: Plan Step 5.3 / AC-13 — verify brainstorming stage progression unchanged
 - **File**: `plugins/iflow/skills/brainstorming/SKILL.md`
-- **Action**: Run with representative inputs from `test-inputs/brainstorming-topic.md`. Compare pre/post stage progression.
-- **Done**: Behavioral equivalence verified.
+- **Action**: Run `/iflow:brainstorming` with the topic from `test-inputs/brainstorming-topic.md` (e.g., "Add rate limiting to API endpoints"). Observe stage progression through Stage 1 (CLARIFY) → Stage 2 (RESEARCH) → Stage 3 (DRAFT). Compare pre/post outputs from `baseline-behaviors.md`: same stages reached, same research agent dispatch count, same PRD section headings generated.
+- **Done**: Behavioral equivalence verified — (1) same stages reached as baseline (Stage 1-3), (2) research agent dispatch count matches baseline (+/-1), (3) PRD section headings match baseline set.
 - [ ] Status
 
 ### T37: Pilot behavioral verification — review-ds-code.md [Group: Q]
@@ -413,7 +413,7 @@
 - **Deps**: T39 (pilot gate), T10 (batch script), T04 (rubric)
 - **Why**: Plan Step 5.4 / SC-1 — final quality gate: all 85 files must score >=80
 - **Action**: Run `batch-promptimize.sh` on all 85 files. For any file scoring <80: run interactive `/iflow:promptimize` on the failing file to get per-dimension scores and identify which dimensions scored low. Fix the identified dimension failures and re-run `batch-promptimize.sh` on that file (max 2 fix-and-rescore iterations per file). If a file still scores <80 after 2 iterations, document it in `below-threshold-files.md` (full path: `docs/features/033-comprehensive-prompt-refactor/below-threshold-files.md`) with file path, current score, failing dimensions, and deferral rationale.
-- **Done**: Gate closure requires either: (a) `batch-promptimize.sh` exits code 0 with all files showing `[PASS]`, OR (b) all remaining below-threshold files documented in `below-threshold-files.md` with deferral rationale and the overall pass rate is >=95%.
+- **Done**: Gate closure requires either: (a) `batch-promptimize.sh` exits code 0 with all files showing `[PASS]`, OR (b) all remaining below-threshold files documented in `below-threshold-files.md` with deferral rationale and the overall pass rate is >=95%. Note: Option (b) is a pragmatic deviation from SC-1's "all 85 files >=80" threshold — deferred files must have documented rationale and a follow-up backlog item.
 - [ ] Status
 
 **Commit after T40**: `iflow: all 85 files score >=80 on promptimize rubric`
@@ -439,7 +439,7 @@ Phase 2 (partially parallel):
 Phase 3 (mostly parallel):
   T12 (ds-code split)     ─┐
   T13 (ds-analysis split)  ─┤
-  T15 (secretary cache)    ─┤──→ T14 (secretary math comment)
+  T15 (secretary cache) ────┼──→ T14 (secretary math comment)  [T15→T14]
   T16 (brainstorm cache)   ─┤
   T17 (specify+design cache)─┤──→ T21 (verify non-pilot)
   T18 (plan+tasks cache)   ─┤
