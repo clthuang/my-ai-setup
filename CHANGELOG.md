@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-02-28
+
 ### Changed
 - Reordered reviewer dispatch prompts in specify, design, create-plan, create-tasks, and implement commands for better prompt cache hit rates
 - Added reviewer resume logic (R1) to all review loops — reviewers resume from previous iteration instead of fresh dispatch
