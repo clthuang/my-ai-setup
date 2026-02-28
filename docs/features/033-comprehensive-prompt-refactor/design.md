@@ -73,7 +73,7 @@ AC-8 (adjectives)     ──→ SC-2 (zero adjectives)
 AC-9 (terminology)    ──→ SC-3 (one convention)
 AC-11 (enforcement)   ─── independent
 AC-12 (validate.sh)   ─── independent (but verifies AC-8 output)
-AC-13 (pilot pass)    ──→ Phase 4 full batch (remaining ~80 files proceed after pilot gate)
+AC-13 (pilot pass)    ──→ Phase 4 remaining batch (~80 non-pilot files proceed after pilot gate)
 ```
 
 ### Phase 1: Foundation — Components
