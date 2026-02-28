@@ -102,3 +102,85 @@
 - **Notes**: All 7 non-pilot files verified — static section before all dynamic markers.
 
 ---
+
+## Batch 4 (T22-T32) — Phase 4: Content Sweep
+
+### T22: Pre-sweep adjective audit
+- **Status**: complete
+- **Files**: docs/features/033-comprehensive-prompt-refactor/adjective-audit.md
+- **Notes**: 28 files identified with subjective adjectives
+
+### T23-T25: Remove subjective adjectives (agents, skills, commands)
+- **Status**: complete
+- **Files**: 14 agents, 12 skills, 8 commands — all adjective violations fixed
+- **Commit**: b3a69bb
+
+### T26: Verify zero adjectives
+- **Status**: complete
+- **Notes**: grep returns empty for all 7 adjectives across component files
+
+### T27: Fix passive voice instances
+- **Status**: complete
+- **Files**: test-deepener.md, documentation-writer.md, structuring-ds-projects/SKILL.md, capturing-learnings/SKILL.md, finishing-branch/SKILL.md
+- **Notes**: Remaining "should" in test-deepener.md are modal uses in JSON examples (false positives)
+
+### T28: Normalize Stage/Step/Phase terminology
+- **Status**: complete
+- **Files**: design.md (Stage 0-4 → Step 0-4), specify.md (Stage 1-2 → Step 1-2), plus 15+ other files
+- **Notes**: Machine checks PASS — Stage in commands, Phase outside workflow-state, Step as top-level skill
+
+### T29: Run hook tests
+- **Status**: complete
+- **Notes**: 52/52 hook tests pass, 1 skipped
+
+### T30: Re-verify secretary.md static-first ordering
+- **Status**: complete
+- **Notes**: Static section at line 9, first dynamic marker at line 200 — PASS
+
+### T31: Extend validate.sh with adjective check
+- **Status**: complete
+- **Files**: validate.sh
+- **Notes**: Content-level check added, skips references/, subtracts domain-specific exceptions. validate.sh passes (0 errors).
+
+### T32: Create hookify promptimize reminder rule
+- **Status**: complete
+- **Files**: .claude/hookify.promptimize-reminder.local.md (local-only)
+- **Notes**: File pre-existed from earlier session; format matches docs-sync rule pattern
+
+---
+
+## Batch 5 (T01, T11, T33-T40) — Phase 5: Verification
+
+### T01: Capture baseline scores
+- **Status**: blocked
+- **Notes**: Requires `claude -p` or interactive /iflow:promptimize. Cannot run inside nested CC session (CLAUDECODE env var set). See baseline-scores.md for instructions.
+
+### T11: Smoke test batch-promptimize.sh
+- **Status**: blocked
+- **Notes**: batch-promptimize.sh uses `claude -p` which fails inside CC session. Must run from fresh terminal.
+
+### T29 (test suite, T39 equivalent): Hook tests + promptimize content tests
+- **Status**: complete
+- **Notes**: 52/52 hook tests, 94/94 promptimize content tests — all pass
+
+### T33-T38: Pilot scoring + behavioral verification
+- **Status**: blocked
+- **Notes**: Requires interactive CC sessions or standalone `claude -p`. See pilot-gate-report.md for static analysis evidence and unblocking instructions.
+
+### T39: Pilot gate report
+- **Status**: partial
+- **Files**: docs/features/033-comprehensive-prompt-refactor/pilot-gate-report.md
+- **Notes**: Report created with static analysis evidence. Gate: BLOCKED-PENDING (requires interactive scoring).
+
+### T40: Full batch run
+- **Status**: blocked
+- **Notes**: batch-promptimize.sh requires fresh terminal outside CC session. All 94 test-promptimize-content.sh tests pass as proxy evidence.
+
+---
+
+## Summary
+
+- **Completed**: T04-T32 (28 tasks complete, 2 already-done on entry)
+- **Blocked**: T01, T02, T03, T11, T33-T40 — all require fresh CC session or interactive mode
+- **Test results**: 52/52 hook tests, 94/94 promptimize content tests — PASS
+- **validate.sh**: 0 errors, 4 warnings — PASS
