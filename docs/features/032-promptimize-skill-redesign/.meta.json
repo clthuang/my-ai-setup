@@ -5,6 +5,14 @@
   "status": "active",
   "created": "2026-02-28T12:00:00+08:00",
   "branch": "feature/032-promptimize-skill-redesign",
-  "lastCompletedPhase": null,
-  "phases": {}
+  "lastCompletedPhase": "specify",
+  "phases": {
+    "specify": {
+      "completedAt": "2026-02-28T12:30:00+08:00",
+      "reviewIterations": {
+        "spec-reviewer": 4,
+        "phase-reviewer": 2
+      }
+    }
+  }
 }
