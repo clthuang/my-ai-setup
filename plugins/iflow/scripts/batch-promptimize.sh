@@ -147,7 +147,10 @@ else
         _pt_out=$(mktemp)
         "$@" > "$_pt_out" &
         local cmd_pid=$!
-        ( sleep "$secs" && kill "$cmd_pid" 2>/dev/null ) &
+        # Watcher subshell: background sleep so we can kill it on TERM
+        ( _spid=0; trap 'kill $_spid 2>/dev/null; exit' TERM
+          sleep "$secs" & _spid=$!; wait $_spid
+          kill "$cmd_pid" 2>/dev/null ) &
         local watcher_pid=$!
         if wait "$cmd_pid" 2>/dev/null; then
             kill "$watcher_pid" 2>/dev/null
