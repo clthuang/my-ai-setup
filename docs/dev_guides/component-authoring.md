@@ -283,6 +283,7 @@ Before merging any component:
 - [ ] Scripts are executable (`chmod +x`)
 - [ ] No hardcoded absolute paths (use relative paths)
 - [ ] README documents usage and examples
+- [ ] Run promptimize on new/modified component files
 
 ### Skill Activation Optimization
 
@@ -290,6 +291,20 @@ Description quality directly affects auto-triggering:
 - Generic description → ~20% activation rate
 - Specific description with triggers → ~50% activation rate
 - Description + examples in SKILL.md → ~90% activation rate
+
+---
+
+## Terminology Convention
+
+Use these terms consistently across all skills, commands, agents, and documentation:
+
+| Term | Meaning | Example |
+|------|---------|---------|
+| **Stage** | Top-level division within a skill. Stages are the major sections of work a skill defines. | A skill with stages: "Analysis", "Design", "Implementation" |
+| **Step** | A section within a command, or a sub-item within a skill stage. Steps are the actionable units inside a stage or command. | Command steps: "1. Gather context", "2. Generate output" |
+| **Phase** | Reserved for workflow-state phase names only. Refers to the phases defined in the `workflow-state` skill that track feature lifecycle. | Phases: `brainstorm`, `design`, `plan`, `implement`, `review` |
+
+**Why this matters:** Mixing these terms (e.g., calling a workflow-state phase a "stage", or calling a skill division a "phase") creates ambiguity in prompts and documentation. Consistent terminology improves LLM instruction-following and reduces author confusion.
 
 ---
 
