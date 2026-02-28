@@ -84,11 +84,7 @@ List each discovered file as an option, using the filename as the label and the 
 
 Read the target file at the resolved path from Step 1 or Step 2d. Store the full content as `original_content`.
 
-This is a fresh read using the resolved file path -- it cannot reuse any content from file selection because selection only identifies the path, not the full content. `original_content` is needed for drift detection (Step 6b), merge (Step 8), and accept-all (Step 8).
-
 If the file read fails, display: "Error: could not read target file at {path}." STOP.
-
-All subsequent steps MUST reference this data by the exact label `original_content`.
 
 ### Step 3: Invoke skill
 
