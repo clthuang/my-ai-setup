@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.4.0] - 2026-03-01
+
 ### Changed
 - Comprehensive prompt refactoring across 70+ component files: removed subjective adjectives, normalized stage/step/phase terminology, enforced active voice and imperative mood
 - Restructured agent and command prompts for better prompt cache hit rates (static-before-dynamic block ordering)
