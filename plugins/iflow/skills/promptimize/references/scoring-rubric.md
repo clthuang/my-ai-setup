@@ -13,6 +13,7 @@
 | Example quality | 2+ concrete, minimal, representative examples | 1 example or examples are too long/generic | No examples (when component type expects them) |
 | Progressive disclosure | SKILL.md is overview, details in references/ | Some detail in SKILL.md that could move to references/ | All content crammed in one file, no progressive disclosure |
 | Context engineering | Tool restrictions appropriate, minimal context passing, clean boundaries | Minor context bloat or loose tool restrictions | Unrestricted tools, excessive context, unclear boundaries |
+| Cache-friendliness | All static content precedes all dynamic content with zero interleaving | Mostly separated but 1-2 static blocks appear after dynamic injection points | Static and dynamic content freely interleaved or no clear separation |
 
 ## Component Type Applicability
 
@@ -27,5 +28,6 @@
 | Example quality | Evaluated | Evaluated | Auto-pass |
 | Progressive disclosure | Evaluated | Auto-pass | Auto-pass |
 | Context engineering | Evaluated | Evaluated | Evaluated |
+| Cache-friendliness | Evaluated | Evaluated | Evaluated |
 
 Dimensions marked "Auto-pass" score 3 automatically for that component type.

@@ -35,18 +35,18 @@ Only run this review AFTER implementation-reviewer confirms compliance.
 
 ### Code Quality
 - Adherence to established patterns
-- Proper error handling and type safety
+- Error handling at I/O boundaries with typed return values
 - Code organization and naming
 - Maintainability
 
 ### Architecture
 - SOLID principles followed
-- Proper separation of concerns
+- Single-responsibility modules with no cross-layer imports
 - Integration with existing systems
 - Scalability considerations
 
 ### Testing
-- Test coverage adequate
+- Test coverage meets project baseline
 - Tests verify behavior (not mocks)
 - Test quality and readability
 

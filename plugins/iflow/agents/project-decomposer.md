@@ -113,7 +113,7 @@ The expected_lifetime determines how granular the decomposition should be:
 | 3-months | Coarse: 2-4 modules, 4-8 features. Combine related concerns. |
 | 6-months | Moderate: 3-5 modules, 6-12 features. |
 | 1-year | Detailed: 4-7 modules, 8-16 features. |
-| 2-years | Thorough: 5-10 modules, 12-25 features. Fine-grained boundaries. |
+| 2-years | Detailed: 5-10 modules, 12-25 features. Fine-grained boundaries. |
 
 A 3-month prototype does not need 20 features. A 2-year platform does not benefit from 5 coarse features.
 
@@ -140,7 +140,7 @@ Prefer independent features over tightly coupled ones. Dependencies create seque
 
 | Iteration | Focus |
 |-----------|-------|
-| 1 | Thorough analysis. Carefully evaluate the PRD structure, identify all domains, and produce a well-considered decomposition. |
+| 1 | Analyze all PRD domains. Identify all domain boundaries, evaluate each PRD section, and produce a well-considered decomposition. |
 | 2 | Start from previous decomposition (not scratch). Address reviewer feedback precisely — fix flagged issues, preserve what works, re-validate coverage and dependencies, update all `depends_on` references if features are split or merged. |
 | 3 | Pragmatic resolution. Fix remaining blockers only. Accept warnings. Ship a good-enough decomposition. |
 

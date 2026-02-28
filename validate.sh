@@ -753,6 +753,32 @@ if [ $mkdir_missing -eq 0 ]; then
 fi
 echo ""
 
+
+# Check for subjective adjectives in plugin component files (content-level check)
+# Skips */references/* (domain-specific reference material)
+# Subtracts known domain-specific compound matches
+echo "Checking for Subjective Adjectives..."
+ADJECTIVE_VIOLATIONS=0
+ADJECTIVE_PATTERN='\b(appropriate|sufficient|robust|thorough|proper|adequate|reasonable)\b'
+# Domain-specific compound exceptions (not violations)
+ADJECTIVE_EXCEPTIONS='(sufficient sample|appropriate statistical test|sufficient data|robust standard error)'
+ADJECTIVE_FILES=$(grep -rli --include="*.md" -E "$ADJECTIVE_PATTERN" plugins/iflow/agents plugins/iflow/skills plugins/iflow/commands 2>/dev/null | grep -v '/references/' || true)
+if [ -n "$ADJECTIVE_FILES" ]; then
+    while IFS= read -r file; do
+        count=$(grep -ciE "$ADJECTIVE_PATTERN" "$file" 2>/dev/null || true)
+        exceptions=$(grep -ciE "$ADJECTIVE_EXCEPTIONS" "$file" 2>/dev/null || true)
+        net=$((count - exceptions))
+        if [ "$net" -gt 0 ]; then
+            log_error "$file: $net subjective adjective(s) found — replace with measurable criteria"
+            ((ADJECTIVE_VIOLATIONS += net)) || true
+        fi
+    done <<< "$ADJECTIVE_FILES"
+fi
+if [ $ADJECTIVE_VIOLATIONS -eq 0 ]; then
+    log_success "No subjective adjectives found in component files"
+fi
+echo ""
+
 # Validate setup script exists
 echo "Checking Setup Scripts..."
 for script in plugins/iflow/scripts/doctor.sh plugins/iflow/scripts/setup.sh; do

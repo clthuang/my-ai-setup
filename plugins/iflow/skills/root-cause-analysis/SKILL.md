@@ -1,6 +1,6 @@
 ---
 name: root-cause-analysis
-description: "Use when user says 'run RCA', 'thorough investigation', 'find ALL root causes', or runs /root-cause-analysis. Produces formal RCA reports with reproduction, 3+ hypotheses, verification scripts, and causal DAG."
+description: "Use when user says 'run RCA', 'exhaustive multi-cause investigation', 'find ALL root causes', or runs /root-cause-analysis. Produces formal RCA reports with reproduction, 3+ hypotheses, verification scripts, and causal DAG."
 ---
 
 # Root Cause Analysis
@@ -22,7 +22,7 @@ graph LR
     E --> F[6. REPORT]
 ```
 
-## Phase 1: CLARIFY
+## Stage 1: CLARIFY
 
 Gather context before investigation begins.
 
@@ -37,7 +37,7 @@ Questions to ask:
 4. Is it reproducible or intermittent?
 5. What has already been tried?
 
-## Phase 2: REPRODUCE
+## Stage 2: REPRODUCE
 
 Create isolated reproduction in sandbox.
 
@@ -53,7 +53,7 @@ agent_sandbox/{YYYYMMDD}/rca-{slug}/
 └── logs/           # Captured output
 ```
 
-## Phase 3: INVESTIGATE
+## Stage 3: INVESTIGATE
 
 Apply systematic analysis to generate hypotheses.
 
@@ -68,7 +68,7 @@ Investigation techniques:
 - Check recent commits affecting related code
 - Review configuration and environment differences
 
-## Phase 4: EXPERIMENT
+## Stage 4: EXPERIMENT
 
 Test each hypothesis with verification scripts.
 
@@ -82,7 +82,7 @@ For each hypothesis:
 3. Run and capture results
 4. Document evidence
 
-## Phase 5: ANALYZE
+## Stage 5: ANALYZE
 
 Synthesize findings into root cause determination.
 
@@ -90,7 +90,7 @@ Synthesize findings into root cause determination.
 - **Output:** Root cause list with evidence
 - **Reference:** [Causal DAG](references/causal-dag.md) for cause categories and DAG templates
 
-## Phase 6: REPORT
+## Stage 6: REPORT
 
 Generate formal RCA report and offer workflow handoff.
 

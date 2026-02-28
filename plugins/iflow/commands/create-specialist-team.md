@@ -223,7 +223,7 @@ AskUserQuestion:
     options: [
       { label: "Continue to /{recommended-phase}", description: "{reason} (Recommended)" },
       { label: "Deep dive", description: "Investigate specific findings further" },
-      { label: "Done", description: "Results are sufficient" }
+      { label: "Done", description: "Results meet acceptance criteria" }
     ],
     multiSelect: false
   }]

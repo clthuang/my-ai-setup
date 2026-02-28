@@ -11,7 +11,7 @@ Making changes in main worktree when a feature worktree exists.
 - Observed in: Feature #002
 - Cost: Had to stash, move changes, re-apply in correct worktree
 - Instead: Check `git worktree list` at session start; work in feature worktree if one exists
-- Last observed: Feature #022
+- Last observed: Feature #33
 - Observation count: 1
 
 ### Anti-Pattern: Over-Granular Tasks
@@ -20,7 +20,7 @@ Breaking a single file modification into many small separate tasks.
 - Cost: Initial 31 tasks had to be consolidated to 18 during verification
 - Example: 4 tasks for one skill file (create structure, add sequence, add validation, add patterns)
 - Instead: One task per logical unit of work (one file = one task, or one component = one task)
-- Last observed: Feature #022
+- Last observed: Feature #33
 - Observation count: 1
 
 ### Anti-Pattern: Relative Paths in Hooks
@@ -29,7 +29,7 @@ Using `find .` or relative paths in hooks for project file discovery.
 - Cost: Missed test files when Claude ran from subdirectories; stale feature metadata
 - Root cause: `find .` searches from PWD; `PLUGIN_ROOT` points to cached copy
 - Instead: Use `detect_project_root()` from shared library, search from `PROJECT_ROOT`
-- Last observed: Feature #022
+- Last observed: Feature #33
 - Observation count: 1
 
 ### Anti-Pattern: Skipping Workflow for "Simple" Tasks
@@ -38,7 +38,7 @@ Rationalizing that a task is "just mechanical" to justify skipping workflow phas
 - Cost: Had to retroactively create feature; missed the brainstorm → feature promotion checkpoint
 - Root cause: Task felt simple (search-and-replace), so jumped from option selection to implementation
 - Instead: Brainstorm phase ends with "Turn this into a feature?" - always ask, let user decide to skip
-- Last observed: Feature #022
+- Last observed: Feature #33
 - Observation count: 1
 
 ### Anti-Pattern: Line Number References in Sequential Tasks
@@ -56,7 +56,7 @@ Leaving PRD claims that contradict later spec/design resolutions without noting 
 - Cost: Implementation reviewer flagged PRD FR-9 (MCP tool) vs actual implementation (inline Mermaid) as a "blocker"
 - Root cause: PRD is frozen brainstorm artifact but readers don't know which claims were superseded
 - Instead: Add Design Divergences table in plan.md documenting PRD/spec/design deviations with rationale
-- Last observed: Feature #022
+- Last observed: Feature #33
 - Observation count: 2
 
 ### Anti-Pattern: Dual-Representation Dependency Graphs
@@ -65,7 +65,7 @@ Maintaining dependency information in both ASCII art and textual description inv
 - Cost: Plan dependency graph redrawn 3+ times across 6 iterations to fix graph-vs-text mismatches
 - Root cause: Two representations of the same data with no single source of truth
 - Instead: Use mermaid for dependency graphs (serves both visual and textual roles) or maintain only one representation
-- Last observed: Feature #021
+- Last observed: Feature #33
 - Observation count: 1
 
 ### Anti-Pattern: Bash Variable Interpolation in Inline Python
@@ -74,7 +74,7 @@ Using `${VARIABLE}` inside Python strings embedded in bash scripts enables injec
 - Cost: Security reviewer flagged session-start.sh line 169 using `${PROJECT_ROOT}` in Python glob
 - Root cause: Bash expands variables before Python sees the string; special characters in paths could break or inject
 - Instead: Pass external values via `sys.argv` or environment variables; never string interpolation
-- Last observed: Feature #023
+- Last observed: Feature #33
 - Observation count: 2
 
 ### Anti-Pattern: Parser Against Assumed Format
@@ -90,7 +90,7 @@ Continuing review iterations after approval when all remaining issues are inform
 - Observed in: Feature #022, create-plan phase
 - Cost: Plan review iterations 4-5 after iter 3 approval produced zero changes, adding ~30 min
 - Instead: Implement early-exit when reviewer approves with zero actionable issues
-- Last observed: Feature #022
+- Last observed: Feature #33
 - Observation count: 1
 
 ### Anti-Pattern: Spec-Level Numeric Divergence Deferred to Implementation
@@ -116,7 +116,7 @@ When design describes a parser (fields extracted, splitting logic, metadata stru
 - Cost: 3+ extra review iterations across 3 phases as format was refined piecemeal
 - Instead: Include at least one complete input→output example with all parser fields in the design
 - Confidence: high
-- Last observed: Feature #023
+- Last observed: Feature #33
 - Observation count: 1
 
 ### Anti-Pattern: Implementation Reviewer Flagging Pre-Existing Code as Blockers
@@ -125,7 +125,7 @@ When the quality reviewer flags code quality issues on lines not introduced by t
 - Cost: 2 wasted review iterations (iterations 3-4 produced zero code changes)
 - Instead: Reviewer should check git diff to verify flagged code is from the current feature before classifying as blocker
 - Confidence: high
-- Last observed: Feature #023
+- Last observed: Feature #33
 - Observation count: 1
 
 ### Anti-Pattern: Over-Documentation Before System Maturity
@@ -252,4 +252,22 @@ Using the same variable name (e.g., `original_content`) in both a skill and its 
 - Instead: Use distinct names that encode scope (e.g., `target_content` for skill, `original_content` for command)
 - Confidence: high
 - Last observed: Feature #032
+- Observation count: 1
+
+### Anti-Pattern: Task Invocation as Vague Procedure Without CLI Specification
+Describing task invocation as 'run the pilot file' or 'invoke the command' without specifying the exact CLI, session type (CC interactive vs headless), and input sourcing. Drives 4-5 iteration specificity cascade as reviewers force progressive disclosure of: which binary, which flags, which session type, how to source input arguments.
+- Observed in: Feature #033, create-tasks — T02 invocation mechanism iterated 5 times through pseudo-code → tool names → slash commands → claude -p flag assembly; 42% of all create-tasks concerns were invocation-mechanism issues
+- Cost: Task review cap hit (5/5 iterations exhausted) without resolving T02
+- Instead: Each task requiring CLI invocation must specify exact command, session type, and input sourcing at authoring time
+- Confidence: high
+- Last observed: Feature #033
+- Observation count: 1
+
+### Anti-Pattern: Planning Claude -p Tasks Without Environmental Constraint Modeling
+Planning tasks that require `claude -p` or interactive CC sessions without explicitly modeling the nested-session constraint. These tasks are silently included in scope and surface as blocked only during implementation.
+- Observed in: Feature #033, implement phase — 12/40 tasks (30%) blocked by CLAUDECODE env var preventing nested claude -p invocations; tasks T01, T11, T33-T40 all require fresh terminal session
+- Cost: 30% implementation task block, incomplete pilot gate report, batch scoring deferred post-feature
+- Instead: Tag `claude -p` dependent tasks at create-tasks time with [REQUIRES_FRESH_TERMINAL] and group them as a post-feature manual step
+- Confidence: high
+- Last observed: Feature #033
 - Observation count: 1

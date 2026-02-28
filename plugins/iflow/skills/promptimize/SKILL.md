@@ -41,7 +41,7 @@ Load three files using two-location Glob (try primary cache path first, fall bac
 
 **2c. Target file**
 
-Read the file at the input path directly (absolute path provided by caller). Retain the full content in memory as `target_content` -- needed by Phase 2 as rewrite context.
+Read the file at the input path directly (absolute path provided by caller). Retain the full content in memory as `target_content` -- needed by Stage 2 as rewrite context.
 
 **Error handling:** If any reference file is not found after both Glob locations --> display error: "Required reference file not found: {filename}. Verify plugin installation." --> **STOP**
 
@@ -51,11 +51,11 @@ Read the file at the input path directly (absolute path provided by caller). Ret
 2. If the heading is missing or the date fails to parse, set `staleness_warning = true` with displayed date "unknown"
 3. Compare the parsed date against today's date
 4. If the date is **more than 30 days old**, set `staleness_warning = true`
-5. This flag is included in the Phase 1 JSON output for the command to use in the report
+5. This flag is included in the Stage 1 JSON output for the command to use in the report
 
-### Phase 1: Grade
+### Stage 1: Grade
 
-Evaluate all 9 dimensions against `references/scoring-rubric.md` (loaded in Step 2). For each dimension, apply the behavioral anchors to the target file and assign a score: **pass (3) / partial (2) / fail (1)**.
+Evaluate all 10 dimensions against `references/scoring-rubric.md` (loaded in Step 2). For each dimension, apply the behavioral anchors to the target file and assign a score: **pass (3) / partial (2) / fail (1)**.
 
 **Auto-pass exceptions:** Score 3 for any dimension marked "Auto-pass" in the Component Type Applicability table in `references/scoring-rubric.md`. For auto-passed dimensions, set `auto_passed = true`, `finding` to a brief note (e.g., "Auto-pass for {component_type}"), and `suggestion = null`.
 
@@ -69,7 +69,8 @@ Evaluate all 9 dimensions against `references/scoring-rubric.md` (loaded in Step
 6. **Prohibition clarity** -- specific, unambiguous constraints
 7. **Example quality** -- concrete, minimal, representative examples
 8. **Progressive disclosure** -- overview in main file, details in references
-9. **Context engineering** -- appropriate tool restrictions, clean boundaries
+9. **Context engineering** -- required tool restrictions, clean boundaries
+10. **Cache friendliness** -- static content precedes dynamic content, no interleaving
 
 For each evaluated dimension, record:
 - **score**: integer 1, 2, or 3
@@ -91,6 +92,7 @@ Do NOT compute an overall score. Output only the raw dimension scores.
 | Example quality | `example_quality` |
 | Progressive disclosure | `progressive_disclosure` |
 | Context engineering | `context_engineering` |
+| Cache friendliness | `cache_friendliness` |
 
 **Output:** Wrap the JSON result in `<phase1_output>` tags:
 
@@ -114,17 +116,17 @@ Do NOT compute an overall score. Output only the raw dimension scores.
 </phase1_output>
 ```
 
-Populate `guidelines_date` and `staleness_warning` from Step 3. The `dimensions` array must contain exactly 9 entries, one per dimension in the order listed above.
+Populate `guidelines_date` and `staleness_warning` from Step 3. The `dimensions` array must contain exactly 10 entries, one per dimension in the order listed above.
 
-### Phase 2: Rewrite
+### Stage 2: Rewrite
 
-Using the Phase 1 grading result as context, rewrite the full target file incorporating improvements for every dimension scoring **partial or fail**.
+Using the Stage 1 grading result as context, rewrite the full target file incorporating improvements for every dimension scoring **partial or fail**.
 
-**Step 1:** Wrap the Phase 1 JSON output from above in a `<grading_result>` block as context for the rewrite:
+**Step 1:** Wrap the Stage 1 JSON output from above in a `<grading_result>` block as context for the rewrite:
 
 ```
 <grading_result>
-{Phase 1 JSON output}
+{Stage 1 JSON output}
 </grading_result>
 ```
 

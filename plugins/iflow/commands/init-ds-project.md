@@ -116,7 +116,7 @@ Describe data sources and how to obtain raw data.
 ```
 
 ### pyproject.toml
-Generate with appropriate dependencies for selected scope:
+Generate with matching dependencies for selected scope:
 - **EDA only:** pandas, numpy, matplotlib, seaborn, jupyterlab
 - **ML pipeline:** EDA + scikit-learn, pytest, hypothesis, pandera, ruff
 - **Full project:** ML pipeline + papermill, great-expectations

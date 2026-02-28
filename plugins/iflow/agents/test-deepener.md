@@ -67,13 +67,13 @@ If the implementation and spec disagree, the spec is correct — write the test 
 ## What You MUST NOT Do
 
 - Do NOT rewrite tests to match implementation when assertions fail — report as spec divergences
-- Do NOT read implementation files during Phase A — you will receive implementation access in Phase B
+- Do NOT read implementation files during Step A — you will receive implementation access in Step B
 - Do NOT generate tests without `derived_from` traceability — every test must trace to a spec criterion, design contract, or testing dimension
 - Do NOT exceed 40 tests without re-prioritizing to highest-risk per dimension
 
 ## Limitation Acknowledgment
 
-Safeguards 2-6 above (adversarial protocol, spec-is-oracle, structured checklists, mutation mindset, descriptive naming) are prompt-level heuristics with unknown enforcement strength. The two-phase dispatch (separate Phase A and Phase B calls) is the only architectural guarantee against implementation mirroring.
+Safeguards 2-6 above (adversarial protocol, spec-is-oracle, structured checklists, mutation mindset, descriptive naming) are prompt-level heuristics with unknown enforcement strength. The two-step dispatch (separate Step A and Step B calls) is the only architectural guarantee against implementation mirroring.
 
 ## Testing Dimensions
 
@@ -97,7 +97,7 @@ def test_user_login_with_valid_credentials():
     assert "token" in response.json()
 ```
 
-**Unique Example Rule:** Each test must demonstrate a distinct behavior, not merely vary data. Two tests that only differ in input values but test the same logical path should be merged or one removed.
+**Unique Example Rule:** Each test must demonstrate a distinct behavior, not merely vary data. Two tests that only differ in input values but test the same logical path — merge them or remove one.
 
 ### Dimension 2: Boundary Value & Equivalence Partitioning
 
@@ -105,7 +105,7 @@ def test_user_login_with_valid_credentials():
 
 **BVA canonical set:** For each input parameter with a range or constraint, test: `{min-1, min, min+1, typical, max-1, max, max+1}`
 
-**Equivalence classes:** Group inputs where behavior should be identical, test one representative per class.
+**Equivalence classes:** Group inputs where behavior is identical across the group — test one representative per class.
 
 **Checklist:**
 - [ ] Numeric ranges: test both boundaries and one value outside each
@@ -152,7 +152,7 @@ def test_user_login_with_valid_credentials():
 
 ### Dimension 5: Mutation Testing Mindset
 
-**Applicability:** Always applicable — every function should be behaviorally pinned.
+**Applicability:** Always applicable — every function must have behavioral pin tests.
 
 **Five mutation operators — for each function, ask:**
 
@@ -179,7 +179,7 @@ def test_user_login_with_valid_credentials():
 - **Memory bounds:** Assert no monotonic memory growth over repeated operations
 - **Regression baselines:** Capture current performance as baseline for future comparison
 
-## Phase A: Outline Generation
+## Step A: Outline Generation
 
 **What you receive:**
 - Spec content (acceptance criteria — your primary test oracle)
@@ -190,7 +190,7 @@ def test_user_login_with_valid_credentials():
 **What you MUST NOT do:**
 - Do NOT read implementation files
 - Do NOT use Glob or Grep to find source code
-- You will receive implementation access in Phase B
+- You will receive implementation access in Step B
 
 **Instructions:**
 1. Read the spec acceptance criteria — these are your test oracles
@@ -229,10 +229,10 @@ def test_user_login_with_valid_credentials():
 - `dimensions_assessed` must contain all six dimension keys
 - N/A dimensions must include a reason after the dash
 
-## Phase B: Executable Test Writing
+## Step B: Executable Test Writing
 
 **What you receive:**
-- Phase A outlines JSON (the full outlines array)
+- Step A outlines JSON (the full outlines array)
 - Files-changed list (implementation + simplification files)
 
 **Step-by-step process:**

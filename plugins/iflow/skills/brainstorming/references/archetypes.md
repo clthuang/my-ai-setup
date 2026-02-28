@@ -165,9 +165,9 @@ This file is the single source of truth for problem classification, advisory tea
 {What will change, who is affected, what migration is needed}
 
 ## Migration Path
-1. {Phase 1: description}
-2. {Phase 2: description}
-3. {Phase 3: description}
+1. {Stage 1: description}
+2. {Stage 2: description}
+3. {Stage 3: description}
 ```
 
 ### new-product-or-business

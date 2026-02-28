@@ -80,7 +80,7 @@ Return structured feedback:
 
 - [ ] Every success criterion is measurable
 - [ ] Acceptance criteria use Given/When/Then format
-- [ ] No vague qualifiers ("fast enough", "user-friendly", "appropriate")
+- [ ] No vague qualifiers — all terms must have measurable criteria (not: "user-friendly", "fast enough")
 - [ ] Every requirement has a way to verify it passed
 
 **Challenge patterns:**
@@ -214,7 +214,7 @@ NOT: "Can we approve this and clarify later?"
 
 | Iteration | Focus |
 |-----------|-------|
-| 1 | Find all issues, especially blockers. Be thorough. |
+| 1 | Find all issues, especially blockers. Check all items. |
 | 2 | Verify previous issues are fixed. Look for new issues introduced by fixes. |
 | 3 | Final check. Only blockers prevent approval. Be pragmatic. |
 

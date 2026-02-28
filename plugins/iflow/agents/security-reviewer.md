@@ -44,7 +44,7 @@ You identify security vulnerabilities before they reach production.
 - [ ] Auth checks on protected routes
 - [ ] Session management secure
 - [ ] Password handling correct (hashing, no plaintext)
-- [ ] Token validation proper
+- [ ] Token validation enforced
 
 ### Data Protection
 - [ ] Sensitive data not logged

@@ -5,13 +5,9 @@ argument-hint: "[--feature=<id-slug>]"
 
 Invoke the breaking-down-tasks skill for the current feature context.
 
-## Config Variables
-Use these values from session context (injected at session start):
-- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+## Static Reference
 
-Read {iflow_artifacts_root}/features/ to find active feature, then follow the workflow below.
-
-## Workflow Integration
+<!-- Placeholder: static content injected here for prompt cache efficiency -->
 
 ### 1-3. Validate, Branch Check, Partial Recovery, Mark Started
 
@@ -28,7 +24,7 @@ BLOCKED: Valid plan.md required before task creation.
 ```
 Stop execution. Do not proceed.
 
-### 4. Stage 1: Task Breakdown with Review Loop
+### 4. Step 1: Task Breakdown with Review Loop
 
 Max iterations: 5.
 
@@ -166,7 +162,7 @@ c. **Parse response:** Extract the `approved` field from reviewer's JSON respons
 d. **Branch on result (strict threshold):**
    - **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
    - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
-   - If PASS -> Proceed to Stage 2 (step 5)
+   - If PASS -> Proceed to Step 2 (step 5)
    - If FAIL AND iteration < max:
      - Append iteration to `.review-history.md` using format below
      - Increment iteration counter
@@ -174,7 +170,7 @@ d. **Branch on result (strict threshold):**
      - Return to step 4b
    - If FAIL AND iteration == max:
      - Note concerns in `.meta.json` taskReview.concerns
-     - Proceed to Stage 2 (step 5)
+     - Proceed to Step 2 (step 5)
 
 **Review History Entry Format** (append to `.review-history.md`):
 ```markdown
@@ -191,15 +187,15 @@ d. **Branch on result (strict threshold):**
 ---
 ```
 
-### 5. Stage 2: Chain Validation (Handoff Gate)
+### 5. Step 2: Chain Validation (Handoff Gate)
 
-Phase-reviewer iteration budget: max 5 (independent of Stage 1).
+Phase-reviewer iteration budget: max 5 (independent of Step 1).
 
 Set `phase_iteration = 1`.
 
-After Stage 1 completes, invoke phase-reviewer:
+After Step 1 completes, invoke phase-reviewer:
 
-**PRD resolution (I8):** Before dispatching, resolve the PRD reference (same logic as Stage 1).
+**PRD resolution (I8):** Before dispatching, resolve the PRD reference (same logic as Step 1).
 
    **Dispatch decision for phase-reviewer:**
 
@@ -320,7 +316,7 @@ Task tool call:
 - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
 - If PASS -> Proceed to step 5b
 - If FAIL AND phase_iteration < 5:
-  - Append to `.review-history.md` with "Stage 2: Chain Review" marker
+  - Append to `.review-history.md` with "Step 2: Chain Review" marker
   - Increment phase_iteration
   - Address all blocker AND warning issues
   - Return to phase-reviewer invocation
@@ -330,7 +326,7 @@ Task tool call:
 
 ### 5a. Capture Review Learnings (Automatic)
 
-**Trigger:** Only execute if the review loop ran 2+ iterations (across Stage 1 and/or Stage 2 combined). If approved on first pass in both stages, skip — no review learnings to capture.
+**Trigger:** Only execute if the review loop ran 2+ iterations (across Step 1 and/or Step 2 combined). If approved on first pass in both steps, skip — no review learnings to capture.
 
 **Process:**
 1. Read `.review-history.md` entries for THIS phase only (task-reviewer and phase-reviewer entries)
@@ -383,7 +379,7 @@ AskUserQuestion:
     "options": [
       {"label": "Continue to /iflow:implement (Recommended)", "description": "Start implementation"},
       {"label": "Review tasks.md first", "description": "Inspect the tasks before continuing"},
-      {"label": "Fix and rerun reviews", "description": "Apply fixes then rerun Stage 1 + Stage 2 review cycle"}
+      {"label": "Fix and rerun reviews", "description": "Apply fixes then rerun Step 1 + Step 2 review cycle"}
     ],
     "multiSelect": false
   }]
@@ -391,4 +387,10 @@ AskUserQuestion:
 
 If "Continue to /iflow:implement (Recommended)": Invoke `/iflow:implement`
 If "Review tasks.md first": Show "Tasks at {path}/tasks.md. Run /iflow:implement when ready." -> STOP
-If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to tasks.md, then reset `resume_state = {}` (clear all entries — the user has made manual edits outside the review loop, so prior agent contexts are stale) and return to Step 4 (Stage 1 task-reviewer) with iteration counters reset to 0.
+If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to tasks.md, then reset `resume_state = {}` (clear all entries — the user has made manual edits outside the review loop, so prior agent contexts are stale) and return to Step 4 (Step 1 task-reviewer) with iteration counters reset to 0.
+
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
+Read {iflow_artifacts_root}/features/ to find active feature, then follow the workflow below.

@@ -5,10 +5,7 @@ description: Dispatches per-task implementer agents from tasks.md, collecting re
 
 # Implementation Phase
 
-## Config Variables
-Use these values from session context (injected at session start):
-- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
-
+## Static Reference
 Execute the implementation plan with a structured per-task dispatch approach.
 
 ## Prerequisites
@@ -20,14 +17,6 @@ Execute the implementation plan with a structured per-task dispatch approach.
 
 For complex implementations:
 - `implementing-with-tdd` - RED-GREEN-REFACTOR discipline
-
-## Read Feature Context
-
-1. Find active feature folder in `{iflow_artifacts_root}/features/`
-2. Read `.meta.json` for mode and context
-3. Adjust behavior based on mode:
-   - Standard: Full process with optional verification
-   - Full: Full process with required verification
 
 ## Process
 
@@ -196,3 +185,15 @@ Never spin endlessly. Ask when stuck.
 After all tasks:
 "Implementation complete. {N} tasks completed, {M} skipped."
 "Proceeding to code simplification and review phases (3 reviewers dispatched in parallel, within `max_concurrent_agents` budget)."
+
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
+## Read Feature Context
+
+1. Find active feature folder in `{iflow_artifacts_root}/features/`
+2. Read `.meta.json` for mode and context
+3. Adjust behavior based on mode:
+   - Standard: Full process with optional verification
+   - Full: Full process with required verification

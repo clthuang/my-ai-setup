@@ -104,22 +104,22 @@ The skill output appears in conversation context containing `<phase1_output>` an
 
 ### Step 4: Parse skill output
 
-**4a. Extract Phase 1 JSON:**
+**4a. Extract grading JSON:**
 
 Extract the content between `<phase1_output>` and `</phase1_output>` tags from the skill output. Parse the extracted text as JSON.
 
-**4b. Extract Phase 2 content:**
+**4b. Extract rewrite content:**
 
-Extract the content between `<phase2_output>` and `</phase2_output>` tags from the skill output. Store as Phase 2 content (the complete rewritten file with `<change>` tags).
+Extract the content between `<phase2_output>` and `</phase2_output>` tags from the skill output. Store as rewrite content (the complete rewritten file with `<change>` tags).
 
-**4c. Validate Phase 1 JSON:**
+**4c. Validate grading JSON:**
 
-Validate the parsed JSON against the Phase 1 schema:
+Validate the parsed JSON against the grading schema:
 
-1. `dimensions` array must contain exactly 9 entries.
+1. `dimensions` array must contain exactly 10 entries.
 2. Each dimension `score` must be an integer: 1, 2, or 3.
 3. Each dimension must have non-empty `name`, `finding`, and `score` fields.
-4. Each `name` must be one of the 9 canonical dimension names:
+4. Each `name` must be one of the 10 canonical dimension names:
    - `structure_compliance`
    - `token_economy`
    - `description_quality`
@@ -129,30 +129,32 @@ Validate the parsed JSON against the Phase 1 schema:
    - `example_quality`
    - `progressive_disclosure`
    - `context_engineering`
+   - `cache_friendliness`
 5. Suggestion constraint: if `score < 3` then `suggestion` must be non-null (a string). If `score == 3` then `suggestion` must be null.
 6. `component_type`, `guidelines_date`, and `staleness_warning` fields must be present.
 
 If any parsing or validation fails, display:
 
 ```
-Phase 1 JSON validation failed: {reason}. Raw output snippet: {first 200 chars}
+Grading JSON validation failed: {reason}. Raw output snippet: {first 200 chars}
 ```
 
 Then STOP.
 
 ### Step 5: Compute score
 
-Sum all 9 dimension scores from the Phase 1 JSON `dimensions` array.
+Sum all 10 dimension scores from the grading JSON `dimensions` array.
 
-Compute the overall score: `round((sum / 27) * 100)` to the nearest integer.
+<!-- Trivial-math exception: sum of 10 integers [1-3] + divide by 30 + round. Deterministic, no ambiguity. See SC-5 refinement. -->
+Compute the overall score: `round((sum / 30) * 100)` to the nearest integer.
 
 Store as `overall_score`.
 
-Example: scores [3, 2, 1, 3, 2, 3, 3, 3, 2] --> sum = 22, overall_score = round((22/27) * 100) = 81.
+Example: scores [3, 2, 1, 3, 2, 3, 3, 3, 2, 2] --> sum = 24, overall_score = round((24/30) * 100) = 80.
 
 ### Step 6a: Validate change tag structure
 
-Parse the Phase 2 content line by line. Track code fence state:
+Parse the rewrite content line by line. Track code fence state:
 
 - Maintain a boolean `in_fence`, initially false.
 - Toggle `in_fence` on lines starting with three or more backticks (`` ``` ``) or three or more tildes (`~~~`).
@@ -177,14 +179,14 @@ ChangeBlock {
   dimensions: string[]        # parsed from dimension attribute (split on comma)
   rationale: string           # from rationale attribute
   content: string             # text between <change> and </change>
-  before_context: string[]    # up to 3 non-tag lines before <change> tag in Phase 2 output
-  after_context: string[]     # up to 3 non-tag lines after </change> tag in Phase 2 output
+  before_context: string[]    # up to 3 non-tag lines before <change> tag in rewrite output
+  after_context: string[]     # up to 3 non-tag lines after </change> tag in rewrite output
 }
 ```
 
-For `before_context`: collect up to 3 lines immediately preceding the `<change>` tag line in the Phase 2 output (fewer if near file start).
+For `before_context`: collect up to 3 lines immediately preceding the `<change>` tag line in the rewrite output (fewer if near file start).
 
-For `after_context`: collect up to 3 lines immediately following the `</change>` tag line in the Phase 2 output (fewer if near file end or if the next `<change>` tag is within 3 lines).
+For `after_context`: collect up to 3 lines immediately following the `</change>` tag line in the rewrite output (fewer if near file end or if the next `<change>` tag is within 3 lines).
 
 If validation fails (including zero matches from the open-tag regex, which occurs with reversed attribute order like `<change rationale="..." dimension="...">`): set `tag_validation_failed = true`.
 
@@ -228,7 +230,7 @@ If any anchor match fails, set `drift_detected = true` (cannot verify drift with
 
 If all anchors match:
 
-1. Reconstruct the file: replace each `<change>` block in Phase 2 content with the matched original text between the anchors (the original lines from `start_line` to `end_line`).
+1. Reconstruct the file: replace each `<change>` block in rewrite content with the matched original text between the anchors (the original lines from `start_line` to `end_line`).
 2. Normalize both the reconstructed content and `original_content`:
    - Strip trailing whitespace from each line.
    - Ignore blank-line differences at file boundaries (leading/trailing blank-line runs).
@@ -237,7 +239,7 @@ If all anchors match:
 
 ### Step 6c: Token budget check
 
-Strip all `<change ...>` opening tags and `</change>` closing tags from the Phase 2 content.
+Strip all `<change ...>` opening tags and `</change>` closing tags from the rewrite content.
 
 Count the number of lines and words in the stripped content.
 
@@ -250,12 +252,12 @@ Build the report from structured data. Do NOT ask the LLM to generate the report
 ```markdown
 ## Promptimize Report
 
-**Component type:** {component_type from Phase 1 JSON}
+**Component type:** {component_type from grading JSON}
 **Overall score:** {overall_score}/100
-**Guidelines version:** {guidelines_date from Phase 1 JSON}
+**Guidelines version:** {guidelines_date from grading JSON}
 ```
 
-**Staleness warning** (include only if `staleness_warning` is true from Phase 1 JSON):
+**Staleness warning** (include only if `staleness_warning` is true from grading JSON):
 
 ```markdown
 > Warning: Prompt guidelines are stale (last updated {guidelines_date}). Scores may not reflect current best practices.
@@ -296,7 +298,7 @@ If no issues exist, omit this section.
 ```markdown
 ### Improved Version
 
-{Phase 2 output verbatim}
+{rewrite output verbatim}
 ```
 
 Display the assembled report.
@@ -360,7 +362,7 @@ AskUserQuestion:
 
 #### Accept all handler
 
-Take the Phase 2 output. Strip all `<change ...>` opening tags and `</change>` closing tags via regex.
+Take the rewrite output. Strip all `<change ...>` opening tags and `</change>` closing tags via regex.
 
 Write the stripped content to the original file path (overwrite).
 

@@ -5,17 +5,8 @@ description: Runs data-driven AORTA retrospective using retro-facilitator agent 
 
 # Retrospective
 
+## Static Reference
 Data-driven AORTA retrospective using retro-facilitator agent.
-
-## Config Variables
-Use these values from session context (injected at session start):
-- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
-- `{iflow_base_branch}` — base branch for merges (default: `main`)
-
-## Read Feature Context
-
-1. Find active feature folder in `{iflow_artifacts_root}/features/`
-2. Read `.meta.json` for mode and context
 
 ## Process
 
@@ -382,3 +373,13 @@ This skill runs automatically during `/iflow:finish-feature`:
 - No permission prompt required
 - Findings drive knowledge bank updates
 - User sees summary of learnings captured
+
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+- `{iflow_base_branch}` — base branch for merges (default: `main`)
+
+## Read Feature Context
+
+1. Find active feature folder in `{iflow_artifacts_root}/features/`
+2. Read `.meta.json` for mode and context

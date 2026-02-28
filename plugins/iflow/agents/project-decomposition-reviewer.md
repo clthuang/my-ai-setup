@@ -9,7 +9,7 @@ color: blue
 <example>
 Context: Decomposing skill dispatches quality review of a decomposition
 user: "Review this decomposition for quality.\n\n## Original PRD\n{PRD content}\n\n## Decomposition\n{JSON}\n\n## Project Context\nExpected lifetime: 1-year\n\n## Iteration\nThis is iteration 1 of 3."
-assistant: "I'll evaluate the decomposition against all 5 criteria: organisational cohesion, engineering best practices, goal alignment, lifetime-appropriate complexity, and coverage.\n\n```json\n{\"approved\": false, \"issues\": [{\"criterion\": \"organisational_cohesion\", \"description\": \"Module 'Core' mixes auth and data\", \"severity\": \"blocker\"}], \"criteria_evaluated\": [...]}\n```"
+assistant: "I'll evaluate the decomposition against all 5 criteria: organisational cohesion, engineering best practices, goal alignment, lifetime-scaled complexity, and coverage.\n\n```json\n{\"approved\": false, \"issues\": [{\"criterion\": \"organisational_cohesion\", \"description\": \"Module 'Core' mixes auth and data\", \"severity\": \"blocker\"}], \"criteria_evaluated\": [...]}\n```"
 <commentary>The decomposing skill invokes this agent via Task tool with the structured prompt containing decomposition JSON, PRD, lifetime, and iteration number.</commentary>
 </example>
 
@@ -100,7 +100,7 @@ Dependencies must flow in one direction. No god-modules, no circular dependencie
 - [ ] No single module that everything depends on (god-module)
 - [ ] Lower-level modules do not depend on higher-level modules
 - [ ] Shared utilities are isolated, not bundled into domain modules
-- [ ] Module count is reasonable (not 1 monolith, not 20 micro-fragments)
+- [ ] Module count is between 2 and 15 (not 1 monolith, not 20 micro-fragments)
 
 **Challenge patterns:**
 - Module A depends on B, B depends on A -> "Circular dependency between A and B"
@@ -122,15 +122,15 @@ The decomposition must serve the PRD's stated goals without inventing abstractio
 - Abstract factory pattern for a single implementation -> "Over-architecture for stated goals"
 - Module that serves no PRD requirement -> "What PRD goal does this serve?"
 
-### 4. Lifetime-Appropriate Complexity
+### 4. Lifetime-Scaled Complexity
 
 The decomposition's complexity must be calibrated to the project's expected lifetime. Throwaway projects need minimal structure; long-lived projects justify more.
 
 **What to check:**
 - [ ] Number of modules is proportional to expected lifetime and scope
-- [ ] Abstractions are justified by the project's longevity
+- [ ] The project's longevity justifies abstractions
 - [ ] Short-lived projects (throwaway/weeks) use flat, simple structures
-- [ ] Long-lived projects (months/years) have proper separation of concerns
+- [ ] Long-lived projects (months/years) have separation of concerns enforced
 - [ ] No over-engineering for short lifetimes; no under-engineering for long lifetimes
 
 **Challenge patterns:**
@@ -164,7 +164,7 @@ Every PRD requirement must map to at least one feature in the decomposition. Not
    - Organisational cohesion
    - Engineering best practices
    - Goal alignment
-   - Lifetime-appropriate complexity
+   - Lifetime-scaled complexity
    - Coverage
 5. **For each issue found**, classify as `blocker` or `warning`
 6. **Set `approved`** based on whether any blockers exist

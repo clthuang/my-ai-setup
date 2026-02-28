@@ -54,9 +54,9 @@ REFRESH_CMD="${PLUGIN_DIR}/commands/refresh-prompt-guidelines.md"
 
 # --- scoring-rubric.md ---
 
-# derived_from: spec:AC-rubric-dimensions (scoring rubric documents exactly 9 dimensions)
-test_rubric_has_exactly_9_dimensions() {
-    log_test "scoring-rubric.md documents exactly 9 scoring dimensions"
+# derived_from: spec:AC-rubric-dimensions (scoring rubric documents exactly 10 dimensions)
+test_rubric_has_exactly_10_dimensions() {
+    log_test "scoring-rubric.md documents exactly 10 scoring dimensions"
 
     # Given the scoring rubric file exists
     if [[ ! -f "$RUBRIC_FILE" ]]; then
@@ -65,12 +65,12 @@ test_rubric_has_exactly_9_dimensions() {
     fi
     # When we count rows in the Behavioral Anchors table (which have descriptive text, NOT "Evaluated"/"Auto-pass")
     local dim_count
-    dim_count=$(sed -n '/^## Behavioral Anchors/,/^## /p' "$RUBRIC_FILE" | grep -cE '^\| (Structure|Token|Description|Persuasion|Technique|Prohibition|Example|Progressive|Context)')
-    # Then there are exactly 9 dimensions
-    if [[ "$dim_count" -eq 9 ]]; then
+    dim_count=$(sed -n '/^## Behavioral Anchors/,/^## /p' "$RUBRIC_FILE" | grep -cE '^\| (Structure|Token|Description|Persuasion|Technique|Prohibition|Example|Progressive|Context|Cache)')
+    # Then there are exactly 10 dimensions
+    if [[ "$dim_count" -eq 10 ]]; then
         log_pass
     else
-        log_fail "Expected 9 dimensions, found $dim_count"
+        log_fail "Expected 10 dimensions, found $dim_count"
     fi
 }
 
@@ -533,11 +533,11 @@ test_promptimize_cmd_asks_component_type() {
     fi
 }
 
-# derived_from: design:cmd-score (promptimize.md contains score computation with round and 27)
+# derived_from: design:cmd-score (promptimize.md contains score computation with round and 30)
 test_cmd_has_score_computation() {
-    log_test "promptimize.md contains score computation (round and 27)"
+    log_test "promptimize.md contains score computation (round and 30)"
     if [[ ! -f "$PROMPTIMIZE_CMD" ]]; then log_fail "File not found"; return; fi
-    if grep -q 'round' "$PROMPTIMIZE_CMD" && grep -q '27' "$PROMPTIMIZE_CMD"; then log_pass; else log_fail "Missing score computation (round and 27)"; fi
+    if grep -q 'round' "$PROMPTIMIZE_CMD" && grep -q '30' "$PROMPTIMIZE_CMD"; then log_pass; else log_fail "Missing score computation (round and 30)"; fi
 }
 
 # derived_from: design:cmd-drift (promptimize.md contains drift_detected)
@@ -633,33 +633,33 @@ test_skill_under_500_lines() {
 }
 
 # derived_from: dimension:boundary (scoring formula: 9*3=27 max, all pass=100)
-test_scoring_formula_max_denominator_is_27() {
-    log_test "scoring-rubric.md implies denominator of 27 (9 dims * max 3)"
+test_scoring_formula_max_denominator_is_30() {
+    log_test "scoring-rubric.md implies denominator of 30 (10 dims * max 3)"
 
     if [[ ! -f "$RUBRIC_FILE" ]]; then log_fail "File not found"; return; fi
-    # Verify exactly 9 dimension rows in behavioral anchors table (section-scoped)
+    # Verify exactly 10 dimension rows in behavioral anchors table (section-scoped)
     local dim_count
-    dim_count=$(sed -n '/^## Behavioral Anchors/,/^## /p' "$RUBRIC_FILE" | grep -cE '^\| (Structure|Token|Description|Persuasion|Technique|Prohibition|Example|Progressive|Context)')
+    dim_count=$(sed -n '/^## Behavioral Anchors/,/^## /p' "$RUBRIC_FILE" | grep -cE '^\| (Structure|Token|Description|Persuasion|Technique|Prohibition|Example|Progressive|Context|Cache)')
     # And verify Pass score is 3
-    if [[ "$dim_count" -eq 9 ]] && grep -q 'Pass (3)' "$RUBRIC_FILE"; then
+    if [[ "$dim_count" -eq 10 ]] && grep -q 'Pass (3)' "$RUBRIC_FILE"; then
         log_pass
     else
-        log_fail "Expected 9 dimensions with Pass(3), found $dim_count dimensions"
+        log_fail "Expected 10 dimensions with Pass(3), found $dim_count dimensions"
     fi
 }
 
 
-# derived_from: dimension:boundary (command validates exactly 9 dimensions in phase1 JSON -- Step 4c)
-test_cmd_validates_exactly_9_dimensions_in_phase1() {
-    log_test "promptimize.md Step 4c validates dimensions array contains exactly 9 entries"
+# derived_from: dimension:boundary (command validates exactly 10 dimensions in phase1 JSON -- Step 4c)
+test_cmd_validates_exactly_10_dimensions_in_phase1() {
+    log_test "promptimize.md Step 4c validates dimensions array contains exactly 10 entries"
     if [[ ! -f "$PROMPTIMIZE_CMD" ]]; then log_fail "File not found"; return; fi
     # Given the Phase 1 JSON validation in Step 4c
-    # When we check for the 9-entry constraint
-    # Then it documents "exactly 9 entries" or "9 entries"
-    if grep -q 'exactly 9' "$PROMPTIMIZE_CMD"; then
+    # When we check for the 10-entry constraint
+    # Then it documents "exactly 10 entries" or "10 entries"
+    if grep -q 'exactly 10' "$PROMPTIMIZE_CMD"; then
         log_pass
     else
-        log_fail "Missing 'exactly 9' dimension validation in Step 4c"
+        log_fail "Missing 'exactly 10' dimension validation in Step 4c"
     fi
 }
 
@@ -772,14 +772,14 @@ test_cmd_validates_score_values_1_2_3_only() {
 }
 
 # derived_from: dimension:adversarial (command lists all 9 canonical dimension names for validation)
-test_cmd_lists_all_9_canonical_dimension_names() {
-    log_test "promptimize.md Step 4c lists all 9 canonical dimension name values"
+test_cmd_lists_all_10_canonical_dimension_names() {
+    log_test "promptimize.md Step 4c lists all 10 canonical dimension name values"
     if [[ ! -f "$PROMPTIMIZE_CMD" ]]; then log_fail "File not found"; return; fi
     # Given the Phase 1 JSON validation listing canonical names
     # When we count the canonical snake_case names
-    # Then all 9 are present
+    # Then all 10 are present
     local missing=0
-    for name in "structure_compliance" "token_economy" "description_quality" "persuasion_strength" "technique_currency" "prohibition_clarity" "example_quality" "progressive_disclosure" "context_engineering"; do
+    for name in "structure_compliance" "token_economy" "description_quality" "persuasion_strength" "technique_currency" "prohibition_clarity" "example_quality" "progressive_disclosure" "context_engineering" "cache_friendliness"; do
         if ! grep -q "$name" "$PROMPTIMIZE_CMD"; then
             ((missing++)) || true
         fi
@@ -787,7 +787,7 @@ test_cmd_lists_all_9_canonical_dimension_names() {
     if [[ "$missing" -eq 0 ]]; then
         log_pass
     else
-        log_fail "Missing $missing of 9 canonical dimension names in promptimize.md"
+        log_fail "Missing $missing of 10 canonical dimension names in promptimize.md"
     fi
 }
 
@@ -1072,12 +1072,12 @@ test_cmd_accept_some_anchor_failure_degrades() {
 # ============================================================
 
 # derived_from: dimension:mutation-line-deletion (9 specific dimension NAMES present in SKILL.md)
-test_skill_lists_all_9_dimension_names() {
-    log_test "SKILL.md lists all 9 evaluation dimension names"
+test_skill_lists_all_10_dimension_names() {
+    log_test "SKILL.md lists all 10 evaluation dimension names"
 
     if [[ ! -f "$SKILL_FILE" ]]; then log_fail "File not found"; return; fi
     local missing=0
-    for dim in "Structure compliance" "Token economy" "Description quality" "Persuasion strength" "Technique currency" "Prohibition clarity" "Example quality" "Progressive disclosure" "Context engineering"; do
+    for dim in "Structure compliance" "Token economy" "Description quality" "Persuasion strength" "Technique currency" "Prohibition clarity" "Example quality" "Progressive disclosure" "Context engineering" "Cache friendliness"; do
         if ! grep -q "$dim" "$SKILL_FILE"; then
             ((missing++)) || true
         fi
@@ -1085,7 +1085,7 @@ test_skill_lists_all_9_dimension_names() {
     if [[ "$missing" -eq 0 ]]; then
         log_pass
     else
-        log_fail "Missing $missing of 9 dimension names in SKILL.md"
+        log_fail "Missing $missing of 10 dimension names in SKILL.md"
     fi
 }
 
@@ -1132,17 +1132,17 @@ test_guidelines_has_commands_subsection() {
     if grep -q '### Commands' "$GUIDELINES_FILE"; then log_pass; else log_fail "Missing ### Commands subsection"; fi
 }
 
-# derived_from: dimension:mutation-arithmetic (score formula explicitly uses /27 and *100)
-test_cmd_score_formula_contains_27_and_100() {
-    log_test "promptimize.md score formula documents both /27 divisor and *100 multiplier"
+# derived_from: dimension:mutation-arithmetic (score formula explicitly uses /30 and *100)
+test_cmd_score_formula_contains_30_and_100() {
+    log_test "promptimize.md score formula documents both /30 divisor and *100 multiplier"
     if [[ ! -f "$PROMPTIMIZE_CMD" ]]; then log_fail "File not found"; return; fi
     # Given the score computation step
     # When we check for both constants
-    # Then the formula references both 27 and 100
-    if grep -q '27' "$PROMPTIMIZE_CMD" && grep -q '100' "$PROMPTIMIZE_CMD" && grep -qi 'round' "$PROMPTIMIZE_CMD"; then
+    # Then the formula references both 30 and 100
+    if grep -q '30' "$PROMPTIMIZE_CMD" && grep -q '100' "$PROMPTIMIZE_CMD" && grep -qi 'round' "$PROMPTIMIZE_CMD"; then
         log_pass
     else
-        log_fail "Missing formula components (27, 100, round)"
+        log_fail "Missing formula components (30, 100, round)"
     fi
 }
 
@@ -1231,14 +1231,14 @@ test_skill_preservation_rule_documented() {
 }
 
 # derived_from: dimension:mutation-line-deletion (SKILL.md canonical dimension name mapping table has all 9 snake_case names)
-test_skill_canonical_name_mapping_table_has_9_entries() {
-    log_test "SKILL.md canonical dimension name mapping table has all 9 snake_case entries"
+test_skill_canonical_name_mapping_table_has_10_entries() {
+    log_test "SKILL.md canonical dimension name mapping table has all 10 snake_case entries"
     if [[ ! -f "$SKILL_FILE" ]]; then log_fail "File not found"; return; fi
     # Given the canonical dimension name mapping table
     # When we count the snake_case JSON name values
-    # Then all 9 are present
+    # Then all 10 are present
     local missing=0
-    for name in "structure_compliance" "token_economy" "description_quality" "persuasion_strength" "technique_currency" "prohibition_clarity" "example_quality" "progressive_disclosure" "context_engineering"; do
+    for name in "structure_compliance" "token_economy" "description_quality" "persuasion_strength" "technique_currency" "prohibition_clarity" "example_quality" "progressive_disclosure" "context_engineering" "cache_friendliness"; do
         if ! grep -q "$name" "$SKILL_FILE"; then
             ((missing++)) || true
         fi
@@ -1246,7 +1246,7 @@ test_skill_canonical_name_mapping_table_has_9_entries() {
     if [[ "$missing" -eq 0 ]]; then
         log_pass
     else
-        log_fail "Missing $missing of 9 canonical snake_case dimension names in SKILL.md"
+        log_fail "Missing $missing of 10 canonical snake_case dimension names in SKILL.md"
     fi
 }
 
@@ -1298,7 +1298,7 @@ main() {
     echo ""
 
     # scoring-rubric.md
-    test_rubric_has_exactly_9_dimensions
+    test_rubric_has_exactly_10_dimensions
     test_rubric_has_pass_partial_fail_columns
     test_rubric_has_component_type_applicability_table
     test_rubric_has_auto_pass_entries
@@ -1359,8 +1359,8 @@ main() {
     echo ""
 
     test_skill_under_500_lines
-    test_scoring_formula_max_denominator_is_27
-    test_cmd_validates_exactly_9_dimensions_in_phase1
+    test_scoring_formula_max_denominator_is_30
+    test_cmd_validates_exactly_10_dimensions_in_phase1
     test_cmd_documents_context_anchor_window_size_3
     test_cmd_documents_budget_thresholds_500_lines_5000_words
     test_rubric_score_range_1_to_3
@@ -1373,7 +1373,7 @@ main() {
     test_rubric_no_empty_table_cells
     test_skill_has_reference_file_error_handling
     test_cmd_validates_score_values_1_2_3_only
-    test_cmd_lists_all_9_canonical_dimension_names
+    test_cmd_lists_all_10_canonical_dimension_names
     test_cmd_validates_suggestion_non_null_when_score_below_3
     test_cmd_validates_suggestion_null_when_score_3
     test_skill_change_tag_attribute_order_fixed
@@ -1404,20 +1404,20 @@ main() {
     echo "--- Dimension 5: Mutation Mindset ---"
     echo ""
 
-    test_skill_lists_all_9_dimension_names
+    test_skill_lists_all_10_dimension_names
     test_skill_report_template_has_required_fields
     test_skill_severity_mapping_documented
     test_guidelines_has_skills_subsection
     test_guidelines_has_agents_subsection
     test_guidelines_has_commands_subsection
-    test_cmd_score_formula_contains_27_and_100
+    test_cmd_score_formula_contains_30_and_100
     test_cmd_accept_some_unselected_retain_original
     test_cmd_accept_some_simultaneous_replacement
     test_cmd_accept_some_residual_tag_stripping
     test_skill_pass_dimensions_no_change_tags
     test_cmd_merge_adjacent_flag_documented
     test_skill_preservation_rule_documented
-    test_skill_canonical_name_mapping_table_has_9_entries
+    test_skill_canonical_name_mapping_table_has_10_entries
     test_skill_prohibited_section_pins_scoring_to_rubric
 
     echo ""

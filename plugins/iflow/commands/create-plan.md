@@ -5,13 +5,9 @@ argument-hint: "[--feature=<id-slug>]"
 
 Invoke the planning skill for the current feature context.
 
-## Config Variables
-Use these values from session context (injected at session start):
-- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+## Static Reference
 
-Read {iflow_artifacts_root}/features/ to find active feature, then follow the workflow below.
-
-## Workflow Integration
+<!-- Placeholder: static content injected here for prompt cache efficiency -->
 
 ### 1-3. Validate, Branch Check, Partial Recovery, Mark Started
 
@@ -28,14 +24,14 @@ BLOCKED: Valid design.md required before planning.
 ```
 Stop execution. Do not proceed.
 
-### 4. Execute with Two-Stage Reviewer Loop
+### 4. Execute with Two-Step Reviewer Loop
 
 Max iterations: 5.
 
 **Resume state initialization:**
 Initialize `resume_state = {}` at the start of the review loop. This dict tracks per-role agent context for resume across iterations. Keys: `"plan-reviewer"`, `"phase-reviewer"`. Each entry: `{ agent_id, iteration1_prompt_length, last_iteration, last_commit_sha }`.
 
-#### Stage 1: Plan-Reviewer Cycle (Skeptical Review)
+#### Step 1: Plan-Reviewer Cycle (Skeptical Review)
 
 a. **Produce artifact:** Follow the planning skill to create/revise plan.md
 
@@ -148,23 +144,23 @@ c. **Parse response:** Extract `approved` field.
 d. **Branch on result (strict threshold):**
    - **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
    - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
-   - If PASS → Proceed to Stage 2
+   - If PASS → Proceed to Step 2
    - If FAIL AND iteration < max:
-     - Append to `.review-history.md` with "Stage 1: Plan Review" marker
+     - Append to `.review-history.md` with "Step 1: Plan Review" marker
      - Address all blocker AND warning issues, return to 4b
    - If FAIL AND iteration == max:
      - Note concerns in `.meta.json` reviewerNotes
-     - Proceed to Stage 2 with warning
+     - Proceed to Step 2 with warning
 
-#### Stage 2: Chain-Reviewer Validation (Execution Readiness)
+#### Step 2: Chain-Reviewer Validation (Execution Readiness)
 
-Phase-reviewer iteration budget: max 5 (independent of Stage 1).
+Phase-reviewer iteration budget: max 5 (independent of Step 1).
 
 Set `phase_iteration = 1`.
 
 e. **Invoke phase-reviewer**:
 
-   **PRD resolution (I8):** Before dispatching, resolve the PRD reference (same logic as Stage 1).
+   **PRD resolution (I8):** Before dispatching, resolve the PRD reference (same logic as Step 1).
 
    **Dispatch decision for phase-reviewer:**
 
@@ -277,7 +273,7 @@ g. **Branch on result (strict threshold):**
    - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
    - If PASS → Proceed to step 4h
    - If FAIL AND phase_iteration < 5:
-     - Append to `.review-history.md` with "Stage 2: Chain Review" marker
+     - Append to `.review-history.md` with "Step 2: Chain Review" marker
      - Increment phase_iteration
      - Address all blocker AND warning issues
      - Return to 4e
@@ -289,7 +285,7 @@ h. **Complete phase:** Proceed to auto-commit, then update state.
 
 ### 4a. Capture Review Learnings (Automatic)
 
-**Trigger:** Only execute if the review loop ran 2+ iterations (across Stage 1 and/or Stage 2 combined). If approved on first pass in both stages, skip — no review learnings to capture.
+**Trigger:** Only execute if the review loop ran 2+ iterations (across Step 1 and/or Step 2 combined). If approved on first pass in both steps, skip — no review learnings to capture.
 
 **Process:**
 1. Read `.review-history.md` entries for THIS phase only (plan-reviewer and phase-reviewer entries)
@@ -340,7 +336,7 @@ AskUserQuestion:
     "options": [
       {"label": "Continue to /iflow:create-tasks (Recommended)", "description": "Break plan into actionable tasks"},
       {"label": "Review plan.md first", "description": "Inspect the plan before continuing"},
-      {"label": "Fix and rerun reviews", "description": "Apply fixes then rerun Stage 1 + Stage 2 review cycle"}
+      {"label": "Fix and rerun reviews", "description": "Apply fixes then rerun Step 1 + Step 2 review cycle"}
     ],
     "multiSelect": false
   }]
@@ -348,4 +344,10 @@ AskUserQuestion:
 
 If "Continue to /iflow:create-tasks (Recommended)": Invoke `/iflow:create-tasks`
 If "Review plan.md first": Show "Plan at {path}/plan.md. Run /iflow:create-tasks when ready." → STOP
-If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to plan.md, then reset `resume_state = {}` (clear all entries — the user has made manual edits outside the review loop, so prior agent contexts are stale) and return to Step 4 (Stage 1 plan-reviewer) with iteration counters reset to 0.
+If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to plan.md, then reset `resume_state = {}` (clear all entries — the user has made manual edits outside the review loop, so prior agent contexts are stale) and return to Step 4 (Step 1 plan-reviewer) with iteration counters reset to 0.
+
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
+Read {iflow_artifacts_root}/features/ to find active feature, then follow the workflow below.

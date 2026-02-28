@@ -1,6 +1,6 @@
 # Prompt Engineering Guidelines
 
-## Last Updated: 2026-02-24
+## Last Updated: 2026-02-28
 
 ## Core Principles
 1. **Be explicit, not implicit** — State requirements directly [Anthropic Claude 4.x guide]
@@ -33,6 +33,21 @@
 - **Structure:** Frontmatter (description + argument-hint) → Conditional routing → Delegation to skills/agents → Completion [Codebase analysis]
 - **Argument handling:** Use $ARGUMENTS for direct input, AskUserQuestion for interactive selection when no args [Codebase analysis]
 - **Delegation pattern:** Task tool for agent dispatch, Skill tool for skill invocation [Codebase analysis]
+
+## Tool Use Prompting
+- **Structured parameter descriptions** — When defining tool parameters, provide explicit type annotations, constraints, and example values rather than free-text descriptions. Structured descriptions reduce parameter misuse and improve first-call accuracy. [Anthropic tool use documentation]
+- **Explicit sequencing for multi-tool workflows** — When a task requires multiple tool calls in sequence, state the order and data flow explicitly: "First call Tool A to get X, then pass X to Tool B." LLMs do not reliably infer multi-step tool orchestration from implicit context. [Anthropic tool use documentation]
+- **Tool scoping** — List only the tools the agent needs. Excess available tools increase selection errors. Read-only agents get read-only tools; write agents get write tools. [Anthropic tool use documentation]
+
+## System vs Human Turn Placement
+- **Static content in system turn, dynamic content in human turn** — Place unchanging instructions, templates, schemas, and rules in the system prompt. Place user input, feature context, iteration state, and session-specific data in the human turn. This separation maximizes prompt cache hit rates on the static prefix. [Anthropic Claude 4.x best practices]
+- **Long reference data at top of context** — When injecting large reference material (rubrics, schemas, routing tables), place it at the beginning of the system prompt. Claude 4.x models attend more reliably to content at the start and end of context than to content in the middle. [Anthropic Claude 4.x best practices]
+- **Agentic reminders at bottom** — For agentic tasks, repeat critical constraints at the end of the prompt (after all context) to reinforce compliance. This complements the top-placement of reference data. [Anthropic Claude 4.x best practices, OpenAI GPT-4.1 Guide]
+
+## Negative Framing Guidance
+- **Prefer positive instructions** — Frame instructions as "Do X" rather than "Don't do Y." Claude 4.x models comply more reliably with affirmative directives than with negations. Example: "Use imperative mood for all instructions" instead of "Don't use passive voice." [Anthropic Claude 4.x best practices]
+- **Exception: hard safety constraints** — PROHIBITED and MUST NOT sections are the appropriate place for negative framing. When a behavior must be absolutely prevented (data deletion, secret exposure, destructive operations), explicit negation is clearer and more enforceable than a positive restatement. [Anthropic Claude 4.x best practices]
+- **Avoid double negatives** — "Do not skip validation" is harder to parse than "Always run validation." Convert double negatives to direct affirmative statements. [Anthropic Claude 4.x best practices]
 
 ## Persuasion Techniques
 - **Authority:** Use "the system" or established norms, not "I think" [persuasion-principles.md]
@@ -69,4 +84,5 @@
 ## Update Log
 | Date | Changes | Sources |
 |------|---------|---------|
+| 2026-02-28 | Added Tool Use Prompting, System vs Human Turn Placement, and Negative Framing Guidance sections (Feature 033, AC-2) | Anthropic tool use docs, Anthropic Claude 4.x best practices |
 | 2026-02-24 | Initial seed from PRD research + codebase analysis + component-authoring.md + anthropic-best-practices.md + persuasion-principles.md | The Prompt Report, Anthropic docs, OpenAI GPT-4.1 Guide, codebase patterns |

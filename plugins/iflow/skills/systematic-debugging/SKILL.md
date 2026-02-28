@@ -13,11 +13,11 @@ Random fixes waste time and create new bugs.
 NO FIXES WITHOUT ROOT CAUSE INVESTIGATION FIRST
 ```
 
-If you haven't completed Phase 1, you cannot propose fixes.
+If you haven't completed Stage 1, you cannot propose fixes.
 
 ## The Four Phases
 
-### Phase 1: Root Cause Investigation
+### Stage 1: Root Cause Investigation
 
 **Before ANY fix:**
 
@@ -26,19 +26,19 @@ If you haven't completed Phase 1, you cannot propose fixes.
 3. **Check recent changes** - What changed that could cause this?
 4. **Trace data flow** - Where does the bad value originate?
 
-### Phase 2: Pattern Analysis
+### Stage 2: Pattern Analysis
 
 1. **Find working examples** - Similar working code in same codebase
 2. **Compare against references** - Read reference implementation completely
 3. **Identify differences** - What's different between working and broken?
 
-### Phase 3: Hypothesis and Testing
+### Stage 3: Hypothesis and Testing
 
 1. **Form single hypothesis** - "I think X is the root cause because Y"
 2. **Test minimally** - Make SMALLEST possible change
 3. **Verify before continuing** - Did it work? If not, new hypothesis
 
-### Phase 4: Implementation
+### Stage 4: Implementation
 
 1. **Create failing test** - Reproduce the bug in a test
 2. **Implement single fix** - Address root cause, ONE change
@@ -52,7 +52,7 @@ If you haven't completed Phase 1, you cannot propose fixes.
 - Proposing solutions before investigation
 - "One more fix attempt" (after 2+ failures)
 
-**ALL mean: Return to Phase 1.**
+**ALL mean: Return to Stage 1.**
 
 ## Common Rationalizations
 
