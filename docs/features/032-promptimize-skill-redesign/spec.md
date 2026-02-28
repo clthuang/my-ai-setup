@@ -84,13 +84,13 @@ modified content
 
 **R2.4** Pass dimensions (score=3) MUST NOT have `<change>` tags — their content remains unchanged.
 
-**R2.5** The Phase 2 instructions MUST instruct the LLM to preserve all text outside `<change>` tags byte-identical to the original file. The command verifies this using the context-line matching mechanism from R4.2: for every `<change>` block (treating all dimensions as if selected), locate the corresponding original region via context anchors. Replace each `<change>` block with the matched original text. The result must be byte-identical to the original file (after stripping trailing whitespace per line and ignoring blank-line differences at file boundaries). If not, drift is present. The drift check runs before presenting the approval menu. If drift is detected, the "Accept some" option is removed (only "Accept all" and "Reject" are shown) with a warning explaining why partial acceptance is unavailable. "Accept all" always applies the full Phase 2 output regardless of drift.
+**R2.5** The Phase 2 instructions MUST instruct the LLM to preserve all text outside `<change>` tags byte-identical to the original file. The command verifies this using the same anchor-matching mechanism defined in R4.2: for every `<change>` block (treating all dimensions as if selected), locate the corresponding original region via 3-line context anchors. The original text between the before-anchor and after-anchor is the region that the `<change>` block replaces. Substitute each `<change>` block with its matched original text. The result must be byte-identical to the original file (after stripping trailing whitespace per line and ignoring blank-line differences at file boundaries). If not, drift is present. The drift check runs before presenting the approval menu. If drift is detected, the "Accept some" option is removed (only "Accept all" and "Reject" are shown) with a warning explaining why partial acceptance is unavailable. "Accept all" always applies the full Phase 2 output regardless of drift.
 
 ### R3: Score Calculation Outside LLM
 
 **R3.1** The LLM MUST NOT compute the overall score. Phase 1 outputs raw integer scores (1-3) per dimension.
 
-**R3.2** The command (`promptimize.md`) computes the overall score: `Math.round((sum of scores / 27) * 100)`.
+**R3.2** The command (`promptimize.md`) computes the overall score: `round((sum_of_scores / 27) * 100)` to the nearest integer.
 
 **R3.3** Auto-passed dimensions contribute a fixed score of 3 to the sum, as currently specified.
 
@@ -104,7 +104,7 @@ modified content
 1. Parse `<change>` XML tags from the Phase 2 output to identify changed regions by dimension. For each `<change>` block, record: (a) the 3 context lines immediately preceding the `<change>` tag (or fewer if near file start), (b) the 3 context lines immediately following the `</change>` tag (or fewer if near file end), and (c) the content between the tags.
 2. Present each dimension as a multiSelect option (unchanged from current UX). Overlapping dimensions (comma-separated in the `dimension` attribute per R2.3) are presented as a single inseparable option with all dimension names shown. Selecting or deselecting applies to all overlapping dimensions together.
 3. Start from the original file content (`original_content` retained from reference loading).
-4. For **selected** dimensions: find the unique occurrence of the before-context + after-context anchor lines in the original file. The original text between those context anchors is replaced with the `<change>` block content. All replacements are computed against the original file simultaneously (not sequentially) to avoid line-offset drift from earlier replacements. If two `<change>` blocks have overlapping context anchor regions in the original file (their 3-line before/after windows intersect), treat the match as non-unique and degrade to Accept all / Reject.
+4. For **selected** dimensions: find the unique occurrence of the before-context + after-context anchor lines in the original file. The original text between those context anchors is replaced with the `<change>` block content. All replacements are computed against the original file simultaneously (not sequentially) to avoid line-offset drift from earlier replacements. Accepted change regions are applied in original-file order (by line number of their anchor match) so the assembled file is coherent top-to-bottom. If two `<change>` blocks have overlapping context anchor regions in the original file (their 3-line before/after windows intersect), treat the match as non-unique and degrade to Accept all / Reject.
 5. If before+after context is not uniquely matched in the original (zero matches, multiple matches, or overlapping anchor regions) for any block, warn the user and degrade to Accept all / Reject.
 
 **R4.3** The command MUST validate `<change>` tag structure before attempting partial acceptance. Validation rules: (1) every `<change ...>` tag has a corresponding `</change>` tag, (2) `<change>` tags are not nested, (3) each `<change>` tag has a non-empty `dimension` attribute, and (4) tag pairs do not overlap with other tag pairs. Use regex-based validation, not a full XML parser, since the tags are embedded in Markdown. If validation fails, degrade to Accept all / Reject with warning.
@@ -136,13 +136,13 @@ modified content
 
 - [ ] **AC1a:** Running `/iflow:promptimize` on a skill file produces output containing `<phase1_output>` with valid JSON matching the R1.2 schema (exactly 9 dimension entries) and `<phase2_output>` with a complete file containing `<change>` XML tags.
 - [ ] **AC1b:** (Code review) The skill's Phase 2 section wraps the Phase 1 JSON in a `<grading_result>` block in its prompt instructions.
-- [ ] **AC2:** Given Phase 1 JSON with dimension scores [3, 2, 1, 3, 2, 3, 3, 3, 2], the report shows overall score = `Math.round((22/27)*100)` = 81. The score is computed by the command, not present in any LLM output.
+- [ ] **AC2:** Given Phase 1 JSON with dimension scores [3, 2, 1, 3, 2, 3, 3, 3, 2], the report shows overall score = `round((22/27)*100)` = 81. The score is computed by the command, not present in any LLM output.
 - [ ] **AC3:** Given a file with 3 dimensions scoring partial/fail (A, B, C) and Phase 2 output containing `<change dimension="A">`, `<change dimension="B">`, `<change dimension="C">` blocks — when the user selects dimensions A and C in Accept some, the output file contains the modified content from A and C blocks and the original content for the B region, with zero residual `<change>` tags.
 - [ ] **AC4:** Malformed `<change>` tags trigger the fallback warning and degrade to Accept all / Reject.
 - [ ] **AC5:** "Accept all" produces a clean file with no residual XML tags.
 - [ ] **AC6:** Auto-passed dimensions score 3 and have no `<change>` tags in the output.
 - [ ] **AC7:** YOLO mode auto-selects "Accept all" without prompting.
-- [ ] **AC8:** The staleness check and over-budget warning still function correctly.
+- [ ] **AC8:** Given Phase 1 JSON where `staleness_warning: true`, the report includes a staleness notice. Given Phase 2 output exceeding 500 lines or 5,000 tokens (after stripping `<change>` tags), the report includes an over-budget warning.
 - [ ] **AC9:** `./validate.sh` passes after changes.
 - [ ] **AC10:** If Phase 2 output has text drift outside `<change>` blocks (differs from original after stripping trailing whitespace per line and ignoring blank-line differences at file boundaries), the command removes the "Accept some" option and warns the user. "Accept all" and "Reject" remain available.
 
