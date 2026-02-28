@@ -259,7 +259,7 @@ The redesign moves several responsibilities from SKILL.md to the command. Nine e
 
 ### Implementation Notes
 
-- After updating/adding/deleting test functions, update the `main()` function at the bottom of the file: remove the call to `test_skill_has_yolo_mode_overrides`, and add calls to the 7 new test functions in the appropriate dimension section.
+- After updating/adding/deleting test functions, update the `main()` function at the bottom of the file: rename the call from `test_skill_documents_change_end_change_format` to `test_skill_uses_xml_not_html_markers`, remove the call to `test_skill_has_yolo_mode_overrides`, and add calls to the 7 new test functions in the appropriate dimension section.
 
 ### Verification
 
@@ -284,7 +284,7 @@ The redesign moves several responsibilities from SKILL.md to the command. Nine e
 3. **Cross-file consistency checks:**
    - SKILL.md no longer contains: HTML `<!-- CHANGE -->` markers, score calculation, approval logic, YOLO overrides section
    - Command references skill output format (`<phase1_output>`, `<phase2_output>`) correctly
-   - `original_content` label is used consistently in command Steps 2.5, 6b, 8c
+   - `original_content` label is used consistently in command Steps 2.5, 6b (drift detection), and 8c
    - All 9 dimension names from I2 are consistent between skill and command
    - TD2 regex pattern in command matches the tag format specified in skill: grep command for `<change\s+dimension=` pattern and confirm skill Phase 2 instructions show an example tag with dimension before rationale
    - Command PROHIBITED section contains all three rules moved from skill: (1) no writing without approval, (2) no skipping approval in non-YOLO mode, (3) no presenting Accept some when tag_validation_failed or drift_detected is true
