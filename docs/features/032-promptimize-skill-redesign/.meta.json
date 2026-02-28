@@ -5,13 +5,24 @@
   "status": "active",
   "created": "2026-02-28T12:00:00+08:00",
   "branch": "feature/032-promptimize-skill-redesign",
-  "lastCompletedPhase": "specify",
+  "lastCompletedPhase": "design",
   "phases": {
     "specify": {
       "completedAt": "2026-02-28T12:30:00+08:00",
       "reviewIterations": {
         "spec-reviewer": 4,
         "phase-reviewer": 2
+      }
+    },
+    "design": {
+      "startedAt": "2026-02-28T13:00:00+08:00",
+      "completedAt": "2026-02-28T14:35:00+08:00",
+      "stages": {
+        "research": { "started": "2026-02-28T13:00:00+08:00", "completed": "2026-02-28T13:05:00+08:00", "skipped": false },
+        "architecture": { "started": "2026-02-28T13:05:00+08:00", "completed": "2026-02-28T13:15:00+08:00" },
+        "interface": { "started": "2026-02-28T13:15:00+08:00", "completed": "2026-02-28T13:25:00+08:00" },
+        "designReview": { "started": "2026-02-28T13:25:00+08:00", "completed": "2026-02-28T14:00:00+08:00", "iterations": 3, "reviewerNotes": [] },
+        "handoffReview": { "started": "2026-02-28T14:00:00+08:00", "completed": "2026-02-28T14:35:00+08:00", "iterations": 5, "approved": false, "reviewerNotes": ["Reversed attribute order test scenario buried in TD2 — should be a named plan task or AC"] }
       }
     }
   }
