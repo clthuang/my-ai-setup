@@ -533,11 +533,11 @@ test_promptimize_cmd_asks_component_type() {
     fi
 }
 
-# derived_from: design:cmd-score (promptimize.md contains score computation with round and 27)
+# derived_from: design:cmd-score (promptimize.md contains score computation with round and 30)
 test_cmd_has_score_computation() {
-    log_test "promptimize.md contains score computation (round and 27)"
+    log_test "promptimize.md contains score computation (round and 30)"
     if [[ ! -f "$PROMPTIMIZE_CMD" ]]; then log_fail "File not found"; return; fi
-    if grep -q 'round' "$PROMPTIMIZE_CMD" && grep -q '27' "$PROMPTIMIZE_CMD"; then log_pass; else log_fail "Missing score computation (round and 27)"; fi
+    if grep -q 'round' "$PROMPTIMIZE_CMD" && grep -q '30' "$PROMPTIMIZE_CMD"; then log_pass; else log_fail "Missing score computation (round and 30)"; fi
 }
 
 # derived_from: design:cmd-drift (promptimize.md contains drift_detected)

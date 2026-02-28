@@ -116,10 +116,10 @@ Extract the content between `<phase2_output>` and `</phase2_output>` tags from t
 
 Validate the parsed JSON against the Phase 1 schema:
 
-1. `dimensions` array must contain exactly 9 entries.
+1. `dimensions` array must contain exactly 10 entries.
 2. Each dimension `score` must be an integer: 1, 2, or 3.
 3. Each dimension must have non-empty `name`, `finding`, and `score` fields.
-4. Each `name` must be one of the 9 canonical dimension names:
+4. Each `name` must be one of the 10 canonical dimension names:
    - `structure_compliance`
    - `token_economy`
    - `description_quality`
@@ -129,6 +129,7 @@ Validate the parsed JSON against the Phase 1 schema:
    - `example_quality`
    - `progressive_disclosure`
    - `context_engineering`
+   - `cache_friendliness`
 5. Suggestion constraint: if `score < 3` then `suggestion` must be non-null (a string). If `score == 3` then `suggestion` must be null.
 6. `component_type`, `guidelines_date`, and `staleness_warning` fields must be present.
 
@@ -142,13 +143,14 @@ Then STOP.
 
 ### Step 5: Compute score
 
-Sum all 9 dimension scores from the Phase 1 JSON `dimensions` array.
+Sum all 10 dimension scores from the Phase 1 JSON `dimensions` array.
 
-Compute the overall score: `round((sum / 27) * 100)` to the nearest integer.
+<!-- Trivial-math exception: sum of 10 integers [1-3] + divide by 30 + round. Deterministic, no ambiguity. See SC-5 refinement. -->
+Compute the overall score: `round((sum / 30) * 100)` to the nearest integer.
 
 Store as `overall_score`.
 
-Example: scores [3, 2, 1, 3, 2, 3, 3, 3, 2] --> sum = 22, overall_score = round((22/27) * 100) = 81.
+Example: scores [3, 2, 1, 3, 2, 3, 3, 3, 2, 2] --> sum = 24, overall_score = round((24/30) * 100) = 80.
 
 ### Step 6a: Validate change tag structure
 
