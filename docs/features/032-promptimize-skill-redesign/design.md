@@ -183,7 +183,10 @@ Key shift: The command becomes the orchestrator. It handles all focused, single-
 - Otherwise present AskUserQuestion with options based on validation state:
   - Always: "Accept all", "Reject"
   - Only if `tag_validation_failed == false` AND `drift_detected == false`: "Accept some"
-  - If either flag is true: show warning explaining why "Accept some" is unavailable
+  - If either flag is true: show warning explaining why "Accept some" is unavailable. Use distinct messages per cause:
+    - Tag validation failure: "Partial acceptance unavailable: `<change>` tag structure is malformed."
+    - Drift detected: "Partial acceptance unavailable: text outside change blocks differs from original."
+    - Anchor match failure (from C9 degradation): "Partial acceptance unavailable: could not uniquely match change regions to original file."
 
 ### C9: Command — Merge Engine (Accept Some)
 
@@ -420,7 +423,7 @@ Unchanged content here (content-equivalent to original).
 - `dimension`: required, non-empty. Single dimension name or comma-separated for overlapping. MUST appear before `rationale` — attribute order is significant for regex parsing (see TD2).
 - `rationale`: required, can be empty string. MUST appear after `dimension`.
 
-**Enforcement in SKILL.md:** Phase 2 instructions must include an explicit example of the tag format with `dimension` first (e.g., `<change dimension="token_economy" rationale="Remove redundant preamble">`) and a rule stating: "Attribute order is fixed: dimension, then rationale. Do not reorder." This gives the LLM an unambiguous pattern to follow and the implementer a concrete authoring target.
+**Enforcement in SKILL.md (critical implementation detail):** Phase 2 instructions must include an explicit example of the tag format with `dimension` first (e.g., `<change dimension="token_economy" rationale="Remove redundant preamble">`) and a rule stating: "Attribute order is fixed: dimension, then rationale. Do not reorder." This is a named implementation item — not implied by the general rewrite task — because the regex pattern in TD2 silently fails if attributes are reordered.
 
 **Constraints:**
 - No nesting of `<change>` tags
@@ -451,7 +454,7 @@ The command's new orchestration flow:
 ```
 Step 1: Check for direct path argument
 Step 2: Interactive component selection (unchanged)
-Step 2.5: Read the target file and store as original_content. This is a fresh read using the resolved file path from Steps 1-2 — it cannot reuse any content from file selection because selection only identifies the path, not the full content. Needed for drift detection, merge, and accept-all. If file read fails, display error and STOP.
+Step 2.5: Read the target file and store as `original_content`. This is a fresh read using the resolved file path from Steps 1-2 — it cannot reuse any content from file selection because selection only identifies the path, not the full content. Needed for drift detection (Step 6b), merge (Step 8c/C9), and accept-all (Step 8c/C10). If file read fails, display error and STOP. Note: All subsequent steps MUST reference this data by the exact label `original_content` for consistency.
 Step 3: Invoke skill (pass file path). Skill output appears in conversation context.
 Step 4: Parse skill output
   4a: Extract <phase1_output> → Phase 1 JSON
