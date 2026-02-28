@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.1] - 2026-02-28
+
+### Changed
+- Redesigned promptimize skill: decomposed God Prompt into two-pass flow (Grade + Rewrite) for reliability
+- Replaced HTML comment change markers with XML tags in promptimize output
+- Moved score calculation from LLM to command-side deterministic computation
+- Replaced brittle string-replacement merge with XML-tag-based change extraction
+- Added inline comments and missing fields to config template and local config
+
 ## [4.3.0] - 2026-02-28
 
 ### Changed
