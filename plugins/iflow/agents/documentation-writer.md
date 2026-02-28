@@ -44,7 +44,7 @@ You receive:
 5. **Doc schema reference** - content of doc-schema.md (injected by caller)
 6. **ADR context** - design.md Technical Decisions + spec.md Problem Statement + existing ADR list (finish-feature and generate-docs only)
 
-Mode-specific instructions (scaffold vs incremental behavior) are injected by the calling command/skill in the dispatch prompt context, NOT defined in this agent file. See the Mode section in your dispatch context for behavioral branching.
+The calling command/skill injects mode-specific instructions (scaffold vs incremental behavior) in the dispatch prompt context — NOT defined in this agent file. See the Mode section in your dispatch context for behavioral branching.
 
 ## Section Marker Handling
 

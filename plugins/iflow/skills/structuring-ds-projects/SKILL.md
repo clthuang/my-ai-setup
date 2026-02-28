@@ -66,7 +66,7 @@ project-name/
 - Two-digit prefix for ordering
 - Author initials for attribution
 - Lowercase, hyphenated description
-- Notebooks should be sequentially executable (01 before 02 before 03)
+- Notebooks must execute sequentially (01 before 02 before 03)
 
 See [notebook-conventions.md](references/notebook-conventions.md) for header template and cell ordering.
 

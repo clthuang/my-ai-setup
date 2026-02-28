@@ -208,7 +208,7 @@ Quality criteria and review checklists for workflow artifacts.
 - [ ] Every plan item has task(s)
 - [ ] No orphaned tasks
 - [ ] No scope creep
-- [ ] Task count reasonable
+- [ ] Task count between 3 and 50
 
 ---
 
@@ -227,7 +227,7 @@ Quality criteria and review checklists for workflow artifacts.
 
 ## Usage by Phase Reviewer
 
-When phase-reviewer validates artifact transitions, apply the appropriate checklist:
+When phase-reviewer validates artifact transitions, apply the matching checklist:
 
 ### prd.md → spec.md (brainstorm → specify)
 

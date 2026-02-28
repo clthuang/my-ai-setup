@@ -18,14 +18,14 @@ If `[YOLO_MODE]` is active:
 
 Follow `validateAndSetup("specify")` from the **workflow-transitions** skill.
 
-### 4. Execute with Two-Stage Reviewer Loop
+### 4. Execute with Two-Step Reviewer Loop
 
 Max iterations: 5.
 
 **Resume state initialization:**
 Initialize `resume_state = {}` at the start of the review loop. This dict tracks per-role agent context for resume across iterations. Keys: `"spec-reviewer"`, `"phase-reviewer"`. Each entry: `{ agent_id, iteration1_prompt_length, last_iteration, last_commit_sha }`.
 
-#### Stage 1: Spec-Reviewer Review (Quality Gate)
+#### Step 1: Spec-Reviewer Review (Quality Gate)
 
 a. **Produce artifact:** Follow the specifying skill to create/revise spec.md
 
@@ -152,25 +152,25 @@ c. **Parse response:** Extract the `approved` field from reviewer's JSON respons
 d. **Branch on result (strict threshold):**
    - **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
    - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
-   - If PASS → Proceed to Stage 2
+   - If PASS → Proceed to Step 2
    - If FAIL AND iteration < max:
-     - Append iteration to `.review-history.md` with "Stage 1: Spec-Reviewer Review" marker
+     - Append iteration to `.review-history.md` with "Step 1: Spec-Reviewer Review" marker
      - Increment iteration counter
      - Address all blocker AND warning issues by revising spec.md
      - Return to step 4b
    - If FAIL AND iteration == max:
      - Note concerns in `.meta.json` reviewerNotes
-     - Proceed to Stage 2 with warning
+     - Proceed to Step 2 with warning
 
-#### Stage 2: Phase-Reviewer Validation (Handoff Gate)
+#### Step 2: Phase-Reviewer Validation (Handoff Gate)
 
-Phase-reviewer iteration budget: max 5 (independent of Stage 1).
+Phase-reviewer iteration budget: max 5 (independent of Step 1).
 
 Set `phase_iteration = 1`.
 
 e. **Invoke phase-reviewer:**
 
-   **PRD resolution (I8):** Before dispatching, resolve the PRD reference (same logic as Stage 1).
+   **PRD resolution (I8):** Before dispatching, resolve the PRD reference (same logic as Step 1).
 
    **Dispatch decision for phase-reviewer:**
 
@@ -288,7 +288,7 @@ f. **Branch on result (strict threshold):**
    - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
    - If PASS → Proceed to auto-commit
    - If FAIL AND phase_iteration < 5:
-     - Append to `.review-history.md` with "Stage 2: Phase Review" marker
+     - Append to `.review-history.md` with "Step 2: Phase Review" marker
      - Increment phase_iteration
      - Address all blocker AND warning issues
      - Return to step e
@@ -300,7 +300,7 @@ g. **Complete phase:** Proceed to auto-commit, then update state.
 
 ### 4a. Capture Review Learnings (Automatic)
 
-**Trigger:** Only execute if the review loop ran 2+ iterations (across Stage 1 and/or Stage 2 combined). If approved on first pass in both stages, skip — no review learnings to capture.
+**Trigger:** Only execute if the review loop ran 2+ iterations (across Step 1 and/or Step 2 combined). If approved on first pass in both stages, skip — no review learnings to capture.
 
 **Process:**
 1. Read `.review-history.md` entries for THIS phase only (spec-reviewer and phase-reviewer entries)
@@ -322,7 +322,7 @@ g. **Complete phase:** Proceed to auto-commit, then update state.
 
 **Budget:** Max 3 entries per review cycle to avoid noise.
 
-**Circuit breaker capture:** If review loop hit max iterations (cap reached) in either stage, also capture a single entry:
+**Circuit breaker capture:** If review loop hit max iterations (cap reached) in either step, also capture a single entry:
 - `name`: "Specify review cap: {brief issue category}"
 - `description`: summary of unresolved issues that prevented approval
 - `category`: "anti-patterns"
@@ -338,7 +338,7 @@ Follow `commitAndComplete("specify", ["spec.md"])` from the **workflow-transitio
 
 **Review History Entry Format** (append to `.review-history.md`):
 ```markdown
-## {Stage 1: Spec-Reviewer Review | Stage 2: Phase Review} - Iteration {n} - {ISO timestamp}
+## {Step 1: Spec-Reviewer Review | Step 2: Phase Review} - Iteration {n} - {ISO timestamp}
 
 **Reviewer:** {spec-reviewer (skeptic) | phase-reviewer (gatekeeper)}
 **Decision:** {Approved / Needs Revision}
@@ -365,7 +365,7 @@ AskUserQuestion:
     "options": [
       {"label": "Continue to /iflow:design (Recommended)", "description": "Create architecture design"},
       {"label": "Review spec.md first", "description": "Inspect the spec before continuing"},
-      {"label": "Fix and rerun reviews", "description": "Apply fixes then rerun Stage 1 + Stage 2 review cycle"}
+      {"label": "Fix and rerun reviews", "description": "Apply fixes then rerun Step 1 + Step 2 review cycle"}
     ],
     "multiSelect": false
   }]
@@ -373,7 +373,7 @@ AskUserQuestion:
 
 If "Continue to /iflow:design (Recommended)": Invoke `/iflow:design`
 If "Review spec.md first": Show "Spec at {path}/spec.md. Run /iflow:design when ready." → STOP
-If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to spec.md, then reset `resume_state = {}` (clear all entries — the user has made manual edits outside the review loop, so prior agent contexts are stale) and return to Step 4 (Stage 1 spec-reviewer) with iteration counters reset to 0.
+If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to spec.md, then reset `resume_state = {}` (clear all entries — the user has made manual edits outside the review loop, so prior agent contexts are stale) and return to Step 4 (Step 1 spec-reviewer) with iteration counters reset to 0.
 
 ## Config Variables
 Use these values from session context (injected at session start):

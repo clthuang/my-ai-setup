@@ -97,7 +97,7 @@ Task tool call:
     - Existing docs that may need updates
     - What user-visible changes were made
     - What documentation patterns exist in project
-    - Ground truth drift: detect project type and run the appropriate drift detection strategy
+    - Ground truth drift: detect project type and run the matching drift detection strategy
 
     Return findings as structured JSON.
 ```

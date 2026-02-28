@@ -22,7 +22,7 @@ If the mode value is unrecognized, default to `ask-first`.
 
 ## Trigger Patterns
 
-Watch for these five patterns during normal interaction. Each is a signal that a learning should be captured.
+Watch for these five patterns during normal interaction. Each is a signal that capture a learning.
 
 ### 1. User Corrects Model Behavior
 
@@ -32,7 +32,7 @@ The user explicitly tells you to stop doing something or always do something dif
 
 ### 2. Unexpected System Behavior Discovered
 
-You encounter system behavior that contradicts documentation or reasonable expectations.
+You encounter system behavior that contradicts documentation or stated expectations.
 
 **Example:** "FTS5 query fails on special characters — need to escape them first"
 

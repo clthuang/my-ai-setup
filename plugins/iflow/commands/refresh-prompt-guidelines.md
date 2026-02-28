@@ -69,7 +69,7 @@ Parse agent output as `{findings: [{finding, source, relevance}]}`.
 Compare each finding against existing guidelines. A finding overlaps an existing guideline if it references the same technique by name or describes the same behavioral pattern.
 
 - **Overlapping findings** — merge (update the existing entry with new evidence or citations).
-- **New findings** — append to the appropriate section.
+- **New findings** — append to the matching section.
 - **When in doubt** — append rather than merge.
 
 ### Step 5: Synthesize

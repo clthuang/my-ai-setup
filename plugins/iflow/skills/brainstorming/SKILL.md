@@ -12,7 +12,7 @@ Guide divergent thinking through a structured 6-stage process that produces a PR
 If `[YOLO_MODE]` is active in the execution context:
 
 - **Stage 1 (CLARIFY):** Skip Q&A. Infer all 5 required items from the user's description.
-  Use reasonable defaults for anything not inferable. Do NOT ask any questions.
+  Use conventional defaults for anything not inferable. Do NOT ask any questions.
 - **Step 6 (Problem Type):** Auto-select "Product/Feature"
 - **Step 10 (Clarity Gate):** Skip entirely
 - **Stages 2-5:** Run normally (research, drafting, and reviews still execute for quality)

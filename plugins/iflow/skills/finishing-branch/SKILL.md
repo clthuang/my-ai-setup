@@ -16,7 +16,7 @@ Use these values from session context (injected at session start):
 
 The default base branch is `{iflow_base_branch}`. Feature branches merge to `{iflow_base_branch}`.
 
-If `{iflow_release_script}` is configured, releases are handled by that script.
+If `{iflow_release_script}` is configured, that script handles releases.
 
 ## Core Principle
 

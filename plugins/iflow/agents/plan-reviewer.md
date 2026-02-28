@@ -218,7 +218,7 @@ NOT: "Can we approve this and figure it out later?"
 
 | Iteration | Focus |
 |-----------|-------|
-| 1 | Find all issues, especially blockers. Be thorough. |
+| 1 | Find all issues, especially blockers. Check all items. |
 | 2 | Verify previous issues are fixed. Look for new issues introduced by fixes. |
 | 3 | Final check. Only blockers prevent approval. Be pragmatic. |
 

@@ -19,7 +19,7 @@ If `[YOLO_MODE]` is active:
 - Step 2a (tasks incomplete) → auto "Continue anyway"
 - Step 2b (scaffold gate) → auto-select Skip
 - Step 2b (researcher no_updates_needed + empty affected_tiers) → auto-select Skip
-- Phase 4 (completion decision) → auto "Merge & Release (Recommended)" (or "Merge (Recommended)" if `{iflow_release_script}` is not configured)
+- Step 4 (completion decision) → auto "Merge & Release (Recommended)" (or "Merge (Recommended)" if `{iflow_release_script}` is not configured)
 - **Git merge failure:** STOP and report. Do NOT attempt to resolve merge conflicts
   autonomously. Output: "YOLO MODE STOPPED: Merge conflict on {iflow_base_branch}. Resolve manually,
   then run /secretary continue"
@@ -30,7 +30,7 @@ Same logic as /iflow:show-status command.
 
 ---
 
-## Phase 1: Auto-Commit (with Branch/Phase Checks)
+## Step 1: Auto-Commit (with Branch/Step Checks)
 
 ### Steps 1a-1c: Branch Check, Partial Recovery, Mark Started
 
@@ -47,7 +47,7 @@ Follow `validateAndSetup("finish")` from the **workflow-transitions** skill (ski
 
 ---
 
-## Phase 2: Pre-Completion Reviews
+## Step 2: Pre-Completion Reviews
 
 ### Step 2a: Check Tasks Completion
 
@@ -69,7 +69,7 @@ AskUserQuestion:
   }]
 ```
 
-If "Run /iflow:implement": Execute `/iflow:implement`, then return to Phase 2.
+If "Run /iflow:implement": Execute `/iflow:implement`, then return to Step 2.
 If "Run /iflow:implement until done": Loop `/iflow:implement` until no incomplete tasks, then continue.
 
 ### Step 2b: Documentation Update (Enriched)
@@ -106,7 +106,7 @@ AskUserQuestion:
   }]
 ```
 
-If "Skip" or "Defer": Continue to Phase 3 (no documentation updates).
+If "Skip" or "Defer": Continue to Step 3 (no documentation updates).
 If "Scaffold": Continue with enriched documentation flow below.
 
 **YOLO override:** Auto-select "Skip" (never auto-scaffold during finish-feature).
@@ -180,7 +180,7 @@ AskUserQuestion:
 
 **YOLO override:** Auto-select "Skip documentation".
 
-If "Skip documentation": Continue to Phase 3.
+If "Skip documentation": Continue to Step 3.
 
 #### Writer Dispatch
 
@@ -250,7 +250,7 @@ Task tool call:
       exist on the filesystem but are missing from README.md (or vice versa).
     - Update README.md (root). If plugins/iflow/README.md exists (dev workspace),
       update it too.
-    - Add missing entries to appropriate tables, remove stale entries,
+    - Add missing entries to matching tables, remove stale entries,
       correct component count headers.
 
     CHANGELOG.md:
@@ -273,7 +273,7 @@ git push
 
 ---
 
-## Phase 3: Retrospective (Automatic)
+## Step 3: Retrospective (Automatic)
 
 Run retrospective automatically without asking permission.
 
@@ -298,7 +298,7 @@ Capture session learnings into project CLAUDE.md.
    Invoke the `claude-md-management:revise-claude-md` skill via the Skill tool.
 
 2. **If skill unavailable** (plugin not installed):
-   Log "claude-md-management plugin not installed, skipping CLAUDE.md update." and continue to Phase 4.
+   Log "claude-md-management plugin not installed, skipping CLAUDE.md update." and continue to Step 4.
 
 3. **If changes made:**
    ```bash
@@ -309,7 +309,7 @@ Capture session learnings into project CLAUDE.md.
 
 ---
 
-## Phase 4: Completion Decision
+## Step 4: Completion Decision
 
 Present only two options:
 
@@ -332,7 +332,7 @@ AskUserQuestion:
 
 ---
 
-## Phase 5: Execute Selected Option
+## Step 5: Execute Selected Option
 
 ### Step 5a: Pre-Merge Validation
 
@@ -385,7 +385,7 @@ gh pr create --title "Feature: {slug}" --body "## Summary
 ```
 
 Output: "PR created: {url}"
-→ Continue to Phase 6
+→ Continue to Step 6
 
 ### If "Merge & Release" (or "Merge"):
 
@@ -404,13 +404,13 @@ If `{iflow_release_script}` is set and the file exists at that path, run it:
 Otherwise, skip the release step and output "No release script configured."
 
 Output: "Merged to {iflow_base_branch}." followed by "Release: v{version}" if release script ran, or "No release script configured." if not.
-→ Continue to Phase 6
+→ Continue to Step 6
 
 ---
 
-## Phase 6: Cleanup (Automatic)
+## Step 6: Cleanup (Automatic)
 
-Run automatically after Phase 5 completes.
+Run automatically after Step 5 completes.
 
 ### Step 6a: Update .meta.json
 

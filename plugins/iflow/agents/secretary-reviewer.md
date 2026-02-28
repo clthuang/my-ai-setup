@@ -54,7 +54,7 @@ Read(plugins/{plugin}/agents/{agent-name}.md)
 
 Verify:
 - Agent's described purpose matches the user's intent
-- Agent's tools are sufficient for the task (e.g., a read-only agent can't implement code)
+- Agent's tools match the task requirements (e.g., a read-only agent can't implement code)
 - Agent's examples/triggers align with this type of request
 - Agent isn't designed for a different workflow phase
 
@@ -63,7 +63,7 @@ Verify:
 Scan all discovered agent and skill descriptions for better keyword matches:
 - Extract key terms from user intent (nouns, verbs, domain terms)
 - Compare against each agent's and skill's description and name
-- Flag if another agent or skill has stronger keyword overlap AND appropriate tools
+- Flag if another agent or skill has stronger keyword overlap AND required tools
 - Pay special attention to reviewer vs worker vs researcher categories
 - Also check discovered skills — a skill may be a better fit than an agent if the task matches a workflow pattern
 
@@ -74,7 +74,7 @@ Verify the confidence score is justified:
 | Score Range | Required Evidence |
 |-------------|-------------------|
 | >90% | Near-exact match: agent name/description directly addresses the task |
-| 70-90% | Strong match: clear domain overlap, appropriate tools |
+| 70-90% | Strong match: clear domain overlap, required tools |
 | 50-70% | Partial match: some overlap but scope mismatch possible |
 | <50% | Weak match: should trigger "no suitable match" path |
 

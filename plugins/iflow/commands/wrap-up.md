@@ -18,13 +18,13 @@ If `[YOLO_MODE]` is active:
 - Step 2a (tasks incomplete) → auto "Continue anyway"
 - Step 2b (researcher no_updates_needed + empty affected_tiers) → auto-select Skip
 - Step 2b (docs updates found) → proceed with writer dispatches (no prompt needed)
-- Phase 4 (completion decision) → auto "Merge & Release (Recommended)" (or "Merge (Recommended)" if `{iflow_release_script}` is not configured)
+- Step 4 (completion decision) → auto "Merge & Release (Recommended)" (or "Merge (Recommended)" if `{iflow_release_script}` is not configured)
 - **Git merge failure:** STOP and report. Do NOT attempt to resolve merge conflicts
   autonomously. Output: "YOLO MODE STOPPED: Merge conflict on {iflow_base_branch}. Resolve manually."
 
 ---
 
-## Phase 1: Auto-Commit and Push
+## Step 1: Auto-Commit and Push
 
 ### Step 1a: Commit and Push
 
@@ -37,7 +37,7 @@ If `[YOLO_MODE]` is active:
 
 ---
 
-## Phase 2: Pre-Completion Reviews
+## Step 2: Pre-Completion Reviews
 
 ### Step 2a: Check Task Completion
 
@@ -156,7 +156,7 @@ AskUserQuestion:
 
 **YOLO override:** Auto-select "Skip documentation".
 
-If "Skip documentation": Continue to Phase 3.
+If "Skip documentation": Continue to Step 3.
 
 #### Writer Dispatch
 
@@ -201,7 +201,7 @@ Task tool call:
       exist on the filesystem but are missing from README.md (or vice versa).
     - Update README.md (root). If plugins/iflow/README.md exists (dev workspace),
       update it too.
-    - Add missing entries to appropriate tables, remove stale entries,
+    - Add missing entries to matching tables, remove stale entries,
       correct component count headers.
 
     CHANGELOG.md:
@@ -224,7 +224,7 @@ git push
 
 ---
 
-## Phase 3: Retrospective (Automatic)
+## Step 3: Retrospective (Automatic)
 
 ### Step 3a: Run Retrospective
 
@@ -273,7 +273,7 @@ Capture session learnings into project CLAUDE.md.
    Invoke the `claude-md-management:revise-claude-md` skill via the Skill tool.
 
 2. **If skill unavailable** (plugin not installed):
-   Log "claude-md-management plugin not installed, skipping CLAUDE.md update." and continue to Phase 4.
+   Log "claude-md-management plugin not installed, skipping CLAUDE.md update." and continue to Step 4.
 
 3. **If changes made:**
    ```bash
@@ -284,7 +284,7 @@ Capture session learnings into project CLAUDE.md.
 
 ---
 
-## Phase 4: Completion Decision
+## Step 4: Completion Decision
 
 The option labels depend on whether `{iflow_release_script}` is configured:
 
@@ -305,7 +305,7 @@ AskUserQuestion:
 
 ---
 
-## Phase 5: Execute Selected Option
+## Step 5: Execute Selected Option
 
 ### Step 5a: Pre-Merge Validation
 
@@ -358,7 +358,7 @@ gh pr create --title "{Brief summary from commits}" --body "## Summary
 ```
 
 Output: "PR created: {url}"
-→ Continue to Phase 6
+→ Continue to Step 6
 
 ### If "Merge & Release" (or "Merge"):
 
@@ -377,11 +377,11 @@ If `{iflow_release_script}` is set and the file exists at that path, run it:
 Otherwise, skip the release step and output "No release script configured."
 
 Output: "Merged to {iflow_base_branch}." followed by "Release: v{version}" if release script ran, or "No release script configured." if not.
-→ Continue to Phase 6
+→ Continue to Step 6
 
 ---
 
-## Phase 6: Cleanup
+## Step 6: Cleanup
 
 ### Step 6a: Branch Cleanup
 

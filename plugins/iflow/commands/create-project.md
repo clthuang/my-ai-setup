@@ -13,7 +13,7 @@ Create a project from a PRD and invoke AI-driven decomposition into features.
 
 ## Step 1: Accept PRD
 
-Receive `--prd={path}` argument (from brainstorm Stage 7 or standalone invocation).
+Receive `--prd={path}` argument (from brainstorming (PRD-ready) or standalone invocation).
 
 If no `--prd` argument: ask user for PRD path via AskUserQuestion.
 

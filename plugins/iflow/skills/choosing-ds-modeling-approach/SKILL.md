@@ -127,6 +127,6 @@ See [causal-methods.md](references/causal-methods.md) for detailed assumptions, 
 | "Should we launch this feature?" | RCT (A/B test) if possible |
 | "Did the policy change work?" | DiD or Synthetic Control |
 | "Who should we target for the offer?" | Uplift modeling (CATE estimation) |
-| "What drives customer satisfaction?" | Causal DAG + appropriate method, NOT regression coefficients |
+| "What drives customer satisfaction?" | Causal DAG + matched method, NOT regression coefficients |
 | "Will this customer churn?" | Predictive model (no causal claims needed) |
 | "Does the new checkout flow increase conversion?" | RCT; if not possible, RDD at rollout boundary |

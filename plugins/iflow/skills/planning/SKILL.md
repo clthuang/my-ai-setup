@@ -75,7 +75,7 @@ Write to `{iflow_artifacts_root}/features/{id}-{slug}/plan.md`:
 
 ## Implementation Order
 
-### Phase 1: Foundation
+### Stage 1: Foundation
 Items with no dependencies.
 
 1. **{Item}** — {brief description}
@@ -89,19 +89,19 @@ Items with no dependencies.
 2. **{Item}** — {brief description}
    ...
 
-### Phase 2: Core Implementation
-Items depending on Phase 1.
+### Stage 2: Core Implementation
+Items depending on Stage 1.
 
 1. **{Item}** — {brief description}
    - **Why this item:** {rationale referencing design/requirement}
-   - **Why this order:** {rationale - depends on Phase 1 items}
+   - **Why this order:** {rationale - depends on Stage 1 items}
    - **Deliverable:** {concrete output, NOT LOC}
    - **Complexity:** Simple/Medium/Complex
    - **Files:** {files to create/modify}
    - **Verification:** {how to confirm complete}
 
-### Phase 3: Integration
-Items depending on Phase 2.
+### Stage 3: Integration
+Items depending on Stage 2.
 
 ...
 

@@ -5,7 +5,7 @@ argument-hint: [help|mode [manual|aware|yolo]|orchestrate <desc>|<request>]
 
 # /iflow:secretary Command
 
-Route requests to the most appropriate specialist agent.
+Route requests to the best-matching specialist agent.
 
 ## Static Reference Tables
 
@@ -513,13 +513,13 @@ When a workflow pattern is detected (feature request, "build X", "implement X", 
 2. Read each file, look for `"status": "active"`
 3. If NO active feature:
    - If triage set `workflow_match = "iflow:create-feature"` → preserve that route. Explain: "Problem is well-specified. Creating feature directly (skipping brainstorm)."
-   - If triage set `workflow_match = "iflow:brainstorm"` → preserve that route. Explain: "No active feature. Starting from brainstorm to ensure proper research and planning."
+   - If triage set `workflow_match = "iflow:brainstorm"` → preserve that route. Explain: "No active feature. Starting from brainstorm to ensure research and planning phases are complete."
    - If no triage ran (safety default) → route to `iflow:brainstorm`
 4. If active feature found:
    - Extract `lastCompletedPhase` from .meta.json
    - Determine next phase using the Phase Progression Table above.
    - If the next phase matches what the user asked for → route with: "All prerequisite phases complete. Proceeding to {phase}."
-   - If the next phase is earlier than what the user asked for → route to the next phase with: "You asked to {user request}, but {next phase} hasn't been completed yet. Routing to {next phase} to ensure proper planning."
+   - If the next phase is earlier than what the user asked for → route to the next phase with: "You asked to {user request}, but {next phase} hasn't been completed yet. Routing to {next phase} to ensure planning phase is complete."
 
 Note: Workflow Guardian applies ONLY to workflow pattern matches. Specialist agent routing (reviews, investigations, debugging) bypasses this entirely.
 
@@ -661,7 +661,7 @@ Task({
 
 **After Delegation:**
 - Present subagent results to user
-- Offer follow-up options if appropriate
+- Offer follow-up options if relevant
 
 #### No Suitable Match (best match <50%)
 

@@ -9,8 +9,8 @@ Invoke the designing skill for the current feature context.
 ## YOLO Mode Overrides
 
 If `[YOLO_MODE]` is active:
-- Stage 0 research findings prompt → auto "Proceed"
-- Stage 0 partial recovery → auto "Resume"
+- Step 0 research findings prompt → auto "Proceed"
+- Step 0 partial recovery → auto "Resume"
 - Completion prompt → skip AskUserQuestion, directly invoke `/iflow:create-plan` with `[YOLO_MODE]`
 
 ## Workflow Integration
@@ -21,25 +21,25 @@ Follow `validateAndSetup("design")` from the **workflow-transitions** skill.
 
 **Design-specific partial recovery:** If partial design detected, also check `phases.design.stages` to identify which stage was in progress and offer resumption from that specific stage.
 
-### 4. Execute 5-Stage Workflow
+### 4. Execute 5-Step Workflow
 
-The design phase consists of 5 sequential stages:
+The design phase consists of 5 sequential steps:
 
 ```
-Stage 0: RESEARCH ("Don't Reinvent the Wheel")
+Step 0: RESEARCH ("Don't Reinvent the Wheel")
     ↓
-Stage 1: ARCHITECTURE DESIGN
+Step 1: ARCHITECTURE DESIGN
     ↓
-Stage 2: INTERFACE DESIGN
+Step 2: INTERFACE DESIGN
     ↓
-Stage 3: DESIGN REVIEW LOOP (design-reviewer, up to 5 iterations)
+Step 3: DESIGN REVIEW LOOP (design-reviewer, up to 5 iterations)
     ↓
-Stage 4: HANDOFF REVIEW (phase-reviewer)
+Step 4: HANDOFF REVIEW (phase-reviewer)
 ```
 
 ---
 
-#### Stage 0: Research
+#### Step 0: Research
 
 **Purpose:** Gather prior art before designing to avoid reinventing the wheel.
 
@@ -115,7 +115,7 @@ f. **Mark stage completed:**
    }
    ```
 
-**Recovery from partial Stage 0:**
+**Recovery from partial Step 0:**
 If `stages.research.started` exists but `stages.research.completed` is null:
 ```
 AskUserQuestion:
@@ -133,7 +133,7 @@ AskUserQuestion:
 
 ---
 
-#### Stage 1: Architecture Design
+#### Step 1: Architecture Design
 
 **Purpose:** Establish high-level structure, components, decisions, and risks.
 
@@ -155,11 +155,11 @@ c. **Mark stage completed:**
    }
    ```
 
-d. **No review at this stage** - validated holistically in Stage 3.
+d. **No review at this stage** - validated holistically in Step 3.
 
 ---
 
-#### Stage 2: Interface Design
+#### Step 2: Interface Design
 
 **Purpose:** Define precise contracts between components.
 
@@ -182,11 +182,11 @@ c. **Mark stage completed:**
    }
    ```
 
-d. **No review at this stage** - validated holistically in Stage 3.
+d. **No review at this stage** - validated holistically in Step 3.
 
 ---
 
-#### Stage 3: Design Review Loop
+#### Step 3: Design Review Loop
 
 **Purpose:** Challenge assumptions, find gaps, ensure robustness.
 
@@ -338,7 +338,7 @@ c. **Parse response:** Extract the `approved` field from reviewer's JSON respons
 d. **Branch on result (strict threshold):**
    - **PASS:** `approved: true` AND zero issues with severity "blocker" or "warning"
    - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
-   - If PASS → Proceed to Stage 4
+   - If PASS → Proceed to Step 4
    - If FAIL AND iteration < max:
      - Append iteration to `.review-history.md` using format below
      - Increment iteration counter in state
@@ -346,7 +346,7 @@ d. **Branch on result (strict threshold):**
      - Return to step b
    - If FAIL AND iteration == max:
      - Store unresolved concerns in `stages.designReview.reviewerNotes`
-     - Proceed to Stage 4 with warning
+     - Proceed to Step 4 with warning
 
 e. **Mark stage completed:**
    ```json
@@ -374,11 +374,11 @@ e. **Mark stage completed:**
 
 ---
 
-#### Stage 4: Handoff Review
+#### Step 4: Handoff Review
 
 **Purpose:** Ensure plan phase has everything it needs.
 
-Phase-reviewer iteration budget: max 5 (independent of Stage 3).
+Phase-reviewer iteration budget: max 5 (independent of Step 3).
 
 Set `phase_iteration = 1`.
 
@@ -391,7 +391,7 @@ a. **Mark stage started:**
 
 b. **Invoke phase-reviewer:**
 
-   **PRD resolution (I8):** Before dispatching, resolve the PRD reference (same logic as Stage 3).
+   **PRD resolution (I8):** Before dispatching, resolve the PRD reference (same logic as Step 3).
 
    **Dispatch decision for phase-reviewer:**
 
@@ -510,7 +510,7 @@ c. **Branch on result (strict threshold):**
    - **FAIL:** `approved: false` OR any issue has severity "blocker" or "warning"
    - If PASS → Proceed to auto-commit
    - If FAIL AND phase_iteration < 5:
-     - Append to `.review-history.md` with "Stage 4: Handoff Review" marker
+     - Append to `.review-history.md` with "Step 4: Handoff Review" marker
      - Increment phase_iteration
      - Address all blocker AND warning issues by revising design.md
      - Return to step b
@@ -545,7 +545,7 @@ e. **Append to review history:**
 
 ### 4b. Capture Review Learnings (Automatic)
 
-**Trigger:** Only execute if the review loop ran 2+ iterations (across Stage 3 and/or Stage 4 combined). If approved on first pass in both stages, skip — no review learnings to capture.
+**Trigger:** Only execute if the review loop ran 2+ iterations (across Step 3 and/or Step 4 combined). If approved on first pass in both stages, skip — no review learnings to capture.
 
 **Process:**
 1. Read `.review-history.md` entries for THIS phase only (design-reviewer and phase-reviewer entries)
@@ -567,7 +567,7 @@ e. **Append to review history:**
 
 **Budget:** Max 3 entries per review cycle to avoid noise.
 
-**Circuit breaker capture:** If review loop hit max iterations (cap reached) in either stage, also capture a single entry:
+**Circuit breaker capture:** If review loop hit max iterations (cap reached) in either step, also capture a single entry:
 - `name`: "Design review cap: {brief issue category}"
 - `description`: summary of unresolved issues that prevented approval
 - `category`: "anti-patterns"
@@ -595,7 +595,7 @@ AskUserQuestion:
     "options": [
       {"label": "Continue to /iflow:create-plan (Recommended)", "description": "Creates plan.md with dependency graphs and workflow tracking"},
       {"label": "Review design.md first", "description": "Inspect the design before continuing"},
-      {"label": "Fix and rerun reviews", "description": "Apply fixes then rerun Stage 3 + Stage 4 review cycle"}
+      {"label": "Fix and rerun reviews", "description": "Apply fixes then rerun Step 3 + Step 4 review cycle"}
     ],
     "multiSelect": false
   }]
@@ -603,7 +603,7 @@ AskUserQuestion:
 
 If "Continue to /iflow:create-plan (Recommended)": Invoke `/iflow:create-plan`
 If "Review design.md first": Show "Design at {path}/design.md. Run /iflow:create-plan when ready." → STOP
-If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to design.md, then reset `resume_state = {}` (clear all entries — the user has made manual edits outside the review loop, so prior agent contexts are stale) and return to Stage 3 (design-reviewer) with iteration counters reset to 0.
+If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to design.md, then reset `resume_state = {}` (clear all entries — the user has made manual edits outside the review loop, so prior agent contexts are stale) and return to Step 3 (design-reviewer) with iteration counters reset to 0.
 
 ## Config Variables
 Use these values from session context (injected at session start):

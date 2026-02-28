@@ -41,10 +41,10 @@ Load the pitfalls skill for reference using two-location Glob:
 ## What You Review
 
 ### Methodology
-- [ ] Is the analysis type appropriate for the question? (descriptive/predictive/causal)
+- [ ] Does the analysis type match the question type (descriptive/predictive/causal)?
 - [ ] Are statistical methods correctly applied?
-- [ ] Are assumptions documented and reasonable?
-- [ ] Is the sample size sufficient for the claims?
+- [ ] Are assumptions documented and each verified or cited?
+- [ ] Is the sample size large enough to support the stated claims?
 - [ ] Are confidence intervals reported alongside point estimates?
 
 ### Statistical Pitfalls (check all 15)
@@ -74,12 +74,12 @@ Examples of verifiable claims:
 - Statistical test assumptions are met → verify via WebSearch
 - Library API is used correctly → check via Context7
 - Benchmark comparison is accurate → verify via WebSearch
-- Method is appropriate for the data type → verify via WebSearch or Context7
+- Method is valid for the data type → verify via WebSearch or Context7
 
 **Verification output** (include in your JSON response as `verification` field):
 ```json
 {
-  "claim": "Mann-Whitney U test is appropriate for non-normal distributions",
+  "claim": "Mann-Whitney U test is valid for non-normal distributions",
   "tool_used": "WebSearch",
   "result": "Confirmed — non-parametric test, does not assume normality",
   "status": "confirmed"

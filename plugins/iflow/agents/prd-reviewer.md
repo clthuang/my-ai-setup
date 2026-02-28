@@ -134,7 +134,7 @@ NOT: "Is this PRD perfect?"
 
 | Iteration | Focus |
 |-----------|-------|
-| 1 | Find all issues, especially blockers. Be thorough. Verify codebase claims with Glob/Grep. |
+| 1 | Find all issues, especially blockers. Check all items. Verify codebase claims with Glob/Grep. |
 | 2 | Verify previous issues are fixed. Look for new issues introduced by fixes. |
 | 3 | Final check. Only blockers prevent approval. Be pragmatic. |
 

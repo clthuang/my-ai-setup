@@ -78,7 +78,7 @@ Run through this before sharing any analysis or model:
 - [ ] Is the sample representative of the target population?
 - [ ] Are there survivorship or selection effects in the data?
 - [ ] Have missing values been handled transparently (not silently dropped)?
-- [ ] Is the sample size sufficient for the claims being made?
+- [ ] Is the sample size large enough to support the stated claims?
 
 ### Statistical Validity
 - [ ] Have you checked for Simpson's Paradox (subgroup vs aggregate)?

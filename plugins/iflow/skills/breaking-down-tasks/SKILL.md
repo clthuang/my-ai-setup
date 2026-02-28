@@ -129,7 +129,7 @@ graph TD
 
 ## Task Details
 
-### Phase 1: Foundation
+### Stage 1: Foundation
 
 #### Task 1.1: {Verb + Object + Context}
 - **Why:** Implements Plan {X.Y} / Design Component {Name}
@@ -154,7 +154,7 @@ graph TD
 - **Test:** {Specific verification command or steps}
 - **Done when:** {Binary criteria}
 
-### Phase 2: Core Implementation
+### Stage 2: Core Implementation
 
 #### Task 2.1: {Verb + Object + Context}
 - **Why:** Implements Plan {X.Y} / Design Component {Name}

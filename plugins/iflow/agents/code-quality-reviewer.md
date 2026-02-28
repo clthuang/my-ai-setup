@@ -46,7 +46,7 @@ Only run this review AFTER implementation-reviewer confirms compliance.
 - Scalability considerations
 
 ### Testing
-- Test coverage adequate
+- Test coverage meets project baseline
 - Tests verify behavior (not mocks)
 - Test quality and readability
 
