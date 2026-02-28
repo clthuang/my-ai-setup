@@ -8,7 +8,7 @@ The iflow plugin's 85 prompt files (28 commands, 29 skills, 28 agents) contain p
 - [ ] SC-2: Zero subjective adjectives in instruction text (defined boundary: SKILL.md core content, agent .md files, command .md files — excludes reference files, domain-specific technical terms, description frontmatter trigger phrases, code examples)
 - [ ] SC-3: One documented terminology convention for Stage/Step/Phase with all files conforming
 - [ ] SC-4: All reviewer dispatch prompts include explicit typed JSON return schema blocks
-- [ ] SC-5: Zero non-trivial math delegated to LLM (non-trivial = division, multiplication, rounding, or aggregation over >5 items; additive integer counting with <=5 signals is permitted inline). Note: this refines PRD SC-5's blanket "zero math" to exclude trivial additive counting — rationale: 5-signal addition is deterministic for LLMs and extracting it to code adds complexity without reliability gain
+- [ ] SC-5: Zero non-trivial math delegated to LLM (non-trivial = division, multiplication, rounding, or aggregation over >5 items; additive integer counting with <=5 signals is permitted inline). Note: this refines PRD SC-5's blanket "zero math" to exclude trivial additive counting — rationale: 5-signal addition is deterministic for LLMs and extracting it to code adds complexity without reliability gain. The PRD is the input document; spec refinements like this are expected and the PRD is not updated retroactively
 - [ ] SC-6: Zero God Prompt patterns (no single dispatch doing 4+ orthogonal tasks)
 - [ ] SC-7: All command files structured for prompt caching (static templates top, dynamic injection bottom)
 - [ ] SC-8: Enforcement gate exists (promptimize reminder on component edits)
@@ -24,6 +24,7 @@ The iflow plugin's 85 prompt files (28 commands, 29 skills, 28 agents) contain p
 - Create batch-promptimize shell script for all 85 files with aggregate reporting
 - Restructure 6 commands for prompt caching (specify, design, create-plan, create-tasks, implement, secretary)
 - Restructure 3 skills for prompt caching (brainstorming, implementing, retrospecting)
+- Note: these 9 files were selected because they interleave static content (reviewer templates, routing tables, schemas, rules) with dynamic content (user input, feature context); all other files already follow static-first ordering
 - Add typed JSON return schemas to 2 reviewer dispatches (review-ds-code.md, review-ds-analysis.md)
 - Fix 2 math-in-LLM violations (promptimize score calculation, secretary complexity scoring)
 - Split 2 God Prompt commands into chained dispatches (review-ds-code, review-ds-analysis)
@@ -73,7 +74,7 @@ The iflow plugin's 85 prompt files (28 commands, 29 skills, 28 agents) contain p
 - Given 6 command files and 3 skill files identified for restructuring
 - When each file is inspected
 - Then all static content (reviewer templates, routing tables, schemas, rules) precedes all dynamic content (user input, feature context, iteration state)
-- And file behavior is functionally identical: for the 5 pilot files, use the full AC-13 behavioral equivalence procedure; for remaining files not in the pilot set, verify by manual review of the diff confirming only content ordering changed (no deletions, additions, or rewording)
+- And file behavior is functionally identical: for the 5 pilot files, use the full AC-13 behavioral equivalence procedure; for remaining files not in the pilot set, verify via automated diff that (a) no lines were deleted or added (only moved), and (b) all dynamic injection markers remain after all static content blocks
 
 ### AC-5: JSON Schema Addition
 - Given review-ds-code.md and review-ds-analysis.md (command dispatch prompts, not agent files)
@@ -100,12 +101,14 @@ Definition: An "orthogonal task" is a review axis that requires a distinct evalu
 - Planned split for review-ds-code.md: Chain 1 [anti-patterns, pipeline quality, code standards], Chain 2 [notebook quality, API correctness], Chain 3 [synthesis of findings]
 - Planned split for review-ds-analysis.md: Chain 1 [methodology, statistical validity, data quality], Chain 2 [conclusion validity, reproducibility], Chain 3 [synthesis of findings]
 - Agent file approach: the existing agent files (ds-code-reviewer.md, ds-analysis-reviewer.md) are called multiple times with narrower scope per chain. No new agent files are created. The command file orchestrates the chaining; the agent file's system prompt is unchanged but each invocation receives a subset of review axes
+- Subset scope override: each chain's dispatch prompt must include an explicit instruction ("Evaluate ONLY the following axes. Ignore all other review sections in your system prompt.") to prevent the agent's full system prompt from causing evaluation of out-of-scope axes
 
 ### AC-8: Subjective Adjective Removal
 - Given all 85 prompt files
 - When grep searches for "appropriate|sufficient|robust|thorough|proper|adequate|reasonable" in instruction text
 - Then zero matches are found (excluding reference files, domain-specific terms, code examples, description frontmatter)
 - And each removed adjective is replaced with a measurable criterion
+- Exclusion boundary for "domain-specific terms": statistical terminology used in data science review checklists where the adjective describes a domain concept (e.g., "sufficient sample size", "appropriate statistical test") rather than a vague quality instruction. Apply grep then manual filter using this boundary.
 - Note: adjective replacements in agent files must preserve static-content-first ordering per SC-10. If a replacement introduces dynamic content, flag for manual review
 
 ### AC-9: Terminology Normalization
