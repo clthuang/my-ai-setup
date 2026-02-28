@@ -236,7 +236,7 @@ Line 15: Rule content.
 ```
 
 Parsing produces two ChangeBlocks:
-- Block A: dimension=token_economy, before_context=["# My Skill"], after_context=["", "## Process"], content="Concise description."
+- Block A: dimension=token_economy, before_context=["# My Skill"] (only 1 line — near file start, see C6 edge cases), after_context=["", "## Process"], content="Concise description."
 - Block B: dimension=structure_compliance, before_context=["", "## Process"], after_context=["", "## Rules", "Rule content."], content="### Step 1: Execute\nDo step one.\n### Step 2: Verify\nDo step two."
 
 User selects only token_economy (Block A):
@@ -420,6 +420,8 @@ Unchanged content here (content-equivalent to original).
 - `dimension`: required, non-empty. Single dimension name or comma-separated for overlapping. MUST appear before `rationale` — attribute order is significant for regex parsing (see TD2).
 - `rationale`: required, can be empty string. MUST appear after `dimension`.
 
+**Enforcement in SKILL.md:** Phase 2 instructions must include an explicit example of the tag format with `dimension` first (e.g., `<change dimension="token_economy" rationale="Remove redundant preamble">`) and a rule stating: "Attribute order is fixed: dimension, then rationale. Do not reorder." This gives the LLM an unambiguous pattern to follow and the implementer a concrete authoring target.
+
 **Constraints:**
 - No nesting of `<change>` tags
 - No overlapping tag pairs
@@ -449,7 +451,7 @@ The command's new orchestration flow:
 ```
 Step 1: Check for direct path argument
 Step 2: Interactive component selection (unchanged)
-Step 2.5: Read the target file and store as original_content (needed for drift detection, merge, and accept-all). If file read fails, display error and STOP.
+Step 2.5: Read the target file and store as original_content. This is a fresh read using the resolved file path from Steps 1-2 — it cannot reuse any content from file selection because selection only identifies the path, not the full content. Needed for drift detection, merge, and accept-all. If file read fails, display error and STOP.
 Step 3: Invoke skill (pass file path). Skill output appears in conversation context.
 Step 4: Parse skill output
   4a: Extract <phase1_output> → Phase 1 JSON
