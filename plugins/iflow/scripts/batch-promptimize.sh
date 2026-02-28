@@ -218,7 +218,7 @@ for filepath in "${FILES[@]}"; do
     # Wait for a batch to complete when we hit max parallel
     if [[ "${#pids[@]}" -ge "$MAX_PARALLEL" ]]; then
         # Wait for all current pids then start next batch
-        for pid in "${pids[@]}"; do
+        for pid in "${pids[@]+"${pids[@]}"}"; do
             wait "$pid" 2>/dev/null || true
         done
         pids=()
@@ -226,7 +226,7 @@ for filepath in "${FILES[@]}"; do
 done
 
 # Wait for remaining background jobs
-for pid in "${pids[@]}"; do
+for pid in "${pids[@]+"${pids[@]}"}"; do
     wait "$pid" 2>/dev/null || true
 done
 
