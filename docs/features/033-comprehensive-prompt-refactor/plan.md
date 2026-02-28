@@ -84,9 +84,9 @@ Steps are ordered by dependency. Each step lists its AC coverage, input files, o
 ### Step 2.1b: Update promptimize SKILL.md — 10 Dimensions (TDD Green)
 - **AC**: AC-1 (partial)
 - **File**: `plugins/iflow/skills/promptimize/SKILL.md`
-- **Action**: Add `cache_friendliness` as 10th dimension in Phase 1 evaluation list (after `context_engineering`). Add to canonical dimension name mapping table. Update text patterns:
-  - Line 58: "Evaluate all 9 dimensions" → "Evaluate all 10 dimensions"
-  - Line 117: "exactly 9 entries" → "exactly 10 entries"
+- **Action**: Add `cache_friendliness` as 10th dimension in Phase 1 evaluation list (after `context_engineering`). Add to canonical dimension name mapping table. Update text patterns (line numbers are approximate — use text-match search, e.g. grep for "Evaluate all 9" and "exactly 9 entries"):
+  - ~Line 58: "Evaluate all 9 dimensions" → "Evaluate all 10 dimensions"
+  - ~Line 117: "exactly 9 entries" → "exactly 10 entries"
 - **Test**: Grep for "all 10 dimensions" (expect 1 match at line 58), grep for "exactly 10 entries" (expect 1 match at line 117), grep for "cache_friendliness" (expect ≥2 matches).
 - **Dependencies**: Step 1.1 (rubric must define the dimension first), Step 2.1a (tests updated to expect 10)
 - **Complexity**: Simple
@@ -94,7 +94,7 @@ Steps are ordered by dependency. Each step lists its AC coverage, input files, o
 ### Step 2.2: Update promptimize.md Command — Denominator 30 (TDD Green)
 - **AC**: AC-1 (partial), AC-6 (partial)
 - **File**: `plugins/iflow/commands/promptimize.md`
-- **Action**: Step 4c validation: "exactly 9" → "exactly 10", add `cache_friendliness` to canonical names. Step 5 formula: `round((sum/27)*100)` → `round((sum/30)*100)`, update denominator reference 27→30. Add trivial-math exception comment: `<!-- Trivial-math exception: sum of 10 integers [1-3] + divide by 30 + round. Deterministic, no ambiguity. See SC-5 refinement. -->`. Update Step 5 example to show 10 scores: `[3, 2, 1, 3, 2, 3, 3, 3, 2, 2]` → sum = 24, `round((24/30) * 100) = 80`.
+- **Action**: Step 4c validation: "exactly 9" → "exactly 10", add `cache_friendliness` to canonical names. Step 5 preamble: "Sum all 9 dimension scores" → "Sum all 10 dimension scores" (~line 145). Step 5 formula: `round((sum/27)*100)` → `round((sum/30)*100)`, update denominator reference 27→30. Add trivial-math exception comment: `<!-- Trivial-math exception: sum of 10 integers [1-3] + divide by 30 + round. Deterministic, no ambiguity. See SC-5 refinement. -->`. Update Step 5 example to show 10 scores: `[3, 2, 1, 3, 2, 3, 3, 3, 2, 2]` → sum = 24, `round((24/30) * 100) = 80`.
 - **Test**: Run `bash plugins/iflow/hooks/tests/test-promptimize-content.sh` — all dimension tests now PASS (Green). Grep for "30" in formula area, grep for "exactly 10", confirm trivial-math comment exists.
 - **Dependencies**: Step 2.1b (SKILL.md must reference 10 dimensions before command validates against it)
 - **Complexity**: Simple
