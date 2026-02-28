@@ -7,7 +7,7 @@
   "branch": "feature/033-comprehensive-prompt-refactor",
   "brainstorm_source": "docs/brainstorms/20260228-192547-comprehensive-prompt-refactor.prd.md",
   "backlog_source": "00022",
-  "lastCompletedPhase": "create-plan",
+  "lastCompletedPhase": "create-tasks",
   "phases": {
     "specify": {
       "started": "2026-02-28T20:16:00+08:00",
@@ -16,6 +16,33 @@
     "create-plan": {
       "started": "2026-02-28T23:25:00+08:00",
       "completed": "2026-03-01T00:20:00+08:00"
+    },
+    "create-tasks": {
+      "started": "2026-03-01T00:25:00+08:00",
+      "completed": "2026-03-01T02:00:00+08:00",
+      "taskReview": {
+        "iterations": 5,
+        "approved": false,
+        "concerns": [
+          "T02: claude -p invocation underspecified — system prompt assembly and agent prompt sourcing unclear",
+          "T02: brainstorming skill invocation mechanism unclear — CC session vs standalone CLI",
+          "T07: runner call site update not self-verifying — needs explicit grep for all call sites",
+          "T10: grep pattern trailing spaces won't match reliably",
+          "T14/T15: task ordering confusing — T14 before T15 in file but depends on T15",
+          "T22: missing T21 as dependency for pre-sweep audit",
+          "T17: git diff baseline reference ambiguous",
+          "T21: hardcoded section header patterns may miss files",
+          "T27: done criteria defers to future promptimize task",
+          "T28: scope narrower than plan requirement",
+          "T33: promptimize evaluation of 3-chain commands unclear",
+          "T40: spec deviation not formally flagged"
+        ]
+      },
+      "chainReview": {
+        "iterations": 4,
+        "approved": true,
+        "concerns": []
+      }
     },
     "design": {
       "started": "2026-02-28T21:20:00+08:00",
