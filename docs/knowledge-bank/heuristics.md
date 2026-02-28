@@ -11,7 +11,7 @@ Target ~100-160 lines per reference file for balance between completeness and re
 - 4 files at ~480 total lines is a good ratio for a thin orchestrator pattern
 - Benefit: Each file is independently readable without scrolling fatigue
 - Source: Feature #018
-- Last observed: Feature #018
+- Last observed: Feature #33
 - Observation count: 1
 
 ### Line Budget Management
@@ -19,7 +19,7 @@ Target 90-95% of SKILL.md budget (450-475 of 500 lines).
 - Landing at 96% (482/500) is acceptable but leaves minimal room for future additions
 - If approaching 98%+, consider extracting content to reference files
 - Source: Feature #018
-- Last observed: Feature #022
+- Last observed: Feature #33
 - Observation count: 2
 
 ### AskUserQuestion Option Count
@@ -27,7 +27,7 @@ Keep AskUserQuestion to 6 explicit options maximum (7 with built-in "Other").
 - The system automatically provides "Other" for free text — no need to waste an option slot
 - 7 total choices is the upper limit for usability
 - Source: Feature #018
-- Last observed: Feature #018
+- Last observed: Feature #33
 - Observation count: 1
 
 ### Cross-Skill Coupling Depth
@@ -36,7 +36,7 @@ Keep cross-skill dependencies to read-only access of reference files only.
 - One fallback level (hardcoded content) is sufficient for graceful degradation
 - Two levels of fallback adds complexity without proportional reliability gain
 - Source: Feature #018
-- Last observed: Feature #018
+- Last observed: Feature #33
 - Observation count: 1
 
 ### Graph-Text Consistency as First-Pass Check
@@ -44,7 +44,7 @@ When reviewing plans with dependency graphs, validate graph-text consistency bef
 - 4 of 6 plan iterations in Feature #021 were caused by graph-text mismatches
 - Check: Every dependency mentioned in text appears as an edge in the graph, and vice versa
 - Source: Feature #021
-- Last observed: Feature #021
+- Last observed: Feature #33
 - Observation count: 1
 
 ### Read Target Files During Task Creation
@@ -52,7 +52,7 @@ When creating tasks for file modifications, read the target file first and inclu
 - Tasks without this specificity (7.1, 7.2, 7.3) were the ones blocked in task review
 - Investment in precision during task creation pays off with lower implementation iteration count
 - Source: Feature #021
-- Last observed: Feature #022
+- Last observed: Feature #33
 - Observation count: 2
 
 ### Reviewer Iteration Count as Complexity Signal
@@ -72,7 +72,7 @@ Circuit breaker hits in design review indicate a fundamental assumption mismatch
 ### Per-File Anchor Verification for Cross-Cutting Changes
 Cross-cutting changes touching 14+ files benefit from explicit per-file insertion anchor verification in the plan phase. Every insertion point needs unique verification when files have different structures.
 - Source: Feature #022, plan/tasks phases -- prevented 4 incorrect line references
-- Last observed: Feature #022
+- Last observed: Feature #33
 - Observation count: 1
 
 <!-- Example format:
@@ -89,7 +89,7 @@ Otherwise: Keep it as a module within existing service.
 When a feature involves parsing existing files, the designer should read at least one real instance of each input file and note structural quirks (HTML comment blocks, template examples, empty sections) that the parser must handle. These quirks are invisible from spec descriptions alone and will surface as blockers in later phases.
 - Source: Feature #023 — Plan review iter 2 discovered HTML comment blocks in knowledge bank files that design did not account for
 - Confidence: high
-- Last observed: Feature #023
+- Last observed: Feature #33
 - Observation count: 1
 
 ### Comprehensive Brainstorm PRDs Correlate With Fast Specify Phases
@@ -103,7 +103,7 @@ When a brainstorm PRD exists and is comprehensive (300+ lines with explicit succ
 If the plan describes 'what' a format contains but not the exact 'shape' (all fields, ordering, delimiters), task review will iterate until the format is unambiguous enough for implementation. Budget 2-3 extra iterations for this.
 - Source: Feature #023 — 3 of 5 taskReview iterations were format back-fill (missing dependency, unspecified synthetic format, missing metadata field)
 - Confidence: high
-- Last observed: Feature #023
+- Last observed: Feature #33
 - Observation count: 1
 
 ### Probe Runtime Behavior Boundaries During Design Review
@@ -237,4 +237,25 @@ When a design describes the same algorithm in two or more sections using paralle
 - Source: Feature #032 — match_anchors_in_original described in C6 and C9 took 4 chain iterations to fully specify; create-plan duration was 2x create-tasks, signaling underspecified shared behavior
 - Confidence: high
 - Last observed: Feature #032
+- Observation count: 1
+
+### Task Review Cap on Invocation Issues Signals Missing Template Field
+When task review hits the iteration cap and the majority of unresolved concerns are invocation-mechanism issues (how to run something), the task template is missing a required 'Invocation' field. The review loop cannot converge without a structural template fix.
+- Source: Feature #033, create-tasks — taskReview hit 5/5 cap with 42% of concerns being invocation-mechanism issues (T02 iterated through 5 forms without resolving)
+- Confidence: high
+- Last observed: Feature #033
+- Observation count: 1
+
+### For 40+ Task Features Create-Tasks Is the Bottleneck
+For features with 40+ tasks, create-tasks is the bottleneck — budget 90-120 min and 8-10 review iterations. Invocation mechanism clarity determines whether the cap is hit. Two-stage review (task review + chain review) compounds iteration count.
+- Source: Feature #033 — 40 tasks required 9 create-tasks iterations (5 task review + 4 chain review), taking ~95 min; cap hit on task review stage
+- Confidence: high
+- Last observed: Feature #033
+- Observation count: 1
+
+### Text-Refactoring Features Budget Heavily for Planning, Lightly for Implementation
+Text-refactoring features (70+ files, uniform mechanical changes) produce clean implementations — budget heavily for planning phases (specify/design/create-tasks) and lightly for implementation. The planning investment prevents implementation rework; the refactoring itself executes cleanly.
+- Source: Feature #033 — 70 files, 5004 insertions, 589 deletions, only 2 implementation blockers (both trivial grep flags); 29 pre-implementation review iterations vs 5 implementation review iterations
+- Confidence: medium
+- Last observed: Feature #033
 - Observation count: 1

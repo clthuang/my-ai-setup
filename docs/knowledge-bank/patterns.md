@@ -155,8 +155,8 @@ When a workflow has nested iteration loops, make budgets independent.
 Heavy upfront review investment (15-30+ pre-implementation review iterations) correlates with clean implementation (0-1 actionable issues across all reviewers). Front-loading review effort shifts risk discovery to phases where changes are cheap (text edits) rather than expensive (code changes).
 - Observed in: Feature #022, implementation phase
 - Confidence: high
-- Last observed: Feature #032
-- Observation count: 6
+- Last observed: Feature #033
+- Observation count: 7
 
 ### Pattern: Template Indentation Matching
 When inserting blocks into existing prompt templates, read the target file first and match its specific indentation level (which may differ per file). Prevents downstream formatting issues.
@@ -190,8 +190,8 @@ Define interfaces before implementation. Enables parallel work.
 When the design reviewer operates in 'skeptic' mode and challenges unverified assumptions (CLI mechanisms, parser complexity, file format handling, runtime behavior gaps), it prevents costly rework in later phases. Architectural pivots and behavioral clarifications made during design are far cheaper than discovering these issues during implementation.
 - Observed in: Feature #023, design phase
 - Confidence: high
-- Last observed: Feature #025
-- Observation count: 2
+- Last observed: Feature #033
+- Observation count: 3
 
 ### Pattern: Detailed Rebuttals With Line-Number Evidence Resolve False Positives
 When the implementer provides exact line references, quotes from spec/design, and git-blame evidence for pre-existing code, false-positive review blockers are resolved without code churn. This preserves implementation quality while avoiding unnecessary changes.
@@ -296,8 +296,8 @@ Three-reviewer parallel dispatch with selective re-dispatch resolves implementat
 - Observed in: Feature #031, implement phase — 3 distinct issue categories found and fixed in one cycle
 - Evidence: Quality caught phase_iteration off-by-one, security caught git add -A staging scope, implementation caught spec compliance — all fixed in 1 pass, approved by iter 2
 - Confidence: high
-- Last observed: Feature #031
-- Observation count: 1
+- Last observed: Feature #033
+- Observation count: 2
 
 ### Pattern: Enumerate Git Edge Cases in Design Technical Decisions
 When design involves git operations (diff, commit, staging), enumerate all edge cases in a dedicated Technical Decision section: diff baseline strategy, empty commit handling, staging scope, commit message format, SHA lifecycle.
