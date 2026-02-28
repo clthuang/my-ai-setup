@@ -117,7 +117,7 @@ P1 is the foundation — P2-P4 all parse or process P1's output format. P2-P4 ar
    - Use regex patterns from TD2: open tag `<change\s+dimension="([^"]+)"\s+rationale="([^"]*)">`  close tag `</change>`
    - Skip tags inside fenced code blocks: track a boolean `in_fence` state, toggled by lines starting with three or more backticks (```` ``` ````) or three or more tildes (`~~~`), per CommonMark spec. While `in_fence == true`, ignore any `<change>` or `</change>` patterns.
    - Check: every open has close, no nesting, no overlapping, non-empty dimension attribute
-   - Build array of ChangeBlock structures (I4) with dimensions, rationale, content, before_context (up to 3 lines), after_context (up to 3 lines). **Implementation note:** The ChangeBlock array and the anchor-matching algorithm (locating before_context/after_context in `original_content`) are defined once here in Step 6a. Both drift detection (P3/Step 6b) and Accept some merge (P4/Step 8c) reference this same algorithm — do not implement anchor matching separately in each step.
+   - Build array of ChangeBlock structures (I4) with dimensions, rationale, content, before_context (up to 3 lines from Phase 2 output preceding the `<change>` tag), after_context (up to 3 lines from Phase 2 output following the `</change>` tag). **Implementation note:** Step 6a extracts context lines from the Phase 2 output and populates each ChangeBlock. A single anchor-matching sub-procedure (`match_anchors_in_original`) is defined here to locate those context lines in `original_content` and return the matched region. Both drift detection (P3/Step 6b) and Accept some merge (P4/Step 8c) call this same sub-procedure — do not implement anchor matching separately in each step.
    - If validation fails: set `tag_validation_failed = true`
    - **Test scenario (from TD2):** Reversed attribute order (e.g., `<change rationale="..." dimension="...">`) must trigger validation failure and degrade to Accept all / Reject
 
@@ -198,7 +198,7 @@ P1 is the foundation — P2-P4 all parse or process P1's output format. P2-P4 ar
 3. **Add Accept some handler (C9).**
    - Present dimension multiSelect — overlapping dimensions (comma-separated) as single option
    - Start from `original_content` (from Step 2.5)
-   - For selected dimensions: find unique before+after context anchors in `original_content`, replace matched region with `<change>` block content
+   - For selected dimensions: call `match_anchors_in_original` (defined in P2/Step 6a) to find unique before+after context anchors in `original_content`, replace matched region with `<change>` block content. Apply the same adjacent-block merging logic defined in P3 Step 6b — merge ChangeBlocks whose anchor windows overlap before computing simultaneous replacements.
    - For unselected dimensions: keep original text (no replacement)
    - All replacements computed simultaneously against original (TD4) — collect (start_line, end_line, replacement) tuples, sort by start_line, verify no overlaps, interleave
    - If anchor match fails for any block: degrade to Accept all / Reject with warning
@@ -287,6 +287,7 @@ The redesign moves several responsibilities from SKILL.md to the command. Nine e
    - `original_content` label is used consistently in command Steps 2.5, 6b, 8c
    - All 9 dimension names from I2 are consistent between skill and command
    - TD2 regex pattern in command matches the tag format specified in skill
+   - Command PROHIBITED section contains all three rules moved from skill: (1) no writing without approval, (2) no skipping approval in non-YOLO mode, (3) no presenting Accept some when tag_validation_failed or drift_detected is true
 
 4. **Token budget verification:**
    - SKILL.md under 500 lines / 5,000 tokens
@@ -304,7 +305,7 @@ The redesign moves several responsibilities from SKILL.md to the command. Nine e
 | AC3 | P4 step 3 (Accept some merge) | Selected dimensions applied, unselected keep original, no residual tags |
 | AC4 | P2 step 6a + P4 step 1 (tag validation + approval) | Malformed tags → warning → degrade to Accept all / Reject |
 | AC5 | P4 step 2 (Accept all) | Strip all tags, clean file output |
-| AC6 | P1 step 2 (Phase 1 auto-pass) | Auto-passed dims score 3, no `<change>` tags |
+| AC6 | P1 change 2 (Phase 1 JSON schema, auto_passed field) + P1 change 3 (Phase 2 no `<change>` tags for pass dims per R2.4) | Auto-passed dims score 3, no `<change>` tags |
 | AC7 | P4 step 1 (YOLO mode) | YOLO auto-selects Accept all |
 | AC8 | P3 step 3 (report assembly) | Staleness and over-budget warnings from structured data |
 | AC9 | P5 (test updates) + P6 steps 1-2 (validate.sh + test-promptimize-content.sh) | Both pass after changes |
