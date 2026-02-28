@@ -226,3 +226,21 @@ Referencing design templates by label name (e.g., "I1 template", "I8 format") in
 - Confidence: high
 - Last observed: Feature #030
 - Observation count: 1
+
+### Anti-Pattern: Curly-Brace Placeholders in Code-Fenced Shell Commands
+Using curly-brace template placeholders ({variable}) inside code-fenced shell commands in task descriptions. These are not executable and produce vacuous grep matches or shell errors.
+- Observed in: Feature #031, create-tasks phase — '{actual_headers}' placeholder caused blocker in chain review iter 1 and persisted through iter 4; '{phase}' placeholder caused blocker in task review iter 5
+- Cost: Combined, these two placeholders drove 4+ review iterations across both stages
+- Instead: Use concrete examples with prose substitution instructions, or mark explicitly as "substitute before executing"
+- Confidence: high
+- Last observed: Feature #031
+- Observation count: 1
+
+### Anti-Pattern: Self-Attestation Verification in Acceptance Criteria
+Using self-attestation verification methods ('mark each checked', 'trace and confirm') in task acceptance criteria. Reviewers correctly reject these as unverifiable, but replacements (label-dependent grep) can be equally weak.
+- Observed in: Feature #031, create-tasks phase — Task 12 iterated from self-attestation (iter 4) to grep verification (iter 5) to label-dependent grep (chain iter 5 cap)
+- Cost: Verification weakness never fully resolved before circuit breaker
+- Instead: Explicitly mark criteria requiring human judgment as 'manual verification' rather than disguising as automatable checks
+- Confidence: high
+- Last observed: Feature #031
+- Observation count: 1

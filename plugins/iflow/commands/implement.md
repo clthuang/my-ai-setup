@@ -244,6 +244,17 @@ is_final_validation = false
 
 Values: `pending` (not yet reviewed), `passed`, `failed`.
 
+**Resume state initialization:**
+
+Initialize `resume_state = {}` at the start of the review loop. This dict tracks per-role agent context for resume across iterations. Keys: `"implementation-reviewer"`, `"code-quality-reviewer"`, `"security-reviewer"`, `"implementer"`. Each entry: `{ agent_id, iteration1_prompt_length, last_iteration, last_commit_sha }`.
+
+```
+resume_state = {}
+fix_summaries = []
+```
+
+The `fix_summaries` list accumulates implementer fix summaries across iterations (used by I2-FV final validation template to show consolidated changes since a reviewer's last review).
+
 **Iteration 1:** Always dispatch all 3 reviewers (full scope).
 **Iterations 2+:** Only dispatch reviewers where `reviewer_status == "failed"`. Skip reviewers where `reviewer_status == "passed"`.
 **Final validation:** When all reviewers have individually passed, dispatch all 3 again for a mandatory full regression check.
@@ -253,6 +264,10 @@ Execute review cycle with three reviewers:
 **7a. Implementation Review (4-Level Validation):**
 
 Use the PRD line resolved in Step 6 (I8).
+
+**Dispatch decision for implementation-reviewer:**
+
+**If iteration == 1 OR resume_state["implementation-reviewer"] is missing/empty OR resume_state["implementation-reviewer"].agent_id is null** — use fresh I1-R4 dispatch:
 
 ```
 Task tool call:
@@ -271,21 +286,157 @@ Task tool call:
     - Plan: {feature_path}/plan.md
     - Tasks: {feature_path}/tasks.md
 
-    ## Implementation files
-    {list of files with code}
-
     Validate all 4 levels:
     - Level 1: Task completeness
     - Level 2: Spec compliance
     - Level 3: Design alignment
     - Level 4: PRD delivery
 
-    Return JSON with approval status, level results, issues, and evidence.
+    Return JSON with approval status, level results, issues, and evidence:
+    {
+      "approved": true/false,
+      "levels": {
+        "tasks": {"passed": true/false, "issues_count": 0},
+        "spec": {"passed": true/false, "issues_count": 0},
+        "design": {"passed": true/false, "issues_count": 0},
+        "prd": {"passed": true/false, "issues_count": 0}
+      },
+      "issues": [{"severity": "blocker|warning|suggestion", "level": "tasks|spec|design|prd", "category": "missing|extra|misunderstood|incomplete", "description": "...", "location": "...", "suggestion": "..."}],
+      "evidence": {"verified": [], "missing": []},
+      "summary": "..."
+    }
+
+    ## Implementation files
+    {list of files with code}
 ```
 
-**Fallback detection (I9):** After receiving the implementation-reviewer's response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: implementation-reviewer did not confirm artifact reads` to `.review-history.md`. Proceed regardless.
+After fresh dispatch: capture the `agent_id` from the Task tool result. Record the character count of the prompt above as `prompt_length`. Capture current HEAD SHA via `Bash: git rev-parse HEAD`. Store in resume_state:
+```
+resume_state["implementation-reviewer"] = {
+  "agent_id": {agent_id from Task result},
+  "iteration1_prompt_length": {prompt_length} (only set on iteration 1; preserved on subsequent fresh dispatches),
+  "last_iteration": {iteration},
+  "last_commit_sha": {HEAD SHA}
+}
+```
+If this is not iteration 1 (fresh dispatch due to fallback/reset), preserve the original `iteration1_prompt_length` from the first fresh dispatch of this loop if available; otherwise set it from this dispatch's prompt length.
+
+**If iteration >= 2 AND this reviewer failed (status "failed") AND resume_state["implementation-reviewer"] exists with non-null agent_id** — attempt I2 resumed dispatch:
+
+Compute the delta using the per-iteration commit (see 7e-commit below). The `delta_content` and `delta_stat` are already captured after the implementer fix commit.
+
+**Delta size guard**: If `len(delta_content)` > 50% of `resume_state["implementation-reviewer"].iteration1_prompt_length`, the delta is too large — fall back to fresh I1-R4 dispatch (same template as iteration 1 above, with iteration context added). Reset `resume_state["implementation-reviewer"]`.
+
+**If delta is within threshold**, attempt I2 resumed dispatch:
+```
+Task tool call:
+  resume: {resume_state["implementation-reviewer"].agent_id}
+  prompt: |
+    You already have the upstream artifacts and implementation files
+    in context from your prior review.
+
+    The following changes were made to address your previous issues:
+
+    ## Delta
+    {delta_stat from git diff --stat}
+    {delta_content from git diff}
+
+    ## Fix Summary
+    {implementer fix summary text from this iteration}
+
+    Review the changes above. Assess whether your previous issues are resolved
+    and check for new issues introduced by the fixes.
+
+    This is iteration {iteration} of {max}.
+
+    Return JSON with approval status, level results, issues, and evidence:
+    {
+      "approved": true/false,
+      "levels": {
+        "tasks": {"passed": true/false, "issues_count": 0},
+        "spec": {"passed": true/false, "issues_count": 0},
+        "design": {"passed": true/false, "issues_count": 0},
+        "prd": {"passed": true/false, "issues_count": 0}
+      },
+      "issues": [{"severity": "blocker|warning|suggestion", "level": "tasks|spec|design|prd", "category": "missing|extra|misunderstood|incomplete", "description": "...", "location": "...", "suggestion": "..."}],
+      "evidence": {"verified": [], "missing": []},
+      "summary": "..."
+    }
+```
+
+**If resume succeeds**: Update resume_state:
+```
+resume_state["implementation-reviewer"].agent_id = {agent_id from resumed Task result}
+resume_state["implementation-reviewer"].last_iteration = {iteration}
+resume_state["implementation-reviewer"].last_commit_sha = {current HEAD SHA}
+```
+
+**If resume fails** (Task tool returns an error): I3 fallback — fresh I1-R4 dispatch (same template as iteration 1, with additional line in prompt: `"(Fresh dispatch — prior review session unavailable.)"` and previous issues appended). Log to `.review-history.md`: `RESUME-FALLBACK: implementation-reviewer iteration {iteration} — {error summary}`. Reset `resume_state["implementation-reviewer"]` with the new fresh dispatch's agent_id.
+
+**If is_final_validation AND this reviewer previously passed (status "passed")** — attempt I2-FV resumed dispatch:
+
+No delta size guard for final validation. Compute the diff between the reviewer's last review commit and current HEAD:
+```
+Bash: git diff {resume_state["implementation-reviewer"].last_commit_sha} HEAD --stat
+Bash: git diff {resume_state["implementation-reviewer"].last_commit_sha} HEAD
+```
+
+```
+Task tool call:
+  resume: {resume_state["implementation-reviewer"].agent_id}
+  prompt: |
+    You already have the upstream artifacts and implementation files
+    in context from your prior review at iteration {resume_state["implementation-reviewer"].last_iteration}.
+
+    Since your last review, the following fixes were applied to address
+    issues from other reviewers:
+
+    ## Changes Since Your Last Review
+    {git diff --stat between last_iteration commit and current HEAD}
+    {git diff between last_iteration commit and current HEAD}
+
+    ## Fix Summary
+    {consolidated fix summaries from all intermediate iterations (from fix_summaries list)}
+
+    Perform a full regression check. Verify your previous approval still
+    holds given these changes, and check for any new issues.
+
+    This is the final validation round (iteration {iteration} of {max}).
+
+    Return JSON with approval status, level results, issues, and evidence:
+    {
+      "approved": true/false,
+      "levels": {
+        "tasks": {"passed": true/false, "issues_count": 0},
+        "spec": {"passed": true/false, "issues_count": 0},
+        "design": {"passed": true/false, "issues_count": 0},
+        "prd": {"passed": true/false, "issues_count": 0}
+      },
+      "issues": [{"severity": "blocker|warning|suggestion", "level": "tasks|spec|design|prd", "category": "missing|extra|misunderstood|incomplete", "description": "...", "location": "...", "suggestion": "..."}],
+      "evidence": {"verified": [], "missing": []},
+      "summary": "..."
+    }
+```
+
+**If I2-FV resume succeeds**: Update resume_state:
+```
+resume_state["implementation-reviewer"].agent_id = {agent_id from resumed Task result}
+resume_state["implementation-reviewer"].last_iteration = {iteration}
+resume_state["implementation-reviewer"].last_commit_sha = {current HEAD SHA}
+```
+
+**If I2-FV resume fails**: I3 fallback — fresh I1-R4 dispatch (same template as iteration 1, with `"(Fresh dispatch — prior review session unavailable.)"` annotation). Log: `RESUME-FALLBACK: implementation-reviewer iteration {iteration} — {error summary}`. Reset `resume_state["implementation-reviewer"]`.
+
+**Context compaction detection**: Before attempting any resume (I2 or I2-FV), if `resume_state["implementation-reviewer"]` was previously populated but `agent_id` is now null or missing (due to context compaction), treat as fresh I1-R4 dispatch. Log: `RESUME-FALLBACK: implementation-reviewer iteration {iteration} — agent_id lost (context compaction)`.
+
+**Fallback detection (I9):** After receiving the implementation-reviewer's response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: implementation-reviewer did not confirm artifact reads` to `.review-history.md`. Proceed regardless. Note: Resumed dispatches (I2/I2-FV templates) do not include Required Artifacts, so "Files read:" may not appear — only apply I9 detection to fresh dispatches.
 
 **7b. Code Quality Review:**
+
+**Dispatch decision for code-quality-reviewer:**
+
+**If iteration == 1 OR resume_state["code-quality-reviewer"] is missing/empty OR resume_state["code-quality-reviewer"].agent_id is null** — use fresh I1-R4 dispatch:
+
 ```
 Task tool call:
   description: "Review code quality"
@@ -300,9 +451,6 @@ Task tool call:
     - Design: {feature_path}/design.md
     - Spec: {feature_path}/spec.md
 
-    ## Files changed
-    {list of files}
-
     Check:
     - Readability
     - KISS principle
@@ -316,11 +464,124 @@ Task tool call:
       "issues": [{"severity": "blocker|warning|suggestion", "category": "readability|kiss|yagni|formatting|flow", "description": "...", "location": "...", "suggestion": "..."}],
       "summary": "..."
     }
+
+    ## Files changed
+    {list of files}
 ```
 
-**Fallback detection (I9):** After receiving the code-quality-reviewer's response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: code-quality-reviewer did not confirm artifact reads` to `.review-history.md`. Proceed regardless.
+After fresh dispatch: capture the `agent_id` from the Task tool result. Record the character count of the prompt above as `prompt_length`. Capture current HEAD SHA via `Bash: git rev-parse HEAD`. Store in resume_state:
+```
+resume_state["code-quality-reviewer"] = {
+  "agent_id": {agent_id from Task result},
+  "iteration1_prompt_length": {prompt_length} (only set on iteration 1; preserved on subsequent fresh dispatches),
+  "last_iteration": {iteration},
+  "last_commit_sha": {HEAD SHA}
+}
+```
+If this is not iteration 1 (fresh dispatch due to fallback/reset), preserve the original `iteration1_prompt_length` from the first fresh dispatch of this loop if available; otherwise set it from this dispatch's prompt length.
+
+**If iteration >= 2 AND this reviewer failed (status "failed") AND resume_state["code-quality-reviewer"] exists with non-null agent_id** — attempt I2 resumed dispatch:
+
+Compute the delta using the per-iteration commit (see 7e-commit below). The `delta_content` and `delta_stat` are already captured after the implementer fix commit.
+
+**Delta size guard**: If `len(delta_content)` > 50% of `resume_state["code-quality-reviewer"].iteration1_prompt_length`, the delta is too large — fall back to fresh I1-R4 dispatch (same template as iteration 1 above, with iteration context added). Reset `resume_state["code-quality-reviewer"]`.
+
+**If delta is within threshold**, attempt I2 resumed dispatch:
+```
+Task tool call:
+  resume: {resume_state["code-quality-reviewer"].agent_id}
+  prompt: |
+    You already have the upstream artifacts and implementation files
+    in context from your prior review.
+
+    The following changes were made to address your previous issues:
+
+    ## Delta
+    {delta_stat from git diff --stat}
+    {delta_content from git diff}
+
+    ## Fix Summary
+    {implementer fix summary text from this iteration}
+
+    Review the changes above. Assess whether your previous issues are resolved
+    and check for new issues introduced by the fixes.
+
+    This is iteration {iteration} of {max}.
+
+    Return your assessment as JSON:
+    {
+      "approved": true/false,
+      "issues": [{"severity": "blocker|warning|suggestion", "category": "readability|kiss|yagni|formatting|flow", "description": "...", "location": "...", "suggestion": "..."}],
+      "summary": "..."
+    }
+```
+
+**If resume succeeds**: Update resume_state:
+```
+resume_state["code-quality-reviewer"].agent_id = {agent_id from resumed Task result}
+resume_state["code-quality-reviewer"].last_iteration = {iteration}
+resume_state["code-quality-reviewer"].last_commit_sha = {current HEAD SHA}
+```
+
+**If resume fails** (Task tool returns an error): I3 fallback — fresh I1-R4 dispatch (same template as iteration 1, with additional line in prompt: `"(Fresh dispatch — prior review session unavailable.)"` and previous issues appended). Log to `.review-history.md`: `RESUME-FALLBACK: code-quality-reviewer iteration {iteration} — {error summary}`. Reset `resume_state["code-quality-reviewer"]` with the new fresh dispatch's agent_id.
+
+**If is_final_validation AND this reviewer previously passed (status "passed")** — attempt I2-FV resumed dispatch:
+
+No delta size guard for final validation. Compute the diff between the reviewer's last review commit and current HEAD:
+```
+Bash: git diff {resume_state["code-quality-reviewer"].last_commit_sha} HEAD --stat
+Bash: git diff {resume_state["code-quality-reviewer"].last_commit_sha} HEAD
+```
+
+```
+Task tool call:
+  resume: {resume_state["code-quality-reviewer"].agent_id}
+  prompt: |
+    You already have the upstream artifacts and implementation files
+    in context from your prior review at iteration {resume_state["code-quality-reviewer"].last_iteration}.
+
+    Since your last review, the following fixes were applied to address
+    issues from other reviewers:
+
+    ## Changes Since Your Last Review
+    {git diff --stat between last_iteration commit and current HEAD}
+    {git diff between last_iteration commit and current HEAD}
+
+    ## Fix Summary
+    {consolidated fix summaries from all intermediate iterations (from fix_summaries list)}
+
+    Perform a full regression check. Verify your previous approval still
+    holds given these changes, and check for any new issues.
+
+    This is the final validation round (iteration {iteration} of {max}).
+
+    Return your assessment as JSON:
+    {
+      "approved": true/false,
+      "issues": [{"severity": "blocker|warning|suggestion", "category": "readability|kiss|yagni|formatting|flow", "description": "...", "location": "...", "suggestion": "..."}],
+      "summary": "..."
+    }
+```
+
+**If I2-FV resume succeeds**: Update resume_state:
+```
+resume_state["code-quality-reviewer"].agent_id = {agent_id from resumed Task result}
+resume_state["code-quality-reviewer"].last_iteration = {iteration}
+resume_state["code-quality-reviewer"].last_commit_sha = {current HEAD SHA}
+```
+
+**If I2-FV resume fails**: I3 fallback — fresh I1-R4 dispatch (same template as iteration 1, with `"(Fresh dispatch — prior review session unavailable.)"` annotation). Log: `RESUME-FALLBACK: code-quality-reviewer iteration {iteration} — {error summary}`. Reset `resume_state["code-quality-reviewer"]`.
+
+**Context compaction detection**: Before attempting any resume (I2 or I2-FV), if `resume_state["code-quality-reviewer"]` was previously populated but `agent_id` is now null or missing (due to context compaction), treat as fresh I1-R4 dispatch. Log: `RESUME-FALLBACK: code-quality-reviewer iteration {iteration} — agent_id lost (context compaction)`.
+
+**Fallback detection (I9):** After receiving the code-quality-reviewer's response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: code-quality-reviewer did not confirm artifact reads` to `.review-history.md`. Proceed regardless. Note: Resumed dispatches (I2/I2-FV templates) do not include Required Artifacts, so "Files read:" may not appear — only apply I9 detection to fresh dispatches.
 
 **7c. Security Review:**
+
+**Dispatch decision for security-reviewer:**
+
+**If iteration == 1 OR resume_state["security-reviewer"] is missing/empty OR resume_state["security-reviewer"].agent_id is null** — use fresh I1-R4 dispatch:
+
 ```
 Task tool call:
   description: "Review security"
@@ -335,9 +596,6 @@ Task tool call:
     - Design: {feature_path}/design.md
     - Spec: {feature_path}/spec.md
 
-    ## Files changed
-    {list of files}
-
     Check:
     - Input validation
     - Authentication/authorization
@@ -350,9 +608,117 @@ Task tool call:
       "issues": [{"severity": "blocker|warning|suggestion", "category": "injection|auth|crypto|exposure|config", "description": "...", "location": "...", "suggestion": "..."}],
       "summary": "..."
     }
+
+    ## Files changed
+    {list of files}
 ```
 
-**Fallback detection (I9):** After receiving the security-reviewer's response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: security-reviewer did not confirm artifact reads` to `.review-history.md`. Proceed regardless.
+After fresh dispatch: capture the `agent_id` from the Task tool result. Record the character count of the prompt above as `prompt_length`. Capture current HEAD SHA via `Bash: git rev-parse HEAD`. Store in resume_state:
+```
+resume_state["security-reviewer"] = {
+  "agent_id": {agent_id from Task result},
+  "iteration1_prompt_length": {prompt_length} (only set on iteration 1; preserved on subsequent fresh dispatches),
+  "last_iteration": {iteration},
+  "last_commit_sha": {HEAD SHA}
+}
+```
+If this is not iteration 1 (fresh dispatch due to fallback/reset), preserve the original `iteration1_prompt_length` from the first fresh dispatch of this loop if available; otherwise set it from this dispatch's prompt length.
+
+**If iteration >= 2 AND this reviewer failed (status "failed") AND resume_state["security-reviewer"] exists with non-null agent_id** — attempt I2 resumed dispatch:
+
+Compute the delta using the per-iteration commit (see 7e-commit below). The `delta_content` and `delta_stat` are already captured after the implementer fix commit.
+
+**Delta size guard**: If `len(delta_content)` > 50% of `resume_state["security-reviewer"].iteration1_prompt_length`, the delta is too large — fall back to fresh I1-R4 dispatch (same template as iteration 1 above, with iteration context added). Reset `resume_state["security-reviewer"]`.
+
+**If delta is within threshold**, attempt I2 resumed dispatch:
+```
+Task tool call:
+  resume: {resume_state["security-reviewer"].agent_id}
+  prompt: |
+    You already have the upstream artifacts and implementation files
+    in context from your prior review.
+
+    The following changes were made to address your previous issues:
+
+    ## Delta
+    {delta_stat from git diff --stat}
+    {delta_content from git diff}
+
+    ## Fix Summary
+    {implementer fix summary text from this iteration}
+
+    Review the changes above. Assess whether your previous issues are resolved
+    and check for new issues introduced by the fixes.
+
+    This is iteration {iteration} of {max}.
+
+    Return your assessment as JSON:
+    {
+      "approved": true/false,
+      "issues": [{"severity": "blocker|warning|suggestion", "category": "injection|auth|crypto|exposure|config", "description": "...", "location": "...", "suggestion": "..."}],
+      "summary": "..."
+    }
+```
+
+**If resume succeeds**: Update resume_state:
+```
+resume_state["security-reviewer"].agent_id = {agent_id from resumed Task result}
+resume_state["security-reviewer"].last_iteration = {iteration}
+resume_state["security-reviewer"].last_commit_sha = {current HEAD SHA}
+```
+
+**If resume fails** (Task tool returns an error): I3 fallback — fresh I1-R4 dispatch (same template as iteration 1, with additional line in prompt: `"(Fresh dispatch — prior review session unavailable.)"` and previous issues appended). Log to `.review-history.md`: `RESUME-FALLBACK: security-reviewer iteration {iteration} — {error summary}`. Reset `resume_state["security-reviewer"]` with the new fresh dispatch's agent_id.
+
+**If is_final_validation AND this reviewer previously passed (status "passed")** — attempt I2-FV resumed dispatch:
+
+No delta size guard for final validation. Compute the diff between the reviewer's last review commit and current HEAD:
+```
+Bash: git diff {resume_state["security-reviewer"].last_commit_sha} HEAD --stat
+Bash: git diff {resume_state["security-reviewer"].last_commit_sha} HEAD
+```
+
+```
+Task tool call:
+  resume: {resume_state["security-reviewer"].agent_id}
+  prompt: |
+    You already have the upstream artifacts and implementation files
+    in context from your prior review at iteration {resume_state["security-reviewer"].last_iteration}.
+
+    Since your last review, the following fixes were applied to address
+    issues from other reviewers:
+
+    ## Changes Since Your Last Review
+    {git diff --stat between last_iteration commit and current HEAD}
+    {git diff between last_iteration commit and current HEAD}
+
+    ## Fix Summary
+    {consolidated fix summaries from all intermediate iterations (from fix_summaries list)}
+
+    Perform a full regression check. Verify your previous approval still
+    holds given these changes, and check for any new issues.
+
+    This is the final validation round (iteration {iteration} of {max}).
+
+    Return your assessment as JSON:
+    {
+      "approved": true/false,
+      "issues": [{"severity": "blocker|warning|suggestion", "category": "injection|auth|crypto|exposure|config", "description": "...", "location": "...", "suggestion": "..."}],
+      "summary": "..."
+    }
+```
+
+**If I2-FV resume succeeds**: Update resume_state:
+```
+resume_state["security-reviewer"].agent_id = {agent_id from resumed Task result}
+resume_state["security-reviewer"].last_iteration = {iteration}
+resume_state["security-reviewer"].last_commit_sha = {current HEAD SHA}
+```
+
+**If I2-FV resume fails**: I3 fallback — fresh I1-R4 dispatch (same template as iteration 1, with `"(Fresh dispatch — prior review session unavailable.)"` annotation). Log: `RESUME-FALLBACK: security-reviewer iteration {iteration} — {error summary}`. Reset `resume_state["security-reviewer"]`.
+
+**Context compaction detection**: Before attempting any resume (I2 or I2-FV), if `resume_state["security-reviewer"]` was previously populated but `agent_id` is now null or missing (due to context compaction), treat as fresh I1-R4 dispatch. Log: `RESUME-FALLBACK: security-reviewer iteration {iteration} — agent_id lost (context compaction)`.
+
+**Fallback detection (I9):** After receiving the security-reviewer's response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: security-reviewer did not confirm artifact reads` to `.review-history.md`. Proceed regardless. Note: Resumed dispatches (I2/I2-FV templates) do not include Required Artifacts, so "Files read:" may not appear — only apply I9 detection to fresh dispatches.
 
 **7d. Selective Dispatch Logic:**
 
@@ -414,6 +780,10 @@ If the final validation round fails (e.g., security passed in iter 1, but a qual
 
 Use the PRD line resolved in Step 6 (I8).
 
+**Dispatch decision for implementer:**
+
+**If resume_state["implementer"] is missing/empty OR resume_state["implementer"].agent_id is null** — use fresh I7 dispatch:
+
 ```
 Task tool call:
   description: "Fix review issues iteration {n}"
@@ -431,8 +801,8 @@ Task tool call:
     - Plan: {feature_path}/plan.md
     - Tasks: {feature_path}/tasks.md
 
-    ## Implementation files
-    {list of files with code}
+    ## All Implementation Files
+    {complete list of all files assigned to this implementation task}
 
     ## Issues to fix (from failed reviewers only)
     {consolidated issue list from reviewers with reviewer_status == "failed"}
@@ -440,7 +810,87 @@ Task tool call:
     After fixing, return summary of changes made.
 ```
 
-**Fallback detection (I9):** After receiving the implementer's response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: implementer did not confirm artifact reads` to `.review-history.md`. Proceed regardless.
+After fresh dispatch: capture the `agent_id` from the Task tool result. Record the character count of the prompt above as `prompt_length`. Store in resume_state:
+```
+resume_state["implementer"] = {
+  "agent_id": {agent_id from Task result},
+  "iteration1_prompt_length": {prompt_length} (only set on first fix dispatch; preserved on subsequent fresh dispatches),
+  "last_iteration": {iteration},
+  "last_commit_sha": {HEAD SHA before fix}
+}
+```
+If this is not the first fix dispatch (fresh dispatch due to fallback/reset), preserve the original `iteration1_prompt_length` from the first fresh dispatch if available; otherwise set it from this dispatch's prompt length.
+
+**If resume_state["implementer"] exists with non-null agent_id** — attempt I7 resumed dispatch:
+
+First, determine the list of files changed since last fix iteration:
+```
+Bash: git diff {resume_state["implementer"].last_commit_sha} HEAD --name-only
+```
+Capture output as `changed_files_list`.
+
+**Delta size guard**: Construct the I7 resumed prompt below. If its character count > 50% of `resume_state["implementer"].iteration1_prompt_length`, the prompt is too large — fall back to fresh I7 dispatch (same template as above). Reset `resume_state["implementer"]`.
+
+**If within threshold**, attempt I7 resumed dispatch:
+```
+Task tool call:
+  resume: {resume_state["implementer"].agent_id}
+  prompt: |
+    You already have the upstream artifacts and implementation files
+    in context from your previous fix session.
+
+    ## New Issues to Fix
+    {consolidated issue list from reviewers that failed THIS iteration}
+
+    ## Changed Files to Re-read
+    {changed_files_list — implementer should re-read these}
+
+    ## All Implementation Files (for reference)
+    {complete list of all files assigned to this implementation task}
+
+    Fix all listed issues. After fixing, briefly summarize what you changed.
+```
+
+**If I7 resume succeeds**: Update resume_state:
+```
+resume_state["implementer"].agent_id = {agent_id from resumed Task result}
+resume_state["implementer"].last_iteration = {iteration}
+```
+
+**If I7 resume fails** (Task tool returns an error): I3 fallback — fresh I7 dispatch (same template as above, with `"(Fresh dispatch — prior fix session unavailable.)"` annotation). Log to `.review-history.md`: `RESUME-FALLBACK: implementer iteration {iteration} — {error summary}`. Reset `resume_state["implementer"]` with the new fresh dispatch's agent_id.
+
+**Context compaction detection**: Before attempting I7 resume, if `resume_state["implementer"]` was previously populated but `agent_id` is now null or missing (due to context compaction), treat as fresh I7 dispatch. Log: `RESUME-FALLBACK: implementer iteration {iteration} — agent_id lost (context compaction)`.
+
+**Fallback detection (I9):** After receiving the implementer's response, search for "Files read:" pattern. If not found, log `LAZY-LOAD-WARNING: implementer did not confirm artifact reads` to `.review-history.md`. Proceed regardless. Note: Resumed dispatches (I7 resumed template) do not include Required Artifacts, so "Files read:" may not appear — only apply I9 detection to fresh dispatches.
+
+**7e-commit. Per-iteration git commit after implementer fixes:**
+
+After the implementer fix dispatch completes (whether fresh or resumed), commit the changes and capture delta for subsequent reviewer resume dispatches:
+
+```
+Bash: git add {space-separated list of files from files_changed} && git diff --cached --quiet && echo NO_CHANGES || (git commit -m "iflow: implement review iteration {n} fixes" && echo COMMIT_OK || echo COMMIT_FAILED)
+```
+
+Handle the three outcomes:
+
+- **NO_CHANGES**: No changes were committed. The reviewers will use fresh I1-R4 dispatches since there is no meaningful delta to resume with.
+
+- **COMMIT_FAILED**: Git commit failed. Proceed with fresh I1-R4 dispatches for reviewers.
+
+- **COMMIT_OK**: Commit succeeded. Capture the new SHA and compute delta:
+  ```
+  Bash: git rev-parse HEAD
+  ```
+  Capture as `new_sha`.
+  ```
+  Bash: git diff {resume_state[reviewer_role].last_commit_sha for the reviewer being dispatched next} HEAD --stat
+  Bash: git diff {resume_state[reviewer_role].last_commit_sha for the reviewer being dispatched next} HEAD
+  ```
+  Capture as `delta_stat` and `delta_content` respectively. These are used by the I2 resumed templates in 7a/7b/7c above.
+
+  Update `resume_state["implementer"].last_commit_sha = new_sha`.
+
+  Append the implementer's fix summary to `fix_summaries` list for use by I2-FV templates.
 
 **Circuit breaker (iteration >= 5):**
 ```
@@ -542,4 +992,4 @@ AskUserQuestion:
 
 If "Continue to /iflow:finish-feature (Recommended)": Invoke `/iflow:finish-feature`
 If "Review implementation first": Show "Run /iflow:finish-feature when ready." → STOP
-If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to the implementation, then return to Step 7 (3-reviewer loop) with the iteration counter reset to 0.
+If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to the implementation, then reset `resume_state = {}` and `fix_summaries = []` (clear all entries — the user has made manual edits outside the review loop, so prior agent contexts are stale) and return to Step 7 (3-reviewer loop) with the iteration counter reset to 0.
