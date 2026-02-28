@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.4.0] - 2026-03-01
+
+### Changed
+- Comprehensive prompt refactoring across 70+ component files: removed subjective adjectives, normalized stage/step/phase terminology, enforced active voice and imperative mood
+- Restructured agent and command prompts for better prompt cache hit rates (static-before-dynamic block ordering)
+- Converted ds-code and ds-analysis review commands to 3-chain dispatch architecture with JSON schemas
+- Added 10-dimension promptimize scoring rubric with behavioral anchors and auto-pass rules per component type
+- Added batch-promptimize.sh script for full-coverage prompt quality scoring
+
+### Added
+- Promptimize pilot gate report with baseline scores for 5 pilot files (mean 92/100)
+- Test input artifacts for behavioral verification of refactored components
+- Hookify rule for promptimize reminders on plugin component edits
+
 ## [4.3.1] - 2026-02-28
 
 ### Changed
