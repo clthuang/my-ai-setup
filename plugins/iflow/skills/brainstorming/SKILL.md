@@ -5,10 +5,6 @@ description: Guides a 6-stage process producing evidence-backed PRDs. Use when t
 
 # Brainstorming Phase
 
-## Config Variables
-Use these values from session context (injected at session start):
-- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
-
 Guide divergent thinking through a structured 6-stage process that produces a PRD.
 
 ## YOLO Mode Overrides
@@ -26,25 +22,6 @@ If `[YOLO_MODE]` is active in the execution context:
 - **Context propagation:** When invoking create-feature, include `[YOLO_MODE]` in args
 
 These overrides take precedence over the PROHIBITED section for YOLO mode only.
-
-## Getting Started
-
-### 1. Create Scratch File
-
-- Get topic from user argument or ask: "What would you like to brainstorm?"
-- Generate slug from topic:
-  - Lowercase
-  - Replace spaces/special chars with hyphens
-  - Max 30 characters
-  - Trim trailing hyphens
-  - If empty, use "untitled"
-- Ensure directory exists (create if needed): `mkdir -p {iflow_artifacts_root}/brainstorms/`
-- Create file: `{iflow_artifacts_root}/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`
-  - Example: `{iflow_artifacts_root}/brainstorms/20260129-143052-api-caching.prd.md`
-
-### 2. Run 6-Stage Process
-
-Follow the Process below, writing content to the PRD file as you go.
 
 ## Process
 
@@ -513,12 +490,6 @@ Write PRD using template from [references/prd-template.md](references/prd-templa
 - **Brainstorm Reviewer Unavailable:** Show warning, proceed directly to Stage 6 with `approved: unknown`
 
 ---
-## Completion
-After Stage 6:
-- If "Promote to Project": Invoke `/iflow:create-project --prd={prd-file-path}` directly (no mode prompt)
-- If "Promote to Feature": Ask for workflow mode (Standard/Full), then invoke `/iflow:create-feature --prd={prd-file-path}`
-
----
 ## PROHIBITED Actions
 When executing the brainstorming skill, you MUST NOT:
 - Proceed to /iflow:specify, /iflow:design, /iflow:create-plan, or /iflow:implement
@@ -529,3 +500,32 @@ When executing the brainstorming skill, you MUST NOT:
 - Skip the critical review stage (Stage 4)
 - Skip the readiness check stage (Stage 5)
 - Skip the AskUserQuestion decision gate (Stage 6)
+
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
+## Getting Started
+
+### 1. Create Scratch File
+
+- Get topic from user argument or ask: "What would you like to brainstorm?"
+- Generate slug from topic:
+  - Lowercase
+  - Replace spaces/special chars with hyphens
+  - Max 30 characters
+  - Trim trailing hyphens
+  - If empty, use "untitled"
+- Ensure directory exists (create if needed): `mkdir -p {iflow_artifacts_root}/brainstorms/`
+- Create file: `{iflow_artifacts_root}/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`
+  - Example: `{iflow_artifacts_root}/brainstorms/20260129-143052-api-caching.prd.md`
+
+### 2. Run 6-Stage Process
+
+Follow the Process above, writing content to the PRD file as you go.
+
+---
+## Completion
+After Stage 6:
+- If "Promote to Project": Invoke `/iflow:create-project --prd={prd-file-path}` directly (no mode prompt)
+- If "Promote to Feature": Ask for workflow mode (Standard/Full), then invoke `/iflow:create-feature --prd={prd-file-path}`
