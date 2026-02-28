@@ -762,11 +762,11 @@ ADJECTIVE_VIOLATIONS=0
 ADJECTIVE_PATTERN='\b(appropriate|sufficient|robust|thorough|proper|adequate|reasonable)\b'
 # Domain-specific compound exceptions (not violations)
 ADJECTIVE_EXCEPTIONS='(sufficient sample|appropriate statistical test|sufficient data|robust standard error)'
-ADJECTIVE_FILES=$(grep -rl --include="*.md" -E "$ADJECTIVE_PATTERN" plugins/iflow/agents plugins/iflow/skills plugins/iflow/commands 2>/dev/null | grep -v '/references/' || true)
+ADJECTIVE_FILES=$(grep -rli --include="*.md" -E "$ADJECTIVE_PATTERN" plugins/iflow/agents plugins/iflow/skills plugins/iflow/commands 2>/dev/null | grep -v '/references/' || true)
 if [ -n "$ADJECTIVE_FILES" ]; then
     while IFS= read -r file; do
-        count=$(grep -cE "$ADJECTIVE_PATTERN" "$file" 2>/dev/null || true)
-        exceptions=$(grep -cE "$ADJECTIVE_EXCEPTIONS" "$file" 2>/dev/null || true)
+        count=$(grep -ciE "$ADJECTIVE_PATTERN" "$file" 2>/dev/null || true)
+        exceptions=$(grep -ciE "$ADJECTIVE_EXCEPTIONS" "$file" 2>/dev/null || true)
         net=$((count - exceptions))
         if [ "$net" -gt 0 ]; then
             log_error "$file: $net subjective adjective(s) found — replace with measurable criteria"
