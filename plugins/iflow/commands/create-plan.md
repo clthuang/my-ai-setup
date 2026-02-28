@@ -5,13 +5,7 @@ argument-hint: "[--feature=<id-slug>]"
 
 Invoke the planning skill for the current feature context.
 
-## Config Variables
-Use these values from session context (injected at session start):
-- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
-
-Read {iflow_artifacts_root}/features/ to find active feature, then follow the workflow below.
-
-## Workflow Integration
+## Static Reference
 
 ### 1-3. Validate, Branch Check, Partial Recovery, Mark Started
 
@@ -349,3 +343,9 @@ AskUserQuestion:
 If "Continue to /iflow:create-tasks (Recommended)": Invoke `/iflow:create-tasks`
 If "Review plan.md first": Show "Plan at {path}/plan.md. Run /iflow:create-tasks when ready." → STOP
 If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to plan.md, then reset `resume_state = {}` (clear all entries — the user has made manual edits outside the review loop, so prior agent contexts are stale) and return to Step 4 (Stage 1 plan-reviewer) with iteration counters reset to 0.
+
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
+Read {iflow_artifacts_root}/features/ to find active feature, then follow the workflow below.

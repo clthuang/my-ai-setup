@@ -5,13 +5,7 @@ argument-hint: "[--feature=<id-slug>]"
 
 Invoke the breaking-down-tasks skill for the current feature context.
 
-## Config Variables
-Use these values from session context (injected at session start):
-- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
-
-Read {iflow_artifacts_root}/features/ to find active feature, then follow the workflow below.
-
-## Workflow Integration
+## Static Reference
 
 ### 1-3. Validate, Branch Check, Partial Recovery, Mark Started
 
@@ -392,3 +386,9 @@ AskUserQuestion:
 If "Continue to /iflow:implement (Recommended)": Invoke `/iflow:implement`
 If "Review tasks.md first": Show "Tasks at {path}/tasks.md. Run /iflow:implement when ready." -> STOP
 If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to tasks.md, then reset `resume_state = {}` (clear all entries — the user has made manual edits outside the review loop, so prior agent contexts are stale) and return to Step 4 (Stage 1 task-reviewer) with iteration counters reset to 0.
+
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
+Read {iflow_artifacts_root}/features/ to find active feature, then follow the workflow below.
