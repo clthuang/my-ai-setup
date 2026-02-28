@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.4.1] - 2026-03-01
+
 ### Added
 - Promptimize support for general prompt files (any .md not matching plugin patterns)
 - Promptimize inline text mode: paste prompt text directly as arguments for scoring and improvement
