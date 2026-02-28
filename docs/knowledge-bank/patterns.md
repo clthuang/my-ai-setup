@@ -155,8 +155,8 @@ When a workflow has nested iteration loops, make budgets independent.
 Heavy upfront review investment (15-30+ pre-implementation review iterations) correlates with clean implementation (0-1 actionable issues across all reviewers). Front-loading review effort shifts risk discovery to phases where changes are cheap (text edits) rather than expensive (code changes).
 - Observed in: Feature #022, implementation phase
 - Confidence: high
-- Last observed: Feature #031
-- Observation count: 5
+- Last observed: Feature #032
+- Observation count: 6
 
 ### Pattern: Template Indentation Matching
 When inserting blocks into existing prompt templates, read the target file first and match its specific indentation level (which may differ per file). Prevents downstream formatting issues.
@@ -305,4 +305,18 @@ When design involves git operations (diff, commit, staging), enumerate all edge 
 - Evidence: Front-loading these into a structured TD section would have prevented 2 of 3 design iterations
 - Confidence: high
 - Last observed: Feature #031
+- Observation count: 1
+
+### Pattern: Edge-Case Test Scenarios Belong in ACs, Not Technical Decisions
+When a Technical Decision section describes an edge-case test scenario (e.g., "reversed attribute order"), promote it to a named Acceptance Criterion or plan task before design handoff. TD "testing notes" are not contractual and propagate as blockers across downstream phases.
+- Observed in: Feature #032, design handoff → plan review — reversed-attribute-order TD2 note drove handoff cap and plan-reviewer blocker (3 downstream iterations from one unspecified edge case)
+- Confidence: high
+- Last observed: Feature #032
+- Observation count: 1
+
+### Pattern: Name Shared Sub-Procedures at Design Time With Full I/O Contract
+When two or more design sections describe the same algorithm in parallel prose, extract it as a named sub-procedure with explicit inputs, outputs, and placement ordering at design time. Unnamed shared logic acquires its contract incrementally across chain review iterations.
+- Observed in: Feature #032, create-plan phase — match_anchors_in_original described in both C6 and C9 required 4 chain iterations to acquire name, label, I/O contract, and placement ordering
+- Confidence: high
+- Last observed: Feature #032
 - Observation count: 1
