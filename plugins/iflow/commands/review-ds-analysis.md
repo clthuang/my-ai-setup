@@ -84,13 +84,16 @@ Task tool call:
                     "description": { "type": "string", "description": "What the issue is" },
                     "location": { "type": "string", "description": "file:line or section reference" },
                     "suggestion": { "type": "string", "description": "How to fix it" }
-                  }
+                  },
+                  "required": ["severity", "description", "location", "suggestion"]
                 }
               }
-            }
+            },
+            "required": ["axis", "approved", "issues"]
           }
         }
-      }
+      },
+      "required": ["axis_results"]
     }
     ```
 ```
@@ -148,13 +151,16 @@ Task tool call:
                     "description": { "type": "string", "description": "What the issue is" },
                     "location": { "type": "string", "description": "file:line or section reference" },
                     "suggestion": { "type": "string", "description": "How to fix it" }
-                  }
+                  },
+                  "required": ["severity", "description", "location", "suggestion"]
                 }
               }
-            }
+            },
+            "required": ["axis", "approved", "issues"]
           }
         }
-      }
+      },
+      "required": ["axis_results"]
     }
     ```
 ```

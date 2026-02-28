@@ -7,6 +7,8 @@ Invoke the planning skill for the current feature context.
 
 ## Static Reference
 
+<!-- Placeholder: static content injected here for prompt cache efficiency -->
+
 ### 1-3. Validate, Branch Check, Partial Recovery, Mark Started
 
 Follow `validateAndSetup("create-plan")` from the **workflow-transitions** skill.

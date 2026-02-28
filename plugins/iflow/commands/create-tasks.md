@@ -7,6 +7,8 @@ Invoke the breaking-down-tasks skill for the current feature context.
 
 ## Static Reference
 
+<!-- Placeholder: static content injected here for prompt cache efficiency -->
+
 ### 1-3. Validate, Branch Check, Partial Recovery, Mark Started
 
 Follow `validateAndSetup("create-tasks")` from the **workflow-transitions** skill.

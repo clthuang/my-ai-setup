@@ -7,6 +7,8 @@ Invoke the implementing skill for the current feature context.
 
 ## Static Reference
 
+<!-- Placeholder: static content injected here for prompt cache efficiency -->
+
 ## YOLO Mode Overrides
 
 If `[YOLO_MODE]` is active:
