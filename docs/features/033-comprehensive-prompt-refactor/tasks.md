@@ -23,11 +23,11 @@
 - **Why**: Plan Step 0.1 / AC-13 — capture pre-refactor behavioral outputs for equivalence comparison
 - **Files**: Same 5 pilot files as T01
 - **Action**: For each pilot file, invoke with representative inputs and capture outputs. Create `docs/features/033-comprehensive-prompt-refactor/baseline-behaviors.md` to store all results (separate from `baseline-scores.md` which holds numeric scores). Invocation methods:
-  - `design-reviewer.md` (agent): Run `claude -p` with the design-reviewer agent prompt and a 200-word feature design document containing 3 components, 2 interfaces, and 1 missing dependency → capture JSON output (approval decision + issues array)
-  - `secretary.md` (command): Run `/iflow:secretary` with 5 routing prompts: (1) "review auth for security issues" (direct agent), (2) "help" (help subcommand), (3) "make the app better" (ambiguous), (4) "orchestrate build login" (orchestrate), (5) "translate to French" (no-match) → capture agent selection per prompt
-  - `brainstorming/SKILL.md` (skill): Run `/iflow:brainstorming` with args "Add rate limiting to API endpoints" → capture stage progression through Stage 1-3
-  - `review-ds-code.md` (command): Run `/iflow:review-ds-code` with a notebook description containing 3 anti-patterns (global imports, no docstrings, hardcoded paths) and 2 correct patterns → capture JSON output
-  - `review-ds-analysis.md` (command): Run `/iflow:review-ds-analysis` with an analysis description containing 1 p-hacking instance, 1 missing confidence interval, and 1 correct methodology → capture JSON output
+  - `design-reviewer.md` (agent): Run `claude -p --system-prompt "$(cat plugins/iflow/agents/design-reviewer.md)" --allowedTools 'Read,Grep,Glob' --model sonnet` with a 200-word feature design document (piped via stdin or appended as user message) containing 3 components, 2 interfaces, and 1 missing dependency → capture JSON output (approval decision + issues array). Note: same `claude -p` pattern reused in T34.
+  - `secretary.md` (command): Run `/iflow:secretary` interactively in a Claude Code session with 5 routing prompts: (1) "review auth for security issues" (direct agent), (2) "help" (help subcommand), (3) "make the app better" (ambiguous), (4) "orchestrate build login" (orchestrate), (5) "translate to French" (no-match) → capture agent selection per prompt
+  - `brainstorming/SKILL.md` (skill): Run `/iflow:brainstorming Add rate limiting to API endpoints` interactively in a Claude Code session (slash commands require a CC session; cannot be invoked headless via `claude -p` per design TD-2) → capture stage progression through Stage 1-3. Note: same CC session invocation reused in T36.
+  - `review-ds-code.md` (command): Run `/iflow:review-ds-code` interactively in a Claude Code session with a notebook description containing 3 anti-patterns (global imports, no docstrings, hardcoded paths) and 2 correct patterns → capture JSON output
+  - `review-ds-analysis.md` (command): Run `/iflow:review-ds-analysis` interactively in a Claude Code session with an analysis description containing 1 p-hacking instance, 1 missing confidence interval, and 1 correct methodology → capture JSON output
 - **Done**: `baseline-behaviors.md` exists with all 5 baseline outputs recorded.
 - [ ] Status
 
@@ -93,7 +93,7 @@
   - `test_skill_canonical_name_mapping_table_has_9_entries` → `test_skill_canonical_name_mapping_table_has_10_entries` (add `cache_friendliness`)
   - `test_cmd_score_formula_contains_27_and_100` → `test_cmd_score_formula_contains_30_and_100` (grep `'30'` instead of `'27'`)
   - Update runner invocations for the 7 renamed functions above (grep for old function names in `test-promptimize-content.sh` to find all call sites)
-- **Done**: `bash plugins/iflow/hooks/tests/test-promptimize-content.sh` runs and tests FAIL (Red — source files still say 9).
+- **Done**: (1) `bash plugins/iflow/hooks/tests/test-promptimize-content.sh` runs and tests FAIL (Red — source files still say 9). (2) Grep for all 7 old function names returns 0 matches each: `grep -c 'test_rubric_has_exactly_9_dimensions\|test_scoring_formula_max_denominator_is_27\|test_cmd_validates_exactly_9_dimensions\|test_cmd_lists_all_9_canonical\|test_skill_lists_all_9_dimension\|test_skill_canonical_name_mapping_table_has_9\|test_cmd_score_formula_contains_27' plugins/iflow/hooks/tests/test-promptimize-content.sh` — output is 0 (confirming both definitions and call sites were renamed).
 - [ ] Status
 
 ### T08: Update promptimize SKILL.md — 10 dimensions (TDD Green) [Group: E]
@@ -133,7 +133,7 @@
   - Working directory guard: verify `plugins/iflow/skills/promptimize/references/scoring-rubric.md` exists
   - CLI args: `--max-parallel N`, `--threshold N` (default 80), `--help`
   - `chmod +x` the script
-- **Done**: (1) Script is executable. (2) `--help` runs without error. (3) Rubric guard fails gracefully outside project root. (4) Grep for `'\$((  '` (escaped dollar-paren) returns >=1 match confirming bash arithmetic for percentage. (5) The `claude -p` calls request per-dimension scores (1-3) from the LLM; the final percentage calculation (`(sum * 100 + 15) / 30`) is performed in bash, not by the LLM.
+- **Done**: (1) Script is executable. (2) `--help` runs without error. (3) Rubric guard fails gracefully outside project root. (4) `grep -c 'sum \* 100' plugins/iflow/scripts/batch-promptimize.sh` returns >=1 match confirming the bash rounding formula from the design (`(sum * 100 + 15) / 30`). (5) The `claude -p` calls request per-dimension scores (1-3) from the LLM; the final percentage calculation is performed in bash arithmetic (`$(( ... ))`), not by the LLM.
 - [ ] Status
 
 ### T11: Smoke test batch-promptimize.sh [Group: G]
@@ -182,14 +182,6 @@
 
 **Commit after T13**: `iflow: split review-ds-analysis.md into 3-chain dispatch`
 
-### T14: Add trivial-math exception comment to secretary.md [Group: I]
-- **Deps**: T15 (secretary.md cache restructure must complete first — micro-dependency from plan Step 3.3)
-- **Why**: Plan Step 3.3 / SC-5 — document the trivial-math exception for secretary complexity scoring
-- **File**: `plugins/iflow/commands/secretary.md`
-- **Action**: Add `<!-- Trivial-math exception: 5-signal additive integer counting (SC-5). Addition only, no division/rounding. -->` near complexity scoring section.
-- **Done**: Grep for "Trivial-math exception" in secretary.md returns 1 match.
-- [ ] Status
-
 ### T15: Restructure secretary.md for prompt caching [Group: H]
 - **Deps**: none
 - **Why**: Plan Step 3.4 / SC-3, AC-3 — static content must precede dynamic content for prompt caching
@@ -198,12 +190,20 @@
 - **Done**: (1) Read the restructured file and confirm: all `## Static Reference Tables` content (Specialist Fast-Path, routing tables, rules) appears before any `$ARGUMENTS` or `{feature_path}` markers. Verify with: `grep -n 'ARGUMENTS\|{feature_path}\|Static Reference' plugins/iflow/commands/secretary.md` — static section line number < all dynamic marker line numbers. (2) Run 3 routing prompts via `/iflow:secretary` to verify no silent breakage: (a) `/iflow:secretary review auth for security issues` → expect iflow:security-reviewer match, (b) `/iflow:secretary help` → expect help subcommand output, (c) `/iflow:secretary make the app better` → expect clarification question (ambiguous intent).
 - [ ] Status
 
+### T14: Add trivial-math exception comment to secretary.md [Group: I]
+- **Deps**: T15 (secretary.md cache restructure must complete first — micro-dependency from plan Step 3.3)
+- **Why**: Plan Step 3.3 / SC-5 — document the trivial-math exception for secretary complexity scoring
+- **File**: `plugins/iflow/commands/secretary.md`
+- **Action**: Add `<!-- Trivial-math exception: 5-signal additive integer counting (SC-5). Addition only, no division/rounding. -->` near complexity scoring section.
+- **Done**: Grep for "Trivial-math exception" in secretary.md returns 1 match.
+- [ ] Status
+
 ### T16: Restructure brainstorming/SKILL.md for prompt caching [Group: H]
 - **Deps**: none
 - **Why**: Plan Step 3.4 / SC-3, AC-3 — static-before-dynamic ordering for prompt caching
 - **File**: `plugins/iflow/skills/brainstorming/SKILL.md`
 - **Action**: Move static content (stage definitions, rules, PROHIBITED section, error handling, PRD output format) above dynamic content (ARGUMENTS, iteration state). Block-movement only per TD-3.
-- **Done**: All static sections precede dynamic injection points.
+- **Done**: Run `git diff HEAD -- plugins/iflow/skills/brainstorming/SKILL.md` BEFORE committing — added line count equals removed line count (move-only). All dynamic markers (`ARGUMENTS`, `{topic}`, `{iteration}`) appear after all static sections.
 - [ ] Status
 
 ### T17: Restructure specify.md and design.md for prompt caching [Group: H]
@@ -211,7 +211,7 @@
 - **Why**: Plan Step 3.4 / SC-3, AC-3 — static-before-dynamic for 2 command files
 - **Files**: `plugins/iflow/commands/specify.md`, `plugins/iflow/commands/design.md`
 - **Action**: For each file, move static content (reviewer templates, schemas, YOLO overrides, rules) above dynamic content (ARGUMENTS, feature_path, iteration state). Block-movement only.
-- **Done**: For each file (`plugins/iflow/commands/specify.md`, `plugins/iflow/commands/design.md`), run: `git diff HEAD -- <file>` — added line count equals removed line count (confirming move-only changes, no net content added/deleted). All dynamic markers (`ARGUMENTS`, `{feature_path}`) appear after all static sections.
+- **Done**: For each file (`plugins/iflow/commands/specify.md`, `plugins/iflow/commands/design.md`), run `git diff HEAD -- <file>` BEFORE committing T17 changes (while edits are in working tree) — added line count equals removed line count (confirming move-only changes, no net content added/deleted). All dynamic markers (`ARGUMENTS`, `{feature_path}`) appear after all static sections. Each file must have a `## Static Reference` section (or equivalent named static section) before the first dynamic marker.
 - [ ] Status
 
 ### T18: Restructure create-plan.md and create-tasks.md for prompt caching [Group: H]
@@ -243,8 +243,8 @@
 - **Why**: Plan Step 3.4 / SC-3 — verify all 7 non-pilot restructured files are content-preserving moves only
 - **Action**: For the 7 non-pilot restructured files (specify.md, design.md, create-plan.md, create-tasks.md, implement.md, implementing/SKILL.md, retrospecting/SKILL.md), run automated diff check:
   - Step 1: For each file, verify move-only: `git diff HEAD -- <file> | grep -c '^+'` and `git diff HEAD -- <file> | grep -c '^-'` — added count must equal removed count
-  - Step 2: For each file, verify dynamic-after-static ordering. First get last static section line: `grep -n '## Static\|## Rules\|## Workflow\|## Error' <file> | tail -1 | cut -d: -f1`. Then get first dynamic marker line: `grep -n 'ARGUMENTS\|{feature_path}\|{iteration}\|{phase_iteration}' <file> | head -1 | cut -d: -f1`. Confirm: first dynamic line > last static line
-  - Step 3: Verify each file has a named static section before the first dynamic marker
+  - Step 2: For each file, verify dynamic-after-static ordering. T17-T20 must name their static section `## Static Reference` (standard name per T17 requirement). Get that section line: `grep -n '## Static Reference' <file> | head -1 | cut -d: -f1`. Then get first dynamic marker line: `grep -n 'ARGUMENTS\|{feature_path}\|{iteration}\|{phase_iteration}' <file> | head -1 | cut -d: -f1`. Confirm: first dynamic line > static section line
+  - Step 3: Verify each file has `## Static Reference` header present (returns >=1 match)
 - **Done**: All 7 files pass: (1) added lines == removed lines, (2) dynamic markers after static content per grep line number comparison above.
 - [ ] Status
 
@@ -255,7 +255,7 @@
 ## Phase 4: Content Sweep
 
 ### T22: Run pre-sweep adjective audit [Group: K]
-- **Deps**: T12, T13, T15-T20 (God Prompt splits + cache restructure must be done before content sweep)
+- **Deps**: T12, T13, T15-T21 (God Prompt splits + cache restructure + verification must be done before content sweep)
 - **Why**: Plan Step 4.0 / SC-2, AC-8 — definitive audit before adjective removal
 - **Action**: Run in bash (brace expansion requires bash, not sh): `grep -rlEi '\bappropriate\b|\bsufficient\b|\brobust\b|\bthorough\b|\bproper\b|\badequate\b|\breasonable\b' plugins/iflow/agents plugins/iflow/skills plugins/iflow/commands --include='*.md' | grep -v '/references/'`. For each file, count raw matches and domain-specific compound matches. Store definitive file list in `docs/features/033-comprehensive-prompt-refactor/adjective-audit.md`.
 - **Done**: `adjective-audit.md` exists with exact file list and per-file net match counts (raw minus compounds).
@@ -297,7 +297,7 @@
 - **Why**: Plan Step 4.2 / SC-7 — convert passive constructions to imperative mood
 - **Files**: Affected prompt files (~12 instances)
 - **Action**: Review files for passive constructions. Convert each to imperative mood (e.g., "JSON should be returned" → "Return JSON", "is returned" → "Return", "are provided" → "Provide", "will be" → direct verb, "must be" → direct verb).
-- **Done**: (1) Run: `grep -rEin '\b(should be|is returned|are provided|will be validated|is expected to|are expected to|can be|has been|were \w+ed|is \w+ed by|are \w+ed by)\b' plugins/iflow/{agents,skills,commands} --include='*.md' | grep -v '/references/'` — output is empty for all modified files. (2) Note: This grep catches common patterns but not all passive constructions. The promptimize `technique_currency` dimension provides comprehensive passive voice detection during T33/T40 scoring — any remaining passive voice will surface as low dimension scores there.
+- **Done**: (1) Run: `grep -rEin '\b(should be|is returned|are provided|will be validated|is expected to|are expected to|can be|has been|were \w+ed|is \w+ed by|are \w+ed by)\b' plugins/iflow/{agents,skills,commands} --include='*.md' | grep -v '/references/'` — output is empty for all modified files. (2) Manually verify the 3 known-passive-voice files from plan FR-11: `plugins/iflow/agents/test-deepener.md`, `plugins/iflow/agents/documentation-writer.md`, `plugins/iflow/skills/structuring-ds-projects/SKILL.md` — confirm zero passive voice instances on manual read of each file. (3) Note: The automated grep catches common patterns. Any remaining passive constructions will surface via low `technique_currency` dimension scores during T33/T40 promptimize runs.
 - [ ] Status
 
 ### T28: Normalize Stage/Step/Phase terminology [Group: N]
@@ -305,7 +305,7 @@
 - **Why**: Plan Step 4.3 / SC-4, AC-11 — enforce consistent terminology per component-authoring.md convention
 - **Files**: All 85 prompt files + 3 READMEs
 - **Action**: Run: `grep -rn '\bStage\b\|\bStep\b\|\bPhase\b' plugins/iflow/{agents,skills,commands} README.md README_FOR_DEV.md plugins/iflow/README.md --include='*.md' > /tmp/terminology-audit.txt`. For each match, verify conformance: Stage = top-level skill divisions only, Step = command sections and skill sub-items, Phase = workflow-state phase names only. Violations: "Step" used as top-level division in a skill, "Stage" used in a command, "Phase" used outside workflow-state context. Fix all violations.
-- **Done**: Re-run grep on all files listed in `adjective-audit.md` (the definitive file list from T22). Zero terminology violations in those files.
+- **Done**: Re-run `grep -rn '\bStage\b\|\bStep\b\|\bPhase\b' plugins/iflow/{agents,skills,commands} README.md README_FOR_DEV.md plugins/iflow/README.md --include='*.md'` on all 85 prompt files + 3 READMEs (full plan scope, not limited to adjective-audit.md). Zero terminology violations against the convention: Stage = top-level skill divisions only, Step = command sections and skill sub-items, Phase = workflow-state phase names only.
 - [ ] Status
 
 ### T29: Verify hook scripts after terminology changes [Group: N]
@@ -352,7 +352,7 @@
 - **Deps**: All Phase 1-4 tasks (T04-T30)
 - **Why**: Plan Step 5.3 / SC-1 — measure post-refactor quality improvement on pilot files
 - **Files**: 5 pilot files
-- **Action**: Run `/iflow:promptimize` on all 5 pilot files. Record post-refactor scores. Compare with pre-refactor scores from `baseline-scores.md`.
+- **Action**: Run `/iflow:promptimize` on all 5 pilot files. Record post-refactor scores. Compare with pre-refactor scores from `baseline-scores.md`. Note: For `review-ds-code.md` and `review-ds-analysis.md` (now 3-chain orchestrators after T12/T13), promptimize evaluates the orchestration command file itself — focus dimension review on `output_format_specification` (per-chain JSON schemas), `behavioral_constraints` (chain error halt conditions), and `cache_friendliness` (static chain templates before dynamic inputs).
 - **Done**: Post-refactor scores recorded. All 5 score >=80 (SC-1 for pilots).
 - [ ] Status
 
@@ -360,7 +360,7 @@
 - **Deps**: T33, T03 (stored test inputs)
 - **Why**: Plan Step 5.3 / AC-13 — verify refactored prompt produces equivalent behavioral output
 - **File**: `plugins/iflow/agents/design-reviewer.md`
-- **Action**: Run `claude -p` with the design-reviewer agent prompt (read from `plugins/iflow/agents/design-reviewer.md`) and 2-3 representative inputs from `test-inputs/design-reviewer-input.md` (complete design, missing interfaces, consistency issues). Compare pre/post outputs from `baseline-behaviors.md`: same JSON structure, same approval decision, issue count +/-1, no new categories, severity shift <=1 level.
+- **Action**: Run `claude -p --system-prompt "$(cat plugins/iflow/agents/design-reviewer.md)" --allowedTools 'Read,Grep,Glob' --model sonnet` with 2-3 representative inputs from `test-inputs/design-reviewer-input.md` (complete design, missing interfaces, consistency issues). Compare pre/post outputs from `baseline-behaviors.md`: same JSON structure, same approval decision, issue count +/-1, no new categories, severity shift <=1 level.
 - **Done**: Behavioral equivalence verified for design-reviewer.md — (1) approval decision matches baseline, (2) issue count within +/-1, (3) no new severity categories.
 - [ ] Status
 
@@ -413,7 +413,7 @@
 - **Deps**: T39 (pilot gate), T10 (batch script), T04 (rubric)
 - **Why**: Plan Step 5.4 / SC-1 — final quality gate: all 85 files must score >=80
 - **Action**: Run `batch-promptimize.sh` on all 85 files. For any file scoring <80: run interactive `/iflow:promptimize` on the failing file to get per-dimension scores and identify which dimensions scored low. Fix the identified dimension failures and re-run `batch-promptimize.sh` on that file (max 2 fix-and-rescore iterations per file). If a file still scores <80 after 2 iterations, document it in `below-threshold-files.md` (full path: `docs/features/033-comprehensive-prompt-refactor/below-threshold-files.md`) with file path, current score, failing dimensions, and deferral rationale.
-- **Done**: Gate closure requires either: (a) `batch-promptimize.sh` exits code 0 with all files showing `[PASS]`, OR (b) all remaining below-threshold files documented in `below-threshold-files.md` with deferral rationale and the overall pass rate is >=95%. Note: Option (b) is a pragmatic deviation from SC-1's "all 85 files >=80" threshold — deferred files must have documented rationale and a follow-up backlog item.
+- **Done**: Gate closure requires either: (a) `batch-promptimize.sh` exits code 0 with all files showing `[PASS]`, OR (b) all remaining below-threshold files documented in `below-threshold-files.md` with deferral rationale and the overall pass rate is >=95%. Note: Option (b) is a pre-approved pragmatic deviation from SC-1's "all 85 files >=80" threshold. No spec update required — deferred files must have documented rationale and a follow-up backlog item created via `/iflow:add-to-backlog`. Escalation threshold: if more than 5 files (>6%) are deferred, escalate for product review before closing the feature.
 - [ ] Status
 
 **Commit after T40**: `iflow: all 85 files score >=80 on promptimize rubric`
@@ -439,7 +439,7 @@ Phase 2 (partially parallel):
 Phase 3 (mostly parallel):
   T12 (ds-code split)     ─┐
   T13 (ds-analysis split)  ─┤
-  T15 (secretary cache) ────┼──→ T14 (secretary math comment)  [T15→T14]
+  T15 (secretary cache) ────┼──→ T14 (secretary math comment)
   T16 (brainstorm cache)   ─┤
   T17 (specify+design cache)─┤──→ T21 (verify non-pilot)
   T18 (plan+tasks cache)   ─┤
@@ -447,7 +447,7 @@ Phase 3 (mostly parallel):
   T20 (skills cache)       ─┘
 
 Phase 4 (sequential within):
-  T12,T13,T15-T20 ──→ T22 (audit) ──→ T23,T24,T25 (adjectives) ──→ T26 (verify)
+  T12,T13,T15-T21 ──→ T22 (audit) ──→ T23,T24,T25 (adjectives) ──→ T26 (verify)
                                                               ──→ T27 (passive) ──→ T28 (terminology) ──→ T29 (hooks), T30 (secretary verify)
 
 Phase 5 (gated):
