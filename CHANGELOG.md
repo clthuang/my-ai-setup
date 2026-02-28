@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Reordered reviewer dispatch prompts in specify, design, create-plan, create-tasks, and implement commands for better prompt cache hit rates
+- Added reviewer resume logic (R1) to all review loops — reviewers resume from previous iteration instead of fresh dispatch
+- Reduced `memory_injection_limit` from 100 to 50 for token efficiency
+
+### Added
+- Entity and memory system review analysis doc
+- Token efficiency analysis doc
+
+### Removed
+- Stale `.review-history.md` artifact from feature 031
+
 ## [4.2.0] - 2026-02-27
 
 ### Fixed
