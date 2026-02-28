@@ -22,12 +22,12 @@
 - **Deps**: T01
 - **Why**: Plan Step 0.1 / AC-13 — capture pre-refactor behavioral outputs for equivalence comparison
 - **Files**: Same 5 pilot files as T01
-- **Action**: For each pilot file, run with representative inputs and capture outputs. Inputs must be concrete and reproducible:
-  - `design-reviewer.md`: Provide a 200-word feature design document with 3 components, 2 interfaces, and 1 missing dependency → capture JSON output (approval decision + issues array)
-  - `secretary.md`: Run 5 routing prompts: (1) "review auth for security issues" (direct agent), (2) "help" (help subcommand), (3) "make the app better" (ambiguous), (4) "orchestrate build login" (orchestrate), (5) "translate to French" (no-match) → capture agent selection per prompt
-  - `brainstorming/SKILL.md`: Provide topic "Add rate limiting to API endpoints" → capture stage progression through Stage 1-3
-  - `review-ds-code.md`: Provide a notebook description with 3 anti-patterns (global imports, no docstrings, hardcoded paths) and 2 correct patterns → capture JSON output
-  - `review-ds-analysis.md`: Provide an analysis description with 1 p-hacking instance, 1 missing confidence interval, and 1 correct methodology → capture JSON output
+- **Action**: For each pilot file, invoke with representative inputs and capture outputs. Invocation mechanism varies by component type:
+  - `design-reviewer.md` (agent): Dispatch via `Task({ subagent_type: "iflow:design-reviewer", prompt: "{test input}" })`. Input: a 200-word feature design document with 3 components, 2 interfaces, and 1 missing dependency → capture JSON output (approval decision + issues array)
+  - `secretary.md` (command): Invoke via `Skill({ skill: "iflow:secretary", args: "{prompt}" })`. Run 5 routing prompts: (1) "review auth for security issues" (direct agent), (2) "help" (help subcommand), (3) "make the app better" (ambiguous), (4) "orchestrate build login" (orchestrate), (5) "translate to French" (no-match) → capture agent selection per prompt
+  - `brainstorming/SKILL.md` (skill): Invoke via `Skill({ skill: "iflow:brainstorming", args: "Add rate limiting to API endpoints" })` → capture stage progression through Stage 1-3
+  - `review-ds-code.md` (command): Invoke via `Skill({ skill: "iflow:review-ds-code", args: "{test input}" })`. Input: a notebook description with 3 anti-patterns (global imports, no docstrings, hardcoded paths) and 2 correct patterns → capture JSON output
+  - `review-ds-analysis.md` (command): Invoke via `Skill({ skill: "iflow:review-ds-analysis", args: "{test input}" })`. Input: an analysis description with 1 p-hacking instance, 1 missing confidence interval, and 1 correct methodology → capture JSON output
 - **Done**: All 5 baseline outputs recorded in `baseline-outputs.md` (separate from scores).
 - [ ] Status
 
@@ -92,7 +92,7 @@
   - `test_skill_lists_all_9_dimension_names` → `test_skill_lists_all_10_dimension_names` (add `cache_friendliness`)
   - `test_skill_canonical_name_mapping_table_has_9_entries` → `test_skill_canonical_name_mapping_table_has_10_entries` (add `cache_friendliness`)
   - `test_cmd_score_formula_contains_27_and_100` → `test_cmd_score_formula_contains_30_and_100` (grep `'30'` instead of `'27'`)
-  - Update ALL runner invocations to new function names (grep for old names to find all references)
+  - Update ALL runner invocations to new function names (grep for old names to find all call sites — 7 renames above covers all dimension-related test functions)
 - **Done**: `bash plugins/iflow/hooks/tests/test-promptimize-content.sh` runs and tests FAIL (Red — source files still say 9).
 - [ ] Status
 
@@ -195,7 +195,7 @@
 - **Why**: Plan Step 3.4 / SC-3, AC-3 — static content must precede dynamic content for prompt caching
 - **File**: `plugins/iflow/commands/secretary.md`
 - **Action**: Extract static content (Specialist Fast-Path table, routing tables, rules, PROHIBITED section, YOLO overrides) into `## Static Reference Tables` section at top. Convert inline table references to named anchors. Move all dynamic content (`$ARGUMENTS`, feature context) to bottom. This is the TD-3 exception file — requires limited content rewriting beyond block movement.
-- **Done**: All static tables precede all dynamic injection markers. Run 3 routing prompts (direct agent match, help subcommand, ambiguous request) to verify no silent breakage.
+- **Done**: All static tables precede all dynamic injection markers. Run 3 routing prompts to verify no silent breakage: (1) "review auth for security issues" → expect iflow:security-reviewer match, (2) "help" → expect help subcommand output, (3) "make the app better" → expect clarification question (ambiguous intent).
 - [ ] Status
 
 ### T16: Restructure brainstorming/SKILL.md for prompt caching [Group: H]
@@ -255,7 +255,7 @@
 ## Phase 4: Content Sweep
 
 ### T22: Run pre-sweep adjective audit [Group: K]
-- **Deps**: T15-T20 (cache restructure must be done before content sweep)
+- **Deps**: T12, T13, T15-T20 (God Prompt splits + cache restructure must be done before content sweep)
 - **Why**: Plan Step 4.0 / SC-2, AC-8 — definitive audit before adjective removal
 - **Action**: Run `grep -rlEi '\bappropriate\b|\bsufficient\b|\brobust\b|\bthorough\b|\bproper\b|\badequate\b|\breasonable\b' plugins/iflow/{agents,skills,commands} --include='*.md' | grep -v '/references/'`. For each file, count raw matches and domain-specific compound matches. Store definitive file list in `docs/features/033-comprehensive-prompt-refactor/adjective-audit.md`.
 - **Done**: `adjective-audit.md` exists with exact file list and per-file net match counts (raw minus compounds).
@@ -297,7 +297,7 @@
 - **Why**: Plan Step 4.2 / SC-7 — convert passive constructions to imperative mood
 - **Files**: Affected prompt files (~12 instances)
 - **Action**: Review files for passive constructions. Convert each to imperative mood (e.g., "JSON should be returned" → "Return JSON", "is returned" → "Return", "are provided" → "Provide", "will be" → direct verb, "must be" → direct verb).
-- **Done**: Run: `grep -rEin '\b(should be|is returned|are provided|will be validated|is expected to|are expected to)\b' plugins/iflow/{agents,skills,commands} --include='*.md' | grep -v '/references/'` — output is empty for all modified files.
+- **Done**: Run: `grep -rEin '\b(should be|is returned|are provided|will be validated|is expected to|are expected to|can be|has been|were \w+ed|is \w+ed by|are \w+ed by)\b' plugins/iflow/{agents,skills,commands} --include='*.md' | grep -v '/references/'` — output is empty for all modified files.
 - [ ] Status
 
 ### T28: Normalize Stage/Step/Phase terminology [Group: N]
@@ -305,7 +305,7 @@
 - **Why**: Plan Step 4.3 / SC-4, AC-11 — enforce consistent terminology per component-authoring.md convention
 - **Files**: All 85 prompt files + 3 READMEs
 - **Action**: Run: `grep -rn '\bStage\b\|\bStep\b\|\bPhase\b' plugins/iflow/{agents,skills,commands} README.md README_FOR_DEV.md plugins/iflow/README.md --include='*.md' > /tmp/terminology-audit.txt`. For each match, verify conformance: Stage = top-level skill divisions only, Step = command sections and skill sub-items, Phase = workflow-state phase names only. Violations: "Step" used as top-level division in a skill, "Stage" used in a command, "Phase" used outside workflow-state context. Fix all violations.
-- **Done**: Re-run grep, manually verify all instances conform to convention. Zero violations.
+- **Done**: Re-run grep, verify all instances in files touched by T23-T28 conform to convention. Scope bounded to files modified in content sweep (use `git diff --name-only HEAD~{n}` to identify). Zero violations in those files.
 - [ ] Status
 
 ### T29: Verify hook scripts after terminology changes [Group: N]
@@ -412,7 +412,7 @@
 ### T40: Full batch promptimize run — SC-1 verification [Group: S]
 - **Deps**: T39 (pilot gate), T10 (batch script), T04 (rubric)
 - **Why**: Plan Step 5.4 / SC-1 — final quality gate: all 85 files must score >=80
-- **Action**: Run `batch-promptimize.sh` on all 85 files. For any file scoring <80: fix the identified dimension failures and re-score (max 2 fix-and-rescore iterations per file). If a file still scores <80 after 2 iterations, document it in `docs/features/033-comprehensive-prompt-refactor/below-threshold-files.md` with file path, current score, dimension failures, and deferral rationale.
+- **Action**: Run `batch-promptimize.sh` on all 85 files. For any file scoring <80: fix the identified dimension failures and re-score (max 2 fix-and-rescore iterations per file). If a file still scores <80 after 2 iterations, document it in `below-threshold-files.md` (full path: `docs/features/033-comprehensive-prompt-refactor/below-threshold-files.md`) with file path, current score, dimension failures, and deferral rationale.
 - **Done**: Gate closure requires either: (a) `batch-promptimize.sh` exits code 0 with all files showing `[PASS]`, OR (b) all remaining below-threshold files documented in `below-threshold-files.md` with deferral rationale and the overall pass rate is >=95%.
 - [ ] Status
 
@@ -447,7 +447,7 @@ Phase 3 (mostly parallel):
   T20 (skills cache)       ─┘
 
 Phase 4 (sequential within):
-  T15-T20 ──→ T22 (audit) ──→ T23,T24,T25 (adjectives) ──→ T26 (verify)
+  T12,T13,T15-T20 ──→ T22 (audit) ──→ T23,T24,T25 (adjectives) ──→ T26 (verify)
                                                               ──→ T27 (passive) ──→ T28 (terminology) ──→ T29 (hooks), T30 (secretary verify)
 
 Phase 5 (gated):
