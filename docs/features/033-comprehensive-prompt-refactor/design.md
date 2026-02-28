@@ -46,7 +46,7 @@ Phase 3: STRUCTURAL CHANGES (God Prompt splits + math fix + caching)
     9 files for cache restructure (6 commands + 3 skills)
     ↓
 Phase 4: CONTENT SWEEP (adjective removal + terminology + passive voice)
-    ~80 raw adjective instances across 38 in-scope files (agents: ~50/17 files, commands: ~12/7 files, SKILL.md: ~18/14 files; exact in-scope count after domain-specific exclusion filtering TBD by batch audit in Phase 4 execution)
+    ~80 raw adjective instances across 38 in-scope files (agents: ~50/17 files, commands: ~12/7 files, SKILL.md: ~18/14 files; exact in-scope count after domain-specific exclusion filtering TBD by batch audit in Phase 4 execution). Note: spec says ~73 from an earlier count; the design's 80 is the verified grep count and is authoritative.
     ~12 passive voice instances
     Terminology normalization across 85+ files
     ↓
@@ -140,6 +140,7 @@ AC-12 (validate.sh)   ─── independent (but verifies AC-8 output)
   - Exit code: 0 if all files ≥80, 1 if any file <80
   - Timeout: 120 seconds per file invocation (via `timeout 120 claude -p ...`); files exceeding timeout marked as `[TIMEOUT]`
   - Note: this approach bypasses the promptimize command's multi-step workflow (grade → rewrite → report). It only performs the grading step. This is intentional — the batch script is for SC-1 score verification, not rewriting.
+  - Assumption comment: `# Slash commands not available in headless mode (as of 2026-02). If this changes, consider using /iflow:promptimize directly.` — makes the assumption explicit and revisitable.
 
 ### Phase 3: Structural Changes — Components
 
@@ -167,7 +168,7 @@ AC-12 (validate.sh)   ─── independent (but verifies AC-8 output)
   ```
 - **Agent file**: `agents/ds-code-reviewer.md` — unchanged. Each chain invokes same agent with narrower scope
 - **JSON schema**: Add typed schema block to each chain's dispatch prompt (see Interface Design)
-- **Orchestration mechanism**: The LLM executing the command file orchestrates the chains sequentially via conversation context. It dispatches Chain 1 via Task(), receives the JSON result in its conversation context, then dispatches Chain 2, then constructs Chain 3's prompt by including both prior JSON results as inline text in the `## Prior Chain Results` section. This is the standard command orchestration pattern used across all iflow command files. Context growth is bounded — each chain returns a compact JSON object (not the full file content).
+- **Orchestration mechanism**: The LLM executing the command file orchestrates the chains sequentially via conversation context. It dispatches Chain 1 via Task(), receives the JSON result in its conversation context, then dispatches Chain 2, then constructs Chain 3's prompt by including both prior JSON results as inline text in the `## Prior Chain Results` section. This is the standard command orchestration pattern used across all iflow command files. Context growth is bounded — each chain returns a compact JSON object (not the full file content). Expected size: <2KB per chain (2-3 axes with ~5-10 issues max). If either chain returns >5KB, log a warning but proceed — the context window accommodates reasonable review outputs.
 - **Chain error handling**: If Chain 1 or Chain 2 fails (Task() returns error or invalid JSON), do NOT proceed to Chain 3. Instead, return an error response: `{approved: false, issues: [{severity: "blocker", description: "Chain {N} failed: {error}"}], summary: "Review incomplete due to chain failure"}`. If Chain 3 fails, return the raw Chain 1+2 results concatenated as a degraded response with a warning header.
 
 #### C3.2: review-ds-analysis.md God Prompt Split
@@ -256,7 +257,7 @@ AC-12 (validate.sh)   ─── independent (but verifies AC-8 output)
   ```bash
   # Content-level checks
   echo "Checking Content Quality..."
-  adjective_pattern='appropriate|sufficient|robust|thorough|proper|adequate|reasonable'
+  adjective_pattern='\bappropriate\b|\bsufficient\b|\brobust\b|\bthorough\b|\bproper\b|\badequate\b|\breasonable\b'
   adjective_violations=0
   while IFS= read -r md_file; do
       # Skip reference files (contain rubric examples and domain definitions)
@@ -434,7 +435,11 @@ Return ONLY a JSON object: {\"scores\": {\"clarity_and_specificity\": N, ...all 
   --allowedTools 'Read,Grep,Glob' --model sonnet 2>/dev/null
 ```
 
-**Score extraction:** Parse stdout for JSON object `{"scores": {...}}` using `grep -oP '\{"scores":\s*\{[^}]+\}\}'` or Python one-liner. Extract all 10 integer values. If JSON parsing fails: mark `[ERROR]`. If timeout: mark `[TIMEOUT]`.
+**Score extraction:** Parse stdout for JSON `{"scores": {...}}` using Python (primary, portable across macOS/Linux):
+  ```bash
+  sum=$(echo "$output" | python3 -c "import json,re,sys; m=re.search(r'\{\"scores\".*?\}\s*\}', sys.stdin.read(), re.DOTALL); d=json.loads(m.group()) if m else sys.exit(1); print(sum(d['scores'].values()))")
+  ```
+  This handles code fences, preamble text, and varied `claude -p` output formatting. If Python parsing fails: mark file as `[ERROR]`. If timeout: mark `[TIMEOUT]`.
 
 **Score computation:** Sum the 10 dimension scores in bash, then compute `$(( (sum * 100 + 15) / 30 ))` — integer rounding of `sum/30*100` in bash arithmetic (15 = 30/2, half-divisor rounding). No LLM math.
 
@@ -475,7 +480,7 @@ Component Type Applicability: Evaluated for all types (skill, agent, command).
 The new content-level check section:
 - **Input**: Scans `plugins/iflow/{agents,skills,commands}/**/*.md`
 - **Exclusions**: `*/references/*` directories
-- **Pattern**: Case-insensitive grep for `appropriate|sufficient|robust|thorough|proper|adequate|reasonable`
+- **Pattern**: Case-insensitive grep with word boundaries: `\bappropriate\b|\bsufficient\b|\brobust\b|\bthorough\b|\bproper\b|\badequate\b|\breasonable\b` (prevents false positives from 'property', 'robustness', etc.)
 - **Output**: Per-file error with count; contributes to global `ERRORS` counter
 - **Behavior**: Fails the validation script if any matches found (same as existing structural checks)
 
@@ -501,7 +506,7 @@ Any axis_results entry for an unlisted axis will be discarded by the caller.
 
 **Scope leakage mitigation**: LLMs may not reliably ignore system prompt sections. Two safeguards:
 1. The scope override instruction is placed at the TOP of the dispatch prompt (highest attention position), not buried mid-prompt
-2. The command file's post-processing validates Chain 1+2 JSON responses: if `axis_results` contains entries for axes not in the chain's assigned list, those entries are stripped before passing to Chain 3. This is a deterministic code-level check, not LLM-dependent.
+2. The command file instructs the orchestrating LLM to validate Chain 1+2 JSON responses: if `axis_results` contains entries for axes not in the chain's assigned list, those entries are removed before constructing Chain 3's prompt. While this filtering is LLM-executed (not compiled code), it is a simple JSON key-value comparison that LLMs perform reliably.
 
 ### I-8: Terminology Convention Contract
 
