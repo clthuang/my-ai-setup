@@ -2,10 +2,11 @@
   "id": "032",
   "slug": "promptimize-skill-redesign",
   "mode": "standard",
-  "status": "active",
+  "status": "completed",
+  "completed": "2026-02-28T19:30:00+08:00",
   "created": "2026-02-28T12:00:00+08:00",
   "branch": "feature/032-promptimize-skill-redesign",
-  "lastCompletedPhase": "implement",
+  "lastCompletedPhase": "finish",
   "phases": {
     "specify": {
       "completedAt": "2026-02-28T12:30:00+08:00",
@@ -48,6 +49,10 @@
         "security-reviewer": 1,
         "final-validation": 1
       }
+    },
+    "finish": {
+      "status": "completed",
+      "completed": "2026-02-28T19:30:00+08:00"
     },
     "design": {
       "startedAt": "2026-02-28T13:00:00+08:00",
