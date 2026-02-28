@@ -20,7 +20,7 @@ Change Step 2c:
 
 Remove current Step 4 (evaluate dimensions) and Step 5 (calculate score). Add Phase 1 section:
 - Evaluate 9 dimensions using scoring rubric behavioral anchors
-- Place the canonical dimension name mapping table (from design.md I2 — 9 rows, Rubric Name → JSON name value) **immediately before** the JSON output schema example, so it serves as forward context the LLM consults before producing output
+- Place the canonical dimension name mapping table (from design.md I2 — 9 rows, Rubric Name → JSON name value) **after** the behavioral-anchor evaluation instructions and **immediately before** the JSON output schema example (as forward context the LLM reads before emitting JSON field names)
 - Output JSON: `{ file, component_type, guidelines_date, staleness_warning, dimensions: [{ name, score, finding, suggestion, auto_passed }] }`
 - Wrap output in `<phase1_output>...</phase1_output>` tags
 - Explicit instruction: "Do NOT compute an overall score. Output only the raw dimension scores."
@@ -45,10 +45,10 @@ Remove current Step 6 (generate improved version) and Step 7 (report). Add Phase
 **Depends on:** 1.3
 **AC:** Step 8 (approval/merge) removed; YOLO Mode Overrides section removed; PROHIBITED section retains only scoring rubric rule; no approval, merge, or over-budget rules remain in skill; no dangling step references to Steps 5-8
 
-- Delete Step 8 (user approval) entirely — moves to command
 - Delete YOLO Mode Overrides section — moves to command
+- Delete Step 8 (user approval) entirely — moves to command
 - Update PROHIBITED: remove 3 rules (write without approval, skip Step 8, over-budget), retain "NEVER score a dimension without referencing behavioral anchors"
-- Verify: after deletion, SKILL.md contains no references to Step 8, Step 7, Step 6, or Step 5 as step numbers. The only numbered steps remaining are Steps 1-3 (original), followed by Phase 1 and Phase 2 sections.
+- Verify (run **after** all deletions above): SKILL.md contains no references to Step 8, Step 7, Step 6, or Step 5 as step numbers. The YOLO section itself references Step 8, so it must be deleted before the step-number check is valid. The only numbered steps remaining are Steps 1-3 (original), followed by Phase 1 and Phase 2 sections.
 
 ### Task 1.5: Verify SKILL.md post-rewrite
 **File:** `plugins/iflow/skills/promptimize/SKILL.md`
@@ -72,7 +72,7 @@ Verification checklist (read file and confirm):
 **File:** `plugins/iflow/commands/promptimize.md`
 **Plan ref:** P2 step 1 (design I5 Step 2.5)
 **Depends on:** 1.5
-**AC:** Step 2.5 reads target file after selection, stores as `original_content`; error handling if read fails; Step 1's direct-path skip target updated from "Step 3" to "Step 2.5"
+**AC:** Step 2.5 reads target file after selection, stores as `original_content`; error handling if read fails; Step 1's direct-path skip target updated from "Step 3" to "Step 2.5"; no other steps bypass Step 2.5
 
 After existing Steps 1-2 (file selection), add Step 2.5:
 - Read target file at resolved path
@@ -80,6 +80,7 @@ After existing Steps 1-2 (file selection), add Step 2.5:
 - If read fails: display error, STOP
 - Reference `original_content` consistently in all subsequent steps
 - **Also update Step 1:** change the direct-path skip target from "skip to Step 3" to "skip to Step 2.5" so direct-path invocations also read the file before invoking the skill. New flow for direct path: Step 1 → Step 2.5 → Step 3.
+- **Cross-reference audit:** verify no other steps in the command reference "Step 3" by number in a way that would bypass Step 2.5. The command's Step 2 (interactive selection) naturally leads to Step 2.5, so only the direct-path skip in Step 1 needs updating.
 
 ### Task 2.2: Update Step 3 — Skill invocation note
 **File:** `plugins/iflow/commands/promptimize.md`
@@ -100,8 +101,8 @@ Update Step 3:
 Add Step 4:
 - 4a: Extract content between `<phase1_output>` and `</phase1_output>`, parse as JSON
 - 4b: Extract content between `<phase2_output>` and `</phase2_output>`, store as Phase 2 content
-- 4c: Validate Phase 1 JSON — exactly 9 dimensions, scores 1-3, required fields per I2 schema, canonical dimension names. **Suggestion constraint (R1.1):** for each dimension, if `score < 3` then `suggestion` must be non-null (string); if `score == 3` then `suggestion` must be null.
-- Error: display error with snippet of raw output, STOP
+- 4c: Validate Phase 1 JSON — exactly 9 dimensions, scores 1-3, required fields per I2 schema. **Canonical dimension names (embed inline):** `structure_compliance`, `token_economy`, `description_quality`, `persuasion_strength`, `technique_currency`, `prohibition_clarity`, `example_quality`, `progressive_disclosure`, `context_engineering`. **Suggestion constraint (R1.1):** for each dimension, if `score < 3` then `suggestion` must be non-null (string); if `score == 3` then `suggestion` must be null.
+- Error format: `"Phase 1 JSON validation failed: {reason}. Raw output snippet: {first 200 chars}"` — display and STOP
 
 ### Task 2.4: Add Step 5 — Compute score
 **File:** `plugins/iflow/commands/promptimize.md`
@@ -136,10 +137,12 @@ Add Step 6a:
 
 Add as labeled standalone section after Step 6a:
 - `## Sub-procedure: match_anchors_in_original`
-- Inputs: ChangeBlock (with before_context, after_context), `original_content` lines, optional merge-adjacent flag
+- Inputs: ChangeBlock (with before_context, after_context), `original_content` lines, merge-adjacent flag (default: false)
+- When merge-adjacent is true: adjacent ChangeBlocks whose anchor windows overlap are merged into a single logical region before matching. Both drift detection (Step 6b) and Accept some (Task 4.3) pass merge-adjacent=true.
 - Returns: `{ matched: true, start_line, end_line }` on unique match, `{ matched: false, reason }` on zero/multiple/overlapping matches
 - Locate before_context and after_context anchor lines in original_content
 - Handle edge cases: file start (0-2 before-context lines), file end (0-2 after-context lines)
+- Note: this sub-procedure handles anchor matching only. Attribute order enforcement is handled by the open-tag regex in Task 2.5 — do not add attribute-order checking here.
 
 ---
 
@@ -149,7 +152,7 @@ Add as labeled standalone section after Step 6a:
 **File:** `plugins/iflow/commands/promptimize.md`
 **Plan ref:** P3 step 1 (design C6)
 **Depends on:** 2.6
-**AC:** For each ChangeBlock, calls `match_anchors_in_original` to locate anchors; replaces `<change>` blocks with matched original text; normalizes (strip trailing whitespace, ignore boundary blank lines); compares to `original_content`; sets `drift_detected = true` if different; skips if `tag_validation_failed`; handles adjacent blocks via merge
+**AC:** For each ChangeBlock, calls `match_anchors_in_original` to locate anchors; replaces `<change>` blocks with matched original text; normalizes (strip trailing whitespace, ignore boundary blank lines); compares to `original_content`; sets `drift_detected = true` if different; skips if `tag_validation_failed`; handles adjacent blocks via merge. Verify: given two ChangeBlocks separated by 2 lines in Phase 2 output, match_anchors_in_original with merge-adjacent=true returns a single (start_line, end_line) span covering both blocks, and the reconstructed content for that span matches the original text.
 
 Add Step 6b:
 - For each ChangeBlock: call `match_anchors_in_original` (defined in Task 2.6 sub-procedure) to locate anchors in `original_content`
@@ -198,7 +201,7 @@ Add Step 7:
 
 Add Step 8:
 - If `overall_score == 100` AND zero ChangeBlocks: "All dimensions passed — no improvements needed." STOP
-- Edge case 1: score=100 but ChangeBlocks exist → display visible note to user: "Warning: Score is 100 but change blocks were found — this may indicate a grading error." Then show normal menu with standard option-gating
+- Edge case 1: score=100 but ChangeBlocks exist → display standalone warning message immediately before the AskUserQuestion prompt (not by modifying the already-assembled report from Step 7): "Warning: Score is 100 but change blocks were found — this may indicate a grading error." Then show normal menu with standard option-gating
 - Edge case 2: score<100 but zero ChangeBlocks → show report with note about missing changes
 - YOLO mode: auto-select "Accept all"
 - Non-YOLO: AskUserQuestion with Accept all, Reject (always), Accept some (conditionally)
@@ -231,11 +234,11 @@ Add Accept some handler (part 1 — selection and anchoring):
 **File:** `plugins/iflow/commands/promptimize.md`
 **Plan ref:** P4 step 3, second half (design C9 steps 4-9)
 **Depends on:** 4.3
-**AC:** Collects (start_line, end_line, replacement) tuples for selected dims; sorts by start_line; verifies no overlapping regions; interleaves original + replacement content; unselected dims keep original text; strips residual `<change>` tags; writes to file
+**AC:** Collects (start_line, end_line, replacement) tuples for selected dims; sorts by start_line; verifies no overlapping regions (closed-interval: blocks overlap if block[i].start_line <= block[i-1].end_line); interleaves original + replacement content; unselected dims keep original text; strips residual `<change>` tags; writes to file
 
 Add Accept some handler (part 2 — assembly and write):
 - Collect (start_line, end_line, replacement) tuples from anchored blocks for selected dimensions
-- Sort by start_line, verify no overlapping regions (if overlaps: degrade to Accept all / Reject)
+- Sort by start_line, verify no overlapping regions. Overlap check uses closed interval: blocks overlap if `block[i].start_line <= block[i-1].end_line` (adjacent blocks sharing a boundary line are treated as overlapping). If overlap detected: degrade to Accept all / Reject with warning.
 - Interleave: original content up to start_line, then replacement content, then original after end_line — repeat for each tuple in order
 - Unselected dimensions: their regions keep original text (no replacement applied)
 - Strip residual `<change>` tags (defensive final pass)
@@ -298,7 +301,7 @@ Rename `test_skill_documents_change_end_change_format` → `test_skill_uses_xml_
 - Assert `<change` and `</change>` present in SKILL.md (new XML format) using existing `grep -q` pattern
 - Assert `CHANGE:` absent from SKILL.md (old HTML format): `if grep -q "CHANGE:" "$SKILL_FILE"; then log_fail "Old HTML CHANGE: marker still present"; return; fi`
 - Assert `END CHANGE` absent from SKILL.md (old HTML close marker): `if grep -q "END CHANGE" "$SKILL_FILE"; then log_fail "Old HTML END CHANGE marker still present"; return; fi`
-- Update main() function: rename the call from `test_skill_documents_change_end_change_format` to `test_skill_uses_xml_not_html_markers`
+- Update main() function: rename the call from `test_skill_documents_change_end_change_format` to `test_skill_uses_xml_not_html_markers`. Keep the renamed call in the same position in main() — it remains in the SKILL.md section under Dimension 1.
 
 ### Task 5.4: Delete YOLO test from skill
 **File:** `plugins/iflow/hooks/tests/test-promptimize-content.sh`
@@ -308,6 +311,7 @@ Rename `test_skill_documents_change_end_change_format` → `test_skill_uses_xml_
 
 - Delete `test_skill_has_yolo_mode_overrides` function
 - Remove its call from main()
+- Note: after this task, main() will temporarily have no YOLO-related test call — this is expected and resolved by Task 5.5. Do not add the new `test_cmd_has_yolo_mode_handling` call here; that is Task 5.5's responsibility.
 
 ### Task 5.5: Add 7 new tests
 **File:** `plugins/iflow/hooks/tests/test-promptimize-content.sh`
@@ -340,7 +344,7 @@ Run `./validate.sh` and fix any failures.
 ### Task 6.2: Run test-promptimize-content.sh
 **Plan ref:** P6 step 2
 **Depends on:** 6.1
-**AC:** `bash plugins/iflow/hooks/tests/test-promptimize-content.sh` passes with 0 failures
+**AC:** `bash plugins/iflow/hooks/tests/test-promptimize-content.sh` passes with 0 failures. All pre-existing tests asserting on unchanged SKILL.md content (Steps 1-3: staleness, component type detection, invalid path error, reference file error handling, STOP directive) must still pass without modification — these are not touched by Phase 1-4 tasks.
 
 Run content regression tests and fix any failures. **Triage:** if a test fails, check whether the failure is (a) a stale grep pattern from P5 that needs updating, (b) a missing structural element in the rewritten file, or (c) a test logic error. Fix at the source — do not patch tests to pass over real issues.
 
