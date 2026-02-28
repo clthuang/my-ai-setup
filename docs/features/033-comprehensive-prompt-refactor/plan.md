@@ -23,8 +23,9 @@ Steps are ordered by dependency. Each step lists its AC coverage, input files, o
      - `brainstorming/SKILL.md`: run with 1 new topic, capture stage progression
      - `review-ds-code.md`: run with 1 mixed-quality notebook, capture JSON output
      - `review-ds-analysis.md`: run with 1 analysis with statistical pitfalls, capture JSON output
-  3. Store all baseline outputs in `baseline-scores.md` for Phase 5 comparison
-- **Test**: baseline-scores.md exists with 5 promptimize scores and representative outputs.
+  3. Store test inputs as reproducible artifacts in `docs/features/033-comprehensive-prompt-refactor/test-inputs/` directory (e.g., sample design document, 5 secretary routing prompts as text, sample notebook description, sample analysis description). These stored inputs are reused in Step 5.3 for identical comparison.
+  4. Store all baseline outputs in `baseline-scores.md` for Phase 5 comparison
+- **Test**: baseline-scores.md exists with 5 promptimize scores and representative outputs. test-inputs/ directory exists with stored inputs per pilot file.
 - **Dependencies**: None (must be first step — before any file modifications)
 - **Complexity**: Medium (requires running promptimize 5 times + representative inputs)
 - **Commit**: After completion — `iflow: capture baseline scores for 033 pilot files`
@@ -38,7 +39,7 @@ Steps are ordered by dependency. Each step lists its AC coverage, input files, o
 - **File**: `plugins/iflow/skills/promptimize/references/scoring-rubric.md`
 - **Action**: Add `Cache-friendliness` as 10th row to Behavioral Anchors table with anchors: Pass (3) = all static before dynamic, Partial (2) = 1-2 static blocks after dynamic, Fail (1) = freely interleaved. Add to Component Type Applicability table (evaluated for all types).
 - **Test**: Read file, confirm 10 rows in anchors table, confirm `cache_friendliness` appears, confirm applicability row exists.
-- **Dependencies**: Step 0.1 (baselines captured before modifications)
+- **Dependencies**: None (Phase 1 modifies reference files, not pilot files — can start parallel with Step 0.1)
 - **Complexity**: Simple
 
 ### Step 1.2: Update prompt-guidelines.md — Fill 3 Gaps
@@ -46,7 +47,7 @@ Steps are ordered by dependency. Each step lists its AC coverage, input files, o
 - **File**: `plugins/iflow/skills/promptimize/references/prompt-guidelines.md`
 - **Action**: Add 3 sections after "Plugin-Specific Patterns": (1) Tool Use Prompting — structured parameter descriptions, sequencing for multi-tool workflows [cite Anthropic docs], (2) System vs Human Turn Placement — static in system, dynamic in human, reminders at bottom [cite Claude 4.x], (3) Negative Framing Guidance — prefer "Do X" over "Don't do Y", exceptions for PROHIBITED sections [cite Claude 4.x]. Update `## Last Updated` date and Update Log.
 - **Test**: Read file, confirm 3 new sections exist with Anthropic citations.
-- **Dependencies**: Step 0.1
+- **Dependencies**: None (same as Step 1.1 — reference files, not pilot files)
 - **Complexity**: Simple
 
 ### Step 1.3: Update component-authoring.md — Promptimize Gate + Terminology
@@ -54,10 +55,10 @@ Steps are ordered by dependency. Each step lists its AC coverage, input files, o
 - **File**: `docs/dev_guides/component-authoring.md`
 - **Action**: Add `[ ] Run promptimize on new/modified component files` to Quality Standards / Validation Checklist. Add "Terminology Convention" section defining Stage/Step/Phase usage per I-8 contract.
 - **Test**: Read file, confirm promptimize checklist item, confirm terminology section with all 3 terms defined.
-- **Dependencies**: Step 0.1
+- **Dependencies**: None (same as Step 1.1 — reference files, not pilot files)
 - **Complexity**: Simple
 
-**Phase 1 gate**: Steps 1.1-1.3 are independent of each other. All must complete before Phase 2.
+**Phase 1 gate**: Steps 1.1-1.3 are independent of each other and can start parallel with Step 0.1 (Phase 1 modifies only reference files, not pilot files). Step 0.1 must complete before Phase 2 (which modifies promptimize files that would change scoring behavior). All Phase 1 steps must also complete before Phase 2.
 **Commit**: After Phase 1 completion — `iflow: update foundation reference files (rubric, guidelines, authoring)`
 
 ---
@@ -67,14 +68,15 @@ Steps are ordered by dependency. Each step lists its AC coverage, input files, o
 ### Step 2.1a: Update test-promptimize-content.sh — 9→10 Dimension Assertions (TDD Red)
 - **AC**: AC-1 (test alignment)
 - **File**: `plugins/iflow/hooks/tests/test-promptimize-content.sh`
-- **Action**: Update all "9" dimension references to "10" and denominator from 27 to 30. Specific locations:
-  - Line 57-73: `test_rubric_has_exactly_9_dimensions` → rename to `test_rubric_has_exactly_10_dimensions`, update assert from `9` to `10`
-  - Line 635-647: `test_rubric_implies_denominator_27` → update to denominator 30, dimension count 10
-  - Line 652-662: `test_cmd_validates_exactly_9_dimensions_in_phase1` → update to "exactly 10"
-  - Line 774-790: `test_cmd_lists_all_9_canonical_dimension_names` → add `cache_friendliness` to expected list, update count to 10
-  - Line 1074-1088: `test_skill_lists_all_9_dimension_names` → add `cache_friendliness`, update count to 10
-  - Line 1233-1249: `test_skill_canonical_name_mapping_table_has_9_entries` → add `cache_friendliness`, update count to 10
-  - Update all test runner references (lines 1301, 1363, 1376, 1407, 1420) to new function names
+- **Action**: Update all "9" dimension references to "10", denominator from 27 to 30, and grep patterns to include `Cache`. Use function names as anchors (not line numbers — they may shift). All functions listed below by name:
+  - `test_rubric_has_exactly_9_dimensions` → rename to `test_rubric_has_exactly_10_dimensions`, update grep pattern to add `|Cache` (e.g., `(Structure|...|Context|Cache)`), update assert from `9` to `10`
+  - `test_scoring_formula_max_denominator_is_27` → rename to `test_scoring_formula_max_denominator_is_30`, update grep pattern to add `|Cache`, update assert from `9` to `10` and denominator from `27` to `30`
+  - `test_cmd_validates_exactly_9_dimensions_in_phase1` → rename to `test_cmd_validates_exactly_10_dimensions_in_phase1`, update "exactly 9" to "exactly 10"
+  - `test_cmd_lists_all_9_canonical_dimension_names` → rename to `test_cmd_lists_all_10_canonical_dimension_names`, add `cache_friendliness` to expected list, update count to 10
+  - `test_skill_lists_all_9_dimension_names` → rename to `test_skill_lists_all_10_dimension_names`, add `cache_friendliness`, update count to 10
+  - `test_skill_canonical_name_mapping_table_has_9_entries` → rename to `test_skill_canonical_name_mapping_table_has_10_entries`, add `cache_friendliness`, update count to 10
+  - `test_cmd_score_formula_contains_27_and_100` → rename to `test_cmd_score_formula_contains_30_and_100`, update grep from `'27'` to `'30'`, update test description
+  - Update ALL runner invocations to new function names (grep for old function names to find all references)
 - **Test**: Run `bash plugins/iflow/hooks/tests/test-promptimize-content.sh` — tests FAIL (Red) because rubric/SKILL.md/command still say 9.
 - **Dependencies**: None (Red step — update tests first, expect them to fail)
 - **Complexity**: Simple
@@ -92,7 +94,7 @@ Steps are ordered by dependency. Each step lists its AC coverage, input files, o
 ### Step 2.2: Update promptimize.md Command — Denominator 30 (TDD Green)
 - **AC**: AC-1 (partial), AC-6 (partial)
 - **File**: `plugins/iflow/commands/promptimize.md`
-- **Action**: Step 4c validation: "exactly 9" → "exactly 10", add `cache_friendliness` to canonical names. Step 5 formula: `round((sum/27)*100)` → `round((sum/30)*100)`, update denominator reference 27→30. Add trivial-math exception comment: `<!-- Trivial-math exception: sum of 10 integers [1-3] + divide by 30 + round. Deterministic, no ambiguity. See SC-5 refinement. -->`. Update Step 5 example to show 10 scores.
+- **Action**: Step 4c validation: "exactly 9" → "exactly 10", add `cache_friendliness` to canonical names. Step 5 formula: `round((sum/27)*100)` → `round((sum/30)*100)`, update denominator reference 27→30. Add trivial-math exception comment: `<!-- Trivial-math exception: sum of 10 integers [1-3] + divide by 30 + round. Deterministic, no ambiguity. See SC-5 refinement. -->`. Update Step 5 example to show 10 scores: `[3, 2, 1, 3, 2, 3, 3, 3, 2, 2]` → sum = 24, `round((24/30) * 100) = 80`.
 - **Test**: Run `bash plugins/iflow/hooks/tests/test-promptimize-content.sh` — all dimension tests now PASS (Green). Grep for "30" in formula area, grep for "exactly 10", confirm trivial-math comment exists.
 - **Dependencies**: Step 2.1b (SKILL.md must reference 10 dimensions before command validates against it)
 - **Complexity**: Simple
@@ -109,7 +111,7 @@ Steps are ordered by dependency. Each step lists its AC coverage, input files, o
   - Per-file timeout: 120s via `timeout 120 claude -p ...`
   - Working directory guard: verify `plugins/iflow/skills/promptimize/references/scoring-rubric.md` exists at startup
   - CLI args: `--max-parallel N`, `--threshold N` (default 80), `--help`
-- **Test**: (1) Verify script is executable. (2) Run `--help` to confirm argument parsing. (3) Verify rubric guard fails gracefully outside project root. Full SC-1 verification deferred to Phase 5.
+- **Test**: (1) Verify script is executable. (2) Run `--help` to confirm argument parsing. (3) Verify rubric guard fails gracefully outside project root. (4) Smoke test: run on 1-2 known files (one agent, one skill) and verify parseable scores are extracted — catches extraction issues before Phase 5 full batch. Full SC-1 verification deferred to Phase 5.
 - **Dependencies**: Step 1.1 (rubric must have 10 dimensions for inline prompt)
 - **Note**: Step 2.3 does NOT depend on Steps 2.1b or 2.2 — the batch script reads the scoring rubric directly and embeds scoring instructions inline. It bypasses the promptimize command entirely.
 - **Complexity**: Medium (new script with parallelism, JSON extraction, error handling)
@@ -150,7 +152,7 @@ Steps are ordered by dependency. Each step lists its AC coverage, input files, o
 - **Files**: `plugins/iflow/commands/promptimize.md`, `plugins/iflow/commands/secretary.md`
 - **Action**: (1) promptimize.md: already handled in Step 2.2 (trivial-math comment). Verify it's present. (2) secretary.md: add code comment `<!-- Trivial-math exception: 5-signal additive integer counting (SC-5). Addition only, no division/rounding. -->` near complexity scoring section. (3) batch-promptimize.sh: already computes in bash (Step 2.3). Verify no LLM math.
 - **Test**: Grep promptimize.md for "Trivial-math exception". Grep secretary.md for "Trivial-math exception". Verify batch script uses `$(( ))` for arithmetic.
-- **Dependencies**: Step 2.2 (promptimize.md changes)
+- **Dependencies**: Step 2.2 (for verification sub-step only — checking promptimize.md has the trivial-math comment). The secretary.md comment is independent and can proceed in parallel with Phase 2.
 - **Complexity**: Simple
 
 ### Step 3.4: Restructure 9 Files for Prompt Caching
@@ -159,6 +161,7 @@ Steps are ordered by dependency. Each step lists its AC coverage, input files, o
 - **Action**: For each file, move all static content (reviewer templates, routing tables, schemas, rules, PROHIBITED sections, YOLO overrides) above all dynamic content (user input, feature context, iteration state, $ARGUMENTS). Use block-movement only (no content rewriting) per TD-3.
   - **Secretary.md exception to TD-3**: Secretary.md requires limited content rewriting beyond block movement — extracting static tables into a `## Static Reference Tables` section at top and converting inline table references to named anchors (e.g., "See Fast-Path Table above"). This is the specific reason secretary.md is in the pilot verification set (Step 5.3). All other files use pure block movement.
   - **Secretary.md intermediate verification**: After restructuring secretary.md, immediately run 3 routing prompts (direct agent match, help subcommand, ambiguous request) to catch silent breakage. Do NOT wait for Phase 5 pilot.
+  - **Secretary.md final ordering check**: After ALL secretary.md edits complete (Steps 3.3 + 3.4 + 4.1 + 4.2 + 4.3), re-verify static-first ordering before the Phase 4 gate commit. This is necessary because 5 separate editing passes could invalidate the ordering established in Step 3.4.
 - **Verification approach**:
   - Pilot files (secretary.md, brainstorming/SKILL.md): full AC-13 behavioral equivalence deferred to Phase 5 Step 5.3
   - Remaining 7 non-pilot files: automated diff check — (a) no lines deleted/added, only moved, (b) dynamic markers after all static content, (c) named static sections before first dynamic marker
@@ -183,6 +186,7 @@ Steps are ordered by dependency. Each step lists its AC coverage, input files, o
   5. Store in `docs/features/033-comprehensive-prompt-refactor/adjective-audit.md`
 - **Test**: adjective-audit.md exists with exact file list and counts.
 - **Dependencies**: Steps 3.4 (caching restructure should be done before content sweep)
+- **Note**: This audit runs AFTER cache restructuring (Step 3.4). Block movement preserves content but the ~38 file estimate from the PRD is pre-restructure; this audit produces the authoritative count. Word-boundary regex intentionally excludes derived forms ('appropriateness', 'robustness') per design I-5.
 - **Complexity**: Simple
 
 ### Step 4.1: Subjective Adjective Removal — Replace All In-Scope Matches
@@ -243,7 +247,7 @@ Steps are ordered by dependency. Each step lists its AC coverage, input files, o
 - **Action**:
   1. Run post-refactor promptimize on all 5 pilot files, record scores
   2. Compare with pre-refactor scores from Step 0.1 baseline-scores.md
-  3. For each pilot file, run 2-3 representative inputs per C5.3 design (using same inputs as baseline):
+  3. For each pilot file, run 2-3 representative inputs per C5.3 design (using identical stored inputs from `test-inputs/` directory created in Step 0.1):
      - `design-reviewer.md`: complete design, design missing interfaces, design with consistency issues
      - `secretary.md`: 5 routing prompts (direct agent, ambiguous, help, orchestrate, no-match)
      - `brainstorming/SKILL.md`: new topic, continuation with research, with advisory team
@@ -271,15 +275,13 @@ Steps are ordered by dependency. Each step lists its AC coverage, input files, o
 ## Dependency Summary
 
 ```
-Phase 0:
-  Step 0.1 (baseline capture) ──→ all subsequent phases
-
-Phase 1 (parallel, after 0.1):
+Phase 0 + Phase 1 (parallel):
+  Step 0.1 (baseline capture) ──→ Phase 2 (blocks scoring tool changes)
   Step 1.1 (rubric) ─┐
-  Step 1.2 (guidelines)  │ All complete before Phase 2
-  Step 1.3 (authoring) ──┘
+  Step 1.2 (guidelines)  │ Phase 1 runs parallel with Step 0.1
+  Step 1.3 (authoring) ──┘   (Phase 1 modifies reference files, not pilot files)
 
-Phase 2 (partially parallel):
+Phase 2 (partially parallel, requires both 0.1 and Phase 1 complete):
   Step 2.1a (test update — Red)
     ↓
   Step 1.1 + 2.1a ──→ Step 2.1b (SKILL.md — Green) ──→ Step 2.2 (command — Green)
@@ -288,11 +290,12 @@ Phase 2 (partially parallel):
 Phase 3 (mostly parallel):
   Step 3.1 (ds-code split)    ─┐
   Step 3.2 (ds-analysis split) ─┤ All complete before Phase 4
-  Step 3.3 (math docs)         ─┤ (depends on 2.2)
+  Step 3.3 (math docs)         ─┤ (secretary.md comment independent; promptimize.md verification needs 2.2)
   Step 3.4 (cache restructure) ─┘
 
 Phase 4 (sequential within):
   Step 3.4 ──→ Step 4.0 (audit) ──→ Step 4.1 (adjectives) ──→ Step 4.2 (passive) ──→ Step 4.3 (terminology)
+  After 4.3: re-verify secretary.md static-first ordering (final ordering check)
 
 Phase 5 (gated):
   Step 4.1 ──→ Step 5.1 (validate.sh)
@@ -306,8 +309,8 @@ Phase 5 (gated):
 |------|-----------------------------------------------------|----------------------------------|----------|
 | 2.1a/2.1b/2.2 | Update `test-promptimize-content.sh`: all "9" → "10", add `cache_friendliness` to expected lists, update denominator 27→30. Tests FAIL against current 9-dimension files. | Apply rubric (1.1) + SKILL.md (2.1b) + command (2.2) changes. Run tests — all PASS. | — |
 | 2.3 | Run `batch-promptimize.sh --help` → fails (no file) | Create script | Refine argument parsing |
-| 3.1 | Grep ds-code for "SCOPE RESTRICTION" → fails (0 matches) | Implement 3-chain split | — |
-| 3.2 | Grep ds-analysis for "SCOPE RESTRICTION" → fails (0 matches) | Implement 3-chain split | — |
+| 3.1 | Grep ds-code for "SCOPE RESTRICTION" → fails (0 matches) | Implement 3-chain split | — | Note: structural verification only; behavioral correctness deferred to Step 5.3 pilot |
+| 3.2 | Grep ds-analysis for "SCOPE RESTRICTION" → fails (0 matches) | Implement 3-chain split | — | Note: structural verification only; behavioral correctness deferred to Step 5.3 pilot |
 | 4.1 | Run adjective grep → finds violations | Replace all adjectives | — |
 | 5.1 | Run validate.sh with injected adjective → should fail → currently passes | Add content check to validate.sh | Remove test adjective |
 
@@ -342,6 +345,7 @@ Commits are placed at logical boundaries to enable `git bisect` if behavioral ve
 | File | Action | Steps |
 |------|--------|-------|
 | `docs/features/033-comprehensive-prompt-refactor/baseline-scores.md` | Create | 0.1 |
+| `docs/features/033-comprehensive-prompt-refactor/test-inputs/` | Create | 0.1 |
 | `docs/features/033-comprehensive-prompt-refactor/adjective-audit.md` | Create | 4.0 |
 | `plugins/iflow/skills/promptimize/references/scoring-rubric.md` | Edit | 1.1 |
 | `plugins/iflow/skills/promptimize/references/prompt-guidelines.md` | Edit | 1.2 |
