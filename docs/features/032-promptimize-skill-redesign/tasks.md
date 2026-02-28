@@ -4,6 +4,7 @@
 
 ### Task 1.1: Update Step 2c variable and rationale
 **File:** `plugins/iflow/skills/promptimize/SKILL.md`
+**Plan ref:** P1 change 1
 **Depends on:** none
 **AC:** `original_content` renamed to `target_content` in Step 2c; rationale reads "needed by Phase 2 as rewrite context" (not "Accept-some restoration in Step 8")
 
@@ -13,8 +14,9 @@ Change Step 2c:
 
 ### Task 1.2: Replace Steps 4-5 with Phase 1 (Grade)
 **File:** `plugins/iflow/skills/promptimize/SKILL.md`
+**Plan ref:** P1 change 2
 **Depends on:** 1.1
-**AC:** Steps 4-5 removed; new Phase 1 section evaluates 9 dimensions, outputs JSON matching R1.2 schema wrapped in `<phase1_output>` tags; no score calculation remains; canonical dimension name mapping table from I2 present; table placed immediately before JSON output schema example
+**AC:** Steps 4-5 removed; new Phase 1 section evaluates 9 dimensions, outputs JSON matching R1.2 schema wrapped in `<phase1_output>` tags; no score calculation remains; canonical dimension name mapping table from I2 present; table placed immediately before JSON output schema example. Scope: single contiguous section replacement (Steps 4-5 → Phase 1).
 
 Remove current Step 4 (evaluate dimensions) and Step 5 (calculate score). Add Phase 1 section:
 - Evaluate 9 dimensions using scoring rubric behavioral anchors
@@ -25,8 +27,9 @@ Remove current Step 4 (evaluate dimensions) and Step 5 (calculate score). Add Ph
 
 ### Task 1.3: Replace Steps 6-7 with Phase 2 (Rewrite)
 **File:** `plugins/iflow/skills/promptimize/SKILL.md`
+**Plan ref:** P1 change 3
 **Depends on:** 1.2
-**AC:** Steps 6-7 removed; Phase 2 references Phase 1 JSON via `<grading_result>` block; uses `<change dimension="..." rationale="...">` XML tags (not HTML); attribute order enforced (dimension before rationale); multi-region, overlapping, and pass-dimension rules present; wrapped in `<phase2_output>` tags; preservation instruction present
+**AC:** Steps 6-7 removed; Phase 2 references Phase 1 JSON via `<grading_result>` block; uses `<change dimension="..." rationale="...">` XML tags (not HTML); attribute order enforced (dimension before rationale); multi-region, overlapping, and pass-dimension rules present; wrapped in `<phase2_output>` tags; preservation instruction present. Scope: single contiguous section replacement (Steps 6-7 → Phase 2).
 
 Remove current Step 6 (generate improved version) and Step 7 (report). Add Phase 2 section:
 - Instruct LLM to wrap Phase 1 JSON in `<grading_result>` block as context for rewrite
@@ -38,6 +41,7 @@ Remove current Step 6 (generate improved version) and Step 7 (report). Add Phase
 
 ### Task 1.4: Remove Step 8, YOLO section, and update PROHIBITED
 **File:** `plugins/iflow/skills/promptimize/SKILL.md`
+**Plan ref:** P1 change 4
 **Depends on:** 1.3
 **AC:** Step 8 (approval/merge) removed; YOLO Mode Overrides section removed; PROHIBITED section retains only scoring rubric rule; no approval, merge, or over-budget rules remain in skill; no dangling step references to Steps 5-8
 
@@ -48,6 +52,7 @@ Remove current Step 6 (generate improved version) and Step 7 (report). Add Phase
 
 ### Task 1.5: Verify SKILL.md post-rewrite
 **File:** `plugins/iflow/skills/promptimize/SKILL.md`
+**Plan ref:** P1 Verification
 **Depends on:** 1.4
 **AC:** File under 500 lines; contains `<phase1_output>`, `<phase2_output>`, `<grading_result>` delimiters; all 9 dimension names present; no HTML `<!-- CHANGE -->` markers; no score calculation; no approval/merge logic
 
@@ -65,6 +70,7 @@ Verification checklist (read file and confirm):
 
 ### Task 2.1: Add Step 2.5 — Read original file
 **File:** `plugins/iflow/commands/promptimize.md`
+**Plan ref:** P2 step 1 (design I5 Step 2.5)
 **Depends on:** 1.5
 **AC:** Step 2.5 reads target file after selection, stores as `original_content`; error handling if read fails; Step 1's direct-path skip target updated from "Step 3" to "Step 2.5"
 
@@ -77,6 +83,7 @@ After existing Steps 1-2 (file selection), add Step 2.5:
 
 ### Task 2.2: Update Step 3 — Skill invocation note
 **File:** `plugins/iflow/commands/promptimize.md`
+**Plan ref:** P2 step 2
 **Depends on:** 2.1
 **AC:** Step 3 still invokes skill; includes note about `<phase1_output>` and `<phase2_output>` sections in output
 
@@ -86,17 +93,19 @@ Update Step 3:
 
 ### Task 2.3: Add Step 4 — Parse skill output
 **File:** `plugins/iflow/commands/promptimize.md`
+**Plan ref:** P2 step 3 (design C3-C4)
 **Depends on:** 2.2
-**AC:** Step 4a extracts Phase 1 JSON from `<phase1_output>` tags; Step 4b extracts Phase 2 content from `<phase2_output>` tags; Step 4c validates 9 dimensions, scores 1-3, required fields, canonical dimension names; parsing failure displays error and stops
+**AC:** Step 4a extracts Phase 1 JSON from `<phase1_output>` tags; Step 4b extracts Phase 2 content from `<phase2_output>` tags; Step 4c validates 9 dimensions, scores 1-3, required fields, canonical dimension names, suggestion null/non-null constraint; parsing failure displays error and stops
 
 Add Step 4:
 - 4a: Extract content between `<phase1_output>` and `</phase1_output>`, parse as JSON
 - 4b: Extract content between `<phase2_output>` and `</phase2_output>`, store as Phase 2 content
-- 4c: Validate Phase 1 JSON — exactly 9 dimensions, scores 1-3, required fields per I2 schema, canonical dimension names
+- 4c: Validate Phase 1 JSON — exactly 9 dimensions, scores 1-3, required fields per I2 schema, canonical dimension names. **Suggestion constraint (R1.1):** for each dimension, if `score < 3` then `suggestion` must be non-null (string); if `score == 3` then `suggestion` must be null.
 - Error: display error with snippet of raw output, STOP
 
 ### Task 2.4: Add Step 5 — Compute score
 **File:** `plugins/iflow/commands/promptimize.md`
+**Plan ref:** P2 step 4 (design C4, spec R3)
 **Depends on:** 2.3
 **AC:** Score computed as `round((sum / 27) * 100)`; stored as `overall_score`; not present in LLM output
 
@@ -107,6 +116,7 @@ Add Step 5:
 
 ### Task 2.5: Add Step 6a — Tag validation and ChangeBlock extraction
 **File:** `plugins/iflow/commands/promptimize.md`
+**Plan ref:** P2 step 5 (design C5, TD2)
 **Depends on:** 2.4
 **AC:** Regex patterns from TD2 for open/close tags; fenced code block skipping; validation checks (paired tags, no nesting, no overlap, non-empty dimension); ChangeBlock array built with dimensions, rationale, content, before_context, after_context; `tag_validation_failed` flag set on failure; reversed attribute order triggers failure
 
@@ -120,6 +130,7 @@ Add Step 6a:
 
 ### Task 2.6: Add match_anchors_in_original sub-procedure
 **File:** `plugins/iflow/commands/promptimize.md`
+**Plan ref:** P2 step 5 (design C6/C9 shared algorithm)
 **Depends on:** 2.5
 **AC:** Labeled standalone section `## Sub-procedure: match_anchors_in_original`; contract documented (inputs: ChangeBlock + original_content lines + optional merge-adjacent flag; returns: `{ matched: true, start_line, end_line }` or `{ matched: false, reason }`); referenced by name from drift detection and Accept some steps
 
@@ -136,6 +147,7 @@ Add as labeled standalone section after Step 6a:
 
 ### Task 3.1: Add Step 6b — Drift detection
 **File:** `plugins/iflow/commands/promptimize.md`
+**Plan ref:** P3 step 1 (design C6)
 **Depends on:** 2.6
 **AC:** For each ChangeBlock, calls `match_anchors_in_original` to locate anchors; replaces `<change>` blocks with matched original text; normalizes (strip trailing whitespace, ignore boundary blank lines); compares to `original_content`; sets `drift_detected = true` if different; skips if `tag_validation_failed`; handles adjacent blocks via merge
 
@@ -150,6 +162,7 @@ Add Step 6b:
 
 ### Task 3.2: Add Step 6c — Token budget check
 **File:** `plugins/iflow/commands/promptimize.md`
+**Plan ref:** P3 step 2 (design C7)
 **Depends on:** 3.1
 **AC:** Strips `<change>`/`</change>` tags from Phase 2 content; counts lines and words; sets `over_budget_warning = true` if exceeds 500 lines or 5,000 words
 
@@ -160,6 +173,7 @@ Add Step 6c:
 
 ### Task 3.3: Add Step 7 — Report assembly
 **File:** `plugins/iflow/commands/promptimize.md`
+**Plan ref:** P3 step 3 (design C7, spec R5)
 **Depends on:** 3.2
 **AC:** Report template matches current structure; populated from Phase 1 JSON (scores, findings, suggestions); uses computed `overall_score`; strengths list evaluated pass dimensions (not auto-passed); issues table with severity mapping (fail=blocker, partial=warning); improved version is Phase 2 output verbatim; conditional staleness and over-budget warnings
 
@@ -178,6 +192,7 @@ Add Step 7:
 
 ### Task 4.1: Add Step 8 — Approval handler
 **File:** `plugins/iflow/commands/promptimize.md`
+**Plan ref:** P4 step 1 (design C8)
 **Depends on:** 3.3
 **AC:** All-pass shortcut (score=100 + zero ChangeBlocks → "All dimensions passed" STOP); YOLO auto-selects "Accept all"; non-YOLO presents AskUserQuestion with "Accept all"/"Reject" always, "Accept some" only when `tag_validation_failed == false` AND `drift_detected == false`; edge cases handled (score=100 with ChangeBlocks logs warning + standard option-gating; score<100 with no ChangeBlocks shows note); distinct warning messages
 
@@ -191,6 +206,7 @@ Add Step 8:
 
 ### Task 4.2: Add Accept all handler
 **File:** `plugins/iflow/commands/promptimize.md`
+**Plan ref:** P4 step 2 (design C10)
 **Depends on:** 4.1
 **AC:** Strips all `<change ...>` and `</change>` tags via regex; writes to original file path; displays confirmation message
 
@@ -199,31 +215,45 @@ Add Accept all handler:
 - Write to original file path (overwrite)
 - Display: "Improvements applied to {filename}. Run `./validate.sh` to verify."
 
-### Task 4.3: Add Accept some handler
+### Task 4.3: Add Accept some handler — dimension selection and anchoring
 **File:** `plugins/iflow/commands/promptimize.md`
+**Plan ref:** P4 step 3, first half (design C9 steps 1-3)
 **Depends on:** 4.2
-**AC:** Presents dimension multiSelect (overlapping as single option); starts from `original_content`; for selected dims calls `match_anchors_in_original`, replaces matched region with `<change>` content; adjacent-block merging applied; all replacements simultaneous (sorted by start_line, no overlaps); unselected keep original; anchor match failure degrades to Accept all/Reject; strips residual tags; writes to file
+**AC:** Presents dimension multiSelect (overlapping as single option); starts from `original_content`; for selected dims calls `match_anchors_in_original` to locate anchor regions; anchor match failure for any block degrades to Accept all / Reject
 
-Add Accept some handler:
-- Present dimension multiSelect — overlapping dimensions as single option
+Add Accept some handler (part 1 — selection and anchoring):
+- Present dimension multiSelect — overlapping dimensions (comma-separated in `dimension` attribute per R2.3) as single inseparable option
 - Start from `original_content` (Step 2.5)
-- For selected dimensions: call `match_anchors_in_original` (Task 2.6 sub-procedure) with merge-adjacent flag, replace matched region with `<change>` block content — do not duplicate the anchor-matching or adjacent-block merging logic
-- Simultaneous replacements: collect (start_line, end_line, replacement) tuples, sort by start_line, verify no overlaps, interleave
-- Anchor match failure for any block: degrade to Accept all / Reject
-- Strip residual `<change>` tags (defensive)
-- Write to original file path
+- For selected dimensions: call `match_anchors_in_original` (Task 2.6 sub-procedure) with merge-adjacent flag to locate anchor regions in original
+- Anchor match failure for any block: degrade to Accept all / Reject with warning
 
-### Task 4.4: Add Reject handler
+### Task 4.4: Add Accept some handler — replacement assembly and write
 **File:** `plugins/iflow/commands/promptimize.md`
+**Plan ref:** P4 step 3, second half (design C9 steps 4-9)
+**Depends on:** 4.3
+**AC:** Collects (start_line, end_line, replacement) tuples for selected dims; sorts by start_line; verifies no overlapping regions; interleaves original + replacement content; unselected dims keep original text; strips residual `<change>` tags; writes to file
+
+Add Accept some handler (part 2 — assembly and write):
+- Collect (start_line, end_line, replacement) tuples from anchored blocks for selected dimensions
+- Sort by start_line, verify no overlapping regions (if overlaps: degrade to Accept all / Reject)
+- Interleave: original content up to start_line, then replacement content, then original after end_line — repeat for each tuple in order
+- Unselected dimensions: their regions keep original text (no replacement applied)
+- Strip residual `<change>` tags (defensive final pass)
+- Write assembled content to original file path
+
+### Task 4.5: Add Reject handler
+**File:** `plugins/iflow/commands/promptimize.md`
+**Plan ref:** P4 step 4
 **Depends on:** 4.1
 **AC:** Displays "No changes applied." and stops
 
 Add Reject handler:
 - Display "No changes applied." STOP
 
-### Task 4.5: Add PROHIBITED section to command
+### Task 4.6: Add PROHIBITED section to command
 **File:** `plugins/iflow/commands/promptimize.md`
-**Depends on:** 4.3
+**Plan ref:** P4 step 5 (design C8)
+**Depends on:** 4.4
 **AC:** Three rules: no writing without approval (exception: YOLO), no skipping approval in non-YOLO, no presenting Accept some when tag_validation_failed or drift_detected
 
 Add PROHIBITED section:
@@ -237,17 +267,19 @@ Add PROHIBITED section:
 
 ### Task 5.1: Update 4 tests that moved from SKILL.md to command
 **File:** `plugins/iflow/hooks/tests/test-promptimize-content.sh`
-**Depends on:** 4.5
-**AC:** Tests 2-4 (Accept all, Accept some, Reject) grep `promptimize.md` instead of SKILL.md; Test 6 (malformed marker fallback) greps `tag_validation_failed` or `malformed` in `promptimize.md`
+**Plan ref:** P5 Tests to Update rows 2-4, 6
+**Depends on:** 4.6
+**AC:** Tests 2-4 (Accept all, Accept some, Reject) grep `promptimize.md` instead of SKILL.md; Test 6 (malformed marker fallback) greps `tag_validation_failed` or `malformed` in `promptimize.md`; main() call for renamed function updated in the same position
 
 Update tests:
 - `test_skill_has_accept_all_option`: grep `Accept all` in **promptimize.md** (not SKILL.md)
 - `test_skill_has_accept_some_option`: grep `Accept some` in **promptimize.md**
 - `test_skill_has_reject_option`: grep `Reject` in **promptimize.md**
-- `test_skill_has_malformed_marker_fallback`: rename to `test_cmd_has_malformed_marker_fallback`; grep `tag_validation_failed` in **promptimize.md**; update the main() call to match the new name
+- `test_skill_has_malformed_marker_fallback`: rename to `test_cmd_has_malformed_marker_fallback`; grep `tag_validation_failed` in **promptimize.md**; update the main() call — replace the old name with `test_cmd_has_malformed_marker_fallback` in the same position where the old call was
 
 ### Task 5.2: Update 3 tests for relocated content
 **File:** `plugins/iflow/hooks/tests/test-promptimize-content.sh`
+**Plan ref:** P5 Tests to Update rows 7-9
 **Depends on:** 5.1
 **AC:** Test 7 (scoring formula) greps `27` in `promptimize.md`; Test 8 (report fields) greps `overall_score|Overall score` + `component_type|Component type` in `promptimize.md`; Test 9 (severity) greps `blocker` + `warning` in `promptimize.md`
 
@@ -258,16 +290,19 @@ Update tests:
 
 ### Task 5.3: Rename and update Test 1 (XML markers)
 **File:** `plugins/iflow/hooks/tests/test-promptimize-content.sh`
+**Plan ref:** P5 Tests to Update row 1
 **Depends on:** 5.2
-**AC:** Function renamed to `test_skill_uses_xml_not_html_markers`; asserts presence of `<change` + `</change>` in SKILL.md; asserts absence of `CHANGE:` + `END CHANGE` in SKILL.md; main() call updated
+**AC:** Function renamed to `test_skill_uses_xml_not_html_markers`; asserts presence of `<change` + `</change>` in SKILL.md; asserts absence of `CHANGE:` AND `END CHANGE` in SKILL.md; main() call updated
 
 Rename `test_skill_documents_change_end_change_format` → `test_skill_uses_xml_not_html_markers`:
 - Assert `<change` and `</change>` present in SKILL.md (new XML format) using existing `grep -q` pattern
-- Assert `CHANGE:` and `END CHANGE` absent from SKILL.md (old HTML format). Use this pattern for absence checks (avoids set -e abort): `if grep -q "CHANGE:" "$SKILL_FILE"; then log_fail "Old HTML CHANGE: marker still present"; return; fi`
+- Assert `CHANGE:` absent from SKILL.md (old HTML format): `if grep -q "CHANGE:" "$SKILL_FILE"; then log_fail "Old HTML CHANGE: marker still present"; return; fi`
+- Assert `END CHANGE` absent from SKILL.md (old HTML close marker): `if grep -q "END CHANGE" "$SKILL_FILE"; then log_fail "Old HTML END CHANGE marker still present"; return; fi`
 - Update main() function: rename the call from `test_skill_documents_change_end_change_format` to `test_skill_uses_xml_not_html_markers`
 
 ### Task 5.4: Delete YOLO test from skill
 **File:** `plugins/iflow/hooks/tests/test-promptimize-content.sh`
+**Plan ref:** P5 Tests to Update row 5
 **Depends on:** 5.3
 **AC:** `test_skill_has_yolo_mode_overrides` function and its main() call deleted; replaced by new `test_cmd_has_yolo_mode_handling`
 
@@ -276,6 +311,7 @@ Rename `test_skill_documents_change_end_change_format` → `test_skill_uses_xml_
 
 ### Task 5.5: Add 7 new tests
 **File:** `plugins/iflow/hooks/tests/test-promptimize-content.sh`
+**Plan ref:** P5 New Tests table
 **Depends on:** 5.4
 **AC:** 7 new test functions added and called from main(); each asserts against the correct file (SKILL.md or promptimize.md)
 
@@ -295,18 +331,21 @@ Add new test functions:
 ## Phase 6: Validation and Cleanup
 
 ### Task 6.1: Run validate.sh
+**Plan ref:** P6 step 1
 **Depends on:** 5.5
 **AC:** `./validate.sh` exits with 0
 
 Run `./validate.sh` and fix any failures.
 
 ### Task 6.2: Run test-promptimize-content.sh
+**Plan ref:** P6 step 2
 **Depends on:** 6.1
 **AC:** `bash plugins/iflow/hooks/tests/test-promptimize-content.sh` passes with 0 failures
 
-Run content regression tests and fix any failures.
+Run content regression tests and fix any failures. **Triage:** if a test fails, check whether the failure is (a) a stale grep pattern from P5 that needs updating, (b) a missing structural element in the rewritten file, or (c) a test logic error. Fix at the source — do not patch tests to pass over real issues.
 
 ### Task 6.3: Cross-file consistency checks
+**Plan ref:** P6 step 3
 **Depends on:** 6.2
 **AC:** SKILL.md has no HTML markers, score calc, approval logic, YOLO section; command references `<phase1_output>`/`<phase2_output>` correctly; `original_content` only in command, `target_content` only in skill; 9 dimension names consistent; TD2 regex matches skill tag format; command PROHIBITED has all 3 moved rules
 
@@ -322,6 +361,7 @@ Verify using these concrete commands:
 - `grep -c "dimension.*rationale" plugins/iflow/commands/promptimize.md` → expect >= 1 (TD2 regex matches skill tag format)
 
 ### Task 6.4: Token budget verification
+**Plan ref:** P1 Verification
 **Depends on:** 6.3
 **AC:** SKILL.md under 500 lines / 5,000 tokens; command file reasonable size
 
@@ -331,6 +371,6 @@ Verify final file sizes are within acceptable bounds.
 
 ## Summary
 
-- **Total tasks:** 24
+- **Total tasks:** 25
 - **Phases:** 6
 - **Parallel groups:** None — all tasks within each phase edit the same file and must execute sequentially. Cross-phase dependencies are strictly linear (P1 → P2 → P3 → P4 → P5 → P6).
