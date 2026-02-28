@@ -2,12 +2,12 @@
   "id": "033",
   "slug": "comprehensive-prompt-refactor",
   "mode": "standard",
-  "status": "active",
+  "status": "completed",
   "created": "2026-02-28T20:15:00+08:00",
   "branch": "feature/033-comprehensive-prompt-refactor",
   "brainstorm_source": "docs/brainstorms/20260228-192547-comprehensive-prompt-refactor.prd.md",
   "backlog_source": "00022",
-  "lastCompletedPhase": "implement",
+  "lastCompletedPhase": "finish",
   "phases": {
     "specify": {
       "started": "2026-02-28T20:16:00+08:00",
@@ -81,6 +81,11 @@
           "reviewerNotes": []
         }
       }
+    },
+    "finish": {
+      "status": "completed",
+      "completed": "2026-03-01T01:27:53.531950+08:00"
     }
-  }
+  },
+  "completed": "2026-03-01T01:27:53.531936+08:00"
 }
