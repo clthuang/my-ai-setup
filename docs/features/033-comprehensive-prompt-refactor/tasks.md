@@ -177,7 +177,7 @@
   - Chain 2: [conclusion validity, reproducibility]
   - Chain 3: synthesis
   - Same scope override, JSON schemas, error handling, chain output handling patterns
-- **Done**: Same verification as T12 adapted for analysis review axes.
+- **Done**: (1) File has 3 separate `Task()` dispatch blocks. (2) `grep -c 'SCOPE RESTRICTION' plugins/iflow/commands/review-ds-analysis.md` returns 2. (3) `grep -c '"type":\|"properties":' plugins/iflow/commands/review-ds-analysis.md` returns >=3 (typed schemas). (4) `grep -c 'chain.*fail\|halt\|degraded' plugins/iflow/commands/review-ds-analysis.md` returns >=2 (error handling).
 - [ ] Status
 
 **Commit after T13**: `iflow: split review-ds-analysis.md into 3-chain dispatch`
@@ -211,7 +211,7 @@
 - **Why**: Plan Step 3.4 / SC-3, AC-3 — static-before-dynamic for 2 command files
 - **Files**: `plugins/iflow/commands/specify.md`, `plugins/iflow/commands/design.md`
 - **Action**: For each file, move static content (reviewer templates, schemas, YOLO overrides, rules) above dynamic content (ARGUMENTS, feature_path, iteration state). Block-movement only.
-- **Done**: For each file (`plugins/iflow/commands/specify.md`, `plugins/iflow/commands/design.md`), run `git diff HEAD -- <file>` BEFORE committing T17 changes (while edits are in working tree) — added line count equals removed line count (confirming move-only changes, no net content added/deleted). If either file has prior uncommitted edits from another task, isolate T17 changes first: either stash prior changes or use `wc -l <file>` before and after T17 edits to confirm no net line change. All dynamic markers (`ARGUMENTS`, `{feature_path}`) appear after all static sections. Each file must have a `## Static Reference` section (or equivalent named static section) before the first dynamic marker.
+- **Done**: For each file (`plugins/iflow/commands/specify.md`, `plugins/iflow/commands/design.md`), run `git diff HEAD -- <file>` BEFORE committing T17 changes (while edits are in working tree) — added line count equals removed line count (confirming move-only changes, no net content added/deleted). If either file has prior uncommitted edits from another task, isolate T17 changes first: either stash prior changes or use `wc -l <file>` before and after T17 edits to confirm no net line change. All dynamic markers (`ARGUMENTS`, `{feature_path}`) appear after all static sections. Each file must have exactly `## Static Reference` as its static section header (no alternative names — this exact string is required by T21's automated verification).
 - [ ] Status
 
 ### T18: Restructure create-plan.md and create-tasks.md for prompt caching [Group: H]
@@ -414,7 +414,7 @@
 - **Deps**: T39 (pilot gate), T10 (batch script), T04 (rubric)
 - **Why**: Plan Step 5.4 / SC-1 — final quality gate: all 85 files must score >=80
 - **Action**: Run `batch-promptimize.sh` on all 85 files. For any file scoring <80: run interactive `/iflow:promptimize` on the failing file to get per-dimension scores and identify which dimensions scored low. Fix the identified dimension failures and re-run `batch-promptimize.sh` on that file (max 2 fix-and-rescore iterations per file). If a file still scores <80 after 2 iterations, document it in `below-threshold-files.md` (full path: `docs/features/033-comprehensive-prompt-refactor/below-threshold-files.md`) with file path, current score, failing dimensions, and deferral rationale.
-- **Done**: Gate closure requires either: (a) `batch-promptimize.sh` exits code 0 with all files showing `[PASS]`, OR (b) all remaining below-threshold files documented in `below-threshold-files.md` with deferral rationale, the overall pass rate is >=95%, AND SC-1 in spec.md is amended to add: "Pragmatic exception: up to 5 files (<=6%) may score <80 if documented with deferral rationale and a backlog item is created via `/iflow:add-to-backlog`." Deferred files must have documented rationale and a follow-up backlog item. Escalation threshold: if more than 5 files (>6%) are deferred, escalate for product review before closing the feature.
+- **Done**: Gate closure requires either: (a) `batch-promptimize.sh` exits code 0 with all files showing `[PASS]`, OR (b) **escalation path** — before amending spec.md, the implementer must: (i) document all below-threshold files in `below-threshold-files.md` with file path, current score, failing dimensions, and deferral rationale; (ii) create a follow-up backlog item via `/iflow:add-to-backlog` for each deferred file; (iii) note the spec deviation in `below-threshold-files.md` header: "SC-1 pragmatic exception applied — see amended spec.md"; (iv) THEN amend SC-1 in spec.md to add: "Pragmatic exception: up to 5 files (<=6%) may score <80 if documented with deferral rationale and a backlog item is created via `/iflow:add-to-backlog`." The overall pass rate must be >=95%. Escalation threshold: if more than 5 files (>6%) are deferred, escalate for product review before closing the feature.
 - [ ] Status
 
 **Commit after T40**: `iflow: all 85 files score >=80 on promptimize rubric`
