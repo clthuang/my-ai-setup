@@ -74,7 +74,7 @@ The iflow plugin's 85 prompt files (28 commands, 29 skills, 28 agents) contain p
 - Given 6 command files and 3 skill files identified for restructuring
 - When each file is inspected
 - Then all static content (reviewer templates, routing tables, schemas, rules) precedes all dynamic content (user input, feature context, iteration state)
-- And file behavior is functionally identical: for the 5 pilot files, use the full AC-13 behavioral equivalence procedure; for remaining files not in the pilot set, verify via automated diff that (a) no lines were deleted or added (only moved), and (b) all dynamic injection markers remain after all static content blocks
+- And file behavior is functionally identical: for the 5 pilot files, use the full AC-13 behavioral equivalence procedure; for remaining files not in the pilot set, verify via automated diff that (a) no lines were deleted or added (only moved), (b) all dynamic injection markers remain after all static content blocks, and (c) all named static sections (reviewer templates, routing tables, schemas, rules) are fully contained before the first dynamic injection marker
 
 ### AC-5: JSON Schema Addition
 - Given review-ds-code.md and review-ds-analysis.md (command dispatch prompts, not agent files)
@@ -102,6 +102,7 @@ Definition: An "orthogonal task" is a review axis that requires a distinct evalu
 - Planned split for review-ds-analysis.md: Chain 1 [methodology, statistical validity, data quality], Chain 2 [conclusion validity, reproducibility], Chain 3 [synthesis of findings]
 - Agent file approach: the existing agent files (ds-code-reviewer.md, ds-analysis-reviewer.md) are called multiple times with narrower scope per chain. No new agent files are created. The command file orchestrates the chaining; the agent file's system prompt is unchanged but each invocation receives a subset of review axes
 - Subset scope override: each chain's dispatch prompt must include an explicit instruction ("Evaluate ONLY the following axes. Ignore all other review sections in your system prompt.") to prevent the agent's full system prompt from causing evaluation of out-of-scope axes
+- Synthesis chain input contract: Chain 3 receives the structured JSON outputs from Chains 1 and 2 concatenated as context and synthesizes them into a single consolidated review object with the same schema as the current single-dispatch output. Chain 3 does not re-read the original files
 
 ### AC-8: Subjective Adjective Removal
 - Given all 85 prompt files
@@ -127,7 +128,7 @@ Definition: An "orthogonal task" is a review axis that requires a distinct evalu
 - Given component-authoring.md
 - When a developer follows the authoring checklist
 - Then promptimize is listed as a required quality gate
-- And a hookify rule file (`.claude/hookify.promptimize-reminder.local.md`) is created using the existing hookify plugin (`hookify:hookify` command) to emit an advisory reminder when component files are edited
+- And a hookify rule file (`.claude/hookify.promptimize-reminder.local.md`) is created using the existing hookify plugin (`hookify:hookify` command) to emit an advisory reminder when component files are edited. Note: `.local.md` naming is intentional — this is a local-only advisory reminder (not committed to version control), consistent with the project convention where `.local.md` files are per-developer session configuration
 
 ### AC-12: Validate.sh Extension
 - Given validate.sh
