@@ -244,3 +244,12 @@ Using self-attestation verification methods ('mark each checked', 'trace and con
 - Confidence: high
 - Last observed: Feature #031
 - Observation count: 1
+
+### Anti-Pattern: Same Variable Name for Skill and Command File References
+Using the same variable name (e.g., `original_content`) in both a skill and its orchestrating command with different referents. Causes naming collision blockers in plan review when both contexts are active simultaneously.
+- Observed in: Feature #032, create-plan phase — design used `original_content` in skill Step 2c (raw file content) and command Step 2.5 (post-parse content); one rename resolved it
+- Cost: Plan review blocker consuming a full iteration
+- Instead: Use distinct names that encode scope (e.g., `target_content` for skill, `original_content` for command)
+- Confidence: high
+- Last observed: Feature #032
+- Observation count: 1

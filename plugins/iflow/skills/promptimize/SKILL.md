@@ -7,12 +7,6 @@ description: Reviews plugin prompts against best practices guidelines and return
 
 Review and improve plugin component prompts using structured scoring and best practices.
 
-## YOLO Mode Overrides
-
-If `[YOLO_MODE]` is active in the execution context:
-
-- **Step 8:** Auto-select "Accept all" (skip AskUserQuestion)
-
 ## Process
 
 ### Step 1: Detect component type
@@ -47,7 +41,7 @@ Load three files using two-location Glob (try primary cache path first, fall bac
 
 **2c. Target file**
 
-Read the file at the input path directly (absolute path provided by caller). Retain the full original content in memory as `original_content` -- this is needed for Accept-some restoration in Step 8.
+Read the file at the input path directly (absolute path provided by caller). Retain the full content in memory as `target_content` -- needed by Phase 2 as rewrite context.
 
 **Error handling:** If any reference file is not found after both Glob locations --> display error: "Required reference file not found: {filename}. Verify plugin installation." --> **STOP**
 
@@ -57,13 +51,13 @@ Read the file at the input path directly (absolute path provided by caller). Ret
 2. If the heading is missing or the date fails to parse, set `staleness_warning = true` with displayed date "unknown"
 3. Compare the parsed date against today's date
 4. If the date is **more than 30 days old**, set `staleness_warning = true`
-5. This flag is used in Step 7 to append a staleness warning to the report
+5. This flag is included in the Phase 1 JSON output for the command to use in the report
 
-### Step 4: Evaluate 9 dimensions
+### Phase 1: Grade
 
-For each dimension, apply the behavioral anchors from `references/scoring-rubric.md` (loaded in Step 2) to the target file. Produce a **pass (3) / partial (2) / fail (1)** score per dimension.
+Evaluate all 9 dimensions against `references/scoring-rubric.md` (loaded in Step 2). For each dimension, apply the behavioral anchors to the target file and assign a score: **pass (3) / partial (2) / fail (1)**.
 
-**Auto-pass exceptions:** Score 3 for any dimension marked "Auto-pass" in the Component Type Applicability table in `references/scoring-rubric.md` (loaded in Step 2). All other dimension/type combinations are **Evaluated** using the scoring rubric's behavioral anchors.
+**Auto-pass exceptions:** Score 3 for any dimension marked "Auto-pass" in the Component Type Applicability table in `references/scoring-rubric.md`. For auto-passed dimensions, set `auto_passed = true`, `finding` to a brief note (e.g., "Auto-pass for {component_type}"), and `suggestion = null`.
 
 **Dimensions** (evaluate in this order):
 
@@ -77,140 +71,106 @@ For each dimension, apply the behavioral anchors from `references/scoring-rubric
 8. **Progressive disclosure** -- overview in main file, details in references
 9. **Context engineering** -- appropriate tool restrictions, clean boundaries
 
-For each dimension, record: **dimension name**, **score** (pass/partial/fail), and a **one-line finding** explaining the assessment.
+For each evaluated dimension, record:
+- **score**: integer 1, 2, or 3
+- **finding**: one-line observation of what was assessed
+- **suggestion**: what to improve (required when score < 3; null when score = 3)
 
-### Step 5: Calculate score
+Do NOT compute an overall score. Output only the raw dimension scores.
 
-Overall score = **(sum of all 9 dimension scores) / 27 x 100**, rounded to nearest integer. Auto-passed dimensions contribute their fixed score of 3 to the sum.
+**Canonical dimension name mapping** -- use these exact JSON `name` values in the output:
 
-### Step 6: Generate improved version
+| Rubric Name | JSON `name` Value |
+|---|---|
+| Structure compliance | `structure_compliance` |
+| Token economy | `token_economy` |
+| Description quality | `description_quality` |
+| Persuasion strength | `persuasion_strength` |
+| Technique currency | `technique_currency` |
+| Prohibition clarity | `prohibition_clarity` |
+| Example quality | `example_quality` |
+| Progressive disclosure | `progressive_disclosure` |
+| Context engineering | `context_engineering` |
 
-Rewrite the full target file incorporating improvements for every dimension scoring **partial or fail**. The output is a complete copy of the target file with changes applied inline.
+**Output:** Wrap the JSON result in `<phase1_output>` tags:
 
-**CHANGE/END CHANGE delimiters:** Wrap each modified region with paired HTML comment markers:
-
-```markdown
-<!-- CHANGE: {dimension} - {rationale} -->
-{modified content}
-<!-- END CHANGE -->
+```
+<phase1_output>
+{
+  "file": "path/to/target.md",
+  "component_type": "skill",
+  "guidelines_date": "2026-02-24",
+  "staleness_warning": false,
+  "dimensions": [
+    {
+      "name": "structure_compliance",
+      "score": 3,
+      "finding": "Matches macro-structure exactly",
+      "suggestion": null,
+      "auto_passed": false
+    }
+  ]
+}
+</phase1_output>
 ```
 
-**Marker rules:**
+Populate `guidelines_date` and `staleness_warning` from Step 3. The `dimensions` array must contain exactly 9 entries, one per dimension in the order listed above.
 
-- **Only wrap partial/fail dimensions.** Pass dimensions have NO markers -- their content remains unchanged from the original.
-- **Multi-region changes** for one dimension: each region gets its own CHANGE/END CHANGE pair. They are grouped as a single selectable unit in Accept-some (keyed by dimension name).
-- **Overlapping dimensions** (two dimensions modify the same text): merge into one block with both dimension names in the CHANGE comment (`<!-- CHANGE: dim_a, dim_b - rationale -->`), presented as a single inseparable selection.
+### Phase 2: Rewrite
+
+Using the Phase 1 grading result as context, rewrite the full target file incorporating improvements for every dimension scoring **partial or fail**.
+
+**Step 1:** Wrap the Phase 1 JSON output from above in a `<grading_result>` block as context for the rewrite:
+
+```
+<grading_result>
+{Phase 1 JSON output}
+</grading_result>
+```
+
+**Step 2:** Generate the complete rewritten file. The output is a full copy of the target file with modified regions wrapped in `<change>` XML tags.
+
+**Change tag format:**
+
+```xml
+<change dimension="token_economy" rationale="Remove redundant preamble">
+modified content here
+</change>
+```
+
+Attribute order is fixed: `dimension`, then `rationale`. Do not reorder.
+
+**Tag rules:**
+
+- **Pass dimensions (score=3):** Do NOT add `<change>` tags. Their content remains unchanged from the original.
+- **Multi-region changes** for one dimension: each region gets its own `<change>` tag with the same `dimension` attribute.
+- **Overlapping dimensions** (two dimensions modify the same text): use comma-separated dimension names: `<change dimension="token_economy,structure_compliance" rationale="Combined fix">`.
+- **Preservation:** All text outside `<change>` tags must be identical to the original file (`target_content` from Step 2c). Do not modify whitespace, formatting, or content outside change blocks.
 
 **Example** (two change blocks with an unchanged pass-dimension region between):
 
-```markdown
-<!-- CHANGE: token_economy - Remove redundant preamble -->
+```
+<change dimension="token_economy" rationale="Remove redundant preamble">
 You are a code reviewer focused on quality.
-<!-- END CHANGE -->
+</change>
 
 ## Process
 
-<!-- CHANGE: structure_compliance - Add numbered steps with bold semantic labels -->
+<change dimension="structure_compliance" rationale="Add numbered steps with bold semantic labels">
 1. **Read** -- Load the target file
 2. **Analyze** -- Check against criteria
-<!-- END CHANGE -->
+</change>
 ```
 
-**Marker integrity:** Markers must remain well-formed for Accept-some to function; see Step 8 fallback.
-
-**Token budget check:** After generating the improved version, strip all `<!-- CHANGE: ... -->` and `<!-- END CHANGE -->` comments and count lines/tokens. If the stripped result exceeds 500 lines or 5,000 tokens, set `over_budget_warning = true` and include the warning in the report (Step 7).
-
-### Step 7: Generate report
-
-Output the report using this template:
-
-```markdown
-## Promptimize Report: {filename}
-
-**Component type:** {Skill | Agent | Command}
-**Overall score:** {score}/100
-**Guidelines version:** {date from prompt-guidelines.md}
-
-<!-- Conditional warnings (omit lines entirely when flag is false) -->
-{if staleness_warning: "Warning: Guidelines last updated {date} -- consider running /refresh-prompt-guidelines"}
-{if over_budget_warning: "Warning: Improved version exceeds token budget -- consider moving content to references/."}
-
-### Strengths
-- {dimension}: {what's done well}
-
-### Issues Found
-
-| # | Severity | Dimension | Finding | Suggestion |
-|---|----------|-----------|---------|------------|
-| 1 | blocker  | {dim}     | {finding} | {suggestion} |
-
-### Improved Version
-
-{Full rewritten prompt with CHANGE/END CHANGE block delimiters from Step 6}
-```
-
-**Strengths section:** List all **evaluated** dimensions scoring **pass** (exclude auto-passed dimensions) with a brief note on what was done well. This affirms good patterns before listing issues.
-
-**Issues Found table:** Only partial/fail dimensions appear. Severity mapping: **fail = blocker**, **partial = warning**. Order blockers first, then warnings.
-
-**Conditional warnings:** The `staleness_warning` and `over_budget_warning` lines are only shown when their respective flags are set (Step 3 and Step 6). Omit the line entirely when the flag is false.
-
-### Step 8: User approval
-
-Present the report from Step 7, then prompt for approval:
+**Output:** Wrap the complete rewritten file in `<phase2_output>` tags:
 
 ```
-AskUserQuestion:
-  questions: [{
-    "question": "How would you like to proceed with the improvements?",
-    "header": "Approval",
-    "options": [
-      {"label": "Accept all", "description": "Apply all improvements and write to file"},
-      {"label": "Accept some", "description": "Choose which dimensions to apply"},
-      {"label": "Reject", "description": "Discard improvements, no file changes"}
-    ],
-    "multiSelect": false
-  }]
+<phase2_output>
+{complete rewritten file with <change> tags}
+</phase2_output>
 ```
-
-**Accept all:**
-1. Take the improved version from Step 6
-2. Strip all `<!-- CHANGE: ... -->` and `<!-- END CHANGE -->` comments
-3. Write the result to the original file path (overwrite)
-4. Display: "Improvements applied to {filename}. Run `./validate.sh` to verify structural compliance."
-
-**Accept some:**
-1. Collect the list of dimensions that have CHANGE markers in the improved version
-2. Present each dimension as a multiSelect option:
-   ```
-   AskUserQuestion:
-     questions: [{
-       "question": "Select dimensions to apply:",
-       "header": "Dimensions",
-       "options": [
-         {"label": "{dimension_name}", "description": "{one-line summary of changes for this dimension}"}
-       ],
-       "multiSelect": true
-     }]
-   ```
-3. **Merge algorithm:**
-   a. Start with the full improved version from Step 6
-   b. For each **unselected** dimension, locate its CHANGE/END CHANGE block(s)
-   c. Replace each unselected block's content with the corresponding region from the **original file** (`original_content`, retained from Step 2c)
-   d. Strip all remaining `<!-- CHANGE: ... -->` and `<!-- END CHANGE -->` markers
-4. **Merge invariant:** The resulting file must be valid markdown with no orphaned CHANGE/END CHANGE markers
-5. **Inseparable blocks:** If two dimensions' CHANGE blocks were merged (overlapping line ranges, as noted in Step 6), they appear as a single option with both dimension names. Selecting or deselecting applies to both dimensions together.
-6. **Malformed marker fallback:** If markers cannot be cleanly parsed for selective application, degrade to Accept all / Reject with warning: "Selective acceptance unavailable -- markers could not be parsed. Use Accept all or Reject."
-7. Write the merged result to the original file path (overwrite)
-8. Display: "Selected improvements applied to {filename}. Run `./validate.sh` to verify structural compliance."
-
-**Reject:**
-Display: "No changes applied." --> **STOP**
 
 ## PROHIBITED
 
-- NEVER write the improved version to disk without explicit user approval via AskUserQuestion (Step 8). The only exception is YOLO mode, which auto-selects "Accept all".
-- NEVER skip Step 8 (approval) in non-YOLO mode.
 - NEVER score a dimension without referencing the behavioral anchors from `references/scoring-rubric.md`. Do not invent scoring criteria.
-- NEVER apply changes that would push the stripped improved version over 500 lines or 5,000 tokens without including the over-budget warning in the report.
 

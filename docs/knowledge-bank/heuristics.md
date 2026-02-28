@@ -224,3 +224,17 @@ Plan review iterations scale with the number of distinct concern domains in the 
 - Confidence: medium
 - Last observed: Feature #031
 - Observation count: 1
+
+### Design Handoff Pre-Flight Check for Edge-Case Test Scenarios
+Before submitting design.md to handoff review, scan all TD sections for "test" or "testing" keywords. Any test scenario described in a TD must be promoted to either an AC or a named plan task. Buried test scenarios in TDs propagate as blockers across 2+ downstream phases.
+- Source: Feature #032 — TD2 "testing note" for reversed attribute order drove design handoff cap and plan-reviewer blocker (3 downstream iterations)
+- Confidence: high
+- Last observed: Feature #032
+- Observation count: 1
+
+### Shared Algorithm Without Named Contract Predicts 3-4 Extra Chain Iterations
+When a design describes the same algorithm in two or more sections using parallel prose (no shared name, no I/O contract), expect 3-4 extra chain review iterations to incrementally define: name, label, inputs, outputs, and placement ordering. Each iteration adds one missing contract element.
+- Source: Feature #032 — match_anchors_in_original described in C6 and C9 took 4 chain iterations to fully specify; create-plan duration was 2x create-tasks, signaling underspecified shared behavior
+- Confidence: high
+- Last observed: Feature #032
+- Observation count: 1
