@@ -201,7 +201,7 @@ Key shift: The command becomes the orchestrator. It handles all focused, single-
 6. All replacements computed simultaneously against original (not sequentially)
 7. Applied in original-file order by line number
 8. If any anchor match fails (zero, multiple, or overlapping): degrade to Accept all / Reject
-9. Strip all residual `<change>` tags from result (defensive — should be none after the selected/unselected replacement pass above, but ensures no stray tags from parsing edge cases)
+9. Strip all residual `<change>` tags from result — this is the final operation, applied after all anchor-based replacements are written to the output buffer (defensive — should be none after the selected/unselected replacement pass above, but ensures no stray tags from parsing edge cases)
 10. Write to original file path
 
 **Concrete walkthrough:**
@@ -279,7 +279,7 @@ User selects only token_economy (Block A):
 - Open tag: `<change\s+dimension="([^"]+)"\s+rationale="([^"]*)">`
 - Close tag: `</change>`
 
-**Known constraint:** The regex requires `dimension` before `rationale`. The skill's Phase 2 instructions specify this exact attribute order. If the LLM produces attributes in a different order, the regex will not match, triggering tag validation failure and graceful degradation to Accept all / Reject per TD5. This is acceptable — the strict pattern keeps the regex simple and the degradation path handles deviations.
+**Known constraint:** The regex requires `dimension` before `rationale`. The skill's Phase 2 instructions specify this exact attribute order. If the LLM produces attributes in a different order, the regex will not match, triggering tag validation failure in C5 and graceful degradation to Accept all / Reject per TD5. This is acceptable — the strict pattern keeps the regex simple and the degradation path handles deviations. **Testing note:** The plan should include a test scenario verifying that reversed attribute order correctly triggers C5 validation failure and the degradation path fires.
 
 ### TD3: Anchor-Based Merge (Not Diff/Patch)
 
@@ -510,7 +510,7 @@ Phase 2: Rewrite
 
 | File | Change Description |
 |------|-------------------|
-| `plugins/iflow/skills/promptimize/SKILL.md` | Replace Steps 4-7 with Phase 1 (Grade) + Phase 2 (Rewrite). Remove score calculation. Replace HTML markers with XML `<change>` tags. Add `<phase1_output>` / `<phase2_output>` / `<grading_result>` delimiters. Remove YOLO Mode Overrides section (approval handling moved to command). Update PROHIBITED section — **remove:** (1) "NEVER write the improved version to disk without explicit user approval" (moved to command C8), (2) "NEVER skip Step 8 (approval)" (moved to command C8), (3) "NEVER apply changes that would push…over budget" (moved to command C7); **retain:** (4) "NEVER score a dimension without referencing the behavioral anchors from scoring-rubric.md" (still skill responsibility in Phase 1). |
+| `plugins/iflow/skills/promptimize/SKILL.md` | Replace Steps 4-7 with Phase 1 (Grade) + Phase 2 (Rewrite) — see I6 for the authoritative step/phase structure. Remove score calculation. Replace HTML markers with XML `<change>` tags. Add `<phase1_output>` / `<phase2_output>` / `<grading_result>` delimiters. Remove YOLO Mode Overrides section (approval handling moved to command). Update PROHIBITED section — **remove:** (1) "NEVER write the improved version to disk without explicit user approval" (moved to command C8), (2) "NEVER skip Step 8 (approval)" (moved to command C8), (3) "NEVER apply changes that would push…over budget" (moved to command C7); **retain:** (4) "NEVER score a dimension without referencing the behavioral anchors from scoring-rubric.md" (still skill responsibility in Phase 1). |
 | `plugins/iflow/commands/promptimize.md` | Replace Step 3 delegation with full orchestration: read original file (Step 2.5), parse output (C3), compute score (C4), validate tags (C5), detect drift (C6), assemble report (C7), handle approval with YOLO check (C8), merge engine (C9), accept-all handler (C10). Add PROHIBITED rules for approval-related and budget-related responsibilities absorbed from skill. |
 | `plugins/iflow/skills/promptimize/references/scoring-rubric.md` | No changes. |
 | `plugins/iflow/skills/promptimize/references/prompt-guidelines.md` | No changes. |
