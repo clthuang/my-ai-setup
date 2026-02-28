@@ -14,7 +14,7 @@
 9. **Quality examples** — Quantity, order, and format matter; small tweaks yield up to 90% accuracy improvement [The Prompt Report]
 10. **Instruction placement** — Place key instructions at top AND bottom for agentic tasks [OpenAI GPT-4.1 Guide]
 
-## Plugin-Specific Patterns
+## Component-Specific Patterns
 
 ### Skills
 - **Structure:** Frontmatter → YOLO overrides → Process (numbered steps with bold semantic labels) → Output format → Error handling → Self-check → PROHIBITED section [Codebase analysis]
@@ -33,6 +33,12 @@
 - **Structure:** Frontmatter (description + argument-hint) → Conditional routing → Delegation to skills/agents → Completion [Codebase analysis]
 - **Argument handling:** Use $ARGUMENTS for direct input, AskUserQuestion for interactive selection when no args [Codebase analysis]
 - **Delegation pattern:** Task tool for agent dispatch, Skill tool for skill invocation [Codebase analysis]
+
+### General Prompts
+- **Structure:** Clear sections with headers, logical task flow, no wall-of-text blocks [General Prompt Behavioral Anchors]
+- **Purpose statement:** Explicit description of what the prompt does, target use case, expected behavior [General Prompt Behavioral Anchors]
+- **Input/output boundaries:** Define what context the prompt expects and what output it produces [General Prompt Behavioral Anchors]
+- **No plugin conventions:** General prompts do not require frontmatter, reference files, or cache-friendly ordering [General Prompt Behavioral Anchors]
 
 ## Tool Use Prompting
 - **Structured parameter descriptions** — When defining tool parameters, provide explicit type annotations, constraints, and example values rather than free-text descriptions. Structured descriptions reduce parameter misuse and improve first-call accuracy. [Anthropic tool use documentation]

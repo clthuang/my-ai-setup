@@ -1,19 +1,33 @@
 ---
-description: Review a plugin prompt against best practices and return an improved version
-argument-hint: "[file-path]"
+description: Review a prompt against best practices and return an improved version
+argument-hint: "[file-path or inline prompt text]"
 ---
 
 # /iflow:promptimize Command
 
 ## Input Flow
 
-### Step 1: Check for direct path argument
+### Step 1: Determine input mode
 
-If `$ARGUMENTS` contains a file path, skip to Step 2.5 (Read original file).
+If `$ARGUMENTS` is empty --> proceed to Step 2 (interactive selection).
+
+If `$ARGUMENTS` is non-empty, determine whether it looks like a file path:
+
+**Path-like guard:** `$ARGUMENTS` is considered a file path if ANY of: contains `/`, ends with `.md`, starts with `~`, starts with `.`.
+
+- **If path-like:** Read the file using Read tool.
+  - If Read succeeds --> set `input_mode = "file"`, set `resolved_path` to the file path, proceed to Step 2.5.
+  - If Read fails --> display: "Error: file not found at {path}. If you intended to score inline text, ensure the input does not contain `/` or end with `.md`." STOP.
+- **If NOT path-like** (does not match any path-like condition) --> set `input_mode = "inline"`:
+  1. Write `$ARGUMENTS` to a temp file using Bash `mktemp` with `.md` suffix.
+  2. Set `resolved_path` = temp file path.
+  3. Proceed to Step 2.5.
+
+Note: `input_mode` is tracked within the command only. The skill receives a file path regardless (real file or temp file) and is mode-agnostic. The command uses `input_mode` in Steps 7-8 to decide display-vs-write behavior.
 
 ### Step 2: Interactive component selection
 
-If no arguments provided:
+If no arguments provided (Step 1 determined empty `$ARGUMENTS`):
 
 **2a. Select component type:**
 
@@ -82,19 +96,21 @@ List each discovered file as an option, using the filename as the label and the 
 
 ### Step 2.5: Read original file
 
-Read the target file at the resolved path from Step 1 or Step 2d. Store the full content as `original_content`.
+Read the target file at `resolved_path` from Step 1 (direct path or temp file) or Step 2d (interactive). Store the full content as `original_content`.
 
 If the file read fails, display: "Error: could not read target file at {path}." STOP.
+
+For `input_mode = "file"` from Step 1, set `input_mode = "file"` if not already set. For interactive selection (Step 2d), set `input_mode = "file"`.
 
 ### Step 3: Invoke skill
 
 The skill performs full path validation in its Step 1.
 
 ```
-Skill(skill: "iflow:promptimize", args: "<selected-path>")
+Skill(skill: "iflow:promptimize", args: "<resolved_path>")
 ```
 
-Where `<selected-path>` is the file path from Step 2d (interactive) or `$ARGUMENTS` (direct).
+Where `<resolved_path>` is the file path from Step 2d (interactive), Step 1 direct path, or Step 1 temp file (inline).
 
 The skill output appears in conversation context containing `<phase1_output>` and `<phase2_output>` sections. Subsequent steps parse these sections.
 
@@ -131,7 +147,7 @@ Validate the parsed JSON against the grading schema:
    - `context_engineering`
    - `cache_friendliness`
 5. Suggestion constraint: if `score < 3` then `suggestion` must be non-null (a string). If `score == 3` then `suggestion` must be null.
-6. `component_type`, `guidelines_date`, and `staleness_warning` fields must be present.
+6. `component_type` must be one of: `skill`, `agent`, `command`, `general`. `guidelines_date` and `staleness_warning` fields must be present.
 
 If any parsing or validation fails, display:
 
@@ -239,11 +255,15 @@ If all anchors match:
 
 ### Step 6c: Token budget check
 
+**Plugin components** (`component_type` is `skill`, `agent`, or `command`):
+
 Strip all `<change ...>` opening tags and `</change>` closing tags from the rewrite content.
 
 Count the number of lines and words in the stripped content.
 
 If the stripped content exceeds 500 lines or 5,000 words: set `over_budget_warning = true`.
+
+**General prompts** (`component_type` is `general`): skip budget check, set `over_budget_warning = false`.
 
 ### Step 7: Assemble report
 
@@ -263,7 +283,19 @@ Build the report from structured data. Do NOT ask the LLM to generate the report
 > Warning: Prompt guidelines are stale (last updated {guidelines_date}). Scores may not reflect current best practices.
 ```
 
-**Over-budget warning** (include only if `over_budget_warning` is true):
+**Inline mode indicator** (include only if `input_mode == "inline"`):
+
+```markdown
+**Input mode:** inline prompt (not file-backed)
+```
+
+**Near-miss warning** (include only if `near_miss_warning` is true from grading JSON):
+
+```markdown
+> Warning: Path contains plugin-like segments but did not match any component pattern. Classified as general prompt. If this was intended as a plugin component, check the path.
+```
+
+**Over-budget warning** (include only if `over_budget_warning` is true — applies to plugin components only):
 
 ```markdown
 > Warning: Improved version exceeds budget thresholds (500 lines or 5,000 words). Review for unnecessary additions.
@@ -314,7 +346,7 @@ Display the assembled report.
 - If `overall_score == 100` AND zero ChangeBlocks from Step 6a: display "All dimensions passed -- no improvements needed." STOP.
 - If `overall_score == 100` BUT ChangeBlocks exist: display warning "Warning: Score is 100 but change blocks were found -- this may indicate a grading error." Then proceed to the approval menu with standard option-gating below.
 - If `overall_score < 100` BUT zero ChangeBlocks: display the report with note: "Note: Dimensions scored partial/fail but no changes were generated." STOP.
-- If `[YOLO_MODE]` is active: auto-select "Accept all" and proceed directly to the Accept all handler. Skip AskUserQuestion.
+- If `[YOLO_MODE]` is active: auto-select "Accept all" and proceed directly to the Accept all handler. Skip AskUserQuestion. (For inline mode, this displays the improved prompt instead of writing.)
 
 **8b. Present approval menu (non-YOLO):**
 
@@ -364,11 +396,17 @@ AskUserQuestion:
 
 Take the rewrite output. Strip all `<change ...>` opening tags and `</change>` closing tags via regex.
 
-Write the stripped content to the original file path (overwrite).
+**If `input_mode == "file"`:** Write the stripped content to the original file path (overwrite). Display: "Improvements applied to {filename}. Run `./validate.sh` to verify." STOP.
 
-Display: "Improvements applied to {filename}. Run `./validate.sh` to verify."
+**If `input_mode == "inline"`:** Display the stripped content in a fenced code block:
 
-STOP.
+````
+```
+{stripped content}
+```
+````
+
+Display: "Improved prompt displayed above. Copy to use." Delete the temp file at `resolved_path`. STOP.
 
 #### Accept some handler
 
@@ -419,15 +457,21 @@ Build the output by interleaving original content with replacements:
 
 Strip any residual `<change>` tags from the assembled output (defensive final pass -- should be none after the replacement pass, but ensures no stray tags).
 
-Write the assembled content to the original file path.
+**If `input_mode == "file"`:** Write the assembled content to the original file path. Display: "Selected improvements applied to {filename}. Run `./validate.sh` to verify." STOP.
 
-Display: "Selected improvements applied to {filename}. Run `./validate.sh` to verify."
+**If `input_mode == "inline"`:** Display the assembled content in a fenced code block:
 
-STOP.
+````
+```
+{assembled content}
+```
+````
+
+Display: "Improved prompt with selected changes displayed above. Copy to use." Delete the temp file at `resolved_path`. STOP.
 
 #### Reject handler
 
-Display "No changes applied." STOP.
+Display "No changes applied." If `input_mode == "inline"`, delete the temp file at `resolved_path`. STOP.
 
 ---
 

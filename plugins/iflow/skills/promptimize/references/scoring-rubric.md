@@ -17,17 +17,30 @@
 
 ## Component Type Applicability
 
-| Dimension | Skill | Agent | Command |
-|-----------|-------|-------|---------|
-| Structure compliance | Evaluated | Evaluated | Evaluated |
-| Token economy | Evaluated | Evaluated | Evaluated |
-| Description quality | Evaluated | Evaluated | Evaluated |
-| Persuasion strength | Evaluated | Evaluated | Auto-pass |
-| Technique currency | Evaluated | Evaluated | Evaluated |
-| Prohibition clarity | Evaluated | Evaluated | Auto-pass |
-| Example quality | Evaluated | Evaluated | Auto-pass |
-| Progressive disclosure | Evaluated | Auto-pass | Auto-pass |
-| Context engineering | Evaluated | Evaluated | Evaluated |
-| Cache-friendliness | Evaluated | Evaluated | Evaluated |
+| Dimension | Skill | Agent | Command | General |
+|-----------|-------|-------|---------|---------|
+| Structure compliance | Evaluated | Evaluated | Evaluated | Evaluated |
+| Token economy | Evaluated | Evaluated | Evaluated | Evaluated |
+| Description quality | Evaluated | Evaluated | Evaluated | Evaluated |
+| Persuasion strength | Evaluated | Evaluated | Auto-pass | Evaluated |
+| Technique currency | Evaluated | Evaluated | Evaluated | Evaluated |
+| Prohibition clarity | Evaluated | Evaluated | Auto-pass | Evaluated |
+| Example quality | Evaluated | Evaluated | Auto-pass | Evaluated |
+| Progressive disclosure | Evaluated | Auto-pass | Auto-pass | Auto-pass |
+| Context engineering | Evaluated | Evaluated | Evaluated | Evaluated |
+| Cache-friendliness | Evaluated | Evaluated | Evaluated | Auto-pass |
 
 Dimensions marked "Auto-pass" score 3 automatically for that component type.
+
+## General Prompt Behavioral Anchors
+
+> When `component_type` is `general`, use the behavioral anchors in this section instead of the standard anchors above for the dimensions listed below. All other dimensions use the standard anchors.
+
+| Dimension | Pass (3) | Partial (2) | Fail (1) |
+|-----------|----------|-------------|----------|
+| Structure compliance | Clear sections with headers, logical flow, no wall of text | Some organization but missing headers or inconsistent grouping | No structure, single unbroken block of instructions |
+| Token economy | Concise and proportional to task complexity, no redundant content | Some redundant or verbose content that could be trimmed | Significant redundancy, content vastly disproportionate to task |
+| Description quality | Clear purpose statement, target use case, expected behavior defined | Some purpose stated but vague or incomplete | No purpose statement, unclear what the prompt does or when to use it |
+| Context engineering | Clear input/output boundaries, appropriate context scoping, no unnecessary information | Some boundary issues or minor context bloat | No clear boundaries, excessive irrelevant context, undefined inputs/outputs |
+
+> For general prompts, the Example quality dimension is context-dependent. Examples are expected when the prompt involves structured output, classification, or pattern-following tasks. For open-ended generation prompts, zero examples is acceptable: score Pass(3) if no examples are needed, Partial(2) if examples would help but are absent, Fail(1) only if the task clearly requires examples and none are provided.
