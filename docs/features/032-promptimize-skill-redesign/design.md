@@ -155,7 +155,8 @@ Key shift: The command becomes the orchestrator. It handles all focused, single-
 **Edge cases:**
 - **`<change>` at file start:** If fewer than 3 lines exist before the first `<change>` tag, use however many lines are available (0-2). A `<change>` tag on line 1 has 0 before-context lines — anchor match uses only the after-context.
 - **`<change>` at file end:** If fewer than 3 lines exist after the last `</change>` tag, use however many are available (0-2).
-- **Adjacent `<change>` blocks** (separated by fewer than 3 lines): The after-context of block N and before-context of block N+1 share lines. For drift detection, merge adjacent blocks into a single logical region — the before-context of the first block and the after-context of the last block form the anchor pair, with all intervening `<change>` content treated as one region. This avoids ambiguous overlapping anchors.
+- **Adjacent `<change>` blocks** (separated by fewer than 3 lines of unchanged content): The after-context of block N and before-context of block N+1 share or overlap lines. For drift detection, merge adjacent blocks into a single logical region — the before-context of the first block and the after-context of the last block form the anchor pair. The entire span (including non-change lines between the blocks) is compared: replace all `<change>` content with the corresponding original text between the outer anchors, then verify the reconstructed span matches the original. This avoids ambiguous overlapping anchors.
+- **Zero context lines between blocks:** If the original file has changes in adjacent regions with no intervening unchanged content (e.g., two consecutive sections both need changes), context anchors between them are empty. This is a structural limitation — when it occurs, the merge degrades to Accept all / Reject per TD5. The Phase 2 prompt does not attempt to artificially separate adjacent changes.
 
 ### C7: Command — Report Assembler
 
@@ -178,7 +179,7 @@ Key shift: The command becomes the orchestrator. It handles all focused, single-
 
 **Behavior:**
 - If all dimensions pass (score=100): skip menu, display "All dimensions passed — no improvements needed."
-- If YOLO mode: auto-select "Accept all"
+- If `[YOLO_MODE]` is active in the execution context: auto-select "Accept all" and skip AskUserQuestion. The command inherits YOLO detection from its existing Step 2d pattern — the same `[YOLO_MODE]` flag is checked again in Step 8.
 - Otherwise present AskUserQuestion with options based on validation state:
   - Always: "Accept all", "Reject"
   - Only if `tag_validation_failed == false` AND `drift_detected == false`: "Accept some"
@@ -197,7 +198,7 @@ Key shift: The command becomes the orchestrator. It handles all focused, single-
 6. All replacements computed simultaneously against original (not sequentially)
 7. Applied in original-file order by line number
 8. If any anchor match fails (zero, multiple, or overlapping): degrade to Accept all / Reject
-9. Strip all residual `<change>` tags from result
+9. Strip all residual `<change>` tags from result (defensive — should be none after Steps 4-5, but ensures no stray tags from parsing edge cases)
 10. Write to original file path
 
 **Concrete walkthrough:**
@@ -274,6 +275,8 @@ User selects only token_economy (Block A):
 **Patterns:**
 - Open tag: `<change\s+dimension="([^"]+)"\s+rationale="([^"]*)">`
 - Close tag: `</change>`
+
+**Known constraint:** The regex requires `dimension` before `rationale`. The skill's Phase 2 instructions specify this exact attribute order. If the LLM produces attributes in a different order, the regex will not match, triggering tag validation failure and graceful degradation to Accept all / Reject per TD5. This is acceptable — the strict pattern keeps the regex simple and the degradation path handles deviations.
 
 ### TD3: Anchor-Based Merge (Not Diff/Patch)
 
@@ -446,7 +449,7 @@ The command's new orchestration flow:
 ```
 Step 1: Check for direct path argument
 Step 2: Interactive component selection (unchanged)
-Step 2.5: Read the target file and store as original_content (needed for drift detection, merge, and accept-all)
+Step 2.5: Read the target file and store as original_content (needed for drift detection, merge, and accept-all). If file read fails, display error and STOP.
 Step 3: Invoke skill (pass file path). Skill output appears in conversation context.
 Step 4: Parse skill output
   4a: Extract <phase1_output> → Phase 1 JSON
@@ -480,7 +483,7 @@ Phase 2: Rewrite
   - Reference Phase 1 JSON via <grading_result> block
   - Generate complete rewritten file with <change> XML tags
   - Output wrapped in <phase2_output> tags
-  - Preserve all text outside <change> tags byte-identical to original
+  - Preserve all text outside <change> tags content-equivalent to original (verified by command after normalizing trailing whitespace and file-boundary blank lines)
 ```
 
 ---
@@ -502,7 +505,7 @@ Phase 2: Rewrite
 
 | File | Change Description |
 |------|-------------------|
-| `plugins/iflow/skills/promptimize/SKILL.md` | Replace Steps 4-7 with Phase 1 (Grade) + Phase 2 (Rewrite). Remove score calculation. Replace HTML markers with XML `<change>` tags. Add `<phase1_output>` / `<phase2_output>` / `<grading_result>` delimiters. Remove YOLO Mode Overrides section (approval handling moved to command). |
-| `plugins/iflow/commands/promptimize.md` | Replace Step 3 delegation with full orchestration: parse output (C3), compute score (C4), validate tags (C5), detect drift (C6), assemble report (C7), handle approval (C8), merge engine (C9), accept-all handler (C10). |
+| `plugins/iflow/skills/promptimize/SKILL.md` | Replace Steps 4-7 with Phase 1 (Grade) + Phase 2 (Rewrite). Remove score calculation. Replace HTML markers with XML `<change>` tags. Add `<phase1_output>` / `<phase2_output>` / `<grading_result>` delimiters. Remove YOLO Mode Overrides section (approval handling moved to command). Update PROHIBITED section: remove approval-related and budget-related prohibitions (moved to command); retain scoring-rubric prohibition. |
+| `plugins/iflow/commands/promptimize.md` | Replace Step 3 delegation with full orchestration: read original file (Step 2.5), parse output (C3), compute score (C4), validate tags (C5), detect drift (C6), assemble report (C7), handle approval with YOLO check (C8), merge engine (C9), accept-all handler (C10). Add PROHIBITED rules for approval-related and budget-related responsibilities absorbed from skill. |
 | `plugins/iflow/skills/promptimize/references/scoring-rubric.md` | No changes. |
 | `plugins/iflow/skills/promptimize/references/prompt-guidelines.md` | No changes. |
