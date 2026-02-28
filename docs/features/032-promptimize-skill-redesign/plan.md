@@ -117,7 +117,7 @@ P1 is the foundation — P2-P4 all parse or process P1's output format. P2-P4 ar
    - Use regex patterns from TD2: open tag `<change\s+dimension="([^"]+)"\s+rationale="([^"]*)">`  close tag `</change>`
    - Skip tags inside fenced code blocks: track a boolean `in_fence` state, toggled by lines starting with three or more backticks (```` ``` ````) or three or more tildes (`~~~`), per CommonMark spec. While `in_fence == true`, ignore any `<change>` or `</change>` patterns.
    - Check: every open has close, no nesting, no overlapping, non-empty dimension attribute
-   - Build array of ChangeBlock structures (I4) with dimensions, rationale, content, before_context (up to 3 lines from Phase 2 output preceding the `<change>` tag), after_context (up to 3 lines from Phase 2 output following the `</change>` tag). **Implementation note:** Step 6a extracts context lines from the Phase 2 output and populates each ChangeBlock. A single anchor-matching sub-procedure (`match_anchors_in_original`) is defined here to locate those context lines in `original_content` and return the matched region. Both drift detection (P3/Step 6b) and Accept some merge (P4/Step 8c) call this same sub-procedure — do not implement anchor matching separately in each step.
+   - Build array of ChangeBlock structures (I4) with dimensions, rationale, content, before_context (up to 3 lines from Phase 2 output preceding the `<change>` tag), after_context (up to 3 lines from Phase 2 output following the `</change>` tag). **Implementation note:** Step 6a extracts context lines from the Phase 2 output and populates each ChangeBlock. A single anchor-matching sub-procedure (`match_anchors_in_original`) is defined here to locate those context lines in `original_content` and return the matched region. Both drift detection (P3/Step 6b) and Accept some merge (P4/Step 8c) call this same sub-procedure — do not implement anchor matching separately in each step. Define `match_anchors_in_original` as a labeled, standalone section in the command file (e.g., `## Sub-procedure: match_anchors_in_original`). P3 and P4 reference it by label. Do not inline.
    - If validation fails: set `tag_validation_failed = true`
    - **Test scenario (from TD2):** Reversed attribute order (e.g., `<change rationale="..." dimension="...">`) must trigger validation failure and degrade to Accept all / Reject
 
@@ -183,7 +183,7 @@ P1 is the foundation — P2-P4 all parse or process P1's output format. P2-P4 ar
 
 1. **Add Step 8: Approval handler (C8).**
    - If `overall_score == 100` AND tag validation found zero ChangeBlocks: display "All dimensions passed — no improvements needed." STOP. (R4.5)
-   - Edge cases: if `overall_score == 100` but ChangeBlocks exist (LLM error — produced changes for pass dimensions), log warning "Score is 100 but change blocks found" and show normal approval menu. If `overall_score < 100` but zero ChangeBlocks (LLM failed to produce changes for non-pass dimensions), show report with note "Dimensions scored partial/fail but no changes were generated."
+   - Edge cases (defensive checks for LLM error conditions not covered by spec ACs — both must be implemented): if `overall_score == 100` but ChangeBlocks exist (LLM error — produced changes for pass dimensions), log warning "Score is 100 but change blocks found" and show normal approval menu. If `overall_score < 100` but zero ChangeBlocks (LLM failed to produce changes for non-pass dimensions), show report with note "Dimensions scored partial/fail but no changes were generated."
    - If `[YOLO_MODE]` is active: auto-select "Accept all" (R6.3)
    - Otherwise: present AskUserQuestion with options based on validation state
      - Always: "Accept all", "Reject"
@@ -235,7 +235,7 @@ The redesign moves several responsibilities from SKILL.md to the command. Nine e
 
 | # | Test function | Current assertion (SKILL.md) | New assertion | Reason |
 |---|---------------|------------------------------|---------------|--------|
-| 1 | `test_skill_documents_change_end_change_format` | Greps `CHANGE:` + `END CHANGE` | Grep `<change` + `</change>` present in SKILL.md AND assert `CHANGE:` + `END CHANGE` are ABSENT | HTML markers replaced with XML tags; absence check prevents accidental retention of old markers |
+| 1 | `test_skill_uses_xml_not_html_markers` (renamed from `test_skill_documents_change_end_change_format`) | Greps `CHANGE:` + `END CHANGE` | Two assertions: (1) grep `<change` + `</change>` present in SKILL.md, (2) grep `CHANGE:` + `END CHANGE` absent from SKILL.md (use `grep -v` or assert exit code 1) | HTML markers replaced with XML tags; absence check prevents accidental retention of old markers |
 | 2 | `test_skill_has_accept_all_option` | Greps `Accept all` in SKILL.md | Grep `Accept all` in **promptimize.md** | Approval moved to command |
 | 3 | `test_skill_has_accept_some_option` | Greps `Accept some` in SKILL.md | Grep `Accept some` in **promptimize.md** | Approval moved to command |
 | 4 | `test_skill_has_reject_option` | Greps `Reject` in SKILL.md | Grep `Reject` in **promptimize.md** | Approval moved to command |
@@ -286,7 +286,7 @@ The redesign moves several responsibilities from SKILL.md to the command. Nine e
    - Command references skill output format (`<phase1_output>`, `<phase2_output>`) correctly
    - `original_content` label is used consistently in command Steps 2.5, 6b, 8c
    - All 9 dimension names from I2 are consistent between skill and command
-   - TD2 regex pattern in command matches the tag format specified in skill
+   - TD2 regex pattern in command matches the tag format specified in skill: grep command for `<change\s+dimension=` pattern and confirm skill Phase 2 instructions show an example tag with dimension before rationale
    - Command PROHIBITED section contains all three rules moved from skill: (1) no writing without approval, (2) no skipping approval in non-YOLO mode, (3) no presenting Accept some when tag_validation_failed or drift_detected is true
 
 4. **Token budget verification:**
