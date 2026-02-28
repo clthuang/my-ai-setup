@@ -53,8 +53,11 @@ Phase 4: CONTENT SWEEP (adjective removal + terminology + passive voice)
 Phase 5: ENFORCEMENT + VERIFICATION
     validate.sh (add subjective adjective grep)
     hookify rule (.claude/hookify.promptimize-reminder.local.md)
-    5-file pilot with behavioral equivalence verification
-    Full batch-promptimize run for SC-1 verification
+    5-file pilot with behavioral equivalence verification (GATE: remaining files blocked until pilot passes)
+    Full batch-promptimize run for SC-1 verification (remaining ~80 files proceed only after pilot)
+    Note: Pilot files (design-reviewer.md, secretary.md, brainstorming/SKILL.md, review-ds-code.md,
+      review-ds-analysis.md) are processed through Phases 1-4 first; full batch of remaining files
+      proceeds only after Phase 5 pilot verification passes.
 ```
 
 ### Dependency Graph
@@ -64,12 +67,13 @@ AC-1 (scoring rubric) ──→ AC-3 (batch script) ──→ AC-13 (pilot verif
 AC-2 (guidelines)     ──→ AC-10 (passive voice via technique_currency)
                            AC-3 (batch script) ──→ SC-1 (all files ≥80)
 AC-6 (math fix)       ──→ AC-13 (pilot: promptimize + secretary)
-AC-7 (God splits)     ──→ AC-5 (JSON schemas) ──→ AC-13 (pilot: ds-code, ds-analysis)
+AC-7 (God splits, includes AC-5 schemas) ──→ AC-13 (pilot: ds-code, ds-analysis)
 AC-4 (cache restructure) ──→ AC-13 (pilot: brainstorming, secretary, design-reviewer)
 AC-8 (adjectives)     ──→ SC-2 (zero adjectives)
 AC-9 (terminology)    ──→ SC-3 (one convention)
 AC-11 (enforcement)   ─── independent
 AC-12 (validate.sh)   ─── independent (but verifies AC-8 output)
+AC-13 (pilot pass)    ──→ Phase 4 full batch (remaining ~80 files proceed after pilot gate)
 ```
 
 ### Phase 1: Foundation — Components
@@ -141,6 +145,7 @@ AC-12 (validate.sh)   ─── independent (but verifies AC-8 output)
   - Timeout: 120 seconds per file invocation (via `timeout 120 claude -p ...`); files exceeding timeout marked as `[TIMEOUT]`
   - Note: this approach bypasses the promptimize command's multi-step workflow (grade → rewrite → report). It only performs the grading step. This is intentional — the batch script is for SC-1 score verification, not rewriting.
   - Assumption comment: `# Slash commands not available in headless mode (as of 2026-02). If this changes, consider using /iflow:promptimize directly.` — makes the assumption explicit and revisitable.
+  - Working directory: script must be invoked from the project root (where `plugins/iflow/` exists). A startup guard verifies `plugins/iflow/skills/promptimize/references/scoring-rubric.md` exists before processing; fails with clear error if not found.
 
 ### Phase 3: Structural Changes — Components
 
@@ -506,7 +511,7 @@ Any axis_results entry for an unlisted axis will be discarded by the caller.
 
 **Scope leakage mitigation**: LLMs may not reliably ignore system prompt sections. Two safeguards:
 1. The scope override instruction is placed at the TOP of the dispatch prompt (highest attention position), not buried mid-prompt
-2. The command file instructs the orchestrating LLM to validate Chain 1+2 JSON responses: if `axis_results` contains entries for axes not in the chain's assigned list, those entries are removed before constructing Chain 3's prompt. While this filtering is LLM-executed (not compiled code), it is a simple JSON key-value comparison that LLMs perform reliably.
+2. The command file's orchestration logic includes an explicit instruction between Chain 2's return and Chain 3's dispatch: "Before constructing Chain 3's prompt, verify that Chain 1 and Chain 2 `axis_results` contain only the assigned axes. Remove any entries for unassigned axes. Log removed entries as warnings in the review output." While this filtering is LLM-executed (not compiled code), it is a simple JSON key-value comparison that LLMs perform reliably.
 
 ### I-8: Terminology Convention Contract
 
