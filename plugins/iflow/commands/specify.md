@@ -5,39 +5,12 @@ argument-hint: [--feature=<id-slug>]
 
 Invoke the specifying skill for the current feature context.
 
-## Config Variables
-Use these values from session context (injected at session start):
-- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
-
+## Static Reference
 ## YOLO Mode Overrides
 
 If `[YOLO_MODE]` is active:
 - Multiple active features → auto-select most recently created (highest ID)
 - Completion prompt → skip AskUserQuestion, directly invoke `/iflow:design` with `[YOLO_MODE]`
-
-## Determine Target Feature
-
-**If `--feature` argument provided:**
-- Use `{iflow_artifacts_root}/features/{feature}/` directly
-- If folder doesn't exist: Error "Feature {feature} not found"
-- If `.meta.json` missing: Error "Feature {feature} has no metadata"
-
-**If no argument:**
-1. Scan `{iflow_artifacts_root}/features/` for folders with `.meta.json` where `status="active"`
-2. If none found: "No active feature found. Would you like to /iflow:brainstorm to explore ideas first?"
-3. If one found: Use that feature
-4. If multiple found:
-   ```
-   AskUserQuestion:
-     questions: [{
-       "question": "Multiple active features found. Which one?",
-       "header": "Feature",
-       "options": [dynamically list each active feature as {id}-{slug}],
-       "multiSelect": false
-     }]
-   ```
-
-Once target feature is determined, read feature context and follow the workflow below.
 
 ## Workflow Integration
 
@@ -401,3 +374,31 @@ AskUserQuestion:
 If "Continue to /iflow:design (Recommended)": Invoke `/iflow:design`
 If "Review spec.md first": Show "Spec at {path}/spec.md. Run /iflow:design when ready." → STOP
 If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to spec.md, then reset `resume_state = {}` (clear all entries — the user has made manual edits outside the review loop, so prior agent contexts are stale) and return to Step 4 (Stage 1 spec-reviewer) with iteration counters reset to 0.
+
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
+## Determine Target Feature
+
+**If `--feature` argument provided:**
+- Use `{iflow_artifacts_root}/features/{feature}/` directly
+- If folder doesn't exist: Error "Feature {feature} not found"
+- If `.meta.json` missing: Error "Feature {feature} has no metadata"
+
+**If no argument:**
+1. Scan `{iflow_artifacts_root}/features/` for folders with `.meta.json` where `status="active"`
+2. If none found: "No active feature found. Would you like to /iflow:brainstorm to explore ideas first?"
+3. If one found: Use that feature
+4. If multiple found:
+   ```
+   AskUserQuestion:
+     questions: [{
+       "question": "Multiple active features found. Which one?",
+       "header": "Feature",
+       "options": [dynamically list each active feature as {id}-{slug}],
+       "multiSelect": false
+     }]
+   ```
+
+Once target feature is determined, read feature context and follow the workflow below.

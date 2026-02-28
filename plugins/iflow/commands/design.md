@@ -5,12 +5,7 @@ argument-hint: "[--feature=<id-slug>]"
 
 Invoke the designing skill for the current feature context.
 
-## Config Variables
-Use these values from session context (injected at session start):
-- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
-
-Read {iflow_artifacts_root}/features/ to find active feature, then follow the workflow below.
-
+## Static Reference
 ## YOLO Mode Overrides
 
 If `[YOLO_MODE]` is active:
@@ -609,3 +604,9 @@ AskUserQuestion:
 If "Continue to /iflow:create-plan (Recommended)": Invoke `/iflow:create-plan`
 If "Review design.md first": Show "Design at {path}/design.md. Run /iflow:create-plan when ready." → STOP
 If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to design.md, then reset `resume_state = {}` (clear all entries — the user has made manual edits outside the review loop, so prior agent contexts are stale) and return to Stage 3 (design-reviewer) with iteration counters reset to 0.
+
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
+Read {iflow_artifacts_root}/features/ to find active feature, then follow the workflow below.
