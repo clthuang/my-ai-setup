@@ -147,7 +147,7 @@ Key shift: The command becomes the orchestrator. It handles all focused, single-
 - For each `<change>` block, extract up to 3-line before-context and up to 3-line after-context anchors from Phase 2 output
 - Locate the matching anchor region in original file
 - Substitute each `<change>` block with the matched original text between the anchors
-- Normalize both the reconstructed file and the original: strip trailing whitespace per line, ignore blank-line differences at file start and file end (first/last lines of the file)
+- Normalize both the reconstructed file and the original: strip trailing whitespace per line, ignore blank-line differences at file boundaries (blank-line runs at the start and end of the file)
 - Compare normalized versions
 - Return: `{ drift_detected: boolean, drift_details?: string }`
 - If drift detected: set `drift_detected = true` — used to disable "Accept some"
@@ -198,7 +198,7 @@ Key shift: The command becomes the orchestrator. It handles all focused, single-
 6. All replacements computed simultaneously against original (not sequentially)
 7. Applied in original-file order by line number
 8. If any anchor match fails (zero, multiple, or overlapping): degrade to Accept all / Reject
-9. Strip all residual `<change>` tags from result (defensive — should be none after Steps 4-5, but ensures no stray tags from parsing edge cases)
+9. Strip all residual `<change>` tags from result (defensive — should be none after the selected/unselected replacement pass above, but ensures no stray tags from parsing edge cases)
 10. Write to original file path
 
 **Concrete walkthrough:**
@@ -358,7 +358,7 @@ Concise description here.
 
 ## Process
 
-Unchanged content here (byte-identical to original).
+Unchanged content here (content-equivalent to original).
 
 <change dimension="structure_compliance" rationale="Add numbered steps">
 ### Step 1: Read
@@ -417,8 +417,8 @@ Unchanged content here (byte-identical to original).
 ```
 
 **Attributes:**
-- `dimension`: required, non-empty. Single dimension name or comma-separated for overlapping.
-- `rationale`: required, can be empty string.
+- `dimension`: required, non-empty. Single dimension name or comma-separated for overlapping. MUST appear before `rationale` — attribute order is significant for regex parsing (see TD2).
+- `rationale`: required, can be empty string. MUST appear after `dimension`.
 
 **Constraints:**
 - No nesting of `<change>` tags
@@ -505,7 +505,7 @@ Phase 2: Rewrite
 
 | File | Change Description |
 |------|-------------------|
-| `plugins/iflow/skills/promptimize/SKILL.md` | Replace Steps 4-7 with Phase 1 (Grade) + Phase 2 (Rewrite). Remove score calculation. Replace HTML markers with XML `<change>` tags. Add `<phase1_output>` / `<phase2_output>` / `<grading_result>` delimiters. Remove YOLO Mode Overrides section (approval handling moved to command). Update PROHIBITED section: remove approval-related and budget-related prohibitions (moved to command); retain scoring-rubric prohibition. |
+| `plugins/iflow/skills/promptimize/SKILL.md` | Replace Steps 4-7 with Phase 1 (Grade) + Phase 2 (Rewrite). Remove score calculation. Replace HTML markers with XML `<change>` tags. Add `<phase1_output>` / `<phase2_output>` / `<grading_result>` delimiters. Remove YOLO Mode Overrides section (approval handling moved to command). Update PROHIBITED section — **remove:** (1) "NEVER write the improved version to disk without explicit user approval" (moved to command C8), (2) "NEVER skip Step 8 (approval)" (moved to command C8), (3) "NEVER apply changes that would push…over budget" (moved to command C7); **retain:** (4) "NEVER score a dimension without referencing the behavioral anchors from scoring-rubric.md" (still skill responsibility in Phase 1). |
 | `plugins/iflow/commands/promptimize.md` | Replace Step 3 delegation with full orchestration: read original file (Step 2.5), parse output (C3), compute score (C4), validate tags (C5), detect drift (C6), assemble report (C7), handle approval with YOLO check (C8), merge engine (C9), accept-all handler (C10). Add PROHIBITED rules for approval-related and budget-related responsibilities absorbed from skill. |
 | `plugins/iflow/skills/promptimize/references/scoring-rubric.md` | No changes. |
 | `plugins/iflow/skills/promptimize/references/prompt-guidelines.md` | No changes. |
