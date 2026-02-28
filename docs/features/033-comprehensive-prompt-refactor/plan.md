@@ -152,7 +152,7 @@ Steps are ordered by dependency. Each step lists its AC coverage, input files, o
 - **Files**: `plugins/iflow/commands/promptimize.md`, `plugins/iflow/commands/secretary.md`
 - **Action**: (1) promptimize.md: already handled in Step 2.2 (trivial-math comment). Verify it's present. (2) secretary.md: add code comment `<!-- Trivial-math exception: 5-signal additive integer counting (SC-5). Addition only, no division/rounding. -->` near complexity scoring section. (3) batch-promptimize.sh: already computes in bash (Step 2.3). Verify no LLM math.
 - **Test**: Grep promptimize.md for "Trivial-math exception". Grep secretary.md for "Trivial-math exception". Verify batch script uses `$(( ))` for arithmetic.
-- **Dependencies**: Step 2.2 (for verification sub-step only — checking promptimize.md has the trivial-math comment). The secretary.md comment is independent and can proceed in parallel with Phase 2.
+- **Dependencies**: Step 2.2 (for verification sub-step only — checking promptimize.md has the trivial-math comment). For secretary.md specifically: complete Step 3.4 (cache restructure) first, then add the trivial-math comment — avoids re-editing a file mid-restructure. The secretary.md comment can otherwise proceed in parallel with other Phase 2 work.
 - **Complexity**: Simple
 
 ### Step 3.4: Restructure 9 Files for Prompt Caching
