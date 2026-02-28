@@ -55,7 +55,7 @@ Read the file at the input path directly (absolute path provided by caller). Ret
 
 ### Phase 1: Grade
 
-Evaluate all 9 dimensions against `references/scoring-rubric.md` (loaded in Step 2). For each dimension, apply the behavioral anchors to the target file and assign a score: **pass (3) / partial (2) / fail (1)**.
+Evaluate all 10 dimensions against `references/scoring-rubric.md` (loaded in Step 2). For each dimension, apply the behavioral anchors to the target file and assign a score: **pass (3) / partial (2) / fail (1)**.
 
 **Auto-pass exceptions:** Score 3 for any dimension marked "Auto-pass" in the Component Type Applicability table in `references/scoring-rubric.md`. For auto-passed dimensions, set `auto_passed = true`, `finding` to a brief note (e.g., "Auto-pass for {component_type}"), and `suggestion = null`.
 
@@ -70,6 +70,7 @@ Evaluate all 9 dimensions against `references/scoring-rubric.md` (loaded in Step
 7. **Example quality** -- concrete, minimal, representative examples
 8. **Progressive disclosure** -- overview in main file, details in references
 9. **Context engineering** -- appropriate tool restrictions, clean boundaries
+10. **Cache friendliness** -- static content precedes dynamic content, no interleaving
 
 For each evaluated dimension, record:
 - **score**: integer 1, 2, or 3
@@ -91,6 +92,7 @@ Do NOT compute an overall score. Output only the raw dimension scores.
 | Example quality | `example_quality` |
 | Progressive disclosure | `progressive_disclosure` |
 | Context engineering | `context_engineering` |
+| Cache friendliness | `cache_friendliness` |
 
 **Output:** Wrap the JSON result in `<phase1_output>` tags:
 
@@ -114,7 +116,7 @@ Do NOT compute an overall score. Output only the raw dimension scores.
 </phase1_output>
 ```
 
-Populate `guidelines_date` and `staleness_warning` from Step 3. The `dimensions` array must contain exactly 9 entries, one per dimension in the order listed above.
+Populate `guidelines_date` and `staleness_warning` from Step 3. The `dimensions` array must contain exactly 10 entries, one per dimension in the order listed above.
 
 ### Phase 2: Rewrite
 
