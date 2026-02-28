@@ -8,12 +8,12 @@ The iflow plugin's 85 prompt files (28 commands, 29 skills, 28 agents) contain p
 - [ ] SC-2: Zero subjective adjectives in instruction text (defined boundary: SKILL.md core content, agent .md files, command .md files — excludes reference files, domain-specific technical terms, description frontmatter trigger phrases, code examples)
 - [ ] SC-3: One documented terminology convention for Stage/Step/Phase with all files conforming
 - [ ] SC-4: All reviewer dispatch prompts include explicit typed JSON return schema blocks
-- [ ] SC-5: Zero non-trivial math delegated to LLM (non-trivial = division, multiplication, rounding, or aggregation over >5 items; additive integer counting with <=5 signals is permitted inline)
+- [ ] SC-5: Zero non-trivial math delegated to LLM (non-trivial = division, multiplication, rounding, or aggregation over >5 items; additive integer counting with <=5 signals is permitted inline). Note: this refines PRD SC-5's blanket "zero math" to exclude trivial additive counting — rationale: 5-signal addition is deterministic for LLMs and extracting it to code adds complexity without reliability gain
 - [ ] SC-6: Zero God Prompt patterns (no single dispatch doing 4+ orthogonal tasks)
 - [ ] SC-7: All command files structured for prompt caching (static templates top, dynamic injection bottom)
 - [ ] SC-8: Enforcement gate exists (promptimize reminder on component edits)
 - [ ] SC-9: validate.sh extended with at least one content-level check (subjective adjective grep)
-- [ ] SC-10: All 28 agent files retain static-content-first ordering after adjective and terminology modifications (verified by post-modification spot check)
+- [ ] SC-10: All 28 agent files retain static-content-first ordering after adjective and terminology modifications (verified by diffing all 28 agent files pre/post-modification and confirming no static content moved below dynamic injection points)
 
 ## Scope
 
@@ -52,7 +52,7 @@ The iflow plugin's 85 prompt files (28 commands, 29 skills, 28 agents) contain p
   - Pass (3): All static content precedes all dynamic content with zero interleaving
   - Partial (2): Mostly separated but 1-2 static blocks appear after dynamic injection points
   - Fail (1): Static and dynamic content freely interleaved or no clear separation
-- And the promptimize skill validates 10 entries with denominator 30
+- And both the promptimize skill (SKILL.md dimension list) and command (promptimize.md Step 4c validator + Step 5 score formula) are updated to support 10 dimensions with denominator 30
 
 ### AC-2: Prompt Guidelines Update
 - Given the prompt-guidelines.md file
@@ -66,13 +66,14 @@ The iflow plugin's 85 prompt files (28 commands, 29 skills, 28 agents) contain p
 - Then it iterates all 85 component files (28 commands, 29 skills, 28 agents)
 - And produces per-file scores and an aggregate summary report
 - And flags files scoring below 80
-- And completes without timeout errors when run with max 5 concurrent processes (soft target: <60 minutes on Claude Opus 4.6 via standard API; not a hard pass/fail criterion due to external API latency variance)
+- And completes without timeout errors when run with max 5 concurrent processes
+- Non-functional note: target runtime <60 minutes on Claude Opus 4.6 via standard API; escalate if exceeded but not acceptance-gating due to external API latency variance
 
 ### AC-4: Prompt Caching Restructure
 - Given 6 command files and 3 skill files identified for restructuring
 - When each file is inspected
 - Then all static content (reviewer templates, routing tables, schemas, rules) precedes all dynamic content (user input, feature context, iteration state)
-- And file behavior is functionally identical per the behavioral equivalence procedure defined in AC-13 (same JSON structure, same approval decision, issue count +/- 1)
+- And file behavior is functionally identical: for the 5 pilot files, use the full AC-13 behavioral equivalence procedure; for remaining files not in the pilot set, verify by manual review of the diff confirming only content ordering changed (no deletions, additions, or rewording)
 
 ### AC-5: JSON Schema Addition
 - Given review-ds-code.md and review-ds-analysis.md (command dispatch prompts, not agent files)
@@ -98,12 +99,14 @@ Definition: An "orthogonal task" is a review axis that requires a distinct evalu
 - And each chained call handles <= 3 orthogonal tasks
 - Planned split for review-ds-code.md: Chain 1 [anti-patterns, pipeline quality, code standards], Chain 2 [notebook quality, API correctness], Chain 3 [synthesis of findings]
 - Planned split for review-ds-analysis.md: Chain 1 [methodology, statistical validity, data quality], Chain 2 [conclusion validity, reproducibility], Chain 3 [synthesis of findings]
+- Agent file approach: the existing agent files (ds-code-reviewer.md, ds-analysis-reviewer.md) are called multiple times with narrower scope per chain. No new agent files are created. The command file orchestrates the chaining; the agent file's system prompt is unchanged but each invocation receives a subset of review axes
 
 ### AC-8: Subjective Adjective Removal
 - Given all 85 prompt files
 - When grep searches for "appropriate|sufficient|robust|thorough|proper|adequate|reasonable" in instruction text
 - Then zero matches are found (excluding reference files, domain-specific terms, code examples, description frontmatter)
 - And each removed adjective is replaced with a measurable criterion
+- Note: adjective replacements in agent files must preserve static-content-first ordering per SC-10. If a replacement introduces dynamic content, flag for manual review
 
 ### AC-9: Terminology Normalization
 - Given the terminology convention: "Stage" for top-level divisions in skills, "Step" for sequential sections in commands and sub-items within stages, "Phase" exclusively for workflow-state phase names (brainstorm, specify, design, plan, tasks, implement, finish)
@@ -115,7 +118,7 @@ Definition: An "orthogonal task" is a review axis that requires a distinct evalu
 - Given all prompt files
 - When batch-promptimize identifies passive voice instances
 - Then all flagged instances are fixed to imperative mood ("Return JSON" not "JSON should be returned")
-- Verification: promptimize's scoring rubric serves as the verifier; all files score Pass on the "imperative-mood" dimension after fixes
+- Verification: promptimize's technique_currency dimension (which includes imperative mood as a sub-criterion) serves as the verifier; all files score Pass (3) on technique_currency after fixes
 
 ### AC-11: Enforcement Gate
 - Given component-authoring.md
@@ -138,7 +141,7 @@ Definition: An "orthogonal task" is a review axis that requires a distinct evalu
   1. For each pilot file, identify 2-3 representative inputs (e.g., for review-ds-code: a clean notebook, a notebook with anti-patterns, a mixed-quality notebook)
   2. Run the pre-restructure version and capture outputs (approval status, issue count, issue categories)
   3. Run the post-restructure version with identical inputs
-  4. Compare: same JSON structure, same approval decision, issue count within +/- 1, no new issue categories introduced
+  4. Compare: same JSON structure, same approval decision, issue count within +/- 1, no new issue categories introduced, severity distribution must not shift more than 1 level for any individual issue (a blocker becoming a non-blocker or vice versa requires investigation)
   5. If any pilot file fails comparison, halt batch and investigate before proceeding
 
 ## Feasibility Assessment
