@@ -36,7 +36,9 @@ P1 is the foundation — P2-P4 all parse or process P1's output format. P2-P4 ar
 
 ### Changes
 
-1. **Keep Steps 1-3 unchanged** (detect type, load references, staleness check). **Update Step 2c rationale:** change "needed for Accept-some restoration in Step 8" to "needed by Phase 2 as rewrite context" — the old rationale references Step 8 which is being removed. The command independently reads `original_content` in Step 2.5 for its own merge needs.
+1. **Keep Steps 1-3 unchanged** (detect type, load references, staleness check). Two changes to Step 2c:
+   - **Rename variable:** change `original_content` to `target_content` to avoid naming collision with the command's `original_content` (Step 2.5). The skill's copy is used only within Phase 1/Phase 2 evaluation; the command's `original_content` is the authoritative reference for all drift detection and merge operations.
+   - **Update rationale:** change "needed for Accept-some restoration in Step 8" to "needed by Phase 2 as rewrite context" — the old rationale references Step 8 which is being removed.
 
 2. **Replace Steps 4-5 with Phase 1 (Grade):**
    - Remove current Step 4 (evaluate dimensions) and Step 5 (calculate score)
@@ -70,8 +72,8 @@ P1 is the foundation — P2-P4 all parse or process P1's output format. P2-P4 ar
 
 ### Verification
 
-- Skill file stays under 500 lines / 5,000 tokens (CLAUDE.md budget). Estimate: current is 216 lines; removing Steps 4-8 (~130 lines) and adding Phase 1 (~50 lines) + Phase 2 (~60 lines) yields ~196 lines — well within budget.
-- Step 2c rationale says "needed by Phase 2 as rewrite context" (not "needed for Accept-some restoration in Step 8")
+- Skill file stays under 500 lines / 5,000 tokens (CLAUDE.md budget). Estimate: current is 216 lines; removing Steps 4-8 (~135 lines) and YOLO section (~5 lines), adding Phase 1 (~50 lines) + Phase 2 (~60 lines) yields ~186 lines — well within budget.
+- Step 2c variable renamed to `target_content` (not `original_content`) and rationale says "needed by Phase 2 as rewrite context"
 - `<phase1_output>`, `<phase2_output>`, and `<grading_result>` delimiters are present
 - All 9 dimension names from I2 mapping table appear in Phase 1 instructions
 - No HTML `<!-- CHANGE -->` markers remain
@@ -113,9 +115,9 @@ P1 is the foundation — P2-P4 all parse or process P1's output format. P2-P4 ar
 
 6. **Add Step 6a: Validate `<change>` tag structure (C5).**
    - Use regex patterns from TD2: open tag `<change\s+dimension="([^"]+)"\s+rationale="([^"]*)">`  close tag `</change>`
-   - Skip tags inside fenced code blocks: track a boolean `in_fence` state, toggled by lines starting with three or more backticks (```` ``` ````). While `in_fence == true`, ignore any `<change>` or `</change>` patterns.
+   - Skip tags inside fenced code blocks: track a boolean `in_fence` state, toggled by lines starting with three or more backticks (```` ``` ````) or three or more tildes (`~~~`), per CommonMark spec. While `in_fence == true`, ignore any `<change>` or `</change>` patterns.
    - Check: every open has close, no nesting, no overlapping, non-empty dimension attribute
-   - Build array of ChangeBlock structures (I4) with dimensions, rationale, content, before_context (up to 3 lines), after_context (up to 3 lines)
+   - Build array of ChangeBlock structures (I4) with dimensions, rationale, content, before_context (up to 3 lines), after_context (up to 3 lines). **Implementation note:** The ChangeBlock array and the anchor-matching algorithm (locating before_context/after_context in `original_content`) are defined once here in Step 6a. Both drift detection (P3/Step 6b) and Accept some merge (P4/Step 8c) reference this same algorithm — do not implement anchor matching separately in each step.
    - If validation fails: set `tag_validation_failed = true`
    - **Test scenario (from TD2):** Reversed attribute order (e.g., `<change rationale="..." dimension="...">`) must trigger validation failure and degrade to Accept all / Reject
 
@@ -148,7 +150,7 @@ P1 is the foundation — P2-P4 all parse or process P1's output format. P2-P4 ar
 
 2. **Add Step 6c: Token budget check (C7 partial).**
    - Strip all `<change>` and `</change>` tags from Phase 2 content
-   - Count lines and words (word count as proxy for tokens — roughly 1.3 tokens per word for English Markdown, so 5,000 words ≈ 6,500 tokens, providing a conservative margin over the 5,000-token budget)
+   - Count lines and words. The spec says "5,000 tokens" but the LLM cannot count tokens, so use 5,000 words as a conservative proxy per design decision C7 (roughly 1.3 tokens per word for English Markdown, so 5,000 words ≈ 6,500 tokens — this intentionally over-warns rather than under-warns).
    - If exceeds 500 lines or 5,000 words: set `over_budget_warning = true`
 
 3. **Add Step 7: Assemble report (C7).**
@@ -180,7 +182,8 @@ P1 is the foundation — P2-P4 all parse or process P1's output format. P2-P4 ar
 ### Changes
 
 1. **Add Step 8: Approval handler (C8).**
-   - If all dimensions pass (score=100, no `<change>` blocks): display "All dimensions passed — no improvements needed." STOP. (R4.5)
+   - If `overall_score == 100` AND tag validation found zero ChangeBlocks: display "All dimensions passed — no improvements needed." STOP. (R4.5)
+   - Edge cases: if `overall_score == 100` but ChangeBlocks exist (LLM error — produced changes for pass dimensions), log warning "Score is 100 but change blocks found" and show normal approval menu. If `overall_score < 100` but zero ChangeBlocks (LLM failed to produce changes for non-pass dimensions), show report with note "Dimensions scored partial/fail but no changes were generated."
    - If `[YOLO_MODE]` is active: auto-select "Accept all" (R6.3)
    - Otherwise: present AskUserQuestion with options based on validation state
      - Always: "Accept all", "Reject"
@@ -232,14 +235,14 @@ The redesign moves several responsibilities from SKILL.md to the command. Nine e
 
 | # | Test function | Current assertion (SKILL.md) | New assertion | Reason |
 |---|---------------|------------------------------|---------------|--------|
-| 1 | `test_skill_documents_change_end_change_format` | Greps `CHANGE:` + `END CHANGE` | Grep `<change` + `</change>` in SKILL.md | HTML markers replaced with XML tags |
+| 1 | `test_skill_documents_change_end_change_format` | Greps `CHANGE:` + `END CHANGE` | Grep `<change` + `</change>` present in SKILL.md AND assert `CHANGE:` + `END CHANGE` are ABSENT | HTML markers replaced with XML tags; absence check prevents accidental retention of old markers |
 | 2 | `test_skill_has_accept_all_option` | Greps `Accept all` in SKILL.md | Grep `Accept all` in **promptimize.md** | Approval moved to command |
 | 3 | `test_skill_has_accept_some_option` | Greps `Accept some` in SKILL.md | Grep `Accept some` in **promptimize.md** | Approval moved to command |
 | 4 | `test_skill_has_reject_option` | Greps `Reject` in SKILL.md | Grep `Reject` in **promptimize.md** | Approval moved to command |
-| 5 | `test_skill_has_yolo_mode_overrides` | Greps `YOLO` in SKILL.md | **Delete test** — YOLO handling is now in command, and the command already has a distinct test for `Skill()` delegation | YOLO section removed from skill |
+| 5 | `test_skill_has_yolo_mode_overrides` | Greps `YOLO` in SKILL.md | **Delete test** — replaced by new `test_cmd_has_yolo_mode_handling` (see New Tests table) | YOLO section removed from skill, moved to command |
 | 6 | `test_skill_has_malformed_marker_fallback` | Greps `malformed.*marker` in SKILL.md | Grep `tag_validation_failed` or `malformed` in **promptimize.md** | Tag validation moved to command |
 | 7 | `test_skill_documents_scoring_formula` | Greps `27` in SKILL.md | Grep `27` in **promptimize.md** | Score calculation moved to command |
-| 8 | `test_skill_report_template_has_required_fields` | Greps `Overall score` + `Component type` in SKILL.md | Grep `overall_score` + `component_type` in **promptimize.md** | Report assembly moved to command |
+| 8 | `test_skill_report_template_has_required_fields` | Greps `Overall score` + `Component type` in SKILL.md | Grep `overall_score\|Overall score` + `component_type\|Component type` in **promptimize.md** (matches either JSON field names or report template display names) | Report assembly moved to command |
 | 9 | `test_skill_severity_mapping_documented` | Greps `blocker` + `warning` in SKILL.md | Grep `blocker` + `warning` in **promptimize.md** | Severity mapping moved to command |
 
 ### New Tests to Add
@@ -252,12 +255,18 @@ The redesign moves several responsibilities from SKILL.md to the command. Nine e
 | 4 | `test_cmd_has_score_computation` | promptimize.md contains `round` and `27` | Score computed in command (AC2) |
 | 5 | `test_cmd_has_drift_detection` | promptimize.md contains `drift_detected` | Drift detection present (AC10) |
 | 6 | `test_cmd_has_tag_validation` | promptimize.md contains `tag_validation_failed` | Tag validation present (AC4) |
+| 7 | `test_cmd_has_yolo_mode_handling` | promptimize.md contains `YOLO_MODE` or `YOLO` | YOLO auto-accept behavior documented in command (replaces deleted skill-level YOLO test) |
+
+### Implementation Notes
+
+- After updating/adding/deleting test functions, update the `main()` function at the bottom of the file: remove the call to `test_skill_has_yolo_mode_overrides`, and add calls to the 7 new test functions in the appropriate dimension section.
 
 ### Verification
 
 - `bash plugins/iflow/hooks/tests/test-promptimize-content.sh` passes with 0 failures
 - No tests reference removed patterns (`CHANGE:`, `END CHANGE` in SKILL.md; `27` in SKILL.md; `Accept all/some` in SKILL.md)
 - New tests cover the key structural contracts of the redesign
+- Test #1 asserts both presence of new XML patterns AND absence of old HTML patterns
 
 ---
 
