@@ -5,12 +5,201 @@ argument-hint: [help|mode [manual|aware|yolo]|orchestrate <desc>|<request>]
 
 # /iflow:secretary Command
 
+Route requests to the most appropriate specialist agent.
+
+## Static Reference Tables
+
+All static routing tables, rules, and reference data are collected here for prompt cache efficiency. Procedural steps below reference these tables by name.
+
+### Routing Boundary Directive
+
+> During steps 1-6, you are ROUTING, not executing. Do not use Edit, Write, or Bash.
+> Only use Read, Glob, Grep for discovery, AskUserQuestion for clarification,
+> and Task for secretary-reviewer. Step 7 (DELEGATE) lifts this restriction.
+
+### YOLO Mode Overrides
+
+Apply when `[YOLO_MODE]` is active:
+- Step 2 (CLARIFY): Skip — infer intent from request text
+- Step 5 (REVIEW): Skip reviewer gate
+- Step 6 (RECOMMEND): Auto-select highest-confidence match in Standard mode
+- Step 7 (DELEGATE): If workflow pattern detected, redirect to orchestrate subcommand handler directly. Otherwise proceed immediately.
+
+### Phase Progression Table
+
+| lastCompletedPhase | Next Command |
+|---|---|
+| (no active feature) | iflow:brainstorm |
+| null (feature exists, no phases) | iflow:specify |
+| brainstorm | iflow:specify |
+| specify | iflow:design |
+| design | iflow:create-plan |
+| create-plan | iflow:create-tasks |
+| create-tasks | iflow:implement |
+| implement | iflow:finish-feature |
+| finish-feature | Already complete — report "Feature already completed." and stop |
+
+### Specialist Fast-Path Table
+
+Before running semantic matching, check against known specialist patterns:
+
+| Pattern (case-insensitive) | Agent | Confidence |
+|---|---|---|
+| "review" + ("security" / "vulnerability" / "owasp") | iflow:security-reviewer | 95% |
+| "review" + ("code quality" / "clean code" / "best practice") | iflow:code-quality-reviewer | 95% |
+| "review" + ("implementation" / "against spec" / "against requirements") | iflow:implementation-reviewer | 95% |
+| "review" + ("design" / "architecture") | iflow:design-reviewer | 95% |
+| "review" + ("spec" / "requirements" / "acceptance criteria") | iflow:spec-reviewer | 95% |
+| "review" + ("plan" / "implementation plan") | iflow:plan-reviewer | 95% |
+| "review" + ("data" / "analysis" / "statistical" / "methodology") | iflow:ds-analysis-reviewer | 95% |
+| "review" + ("notebook" / "pandas" / "sklearn" / "DS code") | iflow:ds-code-reviewer | 95% |
+| "simplify" / "reduce complexity" / "clean up code" | iflow:code-simplifier | 95% |
+| "explore" + ("codebase" / "code" / "patterns" / "how does") | iflow:codebase-explorer | 95% |
+| "deepen tests" / "add edge case tests" / "test deepening" | iflow:test-deepener | 95% |
+
+### Skill Fast-Path Table
+
+Routes to skills via `Skill()` instead of agents via `Task()`:
+
+| Pattern (case-insensitive) | Skill | Confidence |
+|---|---|---|
+| "debug" / "root cause" / "why is this broken" | iflow:systematic-debugging | 95% |
+| "TDD" / "test-driven" / "red-green-refactor" | iflow:implementing-with-tdd | 95% |
+| "retrospective" / "retro" / "what went well" | iflow:retrospecting | 95% |
+| "update docs" / "sync documentation" | iflow:updating-docs | 95% |
+
+### Fast-Path Rules
+
+1. Match is keyword overlap, not semantic — must hit the exact pattern
+2. If fast-path matches → skip Discovery, skip semantic matching, skip reviewer gate
+3. Go directly to Step 6 (Recommender) with the matched agent/skill at 95% confidence
+4. User still confirms via AskUserQuestion before delegation (unless YOLO)
+5. Tag whether match is agent or skill — affects delegation method in Step 7
+
+### Workflow Pattern Recognition Table
+
+| Pattern Keywords | Workflow |
+|-----------------|----------|
+| "new feature", "add capability", "create feature" | iflow:brainstorm |
+| "brainstorm", "explore", "ideate", "what if", "think about" | iflow:brainstorm |
+| "add command", "add hook", "add agent", "add skill", "create component", "modify plugin", "new command", "new hook", "new agent", "new skill", "extend plugin" | iflow:brainstorm |
+| "design", "architecture" | iflow:design |
+| "specify", "spec", "requirements" | iflow:specify |
+
+**Development Task Heuristic:**
+If the request describes modifying, adding to, or extending the plugin system (commands, hooks, agents, skills, workflows), treat it as a feature request → route via Workflow Guardian.
+
+### Investigative Question Detection Table
+
+| Pattern Keywords | Route To |
+|-----------------|----------|
+| "why", "what caused", "how did this happen", "what went wrong", "how come", "what's causing", "what broke" | investigation-agent |
+| "investigate", "debug", "trace", "analyze failure", "diagnose" | investigation-agent |
+| Any of the above + "fix", "resolve", "prevent", "stop this from" | rca-investigator |
+
+**Priority rule:** If both investigation and action keywords are present ("why did X break and how do I fix it?"), "fix"/"resolve"/"prevent" takes precedence → route to `rca-investigator`. Default to `investigation-agent` when unclear.
+
+### Maturity Signals Table
+
+| Signal | Well-specified (+1) | Under-specified (-1) |
+|--------|--------------------|--------------------|
+| Problem statement | Clear, concrete ("add JWT auth to API endpoints") | Vague ("improve auth") |
+| Success criteria | Stated or strongly implied ("users can log in via SSO") | Absent |
+| Scope | Bounded ("the /api/auth routes") | Unbounded ("the whole system") |
+| Approach | Indicated ("using passport.js") | Unknown |
+| Unknowns | None stated, problem well-understood | "not sure how", "what's the best way" |
+
+### Maturity Levels Table
+
+| Score | Level | Route |
+|-------|-------|-------|
+| 3-5 | **Well-specified** | Skip brainstorm → `create-feature` (starts at specify phase) |
+| 1-2 | **Partially specified** | Brainstorm with light triage (archetype matching, but flag as "refinement needed" not "exploration") |
+| 0 or below | **Exploratory** | Full brainstorm with advisory team (current behavior) |
+
+### Confidence Thresholds
+
+- >70%: Strong match, recommend as primary
+- 50-70%: Show as alternative option (but if best match is in this range, also show "no strong match" warning)
+- <50%: Do not show
+
+**Note:** If the BEST match is <70%, the "No Suitable Match" path in Step 7 applies.
+
+### Complexity Analysis Table
+
+After matching, assess task complexity for mode recommendation:
+
+<!-- Trivial-math exception: 5-signal additive integer counting (SC-5). Addition only, no division/rounding. -->
+
+| Signal | Points |
+|--------|--------|
+| Multi-file changes likely | +1 |
+| Breaking changes / rewrite / migrate | +2 |
+| Cross-domain (API + UI + tests) | +1 |
+| Unclear scope / many unknowns | +1 |
+| Simple / bounded / single file | -1 |
+
+Score ≤ 1 → recommend Standard mode
+Score ≥ 2 → recommend Full mode
+
+### No Suitable Match Routing Table
+
+When no existing agent scores above 50%, run scoping research then route:
+
+| Finding | Route |
+|---------|-------|
+| Simple: ≤2 files affected, single domain, bounded task | Call `EnterPlanMode` directly — "This task is straightforward. Switching to plan mode." |
+| Complex: 3+ files, multiple domains, or unfamiliar technology | Invoke `Skill({ skill: "iflow:create-specialist-team", args: "{clarified_intent}" })` |
+
+### Review Skip/Invoke Criteria
+
+**Skip reviewer when:**
+- Best match confidence >85% AND match is a direct agent (not a workflow pattern)
+- `[YOLO_MODE]` is active
+
+**Invoke reviewer when:**
+- Best match confidence <=85%
+- Multiple matches within 15 points of each other (ambiguous ranking)
+- Match is a workflow route (brainstorm/specify/design) — workflow misroutes are costlier
+
+### Error Handling Templates
+
+**Agent Parse Failure:**
+- Log warning internally, skip the problematic file, continue with remaining agents
+
+**Delegation Failure:**
+```
+AskUserQuestion:
+  questions: [{
+    question: "Delegation to {agent} failed: {error}. What would you like to do?",
+    header: "Error",
+    options: [
+      { label: "Retry", description: "Try again with same agent" },
+      { label: "Choose different agent", description: "Pick an alternative" },
+      { label: "Cancel", description: "Abort request" }
+    ],
+    multiSelect: false
+  }]
+```
+
+### Rules
+
+1. **Always confirm before delegating** — Never auto-delegate without user approval (unless YOLO)
+2. **Show reasoning** — Always explain why an agent was recommended
+3. **Respect cancellation** — If user cancels, stop immediately
+4. **Minimal context** — Pass only task-relevant information to subagents
+5. **Handle errors gracefully** — Offer recovery options, don't crash
+6. **Skip self** — Never recommend secretary as a match for tasks
+7. **Prefer specialists** — Match to most specific agent, not generic workers
+8. When no specialist matches (best <50%), run scoping research and auto-resolve (plan mode for simple, specialist team for complex)
+9. **Never execute work** — Discover, interpret, match, delegate. Never investigate the user's problem, design solutions, or produce artifacts.
+
+---
+
 ## Config Variables
 Use these values from session context (injected at session start):
 - `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
 - `{iflow_reviewer_model}` — model to use for the secretary reviewer gate (default: `haiku`, overridable for local proxy users)
-
-Route requests to the most appropriate specialist agent.
 
 ## Subcommand Routing
 
@@ -144,17 +333,7 @@ If argument starts with `orchestrate` or `continue`:
 
 ### Determine Next Command
 
-| lastCompletedPhase | Next Command |
-|---|---|
-| (no active feature) | iflow:brainstorm |
-| null (feature exists, no phases) | iflow:specify |
-| brainstorm | iflow:specify |
-| specify | iflow:design |
-| design | iflow:create-plan |
-| create-plan | iflow:create-tasks |
-| create-tasks | iflow:implement |
-| implement | iflow:finish-feature |
-| finish-feature | Already complete — report "Feature already completed." and stop |
+Use the Phase Progression Table above to determine the next command based on `lastCompletedPhase`.
 
 ### Execute in Main Session
 
@@ -186,19 +365,9 @@ These are handled by the individual commands. The orchestrator does NOT need to 
 
 If argument is anything other than `help`, `mode`, `orchestrate`, or `continue`:
 
-> **Routing boundary directive**
->
-> During steps 1-6, you are ROUTING, not executing. Do not use Edit, Write, or Bash.
-> Only use Read, Glob, Grep for discovery, AskUserQuestion for clarification,
-> and Task for secretary-reviewer. Step 7 (DELEGATE) lifts this restriction.
+Apply the Routing Boundary Directive above.
 
-**Read config first** — Read `.claude/iflow.local.md`. Extract `activation_mode`. If `yolo`, set `[YOLO_MODE]` flag.
-
-**YOLO Mode Overrides** (apply when `[YOLO_MODE]` is active):
-- Step 2 (CLARIFY): Skip — infer intent from request text
-- Step 5 (REVIEW): Skip reviewer gate
-- Step 6 (RECOMMEND): Auto-select highest-confidence match in Standard mode
-- Step 7 (DELEGATE): If workflow pattern detected, redirect to orchestrate subcommand handler directly. Otherwise proceed immediately.
+**Read config first** — Read `.claude/iflow.local.md`. Extract `activation_mode`. If `yolo`, set `[YOLO_MODE]` flag. Apply YOLO Mode Overrides above when active.
 
 ---
 
@@ -290,23 +459,7 @@ AskUserQuestion:
 
 When the clarified intent suggests building something new (feature request, new capability, add/create), assess problem maturity. If the intent is NOT a feature/build request (e.g., review, investigate, explore), skip triage entirely and proceed to Step 4.
 
-#### Maturity Signals
-
-| Signal | Well-specified (+1) | Under-specified (-1) |
-|--------|--------------------|--------------------|
-| Problem statement | Clear, concrete ("add JWT auth to API endpoints") | Vague ("improve auth") |
-| Success criteria | Stated or strongly implied ("users can log in via SSO") | Absent |
-| Scope | Bounded ("the /api/auth routes") | Unbounded ("the whole system") |
-| Approach | Indicated ("using passport.js") | Unknown |
-| Unknowns | None stated, problem well-understood | "not sure how", "what's the best way" |
-
-#### Maturity Levels
-
-| Score | Level | Route |
-|-------|-------|-------|
-| 3-5 | **Well-specified** | Skip brainstorm → `create-feature` (starts at specify phase) |
-| 1-2 | **Partially specified** | Brainstorm with light triage (archetype matching, but flag as "refinement needed" not "exploration") |
-| 0 or below | **Exploratory** | Full brainstorm with advisory team (current behavior) |
+Score the request against the Maturity Signals Table above, then use the Maturity Levels Table to determine the route.
 
 #### When well-specified (skip brainstorm):
 - Set `workflow_match = "iflow:create-feature"`
@@ -342,64 +495,15 @@ Match clarified intent to discovered agents and skills. Check patterns in this p
 
 #### Specialist Fast-Path
 
-Before running semantic matching, check against known specialist patterns:
-
-| Pattern (case-insensitive) | Agent | Confidence |
-|---|---|---|
-| "review" + ("security" / "vulnerability" / "owasp") | iflow:security-reviewer | 95% |
-| "review" + ("code quality" / "clean code" / "best practice") | iflow:code-quality-reviewer | 95% |
-| "review" + ("implementation" / "against spec" / "against requirements") | iflow:implementation-reviewer | 95% |
-| "review" + ("design" / "architecture") | iflow:design-reviewer | 95% |
-| "review" + ("spec" / "requirements" / "acceptance criteria") | iflow:spec-reviewer | 95% |
-| "review" + ("plan" / "implementation plan") | iflow:plan-reviewer | 95% |
-| "review" + ("data" / "analysis" / "statistical" / "methodology") | iflow:ds-analysis-reviewer | 95% |
-| "review" + ("notebook" / "pandas" / "sklearn" / "DS code") | iflow:ds-code-reviewer | 95% |
-| "simplify" / "reduce complexity" / "clean up code" | iflow:code-simplifier | 95% |
-| "explore" + ("codebase" / "code" / "patterns" / "how does") | iflow:codebase-explorer | 95% |
-| "deepen tests" / "add edge case tests" / "test deepening" | iflow:test-deepener | 95% |
-
-**Skill Fast-Path** (routes to skills via `Skill()` instead of agents via `Task()`):
-
-| Pattern (case-insensitive) | Skill | Confidence |
-|---|---|---|
-| "debug" / "root cause" / "why is this broken" | iflow:systematic-debugging | 95% |
-| "TDD" / "test-driven" / "red-green-refactor" | iflow:implementing-with-tdd | 95% |
-| "retrospective" / "retro" / "what went well" | iflow:retrospecting | 95% |
-| "update docs" / "sync documentation" | iflow:updating-docs | 95% |
-
-**Fast-path rules:**
-1. Match is keyword overlap, not semantic — must hit the exact pattern
-2. If fast-path matches → skip Discovery, skip semantic matching, skip reviewer gate
-3. Go directly to Step 6 (Recommender) with the matched agent/skill at 95% confidence
-4. User still confirms via AskUserQuestion before delegation (unless YOLO)
-5. Tag whether match is agent or skill — affects delegation method in Step 7
+Check the request against the Specialist Fast-Path Table and Skill Fast-Path Table above. Apply Fast-Path Rules above.
 
 **If no fast-path match** → proceed to remaining matching below.
 
 #### Workflow Pattern Recognition
 
-| Pattern Keywords | Workflow |
-|-----------------|----------|
-| "new feature", "add capability", "create feature" | iflow:brainstorm |
-| "brainstorm", "explore", "ideate", "what if", "think about" | iflow:brainstorm |
-| "add command", "add hook", "add agent", "add skill", "create component", "modify plugin", "new command", "new hook", "new agent", "new skill", "extend plugin" | iflow:brainstorm |
-| "design", "architecture" | iflow:design |
-| "specify", "spec", "requirements" | iflow:specify |
+Check the request against the Workflow Pattern Recognition Table above.
 
-**Development Task Heuristic:**
-If the request describes modifying, adding to, or extending the plugin system (commands, hooks, agents, skills, workflows), treat it as a feature request → route via Workflow Guardian below.
-
-#### Investigative Question Detection
-
-| Pattern Keywords | Route To |
-|-----------------|----------|
-| "why", "what caused", "how did this happen", "what went wrong", "how come", "what's causing", "what broke" | investigation-agent |
-| "investigate", "debug", "trace", "analyze failure", "diagnose" | investigation-agent |
-| Any of the above + "fix", "resolve", "prevent", "stop this from" | rca-investigator |
-
-**Priority rule:** If both investigation and action keywords are present ("why did X break and how do I fix it?"), "fix"/"resolve"/"prevent" takes precedence → route to `rca-investigator`. Default to `investigation-agent` when unclear.
-
-If workflow_match or investigative match detected, set in output and skip semantic agent matching.
+If workflow_match or investigative match detected (see Investigative Question Detection Table above), set in output and skip semantic agent matching.
 
 #### Workflow Guardian
 
@@ -413,19 +517,7 @@ When a workflow pattern is detected (feature request, "build X", "implement X", 
    - If no triage ran (safety default) → route to `iflow:brainstorm`
 4. If active feature found:
    - Extract `lastCompletedPhase` from .meta.json
-   - Determine next phase:
-
-     | lastCompletedPhase | Route to |
-     |---|---|
-     | null (feature created, no phases done) | iflow:brainstorm |
-     | brainstorm | iflow:specify |
-     | specify | iflow:design |
-     | design | iflow:create-plan |
-     | create-plan | iflow:create-tasks |
-     | create-tasks | iflow:implement |
-     | implement | iflow:finish-feature |
-     | finish-feature | Report: "Feature already completed." Stop. |
-
+   - Determine next phase using the Phase Progression Table above.
    - If the next phase matches what the user asked for → route with: "All prerequisite phases complete. Proceeding to {phase}."
    - If the next phase is earlier than what the user asked for → route to the next phase with: "You asked to {user request}, but {next phase} hasn't been completed yet. Routing to {next phase} to ensure proper planning."
 
@@ -455,42 +547,17 @@ If no fast-path, workflow, or investigative match:
 4. Return matches sorted by confidence
 ```
 
-**Confidence Thresholds:**
-- >70%: Strong match, recommend as primary
-- 50-70%: Show as alternative option (but if best match is in this range, also show "no strong match" warning)
-- <50%: Do not show
-
-**Note:** If the BEST match is <70%, the "No Suitable Match" path in Step 7 applies.
+Apply Confidence Thresholds above to filter results.
 
 #### Complexity Analysis
 
-After matching, assess task complexity for mode recommendation:
-
-| Signal | Points |
-|--------|--------|
-| Multi-file changes likely | +1 |
-| Breaking changes / rewrite / migrate | +2 |
-| Cross-domain (API + UI + tests) | +1 |
-| Unclear scope / many unknowns | +1 |
-| Simple / bounded / single file | -1 |
-
-Score ≤ 1 → recommend Standard mode
-Score ≥ 2 → recommend Full mode
+Apply the Complexity Analysis Table above to assess task complexity for mode recommendation.
 
 ---
 
 ### Step 5: REVIEW
 
-Before presenting the recommendation, evaluate whether independent validation is needed:
-
-**Skip reviewer when:**
-- Best match confidence >85% AND match is a direct agent (not a workflow pattern)
-- `[YOLO_MODE]` is active
-
-**Invoke reviewer when:**
-- Best match confidence <=85%
-- Multiple matches within 15 points of each other (ambiguous ranking)
-- Match is a workflow route (brainstorm/specify/design) — workflow misroutes are costlier
+Before presenting the recommendation, evaluate whether independent validation is needed using the Review Skip/Invoke Criteria above.
 
 When invoking the reviewer:
 ```
@@ -604,12 +671,7 @@ When no existing agent scores above 50%, run scoping research:
 2. Glob for files matching those terms — count results and identify directories
 3. Grep for pattern spread — identify how many domains are involved
 
-**Route based on scoping findings:**
-
-| Finding | Route |
-|---------|-------|
-| Simple: ≤2 files affected, single domain, bounded task | Call `EnterPlanMode` directly — "This task is straightforward. Switching to plan mode." |
-| Complex: 3+ files, multiple domains, or unfamiliar technology | Invoke `Skill({ skill: "iflow:create-specialist-team", args: "{clarified_intent}" })` |
+Route based on the No Suitable Match Routing Table above.
 
 **Fallback:** If specialist team creation fails, offer retry/rephrase/cancel via AskUserQuestion.
 
@@ -617,37 +679,7 @@ When no existing agent scores above 50%, run scoping research:
 
 ### Error Handling
 
-**Agent Parse Failure:**
-- Log warning internally, skip the problematic file, continue with remaining agents
-
-**Delegation Failure:**
-```
-AskUserQuestion:
-  questions: [{
-    question: "Delegation to {agent} failed: {error}. What would you like to do?",
-    header: "Error",
-    options: [
-      { label: "Retry", description: "Try again with same agent" },
-      { label: "Choose different agent", description: "Pick an alternative" },
-      { label: "Cancel", description: "Abort request" }
-    ],
-    multiSelect: false
-  }]
-```
-
----
-
-### Rules
-
-1. **Always confirm before delegating** — Never auto-delegate without user approval (unless YOLO)
-2. **Show reasoning** — Always explain why an agent was recommended
-3. **Respect cancellation** — If user cancels, stop immediately
-4. **Minimal context** — Pass only task-relevant information to subagents
-5. **Handle errors gracefully** — Offer recovery options, don't crash
-6. **Skip self** — Never recommend secretary as a match for tasks
-7. **Prefer specialists** — Match to most specific agent, not generic workers
-8. When no specialist matches (best <50%), run scoping research and auto-resolve (plan mode for simple, specialist team for complex)
-9. **Never execute work** — Discover, interpret, match, delegate. Never investigate the user's problem, design solutions, or produce artifacts.
+Apply the Error Handling Templates above.
 
 ## No Arguments
 
