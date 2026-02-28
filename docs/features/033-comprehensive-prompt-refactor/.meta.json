@@ -7,10 +7,11 @@
   "branch": "feature/033-comprehensive-prompt-refactor",
   "brainstorm_source": "docs/brainstorms/20260228-192547-comprehensive-prompt-refactor.prd.md",
   "backlog_source": "00022",
-  "lastCompletedPhase": null,
+  "lastCompletedPhase": "specify",
   "phases": {
     "specify": {
-      "started": "2026-02-28T20:16:00+08:00"
+      "started": "2026-02-28T20:16:00+08:00",
+      "completed": "2026-02-28T21:15:00+08:00"
     }
   }
 }
