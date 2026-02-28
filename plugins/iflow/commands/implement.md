@@ -5,11 +5,7 @@ argument-hint: "[--feature=<id-slug>]"
 
 Invoke the implementing skill for the current feature context.
 
-## Config Variables
-Use these values from session context (injected at session start):
-- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
-
-Read {iflow_artifacts_root}/features/ to find active feature, then follow the workflow below.
+## Static Reference
 
 ## YOLO Mode Overrides
 
@@ -993,3 +989,9 @@ AskUserQuestion:
 If "Continue to /iflow:finish-feature (Recommended)": Invoke `/iflow:finish-feature`
 If "Review implementation first": Show "Run /iflow:finish-feature when ready." → STOP
 If "Fix and rerun reviews": Ask user what needs fixing (plain text via AskUserQuestion with free-text), apply the requested changes to the implementation, then reset `resume_state = {}` and `fix_summaries = []` (clear all entries — the user has made manual edits outside the review loop, so prior agent contexts are stale) and return to Step 7 (3-reviewer loop) with the iteration counter reset to 0.
+
+## Config Variables
+Use these values from session context (injected at session start):
+- `{iflow_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+
+Read {iflow_artifacts_root}/features/ to find active feature, then follow the workflow below.
