@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.4.1] - 2026-03-01
+
+### Added
+- Promptimize support for general prompt files (any .md not matching plugin patterns)
+- Promptimize inline text mode: paste prompt text directly as arguments for scoring and improvement
+- General Prompt Behavioral Anchors in scoring rubric with adapted criteria for structure, token economy, description quality, and context engineering
+- Near-miss warning for paths containing plugin-like segments that don't match component patterns
+- General Prompts sub-section in prompt engineering guidelines
+
+### Changed
+- Promptimize no longer hard-gates on plugin component paths; non-plugin files classified as `general`
+- Conditional token budget check: skipped for general prompts, enforced for plugin components
+- Inline mode displays improved prompt in chat instead of writing to file
+
 ## [4.4.0] - 2026-03-01
 
 ### Changed

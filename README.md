@@ -140,7 +140,7 @@ Built-in specialist knowledge for brainstorming and code review:
 | `/iflow:secretary` | Intelligent task routing to agents and skills (supports YOLO mode with orchestrate subcommand) |
 | `/iflow:create-specialist-team` | Create ephemeral specialist teams for complex tasks |
 | `/iflow:root-cause-analysis` | Investigate bugs systematically |
-| `/iflow:promptimize [file-path]` | Review a plugin prompt against best practices and return an improved version |
+| `/iflow:promptimize [file-path or inline text]` | Review a prompt against best practices and return an improved version |
 | `/iflow:refresh-prompt-guidelines` | Scout latest prompt engineering best practices and update the guidelines document |
 | `/iflow:review-ds-analysis <file>` | Review data analysis for statistical pitfalls |
 | `/iflow:review-ds-code <file>` | Review DS Python code for anti-patterns |
@@ -257,7 +257,7 @@ iflow includes 29 skills and 28 agents that run automatically during the workflo
 
 | Skill | Purpose |
 |-------|---------|
-| promptimize | Reviews plugin prompts against best practices guidelines and returns scored assessment with improved version |
+| promptimize | Reviews prompts against best practices guidelines and returns scored assessment with improved version |
 | reviewing-artifacts | Comprehensive quality criteria for PRD, spec, design, plan, and tasks |
 | implementing-with-tdd | Enforces RED-GREEN-REFACTOR cycle with rationalization prevention |
 | workflow-state | Defines phase sequence and validates transitions |

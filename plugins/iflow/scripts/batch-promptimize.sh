@@ -133,6 +133,51 @@ echo "Timeout per file: ${TIMEOUT_SECS}s"
 echo "============================================"
 
 # ---------------------------------------------------------------------------
+# Portable timeout wrapper (macOS lacks GNU timeout)
+# ---------------------------------------------------------------------------
+if command -v gtimeout &>/dev/null; then
+    TIMEOUT_CMD="gtimeout"
+elif command -v timeout &>/dev/null 2>&1 && timeout --version &>/dev/null 2>&1; then
+    TIMEOUT_CMD="timeout"
+else
+    # Fallback: background + kill approach with temp file for stdout capture
+    _portable_timeout() {
+        local secs="$1"; shift
+        local _pt_out
+        _pt_out=$(mktemp)
+        "$@" > "$_pt_out" &
+        local cmd_pid=$!
+        # Watcher subshell: background sleep so we can kill it on TERM
+        ( _spid=0; trap 'kill $_spid 2>/dev/null; exit' TERM
+          sleep "$secs" & _spid=$!; wait $_spid
+          kill "$cmd_pid" 2>/dev/null ) &
+        local watcher_pid=$!
+        if wait "$cmd_pid" 2>/dev/null; then
+            kill "$watcher_pid" 2>/dev/null
+            wait "$watcher_pid" 2>/dev/null || true
+            cat "$_pt_out"
+            rm -f "$_pt_out"
+            return 0
+        else
+            local ec=$?
+            kill "$watcher_pid" 2>/dev/null
+            wait "$watcher_pid" 2>/dev/null || true
+            cat "$_pt_out"
+            rm -f "$_pt_out"
+            # 143 = killed by SIGTERM (timeout fired), map to 124 for compat
+            [[ "$ec" -eq 143 ]] && return 124
+            return "$ec"
+        fi
+    }
+    TIMEOUT_CMD="_portable_timeout"
+fi
+
+# ---------------------------------------------------------------------------
+# Allow headless claude -p to run from within a Claude Code session
+# ---------------------------------------------------------------------------
+unset CLAUDECODE 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
 # Temp directory for results
 # ---------------------------------------------------------------------------
 RESULTS_DIR=$(mktemp -d)
@@ -159,7 +204,7 @@ score_file() {
 
     local output
     local exit_code=0
-    output=$(timeout "$TIMEOUT_SECS" claude -p "$prompt" \
+    output=$($TIMEOUT_CMD "$TIMEOUT_SECS" claude -p "$prompt" \
         --allowedTools 'Read,Grep,Glob' \
         --model sonnet 2>/dev/null) || exit_code=$?
 

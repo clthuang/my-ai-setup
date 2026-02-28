@@ -1,11 +1,11 @@
 ---
 name: promptimize
-description: Reviews plugin prompts against best practices guidelines and returns scored assessment with improved version. Use when user says 'review this prompt', 'improve this skill', 'optimize this agent', 'promptimize', or 'check prompt quality'.
+description: Reviews prompts against best practices guidelines and returns scored assessment with improved version. Use when user says 'review this prompt', 'improve this skill', 'optimize this agent', 'optimize this prompt', 'promptimize', or 'check prompt quality'.
 ---
 
 # Promptimize
 
-Review and improve plugin component prompts using structured scoring and best practices.
+Review and improve prompts using structured scoring and best practices. Supports plugin components (skills, agents, commands), general prompt files, and inline prompt text.
 
 ## Process
 
@@ -18,12 +18,13 @@ Identify the component type from the input path using **suffix-based matching** 
 | `skills/<name>/SKILL.md` | skill |
 | `agents/<name>.md` | agent |
 | `commands/<name>.md` | command |
+| *(no match)* | general |
 
 Match rules:
 1. Check if path contains `skills/` followed by a directory name and `/SKILL.md` --> type = **skill**
 2. Check if path contains `agents/` followed by a filename ending in `.md` --> type = **agent**
 3. Check if path contains `commands/` followed by a filename ending in `.md` --> type = **command**
-4. No match --> display error: "Path must match: skills/*/SKILL.md, agents/*.md, or commands/*.md" --> **STOP**
+4. No match --> type = **general**. Additionally, if the path contains `plugins/` or keywords `skills`, `agents`, `commands` but didn't match the exact suffix patterns above, set `near_miss_warning = true` and `near_miss_message` to: "Path contains plugin-like segments but did not match any component pattern. Classified as general prompt."
 
 ### Step 2: Load references
 
@@ -58,6 +59,8 @@ Read the file at the input path directly (absolute path provided by caller). Ret
 Evaluate all 10 dimensions against `references/scoring-rubric.md` (loaded in Step 2). For each dimension, apply the behavioral anchors to the target file and assign a score: **pass (3) / partial (2) / fail (1)**.
 
 **Auto-pass exceptions:** Score 3 for any dimension marked "Auto-pass" in the Component Type Applicability table in `references/scoring-rubric.md`. For auto-passed dimensions, set `auto_passed = true`, `finding` to a brief note (e.g., "Auto-pass for {component_type}"), and `suggestion = null`.
+
+For `general` component type, refer to the General Prompt Behavioral Anchors section in the scoring rubric for adapted criteria on structure compliance, token economy, description quality, and context engineering, plus a contextual note on example quality.
 
 **Dimensions** (evaluate in this order):
 
@@ -115,6 +118,10 @@ Do NOT compute an overall score. Output only the raw dimension scores.
 }
 </phase1_output>
 ```
+
+Valid `component_type` values: `"skill"`, `"agent"`, `"command"`, `"general"`.
+
+Optional fields: `near_miss_warning` (boolean, defaults to false when omitted) and `near_miss_message` (string, only present when `near_miss_warning` is true). Step 4c validation does not check these.
 
 Populate `guidelines_date` and `staleness_warning` from Step 3. The `dimensions` array must contain exactly 10 entries, one per dimension in the order listed above.
 

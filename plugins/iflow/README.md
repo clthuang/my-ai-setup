@@ -94,7 +94,7 @@ flowchart TD
 | `/iflow:create-project <prd>` | Create project from PRD with AI-driven decomposition |
 | `/iflow:create-specialist-team` | Create ephemeral specialist teams for complex tasks |
 | `/iflow:init-ds-project <name>` | Scaffold a new data science project |
-| `/iflow:promptimize [file-path]` | Review a plugin prompt against best practices and return an improved version |
+| `/iflow:promptimize [file-path or inline text]` | Review a prompt against best practices and return an improved version |
 | `/iflow:refresh-prompt-guidelines` | Scout latest prompt engineering best practices and update the guidelines document |
 | `/iflow:review-ds-analysis <file>` | Review data analysis for statistical pitfalls |
 | `/iflow:review-ds-code <file>` | Review DS Python code for anti-patterns |
