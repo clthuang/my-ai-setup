@@ -1,0 +1,32 @@
+{
+  "id": "002",
+  "slug": "markdown-entity-file-header-sc",
+  "status": "active",
+  "created": "2026-03-01T16:27:59+08:00",
+  "mode": "standard",
+  "branch": "feature/002-markdown-entity-file-header-sc",
+  "project_id": "P001",
+  "module": "Entity Identity",
+  "brainstorm_source": "docs/brainstorms/20260301-144141-iflow-arch-evolution.prd.md",
+  "depends_on_features": [
+    "001-entity-uuid-primary-key-migrat"
+  ],
+  "lastCompletedPhase": "specify",
+  "phases": {
+    "specify": {
+      "started": "2026-03-02T18:00:00+08:00",
+      "completed": "2026-03-02T20:45:00+08:00",
+      "status": "completed",
+      "reviewIterations": 4,
+      "reviewOutcome": "approved",
+      "phaseReview": {
+        "iterations": 5,
+        "capReached": true,
+        "concerns": [
+          "R13 references `_resolve_identifier` (a private method) — fragile coupling to internal API",
+          "R12 exact insertion point within commitAndComplete step is ambiguous"
+        ]
+      }
+    }
+  }
+}
