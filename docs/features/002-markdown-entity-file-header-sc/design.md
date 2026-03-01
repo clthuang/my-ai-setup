@@ -116,7 +116,7 @@ Spec R8 locks Python stdlib `logging` module with logger name `entity_registry.f
 | frontmatter.py | `plugins/iflow/hooks/lib/entity_registry/frontmatter.py` | Utility library |
 | frontmatter_inject.py | `plugins/iflow/hooks/lib/entity_registry/frontmatter_inject.py` | CLI script |
 | test_frontmatter.py | `plugins/iflow/hooks/lib/entity_registry/test_frontmatter.py` | Tests |
-| SKILL.md | `plugins/iflow/skills/workflow-transitions/SKILL.md` | Single-line addition |
+| SKILL.md | `plugins/iflow/skills/workflow-transitions/SKILL.md` | Pseudocode block addition |
 
 ---
 
@@ -302,7 +302,7 @@ This ensures R9 merge behavior, R6 immutability enforcement, and R11 validation 
 | File has null bytes in first 8192 bytes | `None` | warning: binary content |
 | File is empty | `None` | — |
 
-**Implementation detail:** Open file with `encoding='utf-8'`. Binary content guard: read first 8192 bytes in binary mode, check for `\x00`. If binary, return None + warning. Otherwise, read line-by-line: first line must be exactly `---\n` (or `---` at EOF). Accumulate lines until another `---\n` line or EOF. If EOF reached without closing delimiter → malformed, return None + warning. An empty file (zero bytes) has no first line, so it returns None immediately (same codepath as "first line is not `---`"). Pass accumulated lines (between delimiters) to `_parse_block()` for key-value parsing.
+**Implementation detail:** Open file with `encoding='utf-8'`. Binary content guard: read first 8192 bytes in binary mode, check for `\x00`. If binary, return None + warning. File is opened twice — once in binary mode for the null-byte guard, once in text mode for line-by-line parsing. TOCTOU between the two opens is acceptable given single-agent-per-branch execution model (Risk 3). Otherwise, read line-by-line: first line must be exactly `---\n` (or `---` at EOF). Accumulate lines (stripping trailing newlines via `line.rstrip('\n')`) until another `---` line or EOF. If EOF reached without closing delimiter → malformed, return None + warning. An empty file (zero bytes) has no first line, so it returns None immediately (same codepath as "first line is not `---`"). Pass accumulated lines (between delimiters, newline-stripped) to `_parse_block()` for key-value parsing.
 
 ### I2: `write_frontmatter(filepath: str, headers: dict) -> None`
 
@@ -389,8 +389,8 @@ This ensures R9 merge behavior, R6 immutability enforcement, and R11 validation 
    - `created_at`: `datetime.now(timezone.utc).isoformat()` (only used for new headers; existing `created_at` preserved on merge per TD-9)
    - `feature_id`: parsed from `feature_type_id` — split on `:` to get `feature:{id}-{slug}`, then extract `{id}` (digits before first `-`)
    - `feature_slug`: parsed from `feature_type_id` — remainder after `{id}-`
-   - `project_id`: from entity DB record's `parent_type_id` if parent entity_type is `project` (e.g., `project:P001` → `P001`); omitted if no project parent
-   - `phase`: derived from `artifact_type` — `spec→specify`, `design→design`, `plan→create-plan`, `tasks→create-tasks`, `retro→finish`, `prd→brainstorm`
+   - `project_id`: parse entity DB record's `parent_type_id` string — split on `:` to get `(entity_type, entity_id)`. If `entity_type` is `project`, use `entity_id` as `project_id` (e.g., `project:P001` → `P001`). No second DB query needed — `type_id` format is `entity_type:entity_id` by construction. Omitted if no project parent
+   - `phase`: derived from `artifact_type` using `ARTIFACT_PHASE_MAP` constant: `{'spec': 'specify', 'design': 'design', 'plan': 'create-plan', 'tasks': 'create-tasks', 'retro': 'finish', 'prd': 'brainstorm'}`
    - No `.meta.json` reading needed — all data sourced from entity DB record and CLI arguments
 8. Call `write_frontmatter(artifact_path, header)`
    - If `ValueError` (UUID mismatch): log error, exit 1
@@ -437,10 +437,12 @@ This ensures R9 merge behavior, R6 immutability enforcement, and R11 validation 
 
 **Parsing algorithm:**
 1. Initialize empty dict
-2. For each line: `key, sep, value = line.strip().partition(': ')`
+2. For each line: `key, sep, value = line.partition(': ')`
    - If `sep` and `re.fullmatch(r'[a-z_]+', key)`: add `key: value` to dict
    - Else: silently ignore
 3. Return dict
+
+**Caller contract:** Lines passed to `_parse_block` must have trailing newlines already stripped (e.g., via `line.rstrip('\n')` during accumulation in `read_frontmatter`). This keeps `_parse_block` pure (no I/O concerns) and preserves round-trip fidelity (spec C4) — values are stored exactly as written.
 
 ### I8: Internal Helper — `_serialize_header(header: dict) -> str`
 
