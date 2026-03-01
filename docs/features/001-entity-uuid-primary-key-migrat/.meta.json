@@ -9,7 +9,7 @@
   "module": "Entity Identity",
   "brainstorm_source": "docs/brainstorms/20260301-144141-iflow-arch-evolution.prd.md",
   "depends_on_features": [],
-  "lastCompletedPhase": "create-plan",
+  "lastCompletedPhase": "create-tasks",
   "phases": {
     "create-tasks": {
       "started": "2026-03-02T06:30:00+08:00",
@@ -20,7 +20,16 @@
           "T3.2.2: Test discrimination — mock.patch approach added but not verified by reviewer",
           "T5.2.2: Targeted grep verification command added but not verified by reviewer"
         ]
-      }
+      },
+      "chainReview": {
+        "iterations": 5,
+        "capReached": true,
+        "concerns": [
+          "T3.2.2: Patch target validation depends on implementer running grep pre-step — if skipped, wrong patch target could pass silently",
+          "T5.2.2: grep -cE count may exceed 24 due to substring matching — acceptable for AC-27 minimum check but not exact"
+        ]
+      },
+      "completed": "2026-03-02T09:35:00+08:00"
     },
     "create-plan": {
       "started": "2026-03-02T05:15:00+08:00",
