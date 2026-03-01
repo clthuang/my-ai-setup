@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.4.2] - 2026-03-01
+
+### Added
+- ADR-004: Status taxonomy design with dual-dimension model (workflow_phase + kanban_column) for entity workflow tracking
+
 ## [4.4.1] - 2026-03-01
 
 ### Added

@@ -320,3 +320,17 @@ When two or more design sections describe the same algorithm in parallel prose, 
 - Confidence: high
 - Last observed: Feature #032
 - Observation count: 1
+
+### Pattern: Reactive Downstream Steps Signal Upstream Template Gaps
+When a downstream phase adds a compensating step to recover from an upstream gap (e.g., a grep discovery pre-step in plan because spec missed .meta.json fields), the correct fix is a structural update to the upstream template, not the downstream workaround.
+- Observed in: Feature #004, specify phase — spec reviewer caught missing .meta.json fields twice; recovery was a grep pre-step in plan rather than a spec template fix
+- Confidence: high
+- Last observed: Feature #004
+- Observation count: 1
+
+### Pattern: ADR Appendix Readability Ownership
+For ADR-style documentation features with multiple appendices, verify at design-handoff that every section exceeding 80 lines has explicit subheadings. Readability is a structural concern — catching it at implement review is one phase too late.
+- Observed in: Feature #004, implement phase — Appendix G readability split caught only at implement iter 1
+- Confidence: medium
+- Last observed: Feature #004
+- Observation count: 1
