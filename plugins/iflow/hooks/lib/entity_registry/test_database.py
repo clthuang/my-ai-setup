@@ -435,11 +435,13 @@ class TestSchemaCreation:
 
     def test_entity_type_check_constraint(self, db: EntityDatabase):
         """Only backlog, brainstorm, project, feature should be allowed."""
+        import uuid
+
         with pytest.raises(sqlite3.IntegrityError):
             db._conn.execute(
-                "INSERT INTO entities (type_id, entity_type, entity_id, name, "
-                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                ("invalid:x", "invalid", "x", "test",
+                "INSERT INTO entities (uuid, type_id, entity_type, entity_id, "
+                "name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (str(uuid.uuid4()), "invalid:x", "invalid", "x", "test",
                  "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
             )
 
@@ -687,12 +689,27 @@ class TestImmutableTriggers:
 
     def test_self_parent_on_insert(self, db: EntityDatabase):
         """Inserting an entity that is its own parent should raise."""
+        import uuid
+
+        test_uuid = str(uuid.uuid4())
+        # Case 1: self-parent via parent_type_id
         with pytest.raises(sqlite3.IntegrityError, match="entity cannot be its own parent"):
             db._conn.execute(
-                "INSERT INTO entities (type_id, entity_type, entity_id, name, "
-                "parent_type_id, created_at, updated_at) "
-                "VALUES ('feature:self', 'feature', 'self', 'Self', "
-                "'feature:self', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')"
+                "INSERT INTO entities (uuid, type_id, entity_type, entity_id, "
+                "name, parent_type_id, created_at, updated_at) "
+                "VALUES (?, 'feature:self', 'feature', 'self', 'Self', "
+                "'feature:self', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                (test_uuid,),
+            )
+        # Case 2: self-parent via parent_uuid (R12 trigger)
+        test_uuid2 = str(uuid.uuid4())
+        with pytest.raises(sqlite3.IntegrityError, match="entity cannot be its own parent"):
+            db._conn.execute(
+                "INSERT INTO entities (uuid, type_id, entity_type, entity_id, "
+                "name, parent_uuid, created_at, updated_at) "
+                "VALUES (?, 'feature:self2', 'feature', 'self2', 'Self2', "
+                "?, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                (test_uuid2, test_uuid2),
             )
 
     def test_self_parent_on_update(self, db: EntityDatabase):
