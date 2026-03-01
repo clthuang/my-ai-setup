@@ -33,7 +33,7 @@ The entity registry uses `type_id` (format `"{entity_type}:{entity_id}"`) as its
 - R5: Add `parent_uuid` column of type `TEXT REFERENCES entities(uuid)` as the canonical parent foreign key
 - R6: Populate all existing rows with generated UUID v4 values during migration
 - R7: Populate `parent_uuid` from existing `parent_type_id` references during migration
-- R8: SQLite requires table recreation for PK changes — use CREATE-COPY-DROP-RENAME pattern wrapped in an explicit transaction via `conn.execute("BEGIN IMMEDIATE")` before the first DDL statement. The `_migrate()` method's existing `conn.commit()` commits the transaction. If any step fails, `conn.rollback()` undoes all DDL and DML. Do NOT use `conn.executescript()` (which auto-commits each statement). Note: under Python sqlite3's legacy transaction control, DDL statements do not start implicit transactions — only DML does — hence the explicit BEGIN is required.
+- R8: SQLite requires table recreation for PK changes — use CREATE-COPY-DROP-RENAME pattern wrapped in an explicit transaction via `conn.execute("BEGIN IMMEDIATE")` before the first DDL statement. The migration function wraps all DDL/DML in a try/except block: on success, `conn.commit()`; on any exception, `conn.rollback()` then re-raise. Do NOT use `conn.executescript()` (which auto-commits each statement). Note: under Python sqlite3's legacy transaction control, DDL statements do not start implicit transactions — only DML does — hence the explicit BEGIN is required.
 - R9: Migration version increments from 1 to 2 in the MIGRATIONS dict
 
 ### Immutability Triggers
@@ -83,7 +83,12 @@ The entity registry uses `type_id` (format `"{entity_type}:{entity_id}"`) as its
 ### MCP Server Tool Signatures
 
 - R27: All MCP tool parameters currently named `type_id` and `parent_type_id` accept either UUID or type_id values (no parameter rename needed — the dual-read resolver handles disambiguation)
-- R28: Tool return messages include both UUID and type_id for clarity (e.g., `"Registered entity: {uuid} ({type_id})"`)
+- R28: Tool return messages include both UUID and type_id for clarity. Specifically:
+  - `register_entity` → `"Registered entity: {uuid} ({type_id})"`
+  - `set_parent` → `"Set parent of {child_uuid} ({child_type_id}) to {parent_uuid} ({parent_type_id})"`
+  - `get_entity` → returns dict with both fields (no message change needed)
+  - `update_entity` → `"Updated entity: {uuid} ({type_id})"`
+  - `get_lineage` / `export_lineage_markdown` → tree output uses type_id for display (no UUID in output)
 
 ### Backfill Compatibility
 
@@ -173,6 +178,7 @@ The entity registry uses `type_id` (format `"{entity_type}:{entity_id}"`) as its
 - C4: Migration must be idempotent — running on an already-migrated database is a no-op (detected via `schema_version` metadata check before executing migration DDL)
 - C5: WAL mode, foreign_keys=ON, busy_timeout=5000 pragmas must persist across migration. These are set in `__init__` before migration runs, and migration DDL does not alter PRAGMA state. After `ALTER TABLE RENAME`, SQLite automatically updates internal FK references to the new table name. Verify with `PRAGMA foreign_key_check` as part of migration validation.
 - C6: The `INSERT OR IGNORE` semantics in `register_entity` use `type_id` UNIQUE constraint (not UUID) to detect duplicates — same entity_type:entity_id pair should not create a second row
+- C7: R8's explicit `BEGIN IMMEDIATE` uses Python sqlite3's legacy transaction control (`isolation_level` not None). If a future Python version (3.16+) changes the default `autocommit` behavior, the migration code must be tested against the new defaults. This is informational — no code change needed for current Python versions (3.9–3.15).
 
 ## Dependencies
 
