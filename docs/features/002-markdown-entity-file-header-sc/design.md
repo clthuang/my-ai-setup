@@ -4,7 +4,7 @@
 
 ### Codebase Findings
 
-1. **No existing YAML parser** — zero `import yaml` occurrences in the codebase. The only frontmatter-like parsing is `read_local_md_field` in `common.sh:88-103` (shell, uses `grep "^${field}:" | sed`). The custom parser approach (spec C1) is consistent with this convention.
+1. **No existing YAML parser** — zero `import yaml` occurrences in production code. The only frontmatter-like parsing is `read_local_md_field` in `common.sh:88-103` (shell, uses `grep "^${field}:" | sed`). The custom parser approach (spec C1) is consistent with this convention.
 
 2. **Atomic write pattern** — `write_hook_state` in `common.sh:122-135` writes to `${file}.tmp` then `mv`. Same pattern prescribed by spec C2 for Python.
 
@@ -130,7 +130,7 @@ Spec R8 locks Python stdlib `logging` module with logger name `entity_registry.f
 
 **Internal helpers:**
 
-- `_parse_block(text: str) -> dict | None` — Parse the frontmatter block from file content string. Returns dict of key-value pairs, or None if no valid block found.
+- `_parse_block(lines: list[str]) -> dict` — Parse the already-extracted lines between frontmatter delimiters. Returns dict of key-value pairs (may be empty). The caller (`read_frontmatter` / `write_frontmatter`) handles delimiter detection and line-by-line I/O.
 - `_serialize_header(header: dict) -> str` — Serialize a header dict to a YAML frontmatter string (with `---` delimiters), respecting field ordering per R5.
 
 **Logger:** `logging.getLogger("entity_registry.frontmatter")` per spec R8.
@@ -157,7 +157,7 @@ Spec R8 locks Python stdlib `logging` module with logger name `entity_registry.f
 
 ### C4: SKILL.md Modification
 
-**Responsibility:** Single-line addition to `commitAndComplete` pseudocode that invokes `frontmatter_inject.py` before the git commit step.
+**Responsibility:** Pseudocode block addition to `commitAndComplete` that invokes `frontmatter_inject.py` before the `git add` step. The addition is LLM-interpreted pseudocode (matching the existing SKILL.md style), not literal bash.
 
 ---
 
@@ -239,6 +239,18 @@ The CLI script (`frontmatter_inject.py`) configures a `StreamHandler(sys.stderr)
 
 This ensures R9 merge behavior, R6 immutability enforcement, and R11 validation gate.
 
+### TD-9: `created_at` Immutability on Merge
+
+**Decision:** When merging headers in `write_frontmatter` (UUID matches), `created_at` is preserved from the existing header. If the new `headers` dict contains a different `created_at`, the existing value takes precedence silently (no error). This prevents accidental timestamp drift.
+
+**Rationale:** `created_at` records when the file was first created. Like `entity_uuid`, it should never change after initial write. Unlike `entity_uuid` (which raises `ValueError` on mismatch per R6), `created_at` mismatch is a silent keep-existing because callers commonly pass `datetime.now()` without checking if the file already has a `created_at`.
+
+### TD-10: File Encoding
+
+**Decision:** All `open()` calls use `encoding='utf-8'` explicitly.
+
+**Rationale:** Markdown files are UTF-8 by convention. Python's default encoding depends on the locale, which varies across environments. Explicit UTF-8 avoids locale-dependent behavior for files containing Unicode characters (e.g., feature names with accented characters).
+
 ---
 
 ## Risks
@@ -290,34 +302,36 @@ This ensures R9 merge behavior, R6 immutability enforcement, and R11 validation 
 | File has null bytes in first 8192 bytes | `None` | warning: binary content |
 | File is empty | `None` | — |
 
-**Implementation detail:** Read line-by-line. First line must be exactly `---\n` (or `---` at EOF). Then accumulate lines until another `---\n` line or EOF. If EOF reached without closing delimiter → malformed. Parse accumulated lines using the C1 parser rules.
+**Implementation detail:** Open file with `encoding='utf-8'`. Binary content guard: read first 8192 bytes in binary mode, check for `\x00`. If binary, return None + warning. Otherwise, read line-by-line: first line must be exactly `---\n` (or `---` at EOF). Accumulate lines until another `---\n` line or EOF. If EOF reached without closing delimiter → malformed, return None + warning. An empty file (zero bytes) has no first line, so it returns None immediately (same codepath as "first line is not `---`"). Pass accumulated lines (between delimiters) to `_parse_block()` for key-value parsing.
 
 ### I2: `write_frontmatter(filepath: str, headers: dict) -> None`
 
 **Contract:**
 - Input: file path and header dict
 - Output: None (file is modified in-place atomically)
-- Raises: `ValueError` if UUID mismatch, validation failure, or file not found
+- Raises: `ValueError` if UUID mismatch, validation failure, or file not found (`FileNotFoundError` is caught and re-raised as `ValueError` for a uniform exception interface)
 
 **Behavior matrix:**
 
 | Scenario | Behavior |
 |----------|----------|
 | File has no frontmatter | Prepend header block, preserve body |
-| File has frontmatter, same UUID | Merge headers, validate, write |
+| File has frontmatter, same UUID | Merge headers (preserving `created_at` per TD-9), validate, write |
 | File has frontmatter, different UUID | Raise `ValueError` |
 | Headers fail validation after merge | Raise `ValueError`, file unchanged |
 | Header value is `None` or `""` | Remove field from merged result |
+| File does not exist | Raise `ValueError('File not found: {path}')` |
 
 **Write sequence:**
-1. Read existing file content
-2. If frontmatter exists: extract existing header, check UUID match
-3. Merge: existing ← new headers (with None/empty deletion)
-4. Validate merged header → abort on failure
-5. Serialize: `_serialize_header(merged)` + body content
-6. Write to temp file in same directory
-7. `os.rename(temp, target)`
-8. Cleanup temp file in `finally` block if rename didn't happen
+1. Open file with `encoding='utf-8'` — catch `FileNotFoundError`, raise `ValueError`
+2. Read existing file content
+3. If frontmatter exists: extract existing header, check UUID match
+4. Merge: existing ← new headers (with None/empty deletion, `created_at` preserved from existing per TD-9)
+5. Validate merged header → abort on failure
+6. Serialize: `_serialize_header(merged)` + body content
+7. Write to temp file in same directory (with `encoding='utf-8'`)
+8. `os.rename(temp, target)`
+9. Cleanup temp file in `finally` block if rename didn't happen
 
 ### I3: `build_header(entity_uuid: str, entity_type_id: str, artifact_type: str, created_at: str, **optional_fields) -> dict`
 
@@ -372,7 +386,12 @@ This ensures R9 merge behavior, R6 immutability enforcement, and R11 validation 
 5. Call `db.get_entity(feature_type_id)` — if None, warn "Entity not found", exit 0
 6. Extract `entity_uuid` from entity dict
 7. Build header via `build_header(entity_uuid, feature_type_id, artifact_type, now_iso, **optional_fields)`
-   - Optional fields derived from entity metadata and `.meta.json` context if available
+   - `created_at`: `datetime.now(timezone.utc).isoformat()` (only used for new headers; existing `created_at` preserved on merge per TD-9)
+   - `feature_id`: parsed from `feature_type_id` — split on `:` to get `feature:{id}-{slug}`, then extract `{id}` (digits before first `-`)
+   - `feature_slug`: parsed from `feature_type_id` — remainder after `{id}-`
+   - `project_id`: from entity DB record's `parent_type_id` if parent entity_type is `project` (e.g., `project:P001` → `P001`); omitted if no project parent
+   - `phase`: derived from `artifact_type` — `spec→specify`, `design→design`, `plan→create-plan`, `tasks→create-tasks`, `retro→finish`, `prd→brainstorm`
+   - No `.meta.json` reading needed — all data sourced from entity DB record and CLI arguments
 8. Call `write_frontmatter(artifact_path, header)`
    - If `ValueError` (UUID mismatch): log error, exit 1
 9. Exit 0
@@ -381,39 +400,51 @@ This ensures R9 merge behavior, R6 immutability enforcement, and R11 validation 
 
 **Location:** `plugins/iflow/skills/workflow-transitions/SKILL.md`, within `commitAndComplete` Step 1, before the `git add` line.
 
-**Addition:**
+**entity_type_id derivation:** The SKILL.md pseudocode already has access to the feature's `.meta.json` (read during `validateAndSetup`). The `entity_type_id` is constructed as `feature:{id}-{slug}` from the `.meta.json` `id` and `slug` fields. This matches the `type_id` format in `database.py:344`.
+
+**Addition (LLM-interpreted pseudocode, matching existing SKILL.md style):**
 ```
-# Inject frontmatter headers into artifact files
-PLUGIN_ROOT=$(ls -d ~/.claude/plugins/cache/*/iflow*/*/hooks 2>/dev/null | head -1 | xargs dirname)
-if [ -z "$PLUGIN_ROOT" ]; then PLUGIN_ROOT="plugins/iflow"; fi  # Fallback (dev workspace)
-for artifact in {artifacts}; do
-  "$PLUGIN_ROOT/.venv/bin/python" "$PLUGIN_ROOT/hooks/lib/entity_registry/frontmatter_inject.py" "$artifact" "{entity_type_id}" 2>/dev/null || true
-done
+# Frontmatter injection (before git add):
+# For each artifact file being committed, invoke frontmatter_inject.py
+# to embed entity identity headers. Resolve plugin root using the
+# two-location pattern (primary: ~/.claude/plugins/cache, fallback: plugins/iflow).
+# Construct entity_type_id as "feature:{id}-{slug}" from .meta.json.
+# Suppress stderr (2>/dev/null) and ignore non-zero exit (|| true) — fail-open.
+#
+# Shell equivalent:
+#   PLUGIN_ROOT=$(ls -d ~/.claude/plugins/cache/*/iflow*/*/hooks 2>/dev/null | head -1 | xargs dirname)
+#   if [ -z "$PLUGIN_ROOT" ]; then PLUGIN_ROOT="plugins/iflow"; fi  # Fallback (dev workspace)
+#   for artifact in {artifacts}; do
+#     "$PLUGIN_ROOT/.venv/bin/python" "$PLUGIN_ROOT/hooks/lib/entity_registry/frontmatter_inject.py" \
+#       "$artifact" "feature:{id}-{slug}" 2>/dev/null || true
+#   done
 ```
 
 **Key behaviors:**
-- `2>/dev/null` suppresses stderr to prevent corrupting SKILL.md pseudocode output
+- This is pseudocode that the LLM agent executing `commitAndComplete` interprets and translates to shell commands
+- `2>/dev/null` suppresses stderr to prevent corrupting JSON hook output
 - `|| true` ensures non-zero exit doesn't abort the commit step (fail-open)
 - Iterates over all artifacts being committed (e.g., `spec.md`, `design.md`)
 - Plugin root resolution uses two-location pattern per CLAUDE.md convention
+- `entity_type_id` is derived from `.meta.json` fields already available in the workflow context
 
-### I7: Internal Helper — `_parse_block(text: str) -> tuple[dict | None, int]`
+### I7: Internal Helper — `_parse_block(lines: list[str]) -> dict`
 
 **Contract:**
-- Input: full file content as string
-- Output: tuple of (parsed header dict or None, byte offset of body start)
-- Body start offset: position after the closing `---\n` delimiter
+- Input: list of lines extracted between frontmatter `---` delimiters (excluding the delimiters themselves)
+- Output: dict of key-value pairs (may be empty if no lines match the key-value pattern)
+- Does NOT handle delimiter detection — that is the caller's responsibility (`read_frontmatter` and `write_frontmatter` handle line-by-line I/O and delimiter detection)
 
 **Parsing algorithm:**
-1. If text doesn't start with `---\n` (or `---` at EOF with no more content): return `(None, 0)`
-2. Find next `---\n` after line 1. If not found → malformed, return `(None, 0)`, log warning
-3. Extract lines between delimiters
-4. For each line: `key, sep, value = line.partition(': ')`
+1. Initialize empty dict
+2. For each line: `key, sep, value = line.strip().partition(': ')`
    - If `sep` and `re.fullmatch(r'[a-z_]+', key)`: add `key: value` to dict
    - Else: silently ignore
-5. Return `(header_dict, body_start_offset)`
+3. Return dict
 
 ### I8: Internal Helper — `_serialize_header(header: dict) -> str`
+
+**Encoding note:** All file I/O uses `encoding='utf-8'` per TD-10.
 
 **Contract:**
 - Input: header dict (assumed valid)
