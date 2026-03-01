@@ -38,16 +38,16 @@ graph LR
 - T4: Write considered options section (depends on T3)
 - T5: Write decision outcome section (depends on T4)
 
-### Group 3: Consequences + Appendices A/B (parallel after T5)
+### Group 3: Consequences + Appendices A/B + Field Discovery (parallel after T5)
 - T6: Write consequences section (depends on T5)
 - T7: Write Appendix A — workflow phase definitions (depends on T5)
 - T8: Write Appendix B — kanban column definitions (depends on T5)
+- T13: Discover all .meta.json fields via grep (depends on T6)
 
-### Group 4: Appendices C/D/E + Field Discovery (parallel after T7, T8)
+### Group 4: Appendices C/D/E (parallel after T7, T8)
 - T9: Write Appendix C — event-to-column transition map (depends on T7, T8)
 - T10: Write Appendix D — entity type participation matrix (depends on T7, T8)
 - T11: Write Appendix E — schema DDL (depends on T7, T8)
-- T13: Discover all .meta.json fields via grep (depends on T6)
 
 ### Group 5: Appendices F/G (after dependencies)
 - T12: Write Appendix F — conflict resolution scenarios (depends on T11)
@@ -87,7 +87,7 @@ graph LR
      - `### Appendix E: Schema DDL`
      - `### Appendix F: Conflict Resolution Scenarios`
      - `### Appendix G: Backward Compatibility Map`
-- **Test:** `grep -c "^##" adr-004-status-taxonomy.md` returns at least 7; `grep -c "^###" adr-004-status-taxonomy.md` returns at least 9
+- **Test:** `grep -c "^##" docs/features/004-status-taxonomy-design-and-sch/adr-004-status-taxonomy.md` returns at least 7; `grep -c "^###" docs/features/004-status-taxonomy-design-and-sch/adr-004-status-taxonomy.md` returns at least 9
 - **Done when:** File exists with all section headings listed above present
 
 ---
@@ -97,7 +97,7 @@ graph LR
 - **Why:** Plan Stage 1.2 — AC-1 requires context section
 - **Depends on:** T1
 - **Blocks:** T3
-- **Files:** `adr-004-status-taxonomy.md` (edit)
+- **Files:** `docs/features/004-status-taxonomy-design-and-sch/adr-004-status-taxonomy.md` (edit)
 - **Do:**
   1. Under `## Context and Problem Statement`, write 2-3 paragraphs describing:
      - Current model: single `status` field (planned/active/completed/abandoned) plus `lastCompletedPhase`
@@ -114,7 +114,7 @@ graph LR
 - **Why:** Plan Stage 2.1 — AC-1 requires decision drivers
 - **Depends on:** T2
 - **Blocks:** T4
-- **Files:** `adr-004-status-taxonomy.md` (edit)
+- **Files:** `docs/features/004-status-taxonomy-design-and-sch/adr-004-status-taxonomy.md` (edit)
 - **Do:**
   1. Under `## Decision Drivers`, list at least 4 drivers as bullet points:
      - Spec requires complete enumeration of valid values for both dimensions (AC-2, AC-3)
@@ -123,7 +123,7 @@ graph LR
      - Entity registry constraints: separate table avoids altering existing `entities` table (TD-1)
      - Per-entity-type participation rules needed (AC-5)
   2. Reference source: design.md TD-1 through TD-5
-- **Test:** At least 4 bullet points; each references a spec AC or design TD
+- **Test:** At least 4 bullet points; each contains an AC or TD identifier in parentheses (e.g., `(AC-2)`, `(TD-1)`). Verify: at least 4 parenthetical references in the Decision Drivers section
 - **Done when:** Decision drivers section present with at least 4 drivers
 
 ---
@@ -133,7 +133,7 @@ graph LR
 - **Why:** Plan Stage 2.2 — AC-1 requires considered options with pros/cons
 - **Depends on:** T3
 - **Blocks:** T5
-- **Files:** `adr-004-status-taxonomy.md` (edit)
+- **Files:** `docs/features/004-status-taxonomy-design-and-sch/adr-004-status-taxonomy.md` (edit)
 - **Do:**
   1. Under `## Considered Options`, document three options:
      - **Option 1: Single-dimension (status only)** — extend existing `status` field with more values. Pros: simple. Cons: conflates workflow progress with process state; no independent tracking.
@@ -150,7 +150,7 @@ graph LR
 - **Why:** Plan Stage 2.3 — AC-1 requires decision outcome
 - **Depends on:** T4
 - **Blocks:** T6, T7, T8
-- **Files:** `adr-004-status-taxonomy.md` (edit)
+- **Files:** `docs/features/004-status-taxonomy-design-and-sch/adr-004-status-taxonomy.md` (edit)
 - **Do:**
   1. Under `## Decision Outcome`, state: "Chosen option: Dual-dimension model (Option 2)"
   2. Document the key aspects of the chosen approach:
@@ -170,7 +170,7 @@ graph LR
 - **Why:** Plan Stage 2.4 — AC-1 requires consequences
 - **Depends on:** T5
 - **Blocks:** T13
-- **Files:** `adr-004-status-taxonomy.md` (edit)
+- **Files:** `docs/features/004-status-taxonomy-design-and-sch/adr-004-status-taxonomy.md` (edit)
 - **Do:**
   1. Under `### Positive Consequences`, list at least 3:
      - Clean separation of workflow progress and process state
@@ -192,7 +192,7 @@ graph LR
 - **Why:** Plan Stage 3.1 — AC-2 requires complete enumeration with definitions
 - **Depends on:** T5
 - **Blocks:** T9, T10, T11
-- **Files:** `adr-004-status-taxonomy.md` (edit)
+- **Files:** `docs/features/004-status-taxonomy-design-and-sch/adr-004-status-taxonomy.md` (edit)
 - **Do:**
   1. Under `### Appendix A: Workflow Phase Definitions`, create a table with columns: Phase, Definition
   2. Enumerate exactly 7 phases from design.md Component 3:
@@ -214,7 +214,7 @@ graph LR
 - **Why:** Plan Stage 3.2 — AC-3 requires complete enumeration with definitions and ownership
 - **Depends on:** T5
 - **Blocks:** T9, T10, T11
-- **Files:** `adr-004-status-taxonomy.md` (edit)
+- **Files:** `docs/features/004-status-taxonomy-design-and-sch/adr-004-status-taxonomy.md` (edit)
 - **Do:**
   1. Under `### Appendix B: Kanban Column Definitions`, create a table with columns: Column, Definition, Who Moves Cards Here
   2. Enumerate exactly 8 columns from design.md Component 4:
@@ -237,7 +237,7 @@ graph LR
 - **Why:** Plan Stage 3.3 — AC-4 requires complete event vocabulary mapped to kanban columns
 - **Depends on:** T7, T8
 - **Blocks:** T15
-- **Files:** `adr-004-status-taxonomy.md` (edit)
+- **Files:** `docs/features/004-status-taxonomy-design-and-sch/adr-004-status-taxonomy.md` (edit)
 - **Do:**
   1. Under `### Appendix C: Event-to-Column Transition Map`, create a table with columns: Event, Target kanban_column, Triggered By
   2. Enumerate exactly 10 events from spec AC-4:
@@ -263,7 +263,7 @@ graph LR
 - **Why:** Plan Stage 3.4 — AC-5 requires participation matrix with explicit defaults
 - **Depends on:** T7, T8
 - **Blocks:** T15
-- **Files:** `adr-004-status-taxonomy.md` (edit)
+- **Files:** `docs/features/004-status-taxonomy-design-and-sch/adr-004-status-taxonomy.md` (edit)
 - **Do:**
   1. Under `### Appendix D: Entity Type Participation Matrix`, create a table with columns: Entity Type, Has workflow_phases Row?, workflow_phase Values, kanban_column Values
   2. Enumerate exactly 4 entity types from spec AC-5:
@@ -282,7 +282,7 @@ graph LR
 - **Why:** Plan Stage 3.5 — AC-6 requires complete DDL with columns, constraints, indexes, triggers
 - **Depends on:** T7, T8
 - **Blocks:** T12
-- **Files:** `adr-004-status-taxonomy.md` (edit)
+- **Files:** `docs/features/004-status-taxonomy-design-and-sch/adr-004-status-taxonomy.md` (edit)
 - **Do:**
   1. Under `### Appendix E: Schema DDL`, add a brief intro: "The following DDL defines the `workflow_phases` table as migration version 2 in the entity registry."
   2. Embed the complete DDL from design.md Interface 1 in a SQL code block:
@@ -309,7 +309,7 @@ graph LR
 - **Why:** Plan Stage 3.6 — AC-8 requires 5+ concrete conflict scenarios with resolutions
 - **Depends on:** T11
 - **Blocks:** T15
-- **Files:** `adr-004-status-taxonomy.md` (edit)
+- **Files:** `docs/features/004-status-taxonomy-design-and-sch/adr-004-status-taxonomy.md` (edit)
 - **Do:**
   1. Under `### Appendix F: Conflict Resolution Scenarios`, create a table with columns: #, Scenario, workflow_phase, kanban_column, Valid?, Resolution, Enforcement
   2. Enumerate exactly 6 scenarios from spec AC-8:
@@ -354,8 +354,14 @@ graph LR
      ```
   3. Record the complete field list — this becomes the authoritative input for T14
   4. Note: Project entity fields (e.g., `expected_lifetime`, `milestones`) are in scope for discovery but excluded from the backward compat table per AC-5 (projects don't participate in workflow_phases)
-- **Test:** Field list includes at least: id, slug, status, created, mode, branch, project_id, module, depends_on_features, lastCompletedPhase, phases.*.started, phases.*.completed, backlog_source, brainstorm_source
-- **Done when:** Complete field list extracted from real .meta.json files; ready for T14
+- **Test:** Verify critical fields present in discovery output:
+  ```bash
+  for f in status lastCompletedPhase mode branch project_id backlog_source brainstorm_source; do
+    grep -q "\"$f\":" docs/features/*/.meta.json 2>/dev/null && echo "FOUND: $f" || echo "MISSING: $f"
+  done
+  ```
+  All 7 fields must show FOUND. Total distinct key count should be 15+.
+- **Done when:** Complete field list extracted from real .meta.json files with 15+ distinct keys; ready for T14
 
 ---
 
@@ -364,7 +370,7 @@ graph LR
 - **Why:** Plan Stage 3.7 — AC-7 requires complete disposition of all .meta.json fields
 - **Depends on:** T13
 - **Blocks:** T15
-- **Files:** `adr-004-status-taxonomy.md` (edit)
+- **Files:** `docs/features/004-status-taxonomy-design-and-sch/adr-004-status-taxonomy.md` (edit)
 - **Do:**
   1. Under `### Appendix G: Backward Compatibility Map`, create a table with columns: .meta.json Field, Disposition, Target
   2. Using the field list from T13, enumerate every field with disposition from spec AC-7:
@@ -434,10 +440,10 @@ graph LR
 - **Why:** Plan Stage 4.2 — MADR convention requires explicit status
 - **Depends on:** T15
 - **Blocks:** None
-- **Files:** `adr-004-status-taxonomy.md` (edit)
+- **Files:** `docs/features/004-status-taxonomy-design-and-sch/adr-004-status-taxonomy.md` (edit)
 - **Do:**
   1. Change `## Status` section content from "proposed" to "Accepted"
-  2. Add date: "Date: 2026-03-01"
+  2. Add date using today's actual date in YYYY-MM-DD format (run `date +%Y-%m-%d` to get it)
   3. Add decision summary: "Dual-dimension status model with separate `workflow_phases` table"
 - **Test:** Status section contains "Accepted" and date
 - **Done when:** ADR status set to "Accepted" with date
