@@ -35,6 +35,35 @@ VALID_CREATED_AT = "2026-03-01T12:00:00+00:00"
 
 
 # ---------------------------------------------------------------------------
+# Shared test helpers
+# ---------------------------------------------------------------------------
+
+
+def _write_file(path: str, content: str) -> None:
+    """Helper: write text content to a file with UTF-8 encoding."""
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+def _write_binary(path: str, data: bytes) -> None:
+    """Helper: write binary content to a file."""
+    with open(path, "wb") as f:
+        f.write(data)
+
+
+def _full_header(**overrides) -> dict:
+    """Helper: return a full valid header dict with optional overrides."""
+    header = {
+        "entity_uuid": VALID_UUID,
+        "entity_type_id": VALID_TYPE_ID,
+        "artifact_type": VALID_ARTIFACT_TYPE,
+        "created_at": VALID_CREATED_AT,
+    }
+    header.update(overrides)
+    return header
+
+
+# ---------------------------------------------------------------------------
 # Phase 1: Core Infrastructure
 # ---------------------------------------------------------------------------
 
@@ -326,18 +355,6 @@ class TestBuildHeader:
 # ---------------------------------------------------------------------------
 
 
-def _write_file(path: str, content: str) -> None:
-    """Helper: write text content to a file with UTF-8 encoding."""
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(content)
-
-
-def _write_binary(path: str, data: bytes) -> None:
-    """Helper: write binary content to a file."""
-    with open(path, "wb") as f:
-        f.write(data)
-
-
 class TestReadFrontmatter:
     """Tests for read_frontmatter (Task 3.1.1)."""
 
@@ -459,18 +476,6 @@ class TestReadFrontmatter:
 # ---------------------------------------------------------------------------
 # Phase 4: Write Function
 # ---------------------------------------------------------------------------
-
-
-def _full_header(**overrides) -> dict:
-    """Helper: return a full valid header dict with optional overrides."""
-    header = {
-        "entity_uuid": VALID_UUID,
-        "entity_type_id": VALID_TYPE_ID,
-        "artifact_type": VALID_ARTIFACT_TYPE,
-        "created_at": VALID_CREATED_AT,
-    }
-    header.update(overrides)
-    return header
 
 
 class TestWriteFrontmatter:

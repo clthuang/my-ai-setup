@@ -136,6 +136,10 @@ def main() -> None:
     )
 
     # 4. Instantiate EntityDatabase and look up entity
+    # Note: sys.exit(0) below raises SystemExit, so the finally block at the
+    # end of main() handles db.close() only for the success/error paths that
+    # reach the inner try block. The DB-open failure path exits the process
+    # immediately — no cleanup needed since no connection was established.
     db = None
     try:
         db = EntityDatabase(db_path)

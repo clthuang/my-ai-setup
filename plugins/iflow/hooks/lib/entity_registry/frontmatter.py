@@ -116,7 +116,7 @@ def validate_header(header: dict) -> list[str]:
 
     # 2. UUID format (case-insensitive via re.IGNORECASE)
     if "entity_uuid" in header:
-        if not _UUID_V4_RE.match(header["entity_uuid"]):
+        if not _UUID_V4_RE.fullmatch(header["entity_uuid"]):
             errors.append(
                 f"Invalid entity_uuid format: {header['entity_uuid']!r}"
             )
