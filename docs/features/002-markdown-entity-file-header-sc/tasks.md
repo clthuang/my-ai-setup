@@ -262,7 +262,7 @@
 - [ ] Call `write_frontmatter()` — catch `ValueError` (UUID mismatch) exit 1, `OSError` exit 0
 - [ ] Add `if __name__ == "__main__":` guard
 
-**Done when:** Run: `plugins/iflow/.venv/bin/python plugins/iflow/hooks/lib/entity_registry/frontmatter_inject.py` — exits code 1 with usage to stderr. Run: `ENTITY_DB_PATH=/tmp/nonexistent.db plugins/iflow/.venv/bin/python plugins/iflow/hooks/lib/entity_registry/frontmatter_inject.py /tmp/spec.md feature:001-test` — exits code 0 with WARNING to stderr. Full AC verification deferred to Phase 7.
+**Done when:** Run: `PYTHONPATH=plugins/iflow/hooks/lib plugins/iflow/.venv/bin/python plugins/iflow/hooks/lib/entity_registry/frontmatter_inject.py` — exits code 1 with usage to stderr. Run: `ENTITY_DB_PATH=/tmp/nonexistent.db PYTHONPATH=plugins/iflow/hooks/lib plugins/iflow/.venv/bin/python plugins/iflow/hooks/lib/entity_registry/frontmatter_inject.py /tmp/spec.md feature:001-test` — exits code 0 with WARNING to stderr. Full AC verification deferred to Phase 7.
 
 ---
 
