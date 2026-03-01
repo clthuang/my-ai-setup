@@ -239,6 +239,8 @@ Create CLI script with:
 
 ### Step 5.3: Main function
 
+**API pre-verification (before writing code):** Read `database.py` — specifically the `get_entity()` method and `_resolve_identifier()` helper. Confirm that `get_entity()` accepts a `type_id` string (e.g., `feature:002-slug`), not only a UUID. The `_resolve_identifier()` method handles both UUID and type_id lookup, and `get_entity()` delegates to it. If this assumption is incorrect (i.e., `get_entity()` only accepts UUID), the CLI must call `_resolve_identifier()` directly or use a different query path — document the finding and adjust step 5 below accordingly.
+
 **Implement** per I5:
 1. Parse `sys.argv` — expect `len(sys.argv) == 3` (script name + artifact_path + feature_type_id). If wrong count, print usage to stderr and exit 1.
 2. Derive `artifact_type` from basename via `ARTIFACT_BASENAME_MAP` — skip if not found
