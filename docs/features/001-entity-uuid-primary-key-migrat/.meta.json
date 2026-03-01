@@ -9,8 +9,15 @@
   "module": "Entity Identity",
   "brainstorm_source": "docs/brainstorms/20260301-144141-iflow-arch-evolution.prd.md",
   "depends_on_features": [],
-  "lastCompletedPhase": "design",
+  "lastCompletedPhase": "create-plan",
   "phases": {
+    "create-plan": {
+      "started": "2026-03-02T05:15:00+08:00",
+      "completed": "2026-03-02T06:15:00+08:00",
+      "reviewerNotes": [
+        "Plan-reviewer cap reached (5/5). 3 blockers unresolved: (1) Phase 1.4 outer _migrate() 'no-op' characterization misleading — actual DML, (2) Phase 2.2 commit ordering describes intended flow as existing flow, (3) Phase 1.1 test_migration_fresh_db asserts triggers/indexes not yet implemented in 1.1. 8 warnings: update_entity WHERE clause, uuid5 vs uuid4 in test helpers, CTE direction, backfill test audit, async handler testing deps, test count baseline, transaction boundary docs, _export_tree parameter semantics."
+      ]
+    },
     "specify": {
       "started": "2026-03-01T21:45:00+08:00",
       "completed": "2026-03-02T01:30:00+08:00"
