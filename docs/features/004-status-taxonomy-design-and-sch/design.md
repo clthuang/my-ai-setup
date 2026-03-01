@@ -128,9 +128,9 @@ Errors: sqlite3.OperationalError if table already exists (mitigated by IF NOT EX
 **DDL content:**
 ```sql
 CREATE TABLE IF NOT EXISTS workflow_phases (
-    -- FK uses implicit ON DELETE RESTRICT (SQLite default). Deleting an entity
-    -- while its workflow_phases row exists will fail, which is the desired behavior —
-    -- workflow state should be explicitly cleaned up before entity deletion.
+    -- FK uses implicit ON DELETE NO ACTION (SQLite default). Deleting an entity
+    -- while its workflow_phases row exists will fail at statement end, which is
+    -- the desired behavior — workflow state must be cleaned up before entity deletion.
     type_id                    TEXT PRIMARY KEY REFERENCES entities(type_id),
     workflow_phase             TEXT CHECK(workflow_phase IN (
                                    'brainstorm','specify','design',
