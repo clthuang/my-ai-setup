@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 
 import pytest
 
@@ -15,6 +16,15 @@ from entity_registry.server_helpers import (
     render_tree,
     resolve_output_path,
 )
+
+
+ENTITY_UUIDS = {
+    "project:P001": "550e8400-e29b-41d4-a716-446655440001",
+    "feature:001-slug": "550e8400-e29b-41d4-a716-446655440002",
+    "feature:002-slug": "550e8400-e29b-41d4-a716-446655440003",
+    "brainstorm:20260101-test": "550e8400-e29b-41d4-a716-446655440004",
+    "backlog:00001": "550e8400-e29b-41d4-a716-446655440005",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +56,7 @@ def _make_entity(
     metadata: str | None = None,
 ) -> dict:
     """Helper to create an entity dict matching the database row shape."""
-    return {
+    entity = {
         "type_id": type_id,
         "name": name,
         "entity_type": entity_type,
@@ -55,6 +65,27 @@ def _make_entity(
         "created_at": created_at,
         "metadata": metadata,
     }
+    entity["uuid"] = ENTITY_UUIDS.get(type_id, str(uuid.uuid4()))
+    entity["parent_uuid"] = (
+        ENTITY_UUIDS.get(parent_type_id)
+        if parent_type_id else None
+    )
+    return entity
+
+
+def _link_parent_uuids(entities: list[dict]) -> list[dict]:
+    """Fix up parent_uuid fields so children reference their parent's uuid.
+
+    _make_entity uses ENTITY_UUIDS for parent_uuid lookup, which only covers
+    a few well-known type_ids.  This helper resolves parent_uuid from the
+    actual uuid assigned to each entity in the list (parent-first order).
+    """
+    tid_to_uuid = {e["type_id"]: e["uuid"] for e in entities}
+    for e in entities:
+        ptid = e.get("parent_type_id")
+        if ptid and ptid in tid_to_uuid:
+            e["parent_uuid"] = tid_to_uuid[ptid]
+    return entities
 
 
 class TestRenderTree:
@@ -63,7 +94,7 @@ class TestRenderTree:
         entities = [
             _make_entity("project:alpha", "Alpha", "project"),
         ]
-        result = render_tree(entities, "project:alpha")
+        result = render_tree(entities, entities[0]["uuid"])
         assert result == 'project:alpha \u2014 "Alpha" (2026-02-27)'
 
     def test_single_node_with_status(self):
@@ -71,12 +102,12 @@ class TestRenderTree:
         entities = [
             _make_entity("project:alpha", "Alpha", "project", status="active"),
         ]
-        result = render_tree(entities, "project:alpha")
+        result = render_tree(entities, entities[0]["uuid"])
         assert result == 'project:alpha \u2014 "Alpha" (active, 2026-02-27)'
 
     def test_linear_chain_three_deep(self):
         """A 3-node linear chain renders with proper indentation."""
-        entities = [
+        entities = _link_parent_uuids([
             _make_entity(
                 "backlog:00019", "Item", "backlog",
                 status="promoted",
@@ -90,8 +121,8 @@ class TestRenderTree:
                 status="active",
                 parent_type_id="brainstorm:20260227-lineage",
             ),
-        ]
-        result = render_tree(entities, "backlog:00019")
+        ])
+        result = render_tree(entities, entities[0]["uuid"])
         expected = (
             'backlog:00019 \u2014 "Item" (promoted, 2026-02-27)\n'
             '  \u2514\u2500 brainstorm:20260227-lineage \u2014 "Entity Lineage" (2026-02-27)\n'
@@ -101,7 +132,7 @@ class TestRenderTree:
 
     def test_branching_tree_two_children(self):
         """Two children: first uses box tee, second uses corner."""
-        entities = [
+        entities = _link_parent_uuids([
             _make_entity("project:root", "Root", "project", status="active"),
             _make_entity(
                 "feature:a", "Alpha", "feature",
@@ -112,8 +143,8 @@ class TestRenderTree:
                 status="done",
                 parent_type_id="project:root",
             ),
-        ]
-        result = render_tree(entities, "project:root")
+        ])
+        result = render_tree(entities, entities[0]["uuid"])
         expected = (
             'project:root \u2014 "Root" (active, 2026-02-27)\n'
             '  \u251c\u2500 feature:a \u2014 "Alpha" (2026-02-27)\n'
@@ -123,7 +154,7 @@ class TestRenderTree:
 
     def test_branching_tree_with_nested_children(self):
         """A root with two children, first child has a grandchild."""
-        entities = [
+        entities = _link_parent_uuids([
             _make_entity("project:root", "Root", "project"),
             _make_entity(
                 "feature:a", "Alpha", "feature",
@@ -137,8 +168,8 @@ class TestRenderTree:
                 "feature:b", "Beta", "feature",
                 parent_type_id="project:root",
             ),
-        ]
-        result = render_tree(entities, "project:root")
+        ])
+        result = render_tree(entities, entities[0]["uuid"])
         lines = result.split("\n")
         assert len(lines) == 4
         # Root line
@@ -157,11 +188,11 @@ class TestRenderTree:
         assert result == ""
 
     def test_root_not_found_returns_empty_string(self):
-        """If root_type_id is not in the entities list, return empty."""
+        """If root_id UUID is not in the entities list, return empty."""
         entities = [
             _make_entity("feature:a", "Alpha", "feature"),
         ]
-        result = render_tree(entities, "project:missing")
+        result = render_tree(entities, "not-a-real-uuid")
         assert result == ""
 
 
@@ -415,6 +446,40 @@ class TestProcessGetLineage:
         assert "feature:a" in result
         assert "feature:b" in result
 
+    def test_process_get_lineage_passes_uuid(self):
+        """_process_get_lineage passes UUID (not type_id) to render_tree."""
+        import re
+        from unittest.mock import patch
+
+        from entity_registry.server_helpers import render_tree
+
+        db = EntityDatabase(":memory:")
+        try:
+            db.register_entity("project", "root", "Root Project", status="active")
+            db.register_entity(
+                "feature", "mid", "Mid Feature",
+                parent_type_id="project:root",
+            )
+            db.register_entity(
+                "feature", "leaf", "Leaf Feature",
+                status="done",
+                parent_type_id="feature:mid",
+            )
+
+            _UUID_V4_RE = re.compile(
+                r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+            )
+
+            with patch('entity_registry.server_helpers.render_tree', wraps=render_tree) as mock_rt:
+                _process_get_lineage(db, "feature:leaf", "up", 10)
+                # render_tree(entities, root_id, max_depth) -- root_id is args[1]
+                root_arg = mock_rt.call_args.args[1]
+                assert _UUID_V4_RE.match(root_arg), (
+                    f"Expected UUID, got: {root_arg}"
+                )
+        finally:
+            db.close()
+
 
 # ---------------------------------------------------------------------------
 # Task 4.2: _process_export_lineage_markdown tests
@@ -500,8 +565,9 @@ class TestRenderTreeDeepNesting:
                     ),
                 )
             )
+        _link_parent_uuids(entities)
         # When rendering the tree
-        result = render_tree(entities, "project:root")
+        result = render_tree(entities, entities[0]["uuid"])
         # Then all 6 levels appear in output
         assert "project:root" in result
         for i in range(1, 6):
@@ -737,7 +803,7 @@ class TestFormatEntityLabelDependsOn:
     def test_depends_on_in_tree_output(self):
         """AC-5 end-to-end: depends_on annotations appear in render_tree output."""
         import json
-        entities = [
+        entities = _link_parent_uuids([
             _make_entity("project:P001", "Project Name", "project", status="active"),
             _make_entity(
                 "feature:030-auth-module", "Auth Module", "feature",
@@ -758,8 +824,8 @@ class TestFormatEntityLabelDependsOn:
                     "depends_on_features": ["030-auth-module", "031-api-gateway"],
                 }),
             ),
-        ]
-        result = render_tree(entities, "project:P001")
+        ])
+        result = render_tree(entities, entities[0]["uuid"])
         assert "[depends on: feature:030-auth-module]" in result
         assert "[depends on: feature:030-auth-module, feature:031-api-gateway]" in result
         # The entity without dependencies should NOT have annotation
