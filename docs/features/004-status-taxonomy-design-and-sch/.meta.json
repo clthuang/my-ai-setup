@@ -1,14 +1,15 @@
 {
   "id": "004",
   "slug": "status-taxonomy-design-and-sch",
-  "status": "active",
+  "status": "completed",
   "created": "2026-03-01T16:27:59+08:00",
+  "completed": "2026-03-01T18:39:30+08:00",
   "mode": "standard",
   "branch": "feature/004-status-taxonomy-design-and-sch",
   "project_id": "P001",
   "module": "Status Taxonomy",
   "depends_on_features": [],
-  "lastCompletedPhase": "implement",
+  "lastCompletedPhase": "finish",
   "phases": {
     "specify": {
       "started": "2026-03-01T16:50:00+08:00",
@@ -42,7 +43,9 @@
       "approved": true
     },
     "finish": {
-      "started": "2026-03-01T21:25:00+08:00"
+      "started": "2026-03-01T21:25:00+08:00",
+      "status": "completed",
+      "completed": "2026-03-01T18:39:30+08:00"
     }
   }
 }
