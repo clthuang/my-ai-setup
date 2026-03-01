@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.5.0] - 2026-03-02
+
+### Changed
+- Entity registry database migrated from text-based `type_id` primary key to UUID v4, with dual-identity resolution (UUID and type_id) across all CRUD operations
+- Entity server MCP handlers return both UUID and type_id in response messages for dual-identity compatibility
+
 ## [4.4.2] - 2026-03-01
 
 ### Added

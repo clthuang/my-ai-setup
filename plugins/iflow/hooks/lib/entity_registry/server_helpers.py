@@ -18,10 +18,11 @@ def render_tree(
     Parameters
     ----------
     entities:
-        Flat list of entity dicts. Each must have keys: type_id, name,
-        entity_type, status, parent_type_id, created_at.
+        Flat list of entity dicts. Each must have keys: uuid, type_id, name,
+        entity_type, status, parent_uuid, created_at.
     root_type_id:
-        The type_id of the root node for this tree.
+        The UUID of the root node for this tree. Parameter name retained
+        for API compatibility per spec R33, despite now accepting UUID values.
     max_depth:
         Maximum tree depth to render (default 50).
 
@@ -34,16 +35,20 @@ def render_tree(
     if not entities:
         return ""
 
-    # Build lookup and children map
+    # Build lookup map keyed by UUID (first pass)
     by_id: dict[str, dict] = {}
-    children: dict[str, list[str]] = defaultdict(list)
-
     for entity in entities:
-        tid = entity["type_id"]
-        by_id[tid] = entity
-        parent = entity.get("parent_type_id")
+        uid = entity["uuid"]
+        by_id[uid] = entity
+
+    # Build children map from parent_uuid (second pass — all entities
+    # already in by_id, so ordering within the flat list doesn't matter)
+    children: dict[str, list[str]] = defaultdict(list)
+    for entity in entities:
+        uid = entity["uuid"]
+        parent = entity.get("parent_uuid")
         if parent is not None and parent in by_id:
-            children[parent].append(tid)
+            children[parent].append(uid)
 
     if root_type_id not in by_id:
         return ""
@@ -87,7 +92,7 @@ def _format_entity_label(entity: dict) -> str:
 def _render_node(
     by_id: dict[str, dict],
     children: dict[str, list[str]],
-    type_id: str,
+    node_id: str,
     prefix: str,
     is_last: bool,
     is_root: bool,
@@ -105,7 +110,7 @@ def _render_node(
         Maximum depth to render. When exceeded, a truncation indicator
         is appended instead of recursing further.
     """
-    entity = by_id[type_id]
+    entity = by_id[node_id]
     label = _format_entity_label(entity)
 
     if is_root:
@@ -118,7 +123,7 @@ def _render_node(
         # whether this node was last among its siblings.
         child_prefix = prefix + ("   " if is_last else "\u2502  ")
 
-    kids = children.get(type_id, [])
+    kids = children.get(node_id, [])
     if kids and depth >= max_depth:
         lines.append(f"{child_prefix}\u2514\u2500 ... (depth limit reached)")
         return
@@ -224,7 +229,7 @@ def _process_register_entity(
         Never raises exceptions.
     """
     try:
-        type_id = db.register_entity(
+        entity_uuid = db.register_entity(
             entity_type=entity_type,
             entity_id=entity_id,
             name=name,
@@ -233,7 +238,8 @@ def _process_register_entity(
             parent_type_id=parent_type_id,
             metadata=metadata,
         )
-        return f"Registered entity: {type_id}"
+        type_id = f"{entity_type}:{entity_id}"
+        return f"Registered entity: {entity_uuid} ({type_id})"
     except Exception as exc:
         return f"Error registering entity: {exc}"
 
@@ -316,7 +322,7 @@ def _process_get_lineage(
         # Determine the root of the rendered tree.
         # For "up" direction, lineage is root-first, so root is first element.
         # For "down" direction, the starting entity is the root.
-        root_type_id = entities[0]["type_id"]
+        root_type_id = entities[0]["uuid"]
 
         return render_tree(entities, root_type_id)
     except Exception as exc:

@@ -13,6 +13,7 @@ Claude Code plugin providing a structured feature development workflow—skills,
 - **Retro before cleanup** - Retrospective runs BEFORE branch deletion so context is still available.
 - **Plugin portability** - Never use hardcoded `plugins/iflow/` paths in agent, skill, or command files. Use two-location Glob: primary `~/.claude/plugins/cache/*/iflow*/*/...`, fallback `plugins/*/...` (dev workspace). Mark fallback lines with "Fallback" or "dev workspace" so `validate.sh` can distinguish them from violations.
 - **Project-aware design** - iflow is used across multiple projects. Paths resolution, configs, and state must be relative to the current project context — never assume a specific project root. The only global feature is the knowledge bank DB (`~/.claude/iflow/memory/`), which accumulates learnings across all projects.
+- **Use uv for Python dependencies** - `uv add` for package management, never `pip install` directly. Run tests with the correct venv: `plugins/iflow/.venv/bin/python -m pytest`.
 
 ## Working Standards
 
@@ -33,7 +34,9 @@ Claude Code plugin providing a structured feature development workflow—skills,
 **Agents with Write/Edit access should use judgment.** Avoid modifying:
 - `.git/`, `node_modules/`, `.env*`, `*.key`, `*.pem`, lockfiles
 
-Use `agent_sandbox/` for temporary files, experiments, and debugging.
+**Agent Generated Content**
+- Use `agent_sandbox/` for temporary files, experiments, debugging scripts.
+- Put all agent generated non-workflow related content in `agent_sandbox/[YYYY-MM-DD]/[Meaningful Directory Name]/`
 
 ## User Input Standards
 
@@ -72,7 +75,7 @@ plugins/iflow/.venv/bin/python -m pytest plugins/iflow/mcp/test_memory_server.py
 # Run MCP bootstrap wrapper tests
 bash plugins/iflow/mcp/test_run_memory_server.sh
 
-# Run entity registry tests (database, backfill, server helpers — 184 tests)
+# Run entity registry tests (database, backfill, server helpers — 253 tests)
 plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/ -v
 
 # Run entity server bootstrap wrapper tests
