@@ -78,10 +78,10 @@ Tables and enumerations that depend on core content being in place.
 3. **Appendix C: Event-to-column transition map** — Map workflow events to kanban columns
    - **Why this item:** AC-4 requires complete event vocabulary mapped to kanban columns
    - **Why this order:** Depends on both phase (Appendix A) and column (Appendix B) definitions being finalized
-   - **Deliverable:** Table of 10 events (phase_start, reviewer_dispatch, human_input_requested, phase_complete, phase_blocked, phase_unblocked, feature_cancelled, feature_completed, documentation_started, manual_override) with target kanban_column and trigger description
+   - **Deliverable:** Table of 10 events (phase_start, reviewer_dispatch, human_input_requested, phase_complete, phase_blocked, phase_unblocked, feature_cancelled, feature_completed, documentation_started, manual_override) with target kanban_column and trigger description. Include a clarifying note: backward transitions (which populate `backward_transition_reason`) are triggered by the state engine (feature 008) and are not distinct kanban-column-changing events — the kanban column change follows the target phase's normal mapping.
    - **Complexity:** Medium — must ensure event-column mappings are consistent with phase definitions and column ownership
    - **Files:** `adr-004-status-taxonomy.md` (edit)
-   - **Verification:** Exactly 10 events listed; each target column exists in Appendix B; phase_complete auto-start semantics documented
+   - **Verification:** Exactly 10 events listed; each target column exists in Appendix B; phase_complete auto-start semantics documented; backward transition gap explained
 
 4. **Appendix D: Entity type participation matrix** — Document per-entity-type rules
    - **Why this item:** AC-5 requires participation matrix with explicit defaults
@@ -101,7 +101,7 @@ Tables and enumerations that depend on core content being in place.
 
 6. **Appendix F: Conflict resolution scenarios** — Document edge cases
    - **Why this item:** AC-8 requires 5+ concrete conflict scenarios with resolutions
-   - **Why this order:** Depends on phase definitions, column definitions, and DDL (for enforcement layer references)
+   - **Why this order:** Depends on phase definitions, column definitions, and DDL (Stage 3.5) for enforcement layer references
    - **Deliverable:** 6 scenarios from AC-8 with workflow_phase, kanban_column, validity, resolution, and enforcement layer
    - **Complexity:** Medium — must correctly reference enforcement layers and cross-reference scenario #3 with #6
    - **Files:** `adr-004-status-taxonomy.md` (edit)
@@ -110,10 +110,11 @@ Tables and enumerations that depend on core content being in place.
 7. **Appendix G: Backward compatibility map** — Document field dispositions
    - **Why this item:** AC-7 requires complete disposition of all .meta.json fields
    - **Why this order:** Depends on all appendices above (references phases, columns, DDL)
-   - **Deliverable:** Complete table of 25+ .meta.json fields with disposition (stays, maps, deferred) and target; status→kanban_column conversion table
+   - **Pre-step: Field discovery** — Before writing, grep all `.meta.json` files in `docs/features/` and `docs/projects/` to enumerate every distinct key path. Use this as the authoritative field list rather than relying on memory or spec alone. Spec was caught twice for missing fields during spec review.
+   - **Deliverable:** Complete table of all .meta.json fields with disposition (stays, maps, deferred) and target; status→kanban_column conversion table. **Scope note:** This table covers feature and brainstorm entity .meta.json fields. Project entity fields (e.g., `expected_lifetime`, `milestones` sub-fields) are excluded because projects do not participate in workflow_phases (AC-5) — include a note clarifying this scope boundary.
    - **Complexity:** Medium — must account for all fields without omissions (learned pattern from spec review)
    - **Files:** `adr-004-status-taxonomy.md` (edit)
-   - **Verification:** 25+ fields listed; every field has explicit disposition; status mapping table present with 4 rows
+   - **Verification:** Field count matches grep discovery output; every field has explicit disposition; status mapping table present with 4 rows; project field scope exclusion noted
 
 ### Stage 4: Finalization
 Final review and consistency checks.
@@ -122,9 +123,10 @@ Final review and consistency checks.
    - **Why this item:** Multiple appendices reference each other (event map references columns, conflict scenarios reference phases)
    - **Why this order:** Depends on all appendices being complete
    - **Deliverable:** Verified consistency: all event targets exist in column enum, all conflict scenario values exist in phase/column enums, DDL CHECK values match enumerations
+   - **Mechanical verification:** Extract CHECK constraint values from DDL section, extract enumeration values from Appendix A/B tables, and diff them to confirm exact match. Extract event target columns from Appendix C and verify each exists in Appendix B.
    - **Complexity:** Simple
    - **Files:** `adr-004-status-taxonomy.md` (edit — corrections only if needed)
-   - **Verification:** No orphan references; CHECK constraint values match enumeration tables
+   - **Verification:** No orphan references; CHECK constraint values match enumeration tables; grep/diff confirms mechanical match
 
 2. **ADR status and metadata** — Set ADR status to "accepted"
    - **Why this item:** MADR convention requires explicit status field
@@ -146,8 +148,7 @@ Stage 1.1 (scaffold) ──→ Stage 1.2 (context)
               Stage 3.1 (phases) ──┐
               Stage 3.2 (columns) ─┤──→ Stage 3.3 (event map)
                                    ├──→ Stage 3.4 (entity matrix)
-                                   ├──→ Stage 3.5 (DDL)
-                                   ├──→ Stage 3.6 (conflicts)
+                                   ├──→ Stage 3.5 (DDL) ──→ Stage 3.6 (conflicts)
                                    └──→ Stage 3.7 (backward compat)
                                               ↓
                                    Stage 4.1 (consistency check) ──→ Stage 4.2 (status)
