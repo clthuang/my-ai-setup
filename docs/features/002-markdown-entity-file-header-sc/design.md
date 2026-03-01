@@ -141,6 +141,11 @@ Spec R8 locks Python stdlib `logging` module with logger name `entity_registry.f
 
 **Dependencies:** `frontmatter.py` (sibling module), `entity_registry.database.EntityDatabase`.
 
+**Constants (owned by this module, not by frontmatter.py):**
+
+- `ARTIFACT_BASENAME_MAP` — maps basename to artifact_type (TD-6): `{"spec.md": "spec", "design.md": "design", ...}`
+- `ARTIFACT_PHASE_MAP` — maps artifact_type to workflow phase (I5 step 7): `{"spec": "specify", "design": "design", ...}`
+
 **Error handling:** All exceptions caught at top level — log warning to stderr, exit 0 (fail-open per R12). Only exception: UUID mismatch from `write_frontmatter` causes exit 1 (workflow fail-open behavior still applies because the SKILL.md checks for non-zero exit).
 
 ### C3: test_frontmatter.py — Test Suite
@@ -149,7 +154,7 @@ Spec R8 locks Python stdlib `logging` module with logger name `entity_registry.f
 
 **Test organization:** Class-based grouping matching codebase convention:
 - `TestReadFrontmatter` — AC-2, AC-3, AC-4, edge cases
-- `TestWriteFrontmatter` — AC-1, AC-8, AC-9, AC-15, AC-16, AC-17, AC-18
+- `TestWriteFrontmatter` — AC-1, AC-8, AC-9, AC-15, AC-16, AC-17, AC-18, plus TD-9 (`created_at` preserved from existing header when new headers dict contains a different `created_at` — no AC number assigned but critical for merge correctness)
 - `TestBuildHeader` — AC-10, AC-11
 - `TestValidateHeader` — AC-5, AC-6, AC-7
 - `TestRoundTrip` — AC-14
@@ -260,6 +265,8 @@ This ensures R9 merge behavior, R6 immutability enforcement, and R11 validation 
 **Risk:** The CLI script relies on `EntityDatabase._resolve_identifier` (a private method) via `get_entity(type_id)` to look up entities by type_id. The spec phase-reviewer flagged this (phaseReview concern 1).
 
 **Mitigation:** The CLI does NOT call `_resolve_identifier` directly. It calls `get_entity(type_id)` which is a public method that internally uses `_resolve_identifier`. This is the intended public API surface. No fragile coupling.
+
+**Verification note:** Implementer must confirm `get_entity(type_id)` accepts a non-UUID string and internally delegates to `_resolve_identifier`. If the method signature only accepts UUID, the CLI will need to call `_resolve_identifier` directly or a thin wrapper will be needed.
 
 ### Risk 2: SKILL.md Integration Ambiguity
 
