@@ -82,7 +82,7 @@ iflow currently uses a single `status` field on features (`planned`, `active`, `
 | phase_start | wip | Agent begins phase execution |
 | reviewer_dispatch | agent_review | Agent spawns reviewer subagent |
 | human_input_requested | human_review | AskUserQuestion invoked |
-| phase_complete | wip (next phase auto-starts) or remains | Phase marked completed |
+| phase_complete | wip (if next phase auto-starts) | Phase marked completed; if no subsequent phase auto-starts (awaiting human decision), kanban_column remains unchanged until next event |
 | phase_blocked | blocked | Prerequisite missing or error |
 | phase_unblocked | wip | Blocker resolved |
 | feature_cancelled | completed | Feature abandoned |
@@ -102,6 +102,7 @@ iflow currently uses a single `status` field on features (`planned`, `active`, `
 
 - Non-participating types (project) have no row in `workflow_phases`
 - Brainstorm and backlog entities have constrained kanban columns (only early-stage columns)
+- Per-entity-type kanban column restrictions are enforced by the state engine (feature 008) at the application level, NOT by DDL constraints — SQLite CHECK constraints cannot reference other tables to determine entity_type
 
 ### AC-6: Schema DDL
 - Given the `workflow_phases` table DDL
@@ -121,6 +122,7 @@ iflow currently uses a single `status` field on features (`planned`, `active`, `
 - Indexes: `idx_wp_kanban_column` on `kanban_column`, `idx_wp_workflow_phase` on `workflow_phase`
 - Note: Per-phase timestamps (started, completed, iterations, reviewerNotes, skippedPhases) are NOT in this table — they are deferred to the transition log in feature 008 (Decision D-2)
 - The FK references `entities(type_id)` per current schema v1. If feature 001 (UUID migration) changes the PK before this DDL is executed, the FK column and type must be updated accordingly. This ADR records the design intent; the implementing feature (005) will use the PK that exists at implementation time
+- `updated_at` uses UTC in ISO-8601 format (e.g., `2026-03-01T12:00:00Z`) — avoids mixed-timezone inconsistency from .meta.json
 
 ### AC-7: Backward Compatibility Mapping — Complete Field Disposition
 
@@ -142,7 +144,13 @@ iflow currently uses a single `status` field on features (`planned`, `active`, `
 | `phases.{name}.completed` | Deferred to feature 008 | Per-phase timestamps in transition log |
 | `phases.{name}.iterations` | Deferred to feature 008 | Per-phase iteration count in transition log |
 | `phases.{name}.reviewerNotes` | Deferred to feature 008 | Reviewer notes in transition log |
+| `phases.{name}.taskReview.*` | Deferred to feature 008 | Task review sub-object (iterations, approved, concerns) in transition log |
+| `phases.{name}.chainReview.*` | Deferred to feature 008 | Chain review sub-object (iterations, approved, concerns) in transition log |
+| `phases.{name}.reviewIterations` | Deferred to feature 008 | Per-phase review iteration count in transition log |
+| `phases.{name}.approved` | Deferred to feature 008 | Per-phase approval status in transition log |
+| `phases.{name}.status` | Deferred to feature 008 | Phase-level status (e.g., finish phase) in transition log |
 | `phases.design.stages.*` | Deferred to feature 008 | Design-specific sub-structure in transition log |
+| `backlog_source` | Stays in .meta.json | Not migrated — provenance metadata linking feature to backlog item |
 | `brainstorm_source` | Stays in .meta.json | Not workflow state — provenance metadata |
 | `lastCompletedMilestone` | Stays in .meta.json | Project-level, not feature workflow |
 | `milestones` | Stays in .meta.json | Project-level, not feature workflow |
@@ -155,7 +163,7 @@ iflow currently uses a single `status` field on features (`planned`, `active`, `
 | planned | backlog | Not yet started = backlog |
 | active | wip | Active work (actual kanban column refined by workflow events) |
 | completed | completed | Terminal state |
-| abandoned | completed | Terminal state (distinguished by workflow_phase context) |
+| abandoned | completed | Terminal state — inferred as abandoned when kanban_column=`completed` AND workflow_phase != `finish` (see AC-8 scenario #6) |
 
 Note: `active` → `wip` is the initial mapping. Once the state engine is running, the kanban column for active features is dynamically updated by workflow events (reviewer dispatch → `agent_review`, AskUserQuestion → `human_review`, etc.).
 
@@ -163,13 +171,16 @@ Note: `active` → `wip` is the initial mapping. Once the state engine is runnin
 
 The ADR must address these conflict scenarios:
 
-| # | Scenario | workflow_phase | kanban_column | Valid? | Resolution |
-|---|----------|---------------|---------------|--------|------------|
-| 1 | Active work demoted to backlog | design | backlog | Valid | Human override — feature deprioritised mid-work |
-| 2 | Working on nothing | NULL | wip | Invalid | Constraint: if kanban_column is wip/agent_review/human_review, workflow_phase must not be NULL for feature entities |
-| 3 | Premature completion | implement | completed | Invalid | Constraint: kanban_column=completed requires workflow_phase=finish OR feature is abandoned |
-| 4 | Orphaned row — both NULL | NULL | (missing) | Invalid | kanban_column has NOT NULL + DEFAULT 'backlog', so this cannot occur |
-| 5 | Agent review without reviewer | design | agent_review | Valid | Transitional — the column is set before reviewer dispatch as a signal |
+| # | Scenario | workflow_phase | kanban_column | Valid? | Resolution | Enforcement |
+|---|----------|---------------|---------------|--------|------------|-------------|
+| 1 | Active work demoted to backlog | design | backlog | Valid | Human override — feature deprioritised mid-work | N/A (valid state) |
+| 2 | Working on nothing | NULL | wip | Invalid | Constraint: if kanban_column is wip/agent_review/human_review, workflow_phase must not be NULL for feature entities | Application-level (feature 008 state engine) — requires entity_type lookup |
+| 3 | Premature completion | implement | completed | Invalid | Constraint: kanban_column=completed requires workflow_phase=finish OR feature_cancelled event was triggered | Application-level (feature 008 state engine) — requires event context |
+| 4 | Orphaned row — both NULL | NULL | (missing) | Invalid | kanban_column has NOT NULL + DEFAULT 'backlog', so this cannot occur | DDL-level (NOT NULL + DEFAULT constraint) |
+| 5 | Agent review without reviewer | design | agent_review | Valid | Transitional — the column is set before reviewer dispatch as a signal | N/A (valid state) |
+| 6 | Distinguishing abandoned from completed | implement | completed | Valid | Abandoned inference rule: kanban_column=`completed` AND workflow_phase != `finish` means the feature was cancelled/abandoned rather than completed normally. The `feature_cancelled` event triggers this state. | Application-level (feature 008 state engine reads workflow_phase to determine disposition) |
+
+Note: Scenarios #2, #3, and #6 require application-level enforcement because SQLite CHECK constraints cannot reference other tables (for entity_type) or event context. The state engine (feature 008) validates these rules during transitions.
 
 ## Feasibility Assessment
 
@@ -193,6 +204,7 @@ The ADR must address these conflict scenarios:
 
 - None (this is a foundational feature with no prerequisites)
 - Note: Features 005, 006, 008, and 019 depend ON this feature's output
+- Feature 008 (WorkflowStateEngine) is the enforcement mechanism for: (a) per-entity-type kanban column restrictions (AC-5), (b) conflict resolution scenarios #2, #3, and #6 (AC-8), (c) all deferred phase history fields from AC-7. If feature 008 scope changes, these rules require re-evaluation.
 
 ## Open Questions
 
