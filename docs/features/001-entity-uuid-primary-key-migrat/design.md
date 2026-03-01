@@ -138,7 +138,7 @@ Layer 4: MCP Server (entity_server.py)
 
 - `render_tree()`: Key `by_id` on `uuid`, build `children` from `parent_uuid`, `root_type_id` parameter now receives UUID. Display labels unchanged (still use type_id via `_format_entity_label`). Note: `_render_node`'s internal `type_id` parameter is semantically overloaded — it carries UUID values post-migration despite the parameter name (per R33 naming retention). All internal dict lookups (`by_id[type_id]`, `children.get(type_id)`) operate on UUID keys. `_format_entity_label` receives the full entity dict and correctly accesses `entity["type_id"]` for display, so output is unaffected.
 - `_process_register_entity()`: Capture UUID return, construct `type_id` from input params (`f"{entity_type}:{entity_id}"`), format message as `"Registered entity: {uuid} ({type_id})"`. No extra DB call needed.
-- `_process_get_lineage()`: Pass `entities[0]["uuid"]` as root identifier to `render_tree()`.
+- `_process_get_lineage()`: Pass `entities[0]["uuid"]` as root identifier to `render_tree()`. The 'Entity not found' error message (server_helpers.py `_process_get_lineage`) must handle UUID input: when `type_id` parameter contains a UUID, the error message should display it as-is rather than assuming it is a type_id. Use `f"Entity not found: {type_id}"` (the parameter name is retained per R33, but the displayed value is whatever the caller passed — UUID or type_id).
 
 ### C5: MCP Server Updates
 
@@ -150,6 +150,8 @@ Layer 4: MCP Server (entity_server.py)
 - `update_entity` handler: Capture return and use `get_entity()` to get both identifiers for message.
 - `get_entity` handler: Result dict now includes `uuid` field (automatic from DB layer).
 - Other handlers: Transparent changes via dual-read in DB layer.
+
+**Note on FK pragma and ALTER TABLE RENAME (SQLite >= 3.26.0)**: SQLite >= 3.26.0 automatically updates FK references when a table is renamed via `ALTER TABLE ... RENAME TO ...`, regardless of the `PRAGMA foreign_keys` setting (the pragma only controls FK enforcement, not reference updating during DDL). The `legacy_alter_table` pragma (default OFF) controls this behavior — when OFF (default), FK references are updated. We do NOT set `legacy_alter_table = ON`, so FK references in our schema are automatically updated during the RENAME step. The `PRAGMA foreign_key_check` post-migration verifies correctness. Python 3.9+ bundles SQLite >= 3.31.0, satisfying this requirement.
 
 ### C6: Test Updates
 
@@ -164,7 +166,7 @@ Layer 4: MCP Server (entity_server.py)
 - `test_happy_path` (register) → assert UUID v4 format return
 - `test_happy_path` (set_parent) → assert UUID return
 - Server helper tests → updated message assertions
-- **Raw SQL INSERT tests** must include uuid column: `test_entity_type_check_constraint`, `test_valid_entity_types_accepted`, and any other tests using direct `conn.execute('INSERT INTO entities ...')` must generate uuid via `str(uuid.uuid4())` and include it in the VALUES clause (uuid is NOT NULL PRIMARY KEY)
+- **Raw SQL INSERT tests** must include uuid column: `test_entity_type_check_constraint`, `test_valid_entity_types_accepted`, `test_self_parent_on_insert`, and any other tests using direct `conn.execute('INSERT INTO entities ...')` must generate uuid via `str(uuid.uuid4())` and include it in the VALUES clause (uuid is NOT NULL PRIMARY KEY)
 
 **New tests** (minimum 10 functions per AC-27):
 1. `test_register_returns_uuid_v4_format`
@@ -413,6 +415,8 @@ SELECT e.*, t.depth FROM tree t
 JOIN entities e ON e.uuid = t.uid
 ORDER BY t.depth ASC, e.entity_type, e.name
 ```
+
+**`_export_tree` truncation check** (database.py `_export_tree` method): When `max_depth` is reached, the method checks for children beyond the depth limit to append a `"..."` indicator. Post-migration, this check must use `uuid`/`parent_uuid`: extract `leaf_ids` as `row['uuid']` from the deepest level, then check `SELECT 1 FROM entities WHERE parent_uuid IN ({placeholders}) LIMIT 1`. Currently uses `type_id`/`parent_type_id` — must be updated.
 
 **Root-finding query** (when type_id=None in `export_lineage_markdown`):
 ```sql
