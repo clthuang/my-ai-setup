@@ -161,7 +161,7 @@ Create `test_frontmatter.py` with:
 **TDD tests first** (class `TestWriteFrontmatter`):
 - AC-1: New file (no frontmatter) → prepend header block, body preserved
 - AC-8: File with existing frontmatter → replace only header, body preserved
-- AC-9: Atomic write → mock `os.rename` to verify temp file in same directory
+- AC-9: Atomic write verification (mock-only test, separate from content tests) → mock `os.rename` to verify it is called with a `.tmp` file in the same directory as the target. Note: content correctness after real atomic writes is verified by AC-1 and AC-8 tests (non-mocked).
 - AC-14: Round-trip fidelity (also in `TestRoundTrip`)
 - AC-15: Idempotent — write twice with same header → identical file content
 - AC-16: UUID mismatch → `ValueError`
@@ -177,13 +177,15 @@ Create `test_frontmatter.py` with:
 **Implement:** Per I2 —
 1. Open file (catch `FileNotFoundError` → `ValueError`)
 2. Read content, check for existing frontmatter via same line-by-line logic as `read_frontmatter`
-3. If existing: extract header dict, check UUID match (raise if mismatch)
+3. If existing: extract header dict, check UUID match using `.lower()` on both existing and new UUID values (raise `ValueError` if mismatch after lowercasing). Add test case: file has UUID in uppercase, new header has same UUID in lowercase → should NOT raise ValueError.
 4. Merge: start with existing, apply new headers (None/empty → delete, else overwrite), preserve `created_at` per TD-9
 5. If no existing: use new headers directly
 6. Validate merged header → abort on failure
 7. Serialize: `_serialize_header(merged) + body` — `_serialize_header` ends with `---\n`. Body is concatenated directly with NO extra blank line inserted. For files with existing frontmatter, body is everything after the closing `---\n` (preserving any leading blank lines the original body had). For new files (no existing frontmatter), the entire original file content becomes the body. This ensures round-trip fidelity (C4) — no content is added or removed between header and body.
 8. Atomic write: `NamedTemporaryFile(delete=False, dir=same_dir, suffix='.tmp')` → write → `os.rename`
 9. `finally`: cleanup temp file if rename didn't happen
+
+**Binary content guard:** `write_frontmatter` includes the same binary content guard as `read_frontmatter`: read first 8192 bytes, check for `\x00`. If binary content detected, raise `ValueError("Cannot write frontmatter to binary file")`. Although the CLI script filters by basename, `write_frontmatter` is a public API and must be defensive. Add a test: `write_frontmatter` on a file with null bytes raises `ValueError`, file unchanged.
 
 **Dependency:** `read_frontmatter` (for detecting existing headers — but note: `write_frontmatter` implements its own read logic internally rather than calling `read_frontmatter`, because it needs both the parsed header AND the body content. The read logic is duplicated but keeps the two functions decoupled), `validate_header`, `_serialize_header`.
 
@@ -211,12 +213,15 @@ Create `test_frontmatter.py` with:
 ### Step 5.1: `frontmatter_inject.py` scaffolding
 
 Create CLI script with:
-- Imports: `sys`, `os`, `logging`, `datetime`
+- Imports: `sys`, `os`, `logging`, `datetime`, `sqlite3`
 - `from entity_registry.frontmatter import build_header, write_frontmatter`
 - `from entity_registry.database import EntityDatabase`
 - Logging config: `StreamHandler(sys.stderr)` with format `"%(levelname)s: %(message)s"`
 - `ARTIFACT_BASENAME_MAP` constant (TD-6)
 - `ARTIFACT_PHASE_MAP` constant (I5 step 7)
+- **Extract testable helper functions:**
+  - `_parse_feature_type_id(type_id: str) -> tuple[str, str | None]` — splits `feature:002-slug` into `("002", "slug")`. If entity_id contains no `-`, returns `(entity_id, None)`.
+  - `_extract_project_id(parent_type_id: str | None) -> str | None` — extracts `"P001"` from `"project:P001"`. Returns `None` if parent is not a project or is None.
 
 ### Step 5.2: Unit tests for CLI logic
 
@@ -238,7 +243,7 @@ Create CLI script with:
 1. Parse `sys.argv` — expect `len(sys.argv) == 3` (script name + artifact_path + feature_type_id). If wrong count, print usage to stderr and exit 1.
 2. Derive `artifact_type` from basename via `ARTIFACT_BASENAME_MAP` — skip if not found
 3. Resolve DB path from `ENTITY_DB_PATH` env var
-4. Instantiate `EntityDatabase(db_path)` — catch exceptions, warn, exit 0
+4. Instantiate `EntityDatabase(db_path)` — catch `(sqlite3.Error, OSError)` specifically, warn to stderr, exit 0. Do NOT catch bare `Exception` — let programming bugs (TypeError, AttributeError, NameError) propagate as unhandled exceptions. `sqlite3.Error` covers `OperationalError` (corrupt DB, locked), `DatabaseError` (invalid file), and `InterfaceError`. `OSError` covers permission errors. `EntityDatabase.__init__` runs migrations to the latest schema (currently v2 which includes the `uuid` column), so by the time `get_entity` is called the schema is guaranteed current.
 5. Call `db.get_entity(feature_type_id)` — if None, warn, exit 0
 6. Extract UUID from entity record: `entity_uuid = entity_record['uuid']` — note the DB column is `uuid` (via `dict(row)` from `get_entity()`), mapped to frontmatter field `entity_uuid`. The `entity_` prefix disambiguates in the frontmatter context per spec R13.
 7. Parse `feature_id` and `feature_slug` from `feature_type_id`: split on first `:` to get entity_id (e.g., `002-markdown-entity-file-header-sc`), then split entity_id on first `-` to get feature_id (`002`) and feature_slug (`markdown-entity-file-header-sc`). **Defensive guard:** If entity_id contains no `-`, set `feature_id = entity_id` and omit `feature_slug` from the header (don't pass it to `build_header`). This handles edge cases like entity_ids without slugs.
@@ -248,7 +253,11 @@ Create CLI script with:
 11. Call `write_frontmatter(artifact_path, header)`
 12. Catch `ValueError` (UUID mismatch) → exit 1; all other exceptions → warn, exit 0
 
-**Error boundary:** Entire `main()` wrapped in try/except. Only UUID mismatch exits 1 (so SKILL.md fail-open detects it). Everything else exits 0.
+**Error boundary:** Targeted exception handling, NOT a blanket `try/except Exception`. Each operation catches specific exceptions:
+- `EntityDatabase(db_path)`: catches `(sqlite3.Error, OSError)` → warn, exit 0
+- `db.get_entity(type_id)`: catches `(sqlite3.Error,)` → warn, exit 0
+- `write_frontmatter(path, header)`: catches `ValueError` (UUID mismatch) → exit 1; catches `OSError` → warn, exit 0
+- Unexpected exceptions (TypeError, AttributeError, NameError, etc.) propagate as unhandled — the `|| true` in SKILL.md already provides the fail-open safety net at the workflow level. This makes programming bugs visible in stderr instead of being silently swallowed.
 
 ---
 
@@ -260,7 +269,7 @@ Create CLI script with:
 
 ### Step 6.1: Add pseudocode block
 
-Insert the frontmatter injection pseudocode (I6) into the `commitAndComplete` function, before the `git add` step. The addition is LLM-interpreted pseudocode matching the existing SKILL.md style, including:
+Insert the frontmatter injection pseudocode (I6) into the `commitAndComplete` function, between the step heading and the existing `git add` bash code block. The new block is a separate pseudocode section, NOT inserted inside the existing bash block. The addition is LLM-interpreted pseudocode matching the existing SKILL.md style, including:
 - Plugin root resolution (two-location Glob pattern)
 - For-each loop over artifact files
 - Shell invocation with stderr suppression and `|| true`
@@ -280,8 +289,9 @@ Insert the frontmatter injection pseudocode (I6) into the `commitAndComplete` fu
 
 Set up test helpers:
 - Create temp directory with `.meta.json` fixture
-- Create temp `entities.db` using `EntityDatabase(path)` with a registered test entity
+- Create **file-based** test DB using `EntityDatabase(str(tmp_path / "test.db"))` — NOT `:memory:` — because the CLI subprocess needs to access it via `ENTITY_DB_PATH` env var. Call `db.close()` before subprocess invocation to flush WAL.
 - Create temp artifact file (`spec.md` with markdown content)
+- Subprocess invocation uses `subprocess.run([sys.executable, script_path, artifact_path, type_id], env={...})` where `sys.executable` is the test runner's Python, and `env` includes `PYTHONPATH` pointing to the `hooks/lib` directory and `ENTITY_DB_PATH` pointing to the test DB file path.
 
 ### Step 7.2: AC-12 — Happy path integration test
 
