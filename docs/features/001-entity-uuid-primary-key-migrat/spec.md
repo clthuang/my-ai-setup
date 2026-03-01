@@ -40,9 +40,9 @@ The entity registry uses `type_id` (format `"{entity_type}:{entity_id}"`) as its
 
 - R10: Add trigger `enforce_immutable_uuid` — BEFORE UPDATE OF uuid on entities → RAISE ABORT with message "uuid is immutable"
 - R11: Retain existing triggers for `type_id`, `entity_type`, `created_at`
-- R12: Add trigger `enforce_no_self_parent_uuid` — two separate triggers:
-  - BEFORE INSERT on entities: `WHEN NEW.parent_uuid IS NOT NULL AND NEW.parent_uuid = NEW.uuid` → RAISE ABORT "entity cannot be its own parent"
-  - BEFORE UPDATE OF parent_uuid on entities: `WHEN NEW.parent_uuid IS NOT NULL AND NEW.parent_uuid = NEW.uuid` → RAISE ABORT "entity cannot be its own parent"
+- R12: Add two separate self-parent prevention triggers:
+  - `enforce_no_self_parent_uuid_insert` — BEFORE INSERT on entities: `WHEN NEW.parent_uuid IS NOT NULL AND NEW.parent_uuid = NEW.uuid` → RAISE ABORT "entity cannot be its own parent"
+  - `enforce_no_self_parent_uuid_update` — BEFORE UPDATE OF parent_uuid on entities: `WHEN NEW.parent_uuid IS NOT NULL AND NEW.parent_uuid = NEW.uuid` → RAISE ABORT "entity cannot be its own parent"
 
 ### EntityDatabase API Changes
 
@@ -55,7 +55,7 @@ The entity registry uses `type_id` (format `"{entity_type}:{entity_id}"`) as its
 - R19: `export_lineage_markdown()` accepts either UUID or type_id
 - R20: Methods that change return type from type_id to UUID:
   - `register_entity()` → returns UUID (was type_id)
-  - `set_parent()` → returns UUID (was None/implicit)
+  - `set_parent()` → returns UUID (was type_id; current implementation returns `type_id` at line 226 of database.py)
   - `update_entity()` remains unchanged (returns None)
   - `get_entity()` returns dict with both `uuid` and `type_id` fields (dict shape change, not return type change)
   - `get_lineage()` returns list of dicts, each with both `uuid` and `type_id` fields
@@ -85,7 +85,7 @@ The entity registry uses `type_id` (format `"{entity_type}:{entity_id}"`) as its
 - R27: All MCP tool parameters currently named `type_id` and `parent_type_id` accept either UUID or type_id values (no parameter rename needed — the dual-read resolver handles disambiguation)
 - R28: Tool return messages include both UUID and type_id for clarity. Specifically:
   - `register_entity` → `"Registered entity: {uuid} ({type_id})"`
-  - `set_parent` → `"Set parent of {child_uuid} ({child_type_id}) to {parent_uuid} ({parent_type_id})"`
+  - `set_parent` → `"Set parent of {child_uuid} ({child_type_id}) to {parent_uuid} ({parent_type_id})"` (Note: current MCP handler at entity_server.py:151-152 ignores set_parent's return value — must capture UUID return to format this message)
   - `get_entity` → returns dict with both fields (no message change needed)
   - `update_entity` → `"Updated entity: {uuid} ({type_id})"`
   - `get_lineage` / `export_lineage_markdown` → tree output uses type_id for display (no UUID in output)
@@ -95,7 +95,7 @@ The entity registry uses `type_id` (format `"{entity_type}:{entity_id}"`) as its
 - R29: `backfill.py` continues to call `register_entity()` with `entity_type` and `entity_id` — UUID is auto-generated internally
 - R30: `backfill.py` calls to `set_parent()` continue using `type_id` strings — dual-read resolver handles them
 - R31: No changes required to backfill scanner logic. Analysis:
-  - `register_entity()` signature (`entity_type`, `entity_id`, `name`, ...) is unchanged — only the return value changes from type_id to UUID. Backfill captures return value but only passes it to `set_parent()`, which accepts either UUID or type_id via dual-read.
+  - `register_entity()` signature (`entity_type`, `entity_id`, `name`, ...) is unchanged — only the return value changes from type_id to UUID. Backfill captures return value into a variable (currently named `type_id` at line 187) and passes it to `set_parent()`. Post-migration this variable will hold a UUID string, but `set_parent()` accepts either UUID or type_id via dual-read, so the backfill works without code changes. The variable name `type_id` becomes a misnomer but has no functional impact.
   - `_safe_set_parent()` wrapper in backfill.py passes type_id strings to `set_parent()` — dual-read resolver handles this transparently.
   - The backfill_complete metadata guard and scan ordering are unaffected by the schema change.
 
@@ -159,7 +159,7 @@ The entity registry uses `type_id` (format `"{entity_type}:{entity_id}"`) as its
 
 ### Test Coverage
 
-- AC-26: All 184 existing entity registry tests pass after migration, with tests updated where behavioral changes (R20 return values, R16 set_parent atomicity) require new assertions. The number of test functions must not decrease (tests are updated, not deleted).
+- AC-26: All existing entity registry tests pass after migration, with tests updated where behavioral changes (R20 return values, R16 set_parent atomicity) require new assertions. The number of test functions must not decrease (tests are updated, not deleted). Verify by running `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/ -v` and confirming zero failures.
 - AC-27: New tests cover these specific scenarios:
   - UUID generation: `register_entity()` returns valid UUID v4 format
   - Duplicate detection: `register_entity()` with same type_id returns existing UUID
