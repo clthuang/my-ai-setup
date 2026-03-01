@@ -3,7 +3,7 @@
   "slug": "status-taxonomy-design-and-sch",
   "status": "active",
   "created": "2026-03-01T16:27:59+08:00",
-  "mode": null,
+  "mode": "standard",
   "branch": "feature/004-status-taxonomy-design-and-sch",
   "project_id": "P001",
   "module": "Status Taxonomy",
@@ -40,6 +40,9 @@
       "completed": "2026-03-01T21:20:00+08:00",
       "reviewIterations": 4,
       "approved": true
+    },
+    "finish": {
+      "started": "2026-03-01T21:25:00+08:00"
     }
   }
 }
