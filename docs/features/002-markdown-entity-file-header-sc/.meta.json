@@ -54,6 +54,17 @@
           "Step 7.1 DB teardown pre-verification leaves choice open mid-implementation"
         ]
       }
+    },
+    "create-tasks": {
+      "started": "2026-03-03T00:45:00+08:00",
+      "status": "in-progress",
+      "taskReview": {
+        "iterations": 5,
+        "capReached": true,
+        "concerns": [
+          "PYTHONPATH prefix consistency across done-when verification commands — recurring pattern across Tasks 5.1.1, 5.1.2, 5.3.3"
+        ]
+      }
     }
   }
 }
