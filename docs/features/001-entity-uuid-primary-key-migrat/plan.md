@@ -112,7 +112,7 @@ Phase 5: Test Finalization & Verification
    - finally: re-enable `PRAGMA foreign_keys = ON` — this runs outside the transaction (after commit or rollback), which is correct because PRAGMA foreign_keys must be set outside transactions. If the connection is corrupted and the PRAGMA fails, the exception propagates naturally.
 2. Step 14: Post-migration `PRAGMA foreign_key_check` (runs after transaction completes, outside try/except)
 3. Register `2: _migrate_to_uuid_pk` in MIGRATIONS dict (R9)
-4. Verify outer `_migrate()` loop completes cleanly — `EntityDatabase.__init__` succeeds with schema_version=2. **Safety note:** The outer `_migrate()` loop is safe because it checks schema_version before each migration; after Migration 2 commits schema_version='2', the loop will not re-enter Migration 2 on subsequent calls.
+4. Verify outer `_migrate()` loop completes cleanly — `EntityDatabase.__init__` succeeds with schema_version=2. **Safety note:** The outer `_migrate()` loop is safe because it checks schema_version before each migration; after Migration 2 commits schema_version='2', the loop will not re-enter Migration 2 on subsequent calls. **Idempotency detail:** The outer `_migrate()` loop's `INSERT INTO _metadata ... ON CONFLICT(key) DO UPDATE SET value = excluded.value` followed by `conn.commit()` is real DML (not a no-op) — it writes the same schema_version='2' value that Migration 2 already committed. This is idempotent: the INSERT OR REPLACE fires but produces no net change. Both the Migration 2 commit and the outer loop commit succeed without error. **Verification:** Confirm `EntityDatabase.__init__` on an already-v2 DB completes with schema_version=2 and no second migration run (cover this in `test_migration_rollback_on_failure` or a separate `test_init_already_migrated_db`).
 
 **Done criteria:** Failed migration rolls back cleanly. Idempotent on re-run. FK check passes post-migration. EntityDatabase initializes successfully. **Failure note:** If `_migrate_to_uuid_pk` raises, the exception propagates through `_migrate()` and out of `EntityDatabase.__init__()` — the instance is not usable. This is correct behavior (fail-fast); callers must handle the exception.
 
@@ -142,7 +142,8 @@ Phase 5: Test Finalization & Verification
 **Implementation:**
 1. Generate `entity_uuid = str(uuid_mod.uuid4())` before INSERT
 2. Add uuid column to INSERT statement
-3. After INSERT OR IGNORE, add a SELECT to retrieve uuid by type_id (TD-4, R35 — always-SELECT pattern). **Commit ordering — current vs new flow:** Current code (pre-migration): INSERT → `self._conn.commit()` → return type_id. New code (post-implementation): INSERT → SELECT uuid → `self._conn.commit()` → return uuid. The new SELECT is added between INSERT and the existing `conn.commit()`. Python sqlite3 default `isolation_level=''` does NOT auto-commit DML — the INSERT starts an implicit transaction, the SELECT reads within the same implicit transaction, and the existing `conn.commit()` (already in the method) commits both. Verify the existing `conn.commit()` is positioned after the new SELECT — if it was before the SELECT insertion point, move it to follow the SELECT.
+3. **Pre-step verification:** Read `database.py` `register_entity` method to confirm the actual commit position. The expected current flow is INSERT → `self._conn.commit()` → return type_id (as of the code at the time of writing). If the actual code differs from this description, adjust the insertion point accordingly.
+   After INSERT OR IGNORE, add a SELECT to retrieve uuid by type_id (TD-4, R35 — always-SELECT pattern). **Commit ordering — current vs new flow:** Current code (pre-migration): INSERT → `self._conn.commit()` → return type_id. New code (post-implementation): INSERT → SELECT uuid → `self._conn.commit()` → return uuid. The new SELECT is added between INSERT and the existing `conn.commit()`. Python sqlite3 default `isolation_level=''` does NOT auto-commit DML — the INSERT starts an implicit transaction, the SELECT reads within the same implicit transaction, and the existing `conn.commit()` (already in the method) commits both.
 4. Return the uuid from SELECT result (existing uuid on duplicate, new uuid on fresh insert)
 
 **Done criteria:** Returns valid UUID v4. Duplicates return existing UUID.
@@ -242,6 +243,8 @@ Phase 5: Test Finalization & Verification
 
 ### 4.1 Tool Handler Message Updates
 
+**Pre-condition:** Verify `pytest-asyncio` is installed: `plugins/iflow/.venv/bin/python -c "import pytest_asyncio; print(pytest_asyncio.__version__)"`. If missing, install: `plugins/iflow/.venv/bin/pip install pytest-asyncio`.
+
 **Tests first:** Write `test_set_parent_handler_dual_identity_message`, `test_update_entity_handler_dual_identity_message` — verify MCP tool handlers return messages containing both UUID and type_id in the response text. **Test approach:** The `set_parent` and `update_entity` handlers in `entity_server.py` call `db.set_parent()` and `db.update_entity()` directly (no server helper wrappers exist for these). These handlers are `async def` functions — use `pytest-asyncio` with `@pytest.mark.asyncio` decorator and monkeypatch `entity_server._db` with a real in-memory `EntityDatabase(":memory:")`. This avoids MCP server bootstrapping while testing the actual message formatting code.
 
 **Implementation:**
@@ -274,7 +277,7 @@ Phase 5: Test Finalization & Verification
 
 1. Run full entity registry test suite: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/ -v`
 2. Verify 0 failures
-3. Verify new test count: target 15 new test functions, hard minimum 10 per AC-27
+3. Verify new test count: target 15 new test functions per design C6, plus `test_update_entity_with_uuid` (added in 2.5, beyond the C6 list) for a total target of 16. Hard minimum remains 10 per AC-27
 4. Run backfill tests: `backfill.py` has no dedicated test file — AC-24 (backfill compatibility) is verified indirectly through the full suite run since backfill calls `register_entity` and `set_parent` which are tested by the database test suite. Verify backfill imports succeed by running `python -c "from entity_registry.backfill import ..."`.
 5. Run entity server bootstrap test: `bash plugins/iflow/mcp/test_entity_server.sh`
 
