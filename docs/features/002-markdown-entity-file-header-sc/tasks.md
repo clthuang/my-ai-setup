@@ -152,7 +152,7 @@
 - [ ] Test TD-9: existing `created_at` preserved when new headers differ
 - [ ] Test: file does not exist raises `ValueError`
 - [ ] Test: merge-preserve — pre-write file via `write_frontmatter` with full valid header `{"entity_uuid": uuid, "entity_type_id": tid, "artifact_type": at, "created_at": ts, "feature_id": fid}`. Then call `write_frontmatter` with partial dict `{"entity_uuid": same_uuid, "artifact_type": same_at}` (intentionally omits required fields — relies on merge to preserve from existing). Assert `feature_id` still present in output
-- [ ] Test: merge — pre-write file with `write_frontmatter` containing `{entity_uuid, entity_type_id, artifact_type, created_at}`, then call `write_frontmatter` with `{entity_uuid, artifact_type, feature_id}` — verify `feature_id` now present in output (added key)
+- [ ] Test: merge-add — pre-write file via `write_frontmatter` with full valid header `{"entity_uuid": uuid, "entity_type_id": tid, "artifact_type": at, "created_at": ts}`. Then call `write_frontmatter` with `{"entity_uuid": same_uuid, "artifact_type": same_at, "feature_id": new_fid}`. Assert `feature_id` now present in output (added from new call)
 - [ ] Test: validation failure after merge raises `ValueError`, file unchanged
 
 **Done when:** 12 test cases exist and all FAIL (RED phase).
@@ -209,13 +209,13 @@
 - [ ] Define `ARTIFACT_BASENAME_MAP` constant (TD-6)
 - [ ] Define `ARTIFACT_PHASE_MAP` constant (I5 step 7)
 
-**Done when:** Run: `plugins/iflow/.venv/bin/python -c "import entity_registry.frontmatter_inject"` (with `PYTHONPATH` set to `hooks/lib/`) — exits with code 0, no `ImportError` or traceback.
+**Done when:** Run: `PYTHONPATH=plugins/iflow/hooks/lib plugins/iflow/.venv/bin/python -c "import entity_registry.frontmatter_inject"` — exits code 0, no `ImportError` or traceback.
 
 ### Task 5.1.2: Implement helper function stubs
 - [ ] Add `_parse_feature_type_id(type_id: str) -> tuple[str, str | None]` with `raise NotImplementedError`
 - [ ] Add `_extract_project_id(parent_type_id: str | None) -> str | None` with `raise NotImplementedError`
 
-**Done when:** Run: `plugins/iflow/.venv/bin/python -c "from entity_registry.frontmatter_inject import _parse_feature_type_id, _extract_project_id"` — imports without error.
+**Done when:** Run: `PYTHONPATH=plugins/iflow/hooks/lib plugins/iflow/.venv/bin/python -c "from entity_registry.frontmatter_inject import _parse_feature_type_id, _extract_project_id"` — exits code 0, no `ImportError` or traceback.
 
 ### Task 5.2.1: Write tests for CLI helpers (RED)
 - [ ] Test: `ARTIFACT_BASENAME_MAP` contains all 6 supported basenames
