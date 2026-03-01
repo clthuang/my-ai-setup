@@ -29,7 +29,7 @@ The dual-dimension model (workflow_phase + kanban_column) is a well-established 
 
 ## Architecture Overview
 
-This feature produces an **ADR document** and **schema DDL** — it is a design artifact, not a runtime component. The architecture describes what the ADR defines and how it integrates with the existing entity registry.
+This feature produces an **ADR document** containing schema DDL — it is a design artifact, not a runtime component. No Python code is delivered; implementation is feature 005's responsibility. The architecture describes what the ADR defines and how it integrates with the existing entity registry.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -57,7 +57,8 @@ This feature produces an **ADR document** and **schema DDL** — it is a design 
 - **Separate table, not ALTER TABLE** — avoids modifying the `entities` table; preserves existing API surface
 - **1:1 relationship** — one `workflow_phases` row per participating entity (features, brainstorms, backlog items); no row for projects
 - **Current state snapshot** — no history; phase transition audit is feature 008's concern
-- **DDL-only deliverable** — this feature produces the migration function code and the ADR document
+- **ADR-only deliverable** — this feature produces the ADR document containing the DDL content; Python implementation is feature 005's responsibility
+- **workflow_phase is source of truth** — kanban_column is the derived/overridable view; workflow_phase determines actual progress. This primacy is an application-level invariant enforced by the state engine (feature 008), not expressible in DDL
 
 ## Components
 
@@ -72,6 +73,7 @@ This feature produces an **ADR document** and **schema DDL** — it is a design 
 - Inputs: AC-6 schema definition from spec
 - Outputs: Python function `_create_workflow_phases_table(conn)` containing `executescript()` DDL
 - Location: Content defined in design; implemented by feature 005
+- **Deliverable boundary:** Feature 004 produces the DDL content as part of the ADR document. The Python migration function code is implemented by feature 005. Feature 004 delivers documentation only — no Python code.
 
 ### Component 3: Workflow Phase Enumeration
 - Purpose: Authoritative list of valid workflow phase values with definitions
@@ -126,6 +128,9 @@ Errors: sqlite3.OperationalError if table already exists (mitigated by IF NOT EX
 **DDL content:**
 ```sql
 CREATE TABLE IF NOT EXISTS workflow_phases (
+    -- FK uses implicit ON DELETE RESTRICT (SQLite default). Deleting an entity
+    -- while its workflow_phases row exists will fail, which is the desired behavior —
+    -- workflow state should be explicitly cleaned up before entity deletion.
     type_id                    TEXT PRIMARY KEY REFERENCES entities(type_id),
     workflow_phase             TEXT CHECK(workflow_phase IN (
                                    'brainstorm','specify','design',
@@ -143,7 +148,8 @@ CREATE TABLE IF NOT EXISTS workflow_phases (
                                    'create-plan','create-tasks',
                                    'implement','finish'
                                ) OR last_completed_phase IS NULL),
-    mode                       TEXT,
+    mode                       TEXT CHECK(mode IN ('standard', 'full')
+                                   OR mode IS NULL),
     backward_transition_reason TEXT,
     updated_at                 TEXT NOT NULL
 );
