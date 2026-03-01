@@ -82,7 +82,7 @@ iflow currently uses a single `status` field on features (`planned`, `active`, `
 | phase_start | wip | Agent begins phase execution |
 | reviewer_dispatch | agent_review | Agent spawns reviewer subagent |
 | human_input_requested | human_review | AskUserQuestion invoked |
-| phase_complete | wip (if next phase auto-starts) | Phase marked completed; if no subsequent phase auto-starts (awaiting human decision), kanban_column remains unchanged until next event |
+| phase_complete | wip (if next phase auto-starts) | Phase marked completed; does not apply to the `finish` phase (finish completion triggers `feature_completed` instead). If no subsequent phase auto-starts (awaiting human decision), kanban_column remains unchanged until next event |
 | phase_blocked | blocked | Prerequisite missing or error |
 | phase_unblocked | wip | Blocker resolved |
 | feature_cancelled | completed | Feature abandoned |
@@ -163,7 +163,7 @@ iflow currently uses a single `status` field on features (`planned`, `active`, `
 | planned | backlog | Not yet started = backlog |
 | active | wip | Active work (actual kanban column refined by workflow events) |
 | completed | completed | Terminal state |
-| abandoned | completed | Terminal state — inferred as abandoned when kanban_column=`completed` AND workflow_phase != `finish` (see AC-8 scenario #6) |
+| abandoned | completed | Terminal state — inferred as abandoned when kanban_column=`completed` AND (workflow_phase IS NULL OR workflow_phase != `finish`) (see AC-8 scenario #6) |
 
 Note: `active` → `wip` is the initial mapping. Once the state engine is running, the kanban column for active features is dynamically updated by workflow events (reviewer dispatch → `agent_review`, AskUserQuestion → `human_review`, etc.).
 
@@ -175,10 +175,10 @@ The ADR must address these conflict scenarios:
 |---|----------|---------------|---------------|--------|------------|-------------|
 | 1 | Active work demoted to backlog | design | backlog | Valid | Human override — feature deprioritised mid-work | N/A (valid state) |
 | 2 | Working on nothing | NULL | wip | Invalid | Constraint: if kanban_column is wip/agent_review/human_review, workflow_phase must not be NULL for feature entities | Application-level (feature 008 state engine) — requires entity_type lookup |
-| 3 | Premature completion | implement | completed | Invalid | Constraint: kanban_column=completed requires workflow_phase=finish OR feature_cancelled event was triggered | Application-level (feature 008 state engine) — requires event context |
+| 3 | Premature completion | implement | completed | Invalid | Constraint: kanban_column=completed requires workflow_phase=finish OR feature_cancelled event was triggered (see scenario #6 for the valid abandoned case) | Application-level (feature 008 state engine) — requires event context |
 | 4 | Orphaned row — both NULL | NULL | (missing) | Invalid | kanban_column has NOT NULL + DEFAULT 'backlog', so this cannot occur | DDL-level (NOT NULL + DEFAULT constraint) |
 | 5 | Agent review without reviewer | design | agent_review | Valid | Transitional — the column is set before reviewer dispatch as a signal | N/A (valid state) |
-| 6 | Distinguishing abandoned from completed | implement | completed | Valid | Abandoned inference rule: kanban_column=`completed` AND workflow_phase != `finish` means the feature was cancelled/abandoned rather than completed normally. The `feature_cancelled` event triggers this state. | Application-level (feature 008 state engine reads workflow_phase to determine disposition) |
+| 6 | Distinguishing abandoned from completed | implement | completed | Valid | Abandoned inference rule: kanban_column=`completed` AND (workflow_phase IS NULL OR workflow_phase != `finish`) means the feature was cancelled/abandoned rather than completed normally. The `feature_cancelled` event triggers this state. | Application-level (feature 008 state engine reads workflow_phase to determine disposition) |
 
 Note: Scenarios #2, #3, and #6 require application-level enforcement because SQLite CHECK constraints cannot reference other tables (for entity_type) or event context. The state engine (feature 008) validates these rules during transitions.
 
