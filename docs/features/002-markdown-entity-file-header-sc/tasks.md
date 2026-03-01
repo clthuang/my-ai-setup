@@ -233,7 +233,7 @@
 - [ ] Replace `_parse_feature_type_id` stub with full implementation
 - [ ] Replace `_extract_project_id` stub with full implementation
 
-**Done when:** Run: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/test_frontmatter.py -k "test_parse_feature_type_id or test_extract_project_id or test_artifact" -v` — all 8 tests pass.
+**Done when:** Run: `PYTHONPATH=plugins/iflow/hooks/lib plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/test_frontmatter.py -k "test_parse_feature_type_id or test_extract_project_id or test_artifact" -v` — all 8 tests pass.
 
 ### Task 5.3.1: Pre-verify EntityDatabase API
 - [ ] Run: `grep -n "def get_entity" plugins/iflow/hooks/lib/entity_registry/database.py` — confirm method exists
