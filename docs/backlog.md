@@ -17,3 +17,4 @@
 | 00029 | 2026-03-01T16:00:00+08:00 | Remove project lifetime soft constraint from create-project and decomposing skill. It provides weak signal — decomposition quality should be driven by PRD scope and requirements, not a vague time horizon. |
 | 00030 | 2026-03-01T08:36:34Z | Fix register_entity MCP tool to correctly process metadata parameter with JSON objects (e.g. `{"depends_on_features": []}`) — currently rejects dict input due to Pydantic string_type validation. |
 | 00031 | 2026-03-01T15:00:00+08:00 | Handle DB write lock and concurrent write — ensure entity registry handles SQLite busy/locked errors gracefully under concurrent access. |
+| 00032 | 2026-03-01T12:49:31Z | Fix the workflow progression such that if a PRD is missing then go to the PRD creation step |

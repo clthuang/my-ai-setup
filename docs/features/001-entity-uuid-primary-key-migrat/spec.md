@@ -21,6 +21,7 @@ The entity registry uses `type_id` (format `"{entity_type}:{entity_id}"`) as its
 - Modifying the MCP server transport or protocol
 - UI changes (handled by later features)
 - Changing the backfill scanner's artifact discovery logic
+- Performance benchmarking — PRD NFR-UUID-3 requires <100ms for state transitions. SQLite local operations already meet this (current operations complete in single-digit ms). The migration adds no indexing or query complexity that would degrade performance. Maintaining current performance levels is a constraint (C5 pragmas), not a separate optimization goal.
 
 ## Requirements
 
@@ -33,13 +34,13 @@ The entity registry uses `type_id` (format `"{entity_type}:{entity_id}"`) as its
 - R5: Add `parent_uuid` column of type `TEXT REFERENCES entities(uuid)` as the canonical parent foreign key
 - R6: Populate all existing rows with generated UUID v4 values during migration
 - R7: Populate `parent_uuid` from existing `parent_type_id` references during migration
-- R8: SQLite requires table recreation for PK changes — use CREATE-COPY-DROP-RENAME pattern wrapped in an explicit transaction via `conn.execute("BEGIN IMMEDIATE")` before the first DDL statement. The migration function wraps all DDL/DML in a try/except block: on success, `conn.commit()`; on any exception, `conn.rollback()` then re-raise. Do NOT use `conn.executescript()` (which auto-commits each statement). Note: under Python sqlite3's legacy transaction control, DDL statements do not start implicit transactions — only DML does — hence the explicit BEGIN is required.
+- R8: SQLite requires table recreation for PK changes — use CREATE-COPY-DROP-RENAME pattern wrapped in an explicit transaction via `conn.execute("BEGIN IMMEDIATE")` before the first DDL statement. The migration function manages its own transaction entirely: BEGIN IMMEDIATE at start, `conn.commit()` on success, `conn.rollback()` then re-raise on any exception. Do NOT use `conn.executescript()` (which auto-commits each statement). The outer `_migrate()` loop (database.py line 541-561) calls `migration_fn(self._conn)` then `conn.commit()` — this outer commit is a no-op after Migration 2 because Migration 2 already committed its transaction internally. Note: under Python sqlite3's legacy transaction control, DDL statements do not start implicit transactions — only DML does — hence the explicit BEGIN is required. Migration 1 continues to use `conn.executescript()` (acceptable for initial schema creation with no existing data). On a fresh database, Migration 1 commits via executescript, then Migration 2 runs in its own explicit transaction — these do not conflict because they run sequentially in the `_migrate()` loop.
 - R9: Migration version increments from 1 to 2 in the MIGRATIONS dict
 
 ### Immutability Triggers
 
 - R10: Add trigger `enforce_immutable_uuid` — BEFORE UPDATE OF uuid on entities → RAISE ABORT with message "uuid is immutable"
-- R11: Retain existing triggers for `type_id`, `entity_type`, `created_at`
+- R11: Retain existing triggers for `type_id`, `entity_type`, `created_at`. Existing self-parent prevention triggers (`enforce_no_self_parent` on INSERT, `enforce_no_self_parent_update` on UPDATE of `parent_type_id`) are also retained alongside the new UUID-based triggers (R12). Both sets fire independently — the type_id triggers catch type_id self-references, the UUID triggers catch UUID self-references.
 - R12: Add two separate self-parent prevention triggers:
   - `enforce_no_self_parent_uuid_insert` — BEFORE INSERT on entities: `WHEN NEW.parent_uuid IS NOT NULL AND NEW.parent_uuid = NEW.uuid` → RAISE ABORT "entity cannot be its own parent"
   - `enforce_no_self_parent_uuid_update` — BEFORE UPDATE OF parent_uuid on entities: `WHEN NEW.parent_uuid IS NOT NULL AND NEW.parent_uuid = NEW.uuid` → RAISE ABORT "entity cannot be its own parent"
@@ -65,12 +66,12 @@ The entity registry uses `type_id` (format `"{entity_type}:{entity_id}"`) as its
   - `get_lineage()` recursive CTEs (`_lineage_up`, `_lineage_down`) traverse via `uuid`/`parent_uuid`
   - `_export_tree()` recursive CTE uses `uuid`/`parent_uuid` for parent-child linkage
   - `export_lineage_markdown()` root-finding query (when `type_id=None`) selects `uuid` for use as CTE starting points in `_export_tree()`
-- R35: `register_entity()` duplicate handling: when `INSERT OR IGNORE` fires (type_id already exists), query and return the existing row's UUID instead of returning the freshly generated (never-stored) UUID
+- R35: `register_entity()` duplicate handling: when `INSERT OR IGNORE` fires (type_id already exists), query and return the existing row's UUID instead of returning the freshly generated (never-stored) UUID. Detection: after `INSERT OR IGNORE`, check `cursor.lastrowid == 0` or compare `conn.total_changes` before/after to detect a no-op insert. If ignored, `SELECT uuid FROM entities WHERE type_id = ?` returns the existing UUID.
 
 ### Dual-Read Resolution
 
-- R22: Implement a `_resolve_identifier(identifier: str) -> tuple[str, str]` method that returns `(uuid, type_id)` given either form. Empty string and whitespace-only inputs are treated as type_id lookups and will raise ValueError (entity not found).
-- R23: UUID format detection: normalize input to lowercase before matching against UUID v4 regex pattern `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`
+- R22: Implement a `_resolve_identifier(identifier: str) -> tuple[str, str]` method that returns `(uuid, type_id)` given either form. Empty string and whitespace-only inputs are treated as type_id lookups and will raise ValueError (entity not found). `_resolve_identifier` requires a non-None `str` input; callers are responsible for None checks before calling.
+- R23: UUID format detection: normalize input to lowercase before matching against UUID v4 regex pattern `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`. The regex is intentionally strict (v4 only) because all UUIDs in this system are generated by `uuid.uuid4()`. If future features use other UUID versions, the regex must be updated.
 - R24: If identifier matches UUID pattern, look up by `uuid` column
 - R25: If identifier does not match UUID pattern, look up by `type_id` column
 - R26: `_resolve_identifier()` raises `ValueError` if identifier resolves to no entity. Callers handle this differently:
@@ -102,7 +103,7 @@ The entity registry uses `type_id` (format `"{entity_type}:{entity_id}"`) as its
 ### Server Helpers
 
 - R32: `_format_entity_label()` in `server_helpers.py` displays `type_id` (human-readable) in tree output, not UUID
-- R33: `render_tree()` changes its internal data structures to key on `uuid` instead of `type_id`: `by_id` dict keyed by `uuid`, `children` map built from `parent_uuid`, `root_type_id` parameter accepts UUID as the root identifier. Display labels continue to use `type_id` via `_format_entity_label()`. `_process_get_lineage()` passes `entities[0]["uuid"]` as the root identifier.
+- R33: `render_tree()` changes its internal data structures to key on `uuid` instead of `type_id`: `by_id` dict keyed by `uuid`, `children` map built from `parent_uuid`, `root_type_id` parameter accepts UUID as the root identifier. The parameter name `root_type_id` is retained for API compatibility despite now accepting UUID values — renaming is deferred to avoid unnecessary churn in callers. Display labels continue to use `type_id` via `_format_entity_label()`. `_process_get_lineage()` passes `entities[0]["uuid"]` as the root identifier.
 - R34: `_process_register_entity()` return message includes both UUID and type_id
 
 ## Acceptance Criteria
@@ -140,7 +141,7 @@ The entity registry uses `type_id` (format `"{entity_type}:{entity_id}"`) as its
 
 ### Migration Safety
 
-- AC-18: Migration 2 runs within an explicit `BEGIN IMMEDIATE` transaction — failure rolls back all DDL and DML completely. Does NOT use `conn.executescript()` (which auto-commits) or rely on implicit transactions (which don't cover DDL).
+- AC-18: Migration 2 runs within an explicit `BEGIN IMMEDIATE` transaction — failure rolls back all DDL and DML completely. Does NOT use `conn.executescript()` (which auto-commits) or rely on implicit transactions (which don't cover DDL). Testable via: inject a failure mid-migration (e.g., monkeypatch to raise after CREATE TABLE but before RENAME) and verify original schema is intact — schema_version remains 1, entities table still has type_id as PRIMARY KEY, no uuid column exists, all data preserved.
 - AC-19: Running migration on a fresh database (no existing data) produces correct schema
 - AC-20: Running migration on a database with existing entities preserves all data (zero loss)
 - AC-21: `parent_uuid` values correctly reference the UUID of the entity previously referenced by `parent_type_id`
@@ -150,7 +151,7 @@ The entity registry uses `type_id` (format `"{entity_type}:{entity_id}"`) as its
 
 - AC-23: Existing MCP tool calls using `type_id` strings continue to work identically
 - AC-24: Backfill runs successfully against the new schema without code changes to `backfill.py`
-- AC-25: `export_lineage_markdown()` output uses `type_id` for display (not UUID). Verification: capture output before and after migration on same dataset — tree labels must match.
+- AC-25: `export_lineage_markdown()` output uses `type_id` (not UUID) in all display labels. Verification: register 3 entities with parent-child relationships, call `export_lineage_markdown()`, assert output contains type_id strings (e.g., `"feature:001-slug"`) and does NOT contain UUID patterns.
 
 ### Set Parent Atomicity
 
@@ -159,16 +160,17 @@ The entity registry uses `type_id` (format `"{entity_type}:{entity_id}"`) as its
 
 ### Test Coverage
 
-- AC-26: All existing entity registry tests pass after migration, with tests updated where behavioral changes (R20 return values, R16 set_parent atomicity) require new assertions. The number of test functions must not decrease (tests are updated, not deleted). Verify by running `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/ -v` and confirming zero failures.
-- AC-27: New tests cover these specific scenarios:
+- AC-26: All existing entity registry test functions continue to exist (no deletions — tests are updated, not removed). All pass. Verification: run `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/ -v` and confirm 0 failures. New tests (AC-27) add to this count but never replace existing ones. Tests are updated where behavioral changes (R20 return values, R16 set_parent atomicity) require new assertions.
+- AC-27: New tests in `test_database.py` cover these specific scenarios (minimum 10 new test functions):
   - UUID generation: `register_entity()` returns valid UUID v4 format
   - Duplicate detection: `register_entity()` with same type_id returns existing UUID
   - Dual-read: `_resolve_identifier()` with UUID input, type_id input, and nonexistent input
   - Migration v1→v2: fresh DB, populated DB, parent_uuid population
+  - Migration rollback: inject failure mid-migration (monkeypatch), verify original schema intact
   - Immutability: UUID update blocked, self-parent on INSERT, self-parent on UPDATE
   - Mixed identifiers: `set_parent(uuid, type_id)`, `get_lineage(uuid)`, `update_entity(type_id)`
   - Atomicity: `set_parent()` updates both parent columns
-  - Minimum 10 new test functions covering these scenarios
+  Server helper and MCP-level tests are updated in their respective files but no minimum count required.
 
 ## Constraints
 
@@ -176,9 +178,10 @@ The entity registry uses `type_id` (format `"{entity_type}:{entity_id}"`) as its
 - C2: UUID generation uses Python's `uuid.uuid4()` — no external dependencies
 - C3: UUID stored as lowercase hex with hyphens (standard format: `xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`). Input UUIDs are normalized to lowercase before regex matching.
 - C4: Migration must be idempotent — running on an already-migrated database is a no-op (detected via `schema_version` metadata check before executing migration DDL)
-- C5: WAL mode, foreign_keys=ON, busy_timeout=5000 pragmas must persist across migration. These are set in `__init__` before migration runs, and migration DDL does not alter PRAGMA state. After `ALTER TABLE RENAME`, SQLite automatically updates internal FK references to the new table name. Verify with `PRAGMA foreign_key_check` as part of migration validation.
+- C5: WAL mode, foreign_keys=ON, busy_timeout=5000 pragmas must persist across migration. These are set in `__init__` before migration runs, and migration DDL does not alter PRAGMA state. After `ALTER TABLE RENAME`, SQLite automatically updates internal FK references to the new table name (requires `foreign_keys` pragma enabled). Run `PRAGMA foreign_key_check` as an explicit step within the migration function (not just a test assertion) to verify no FK violations after table recreation.
 - C6: The `INSERT OR IGNORE` semantics in `register_entity` use `type_id` UNIQUE constraint (not UUID) to detect duplicates — same entity_type:entity_id pair should not create a second row
 - C7: R8's explicit `BEGIN IMMEDIATE` uses Python sqlite3's legacy transaction control (`isolation_level` not None). If a future Python version (3.16+) changes the default `autocommit` behavior, the migration code must be tested against the new defaults. This is informational — no code change needed for current Python versions (3.9–3.15).
+- C8: UUID/type_id ambiguity is impossible for existing data. Existing entity_id values (backlog IDs like `"00024"`, brainstorm stems like `"20260227-lineage"`, project IDs like `"P001"`, feature IDs like `"001-entity-uuid"`) do not match UUID v4 format. The `type_id` format `"entity_type:entity_id"` also cannot match UUID v4 format due to the colon character. Therefore, `_resolve_identifier` will never misclassify existing identifiers.
 
 ## Dependencies
 
