@@ -9,6 +9,11 @@ from datetime import datetime
 
 logger = logging.getLogger("entity_registry.frontmatter")
 
+
+class FrontmatterUUIDMismatch(ValueError):
+    """Raised when a write would change the immutable entity_uuid field."""
+
+
 # Field ordering for serialization (R5, TD-2)
 FIELD_ORDER = (
     "entity_uuid",
@@ -42,12 +47,16 @@ OPTIONAL_FIELDS = frozenset({
 # All allowed fields
 ALLOWED_FIELDS = REQUIRED_FIELDS | OPTIONAL_FIELDS
 
+# Pre-computed set for _serialize_header unknown-field loop
+_FIELD_ORDER_SET = frozenset(FIELD_ORDER)
+
 # Allowed artifact types (R3)
 ALLOWED_ARTIFACT_TYPES = frozenset({"spec", "design", "plan", "tasks", "retro", "prd"})
 
-# UUID v4 regex — NO re.IGNORECASE; callers must .lower() before matching
+# UUID v4 regex (case-insensitive per R11)
 _UUID_V4_RE = re.compile(
-    r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+    re.IGNORECASE,
 )
 
 
@@ -77,12 +86,11 @@ def _serialize_header(header: dict) -> str:
     Fields in FIELD_ORDER come first (in that order), then any remaining keys.
     """
     parts = ["---\n"]
-    field_order_set = set(FIELD_ORDER)
     for field in FIELD_ORDER:
         if field in header:
             parts.append(f"{field}: {header[field]}\n")
     for key in header:
-        if key not in field_order_set:
+        if key not in _FIELD_ORDER_SET:
             parts.append(f"{key}: {header[key]}\n")
     parts.append("---\n")
     return "".join(parts)
@@ -106,9 +114,9 @@ def validate_header(header: dict) -> list[str]:
         if field not in header:
             errors.append(f"Missing required field: {field}")
 
-    # 2. UUID format (case-insensitive -- .lower() before matching)
+    # 2. UUID format (case-insensitive via re.IGNORECASE)
     if "entity_uuid" in header:
-        if not _UUID_V4_RE.match(header["entity_uuid"].lower()):
+        if not _UUID_V4_RE.match(header["entity_uuid"]):
             errors.append(
                 f"Invalid entity_uuid format: {header['entity_uuid']!r}"
             )
@@ -172,39 +180,38 @@ def read_frontmatter(filepath: str) -> dict | None:
     Returns a dict of header fields, or ``None`` if no valid frontmatter
     block is found. Never raises exceptions -- errors are logged as warnings.
     """
-    # Binary content guard: check for null bytes in first 8192 bytes
+    # Single read: binary guard + text parsing from one open call
     try:
-        with open(filepath, "rb") as bf:
-            chunk = bf.read(8192)
-            if b"\x00" in chunk:
-                logger.warning("Binary content detected, skipping: %s", filepath)
-                return None
+        raw = open(filepath, "rb").read()
     except FileNotFoundError:
         logger.warning("File not found: %s", filepath)
         return None
 
-    # Text-mode line-by-line parsing
-    with open(filepath, "r", encoding="utf-8") as f:
-        first_line = f.readline()
-        if not first_line:
-            # Empty file
-            return None
-
-        if first_line.rstrip("\n") != "---":
-            return None
-
-        # Accumulate lines between opening and closing ---
-        block_lines: list[str] = []
-        for line in f:
-            stripped = line.rstrip("\n")
-            if stripped == "---":
-                # Found closing delimiter -- parse what we have
-                return _parse_block(block_lines)
-            block_lines.append(stripped)
-
-        # EOF without closing delimiter -- malformed
-        logger.warning("Malformed frontmatter (no closing ---): %s", filepath)
+    if b"\x00" in raw[:8192]:
+        logger.warning("Binary content detected, skipping: %s", filepath)
         return None
+
+    lines = raw.decode("utf-8").splitlines(keepends=True)
+
+    if not lines:
+        # Empty file
+        return None
+
+    if lines[0].rstrip("\n") != "---":
+        return None
+
+    # Accumulate lines between opening and closing ---
+    block_lines: list[str] = []
+    for line in lines[1:]:
+        stripped = line.rstrip("\n")
+        if stripped == "---":
+            # Found closing delimiter -- parse what we have
+            return _parse_block(block_lines)
+        block_lines.append(stripped)
+
+    # EOF without closing delimiter -- malformed
+    logger.warning("Malformed frontmatter (no closing ---): %s", filepath)
+    return None
 
 
 def write_frontmatter(filepath: str, headers: dict) -> None:
@@ -216,20 +223,18 @@ def write_frontmatter(filepath: str, headers: dict) -> None:
     Raises ``ValueError`` on UUID mismatch, validation failure, file not found,
     or binary content.
     """
-    # --- 1. File-exists guard ------------------------------------------------
+    # --- 1. Single read: file-exists guard + binary guard + content ----------
     try:
-        with open(filepath, "rb") as bf:
-            chunk = bf.read(8192)
+        raw = open(filepath, "rb").read()
     except FileNotFoundError:
         raise ValueError(f"File not found: {filepath}")
 
     # --- 2. Binary content guard ---------------------------------------------
-    if b"\x00" in chunk:
+    if b"\x00" in raw[:8192]:
         raise ValueError(f"Binary content detected: {filepath}")
 
-    # --- 3. Read existing content (own line-by-line logic, NOT read_frontmatter)
-    with open(filepath, "r", encoding="utf-8") as f:
-        all_lines = f.readlines()
+    # --- 3. Decode and split into lines (own logic, NOT read_frontmatter) ----
+    all_lines = raw.decode("utf-8").splitlines(keepends=True)
 
     existing_header: dict[str, str] = {}
     body_lines: list[str] = []
@@ -258,7 +263,7 @@ def write_frontmatter(filepath: str, headers: dict) -> None:
     # --- 4. UUID match check -------------------------------------------------
     if has_frontmatter and "entity_uuid" in existing_header and "entity_uuid" in headers:
         if existing_header["entity_uuid"].lower() != headers["entity_uuid"].lower():
-            raise ValueError(
+            raise FrontmatterUUIDMismatch(
                 f"UUID mismatch: file has {existing_header['entity_uuid']!r}, "
                 f"got {headers['entity_uuid']!r}"
             )
