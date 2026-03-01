@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
+import uuid
 
 import pytest
 
@@ -1674,3 +1676,681 @@ class TestExportUUIDInternals:
         assert not uuid_pattern.search(md), (
             f"Export should not contain UUIDs, but found: {md}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Deepened tests: Phase B — spec-driven test deepening
+# ---------------------------------------------------------------------------
+
+
+class TestResolveIdentifierBoundary:
+    """Boundary: edge-case inputs to _resolve_identifier.
+    derived_from: dimension:boundary_values, spec:R22, spec:R23
+    """
+
+    def test_empty_string_raises_value_error(self, db: EntityDatabase):
+        """Empty string treated as type_id lookup and raises ValueError.
+        Anticipate: Implementation might not validate empty input, returning
+        a false match or None silently instead of raising ValueError.
+        """
+        # Given an empty string identifier
+        # When resolving it
+        # Then ValueError is raised because no entity has type_id=""
+        with pytest.raises(ValueError, match="Entity not found"):
+            db._resolve_identifier("")
+
+    def test_whitespace_only_raises_value_error(self, db: EntityDatabase):
+        """Whitespace-only input treated as type_id lookup, raises ValueError.
+        Anticipate: Whitespace might be stripped and treated as empty, or
+        the regex might match incorrectly.
+        """
+        # Given a whitespace-only identifier
+        # When resolving it
+        # Then ValueError is raised (no entity with whitespace type_id)
+        with pytest.raises(ValueError, match="Entity not found"):
+            db._resolve_identifier("   ")
+
+    def test_uppercase_uuid_normalizes_to_lowercase(self, db: EntityDatabase):
+        """Uppercase UUID input should be normalized and resolved correctly.
+        Anticipate: If implementation doesn't lowercase before regex match,
+        an uppercase UUID would be treated as a type_id lookup and fail.
+        derived_from: spec:R23 (C3 lowercase normalization)
+        """
+        # Given a registered entity
+        entity_uuid = db.register_entity("feature", "case-test", "Case Test")
+        # When resolving with uppercase UUID
+        upper_uuid = entity_uuid.upper()
+        result = db._resolve_identifier(upper_uuid)
+        # Then it resolves correctly (case-insensitive)
+        assert result == (entity_uuid, "feature:case-test")
+
+    def test_uuid_v1_format_not_matched_as_uuid(self, db: EntityDatabase):
+        """UUID v1 format should NOT match v4 regex (version nibble = 1).
+        Anticipate: If regex is too loose (e.g., accepts any hex), a v1
+        UUID would be treated as a UUID lookup instead of type_id.
+        derived_from: spec:R23, dimension:mutation_mindset
+        """
+        # Given a UUID v1 string (version nibble is 1, not 4)
+        v1_like = "550e8400-e29b-11d4-a716-446655440000"
+        # When checking against the regex
+        # Then it should NOT match (position 13 must be '4')
+        assert not _UUID_V4_RE.match(v1_like.lower())
+
+    def test_uuid_v5_format_not_matched_as_uuid(self, db: EntityDatabase):
+        """UUID v5 format should NOT match v4 regex (version nibble = 5).
+        Anticipate: Weak regex accepting any version would incorrectly
+        route this to UUID lookup path.
+        derived_from: spec:R23, dimension:boundary_values
+        """
+        # Given a UUID v5 string (version nibble is 5)
+        v5_like = "550e8400-e29b-51d4-a716-446655440000"
+        assert not _UUID_V4_RE.match(v5_like.lower())
+
+    def test_uuid_v3_format_not_matched_as_uuid(self, db: EntityDatabase):
+        """UUID v3 format should NOT match v4 regex (version nibble = 3).
+        derived_from: spec:R23, dimension:boundary_values
+        """
+        v3_like = "550e8400-e29b-31d4-a716-446655440000"
+        assert not _UUID_V4_RE.match(v3_like.lower())
+
+    def test_uuid_with_invalid_variant_nibble_not_matched(
+        self, db: EntityDatabase,
+    ):
+        """UUID with variant nibble outside [89ab] should not match v4 regex.
+        Anticipate: If regex variant check is missing, UUIDs with variant 0
+        would be mismatched.
+        derived_from: spec:R23, dimension:mutation_mindset
+        """
+        # Position 19 (variant nibble) must be [89ab]; 'c' is outside
+        invalid_variant = "550e8400-e29b-41d4-c716-446655440000"
+        assert not _UUID_V4_RE.match(invalid_variant.lower())
+
+
+class TestMigrationEmptyDb:
+    """Boundary: migration on a database with 0 existing entities.
+    derived_from: dimension:boundary_values, spec:AC-19
+    """
+
+    def test_migration_zero_entities_produces_correct_schema(self):
+        """Migrating an empty v1 DB (no entity rows) should succeed cleanly.
+        Anticipate: Data copy loop with 0 rows might trigger edge cases
+        in parent_uuid population logic.
+        """
+        # Given a v1 DB with no entities
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        _create_initial_schema(conn)
+        conn.commit()
+        # When migrating
+        _migrate_to_uuid_pk(conn)
+        # Then schema is correct with 0 rows
+        columns = conn.execute("PRAGMA table_info(entities)").fetchall()
+        assert len(columns) == 12
+        row_count = conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0]
+        assert row_count == 0
+        # And schema_version is 2
+        ver = conn.execute(
+            "SELECT value FROM _metadata WHERE key='schema_version'"
+        ).fetchone()
+        assert ver[0] == "2"
+        conn.close()
+
+
+class TestMigrationLargeDataset:
+    """Boundary: migration with many entities.
+    derived_from: dimension:boundary_values
+    """
+
+    def test_migration_100_entities_preserves_all(self):
+        """Migrating 100+ entities preserves all data and generates unique UUIDs.
+        Anticipate: Batch UUID generation might produce duplicates (astronomically
+        unlikely but the test structure catches it), or data copy loop might
+        skip rows.
+        """
+        # Given a v1 DB with 100 entities
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        _create_initial_schema(conn)
+        for i in range(100):
+            conn.execute(
+                "INSERT INTO entities (type_id, entity_type, entity_id, name, "
+                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (f"feature:f{i}", "feature", f"f{i}", f"Feature {i}",
+                 "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+            )
+        conn.commit()
+        # When migrating
+        _migrate_to_uuid_pk(conn)
+        # Then all 100 rows exist
+        rows = conn.execute("SELECT * FROM entities").fetchall()
+        assert len(rows) == 100
+        # And all UUIDs are unique
+        uuids = [r["uuid"] for r in rows]
+        assert len(set(uuids)) == 100
+        # And all UUIDs are valid v4
+        for u in uuids:
+            assert _UUID_V4_RE.match(u)
+        conn.close()
+
+
+class TestEntityIdEdgeCases:
+    """Boundary: special characters and long entity IDs.
+    derived_from: dimension:boundary_values
+    """
+
+    def test_entity_with_very_long_entity_id(self, db: EntityDatabase):
+        """Very long entity_id (500 chars) should be stored and retrievable.
+        Anticipate: SQLite TEXT has no length limit, but the type_id
+        constructed from it might cause issues in queries or indexes.
+        """
+        # Given a very long entity_id
+        long_id = "x" * 500
+        entity_uuid = db.register_entity("feature", long_id, "Long ID Feature")
+        # Then retrieval by type_id works
+        expected_type_id = f"feature:{long_id}"
+        entity = db.get_entity(expected_type_id)
+        assert entity is not None
+        assert entity["entity_id"] == long_id
+        assert entity["uuid"] == entity_uuid
+
+    def test_entity_with_special_characters_in_entity_id(
+        self, db: EntityDatabase,
+    ):
+        """Special characters (unicode, quotes, backslash) in entity_id.
+        Anticipate: SQL injection or encoding issues with special chars.
+        derived_from: dimension:adversarial
+        """
+        # Given entity_ids with special characters
+        special_id = "test-id_with.dots/slashes'quotes\"and\\backslash"
+        entity_uuid = db.register_entity("feature", special_id, "Special")
+        # Then retrieval works correctly
+        entity = db.get_entity(f"feature:{special_id}")
+        assert entity is not None
+        assert entity["entity_id"] == special_id
+        assert entity["uuid"] == entity_uuid
+
+
+class TestForeignKeyEnforcementPostMigration:
+    """BDD: AC-5 extended — PRAGMA foreign_keys persists through migration.
+    derived_from: spec:AC-5
+    """
+
+    def test_pragma_foreign_keys_returns_1_after_migration(
+        self, db: EntityDatabase,
+    ):
+        """PRAGMA foreign_keys should be ON (1) after EntityDatabase init.
+        Anticipate: Table recreation during migration might reset the pragma
+        if it's not re-enabled in the finally block.
+        """
+        # Given an initialized EntityDatabase (migration already ran)
+        # When checking PRAGMA foreign_keys
+        fk_status = db._conn.execute("PRAGMA foreign_keys").fetchone()[0]
+        # Then it should be 1 (ON)
+        assert fk_status == 1
+
+    def test_fk_violation_on_parent_uuid_insert(self, db: EntityDatabase):
+        """Inserting a row with invalid parent_uuid should fail FK check.
+        Anticipate: If foreign_keys pragma was silently reset during migration,
+        invalid parent_uuid values would be accepted.
+        derived_from: spec:AC-5, dimension:error_propagation
+        """
+        # Given a database with foreign_keys ON
+        test_uuid = str(uuid.uuid4())
+        fake_parent = str(uuid.uuid4())
+        # When inserting with a nonexistent parent_uuid
+        with pytest.raises(sqlite3.IntegrityError):
+            db._conn.execute(
+                "INSERT INTO entities (uuid, type_id, entity_type, entity_id, "
+                "name, parent_uuid, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (test_uuid, "feature:fk-test", "feature", "fk-test",
+                 "FK Test", fake_parent,
+                 "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+            )
+
+
+class TestNonexistentUUIDOperations:
+    """Adversarial: using a valid UUID format that doesn't exist in DB.
+    derived_from: dimension:adversarial, spec:R26
+    """
+
+    def test_get_entity_with_nonexistent_uuid_returns_none(
+        self, db: EntityDatabase,
+    ):
+        """get_entity with a valid UUID format that doesn't exist returns None.
+        Anticipate: The UUID matches the regex so it takes the UUID lookup
+        path. If _resolve_identifier's ValueError is not caught, it would
+        raise instead of returning None.
+        """
+        # Given a valid UUID that doesn't exist in the DB
+        fake_uuid = str(uuid.uuid4())
+        # When getting entity by fake UUID
+        result = db.get_entity(fake_uuid)
+        # Then None is returned (not ValueError)
+        assert result is None
+
+    def test_set_parent_with_nonexistent_uuid_raises(
+        self, db: EntityDatabase,
+    ):
+        """set_parent with nonexistent UUID should propagate ValueError.
+        Anticipate: If set_parent catches ValueError when it shouldn't,
+        the operation would silently fail.
+        derived_from: spec:R26
+        """
+        # Given a registered entity and a fake parent UUID
+        db.register_entity("feature", "f1", "Feature One")
+        fake_parent = str(uuid.uuid4())
+        # When setting parent to nonexistent UUID
+        with pytest.raises(ValueError, match="Entity not found"):
+            db.set_parent("feature:f1", fake_parent)
+
+    def test_get_lineage_with_nonexistent_uuid_returns_empty(
+        self, db: EntityDatabase,
+    ):
+        """get_lineage with nonexistent UUID should return empty list.
+        Anticipate: If get_lineage doesn't catch the ValueError from
+        _resolve_identifier, it would raise instead of returning [].
+        derived_from: spec:R26
+        """
+        # Given a valid UUID that doesn't exist
+        fake_uuid = str(uuid.uuid4())
+        # When getting lineage
+        result = db.get_lineage(fake_uuid)
+        # Then empty list is returned
+        assert result == []
+
+    def test_update_entity_with_nonexistent_uuid_raises(
+        self, db: EntityDatabase,
+    ):
+        """update_entity with nonexistent UUID should propagate ValueError.
+        derived_from: spec:R26
+        """
+        fake_uuid = str(uuid.uuid4())
+        with pytest.raises(ValueError, match="[Nn]ot found"):
+            db.update_entity(fake_uuid, name="Should Fail")
+
+    def test_export_lineage_with_nonexistent_uuid_raises_value_error(
+        self, db: EntityDatabase,
+    ):
+        """export_lineage_markdown with nonexistent UUID propagates ValueError.
+        derived_from: spec:R26
+        """
+        fake_uuid = str(uuid.uuid4())
+        with pytest.raises(ValueError, match="Entity not found"):
+            db.export_lineage_markdown(fake_uuid)
+
+
+class TestSqlInjectionAttempt:
+    """Adversarial: SQL injection attempt in identifier.
+    derived_from: dimension:adversarial
+    """
+
+    def test_sql_injection_in_resolve_identifier(self, db: EntityDatabase):
+        """SQL injection string should be treated as literal type_id.
+        Anticipate: If parameterized queries are not used, SQL injection
+        could corrupt the database or bypass access controls.
+        """
+        # Given a SQL injection attempt as identifier
+        injection = "'; DROP TABLE entities; --"
+        # When resolving it
+        # Then it should safely raise ValueError (no entity found)
+        with pytest.raises(ValueError, match="Entity not found"):
+            db._resolve_identifier(injection)
+        # And the entities table should still exist
+        count = db._conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0]
+        assert count >= 0  # table still exists
+
+
+class TestGetLineageInvalidDirection:
+    """Error propagation: invalid direction parameter.
+    derived_from: dimension:error_propagation, dimension:mutation_mindset
+    """
+
+    def test_invalid_direction_raises_value_error(self, db: EntityDatabase):
+        """get_lineage with invalid direction should raise ValueError.
+        Anticipate: If direction validation is missing, an invalid direction
+        might silently return empty or raise an unrelated error.
+        """
+        # Given a registered entity
+        db.register_entity("feature", "f1", "Feature One")
+        # When calling get_lineage with invalid direction
+        with pytest.raises(ValueError, match="[Ii]nvalid direction"):
+            db.get_lineage("feature:f1", direction="sideways")
+
+    def test_none_direction_raises_value_error(self, db: EntityDatabase):
+        """get_lineage with None direction should raise ValueError.
+        Anticipate: If implementation uses `if direction == 'up'` / `elif
+        direction == 'down'` without else, None would fall through silently.
+        """
+        db.register_entity("feature", "f1", "Feature One")
+        with pytest.raises((ValueError, AttributeError, TypeError)):
+            db.get_lineage("feature:f1", direction=None)
+
+
+class TestSetParentConsistencyAfterUpdate:
+    """BDD: AC-29 — parent columns consistent after set_parent.
+    derived_from: spec:AC-29
+    """
+
+    def test_set_parent_produces_consistent_dual_parent_columns(
+        self, db: EntityDatabase,
+    ):
+        """After set_parent, parent_type_id and parent_uuid resolve to same entity.
+        Anticipate: If set_parent updates one column but not the other,
+        the parent columns would be inconsistent.
+        """
+        # Given parent and child entities
+        parent_uuid = db.register_entity("project", "parent", "Parent")
+        child_uuid = db.register_entity("feature", "child", "Child")
+        # When setting parent
+        db.set_parent("feature:child", "project:parent")
+        # Then get_entity shows consistent parent columns
+        child = db.get_entity("feature:child")
+        assert child["parent_type_id"] == "project:parent"
+        assert child["parent_uuid"] == parent_uuid
+        # And resolving parent_uuid returns the same entity as parent_type_id
+        parent_by_uuid = db.get_entity(child["parent_uuid"])
+        parent_by_type_id = db.get_entity(child["parent_type_id"])
+        assert parent_by_uuid["uuid"] == parent_by_type_id["uuid"]
+        assert parent_by_uuid["type_id"] == "project:parent"
+
+    def test_reassign_parent_keeps_both_columns_in_sync(
+        self, db: EntityDatabase,
+    ):
+        """Reassigning parent should update BOTH parent columns atomically.
+        Anticipate: Reassignment might update parent_uuid but leave
+        parent_type_id pointing to old parent.
+        derived_from: spec:AC-28
+        """
+        # Given a child with existing parent
+        p1_uuid = db.register_entity("project", "p1", "Parent 1")
+        p2_uuid = db.register_entity("project", "p2", "Parent 2")
+        child_uuid = db.register_entity(
+            "feature", "child", "Child", parent_type_id="project:p1",
+        )
+        # When reassigning parent
+        db.set_parent("feature:child", "project:p2")
+        # Then both columns reflect the new parent
+        child = db.get_entity("feature:child")
+        assert child["parent_type_id"] == "project:p2"
+        assert child["parent_uuid"] == p2_uuid
+
+
+class TestRootEntityParentUuidIsNone:
+    """Boundary: root entity (no parent) should have NULL parent_uuid.
+    derived_from: dimension:boundary_values
+    """
+
+    def test_root_entity_has_null_parent_uuid(self, db: EntityDatabase):
+        """Root entity (registered without parent) has parent_uuid=None.
+        Anticipate: Migration or register_entity might set parent_uuid
+        to a default value instead of NULL.
+        """
+        # Given a root entity with no parent
+        entity_uuid = db.register_entity("project", "root", "Root Project")
+        # When retrieving it
+        entity = db.get_entity(entity_uuid)
+        # Then both parent columns are None
+        assert entity["parent_type_id"] is None
+        assert entity["parent_uuid"] is None
+
+
+class TestExistingImmutabilityTriggersStillFire:
+    """BDD: AC-8 — existing immutability triggers survive migration.
+    derived_from: spec:AC-8, dimension:mutation_mindset
+    """
+
+    def test_type_id_immutable_via_uuid_lookup(self, db: EntityDatabase):
+        """type_id trigger fires even when entity was found via UUID.
+        Anticipate: If triggers were dropped during migration and not
+        recreated, this would succeed when it should fail.
+        """
+        # Given a registered entity
+        entity_uuid = db.register_entity("feature", "immut", "Immutable Test")
+        # When attempting to change type_id using uuid in WHERE clause
+        with pytest.raises(sqlite3.IntegrityError, match="type_id is immutable"):
+            db._conn.execute(
+                "UPDATE entities SET type_id = 'feature:changed' WHERE uuid = ?",
+                (entity_uuid,),
+            )
+
+    def test_entity_type_immutable_post_migration(self, db: EntityDatabase):
+        """entity_type trigger fires on UUID-identified entity.
+        derived_from: spec:AC-8
+        """
+        entity_uuid = db.register_entity("feature", "immut2", "Immutable Test 2")
+        with pytest.raises(
+            sqlite3.IntegrityError, match="entity_type is immutable"
+        ):
+            db._conn.execute(
+                "UPDATE entities SET entity_type = 'project' WHERE uuid = ?",
+                (entity_uuid,),
+            )
+
+    def test_created_at_immutable_post_migration(self, db: EntityDatabase):
+        """created_at trigger fires on UUID-identified entity.
+        derived_from: spec:AC-8
+        """
+        entity_uuid = db.register_entity("feature", "immut3", "Immutable Test 3")
+        with pytest.raises(
+            sqlite3.IntegrityError, match="created_at is immutable"
+        ):
+            db._conn.execute(
+                "UPDATE entities SET created_at = '2099-01-01T00:00:00' "
+                "WHERE uuid = ?",
+                (entity_uuid,),
+            )
+
+
+class TestRegisterEntityParentUuidPopulation:
+    """BDD: register_entity with parent_type_id also sets parent_uuid.
+    derived_from: spec:R5, spec:AC-29
+    """
+
+    def test_register_with_parent_populates_parent_uuid(
+        self, db: EntityDatabase,
+    ):
+        """register_entity with parent_type_id should set parent_uuid.
+        Anticipate: If register_entity only sets parent_type_id but not
+        parent_uuid, the dual columns would be inconsistent from the start.
+        """
+        # Given a parent entity
+        parent_uuid = db.register_entity("project", "parent", "Parent")
+        # When registering child with parent_type_id
+        child_uuid = db.register_entity(
+            "feature", "child", "Child",
+            parent_type_id="project:parent",
+        )
+        # Then parent_uuid is also populated
+        child = db.get_entity(child_uuid)
+        assert child["parent_type_id"] == "project:parent"
+        assert child["parent_uuid"] == parent_uuid
+
+
+class TestExportLineageWithUuidInput:
+    """BDD: AC-25 — export uses type_id in output even when given UUID input.
+    derived_from: spec:AC-25
+    """
+
+    def test_export_lineage_via_uuid_shows_type_id_labels(
+        self, db: EntityDatabase,
+    ):
+        """export_lineage_markdown(uuid) output uses type_id, not UUID.
+        Anticipate: If the export function passes UUID into rendering
+        without conversion, UUID strings might appear in the output.
+        """
+        # Given a parent-child tree
+        p_uuid = db.register_entity("project", "p1", "Project One")
+        db.register_entity(
+            "feature", "f1", "Feature One",
+            parent_type_id="project:p1",
+        )
+        db.register_entity(
+            "feature", "f2", "Feature Two",
+            parent_type_id="project:p1",
+        )
+        # When exporting via UUID
+        md = db.export_lineage_markdown(p_uuid)
+        # Then output contains type_id strings
+        assert "project:p1" in md or "Project One" in md
+        # And does NOT contain UUID patterns
+        uuid_pattern = re.compile(
+            r'[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-'
+            r'[89ab][0-9a-f]{3}-[0-9a-f]{12}'
+        )
+        assert not uuid_pattern.search(md), (
+            f"Export via UUID should not expose UUIDs in output: {md}"
+        )
+
+
+class TestSetParentReturnValueIsMutationSafe:
+    """Mutation mindset: set_parent returns child UUID, not parent UUID.
+    derived_from: dimension:mutation_mindset, spec:R20
+    """
+
+    def test_set_parent_returns_child_uuid_not_parent(
+        self, db: EntityDatabase,
+    ):
+        """set_parent must return the CHILD's UUID, not the parent's.
+        Anticipate: If implementation swaps the return to parent_uuid,
+        callers relying on the child UUID would get wrong data.
+        """
+        # Given distinct parent and child
+        parent_uuid = db.register_entity("project", "parent", "Parent")
+        child_uuid = db.register_entity("feature", "child", "Child")
+        # When setting parent
+        result = db.set_parent("feature:child", "project:parent")
+        # Then return is child UUID, not parent UUID
+        assert result == child_uuid
+        assert result != parent_uuid
+
+
+class TestResolveIdentifierBranchDiscrimination:
+    """Mutation mindset: _resolve_identifier UUID vs type_id branch.
+    derived_from: dimension:mutation_mindset
+    """
+
+    def test_uuid_branch_queries_uuid_column(self, db: EntityDatabase):
+        """When input matches UUID pattern, lookup uses uuid column.
+        Anticipate: If branches are swapped (UUID input queried against
+        type_id column), lookup would fail for valid UUIDs.
+        """
+        # Given a registered entity
+        entity_uuid = db.register_entity("feature", "branch-test", "Test")
+        # When resolving the UUID
+        result_uuid, result_tid = db._resolve_identifier(entity_uuid)
+        # Then correct uuid and type_id returned
+        assert result_uuid == entity_uuid
+        assert result_tid == "feature:branch-test"
+
+    def test_type_id_branch_queries_type_id_column(self, db: EntityDatabase):
+        """When input does NOT match UUID pattern, lookup uses type_id column.
+        Anticipate: If branches are swapped, type_id input would be queried
+        against uuid column and fail.
+        """
+        # Given a registered entity
+        entity_uuid = db.register_entity("feature", "branch-test2", "Test 2")
+        # When resolving the type_id
+        result_uuid, result_tid = db._resolve_identifier("feature:branch-test2")
+        # Then correct values returned
+        assert result_uuid == entity_uuid
+        assert result_tid == "feature:branch-test2"
+
+    def test_uuid_and_type_id_resolve_to_same_entity(
+        self, db: EntityDatabase,
+    ):
+        """Both branches should resolve to the same entity.
+        Anticipate: If the two code paths use different queries or columns,
+        they might return different results.
+        """
+        # Given a registered entity
+        entity_uuid = db.register_entity("feature", "dual-test", "Dual Test")
+        # When resolving via both paths
+        by_uuid = db._resolve_identifier(entity_uuid)
+        by_tid = db._resolve_identifier("feature:dual-test")
+        # Then both return identical results
+        assert by_uuid == by_tid
+
+
+class TestMigrationIdempotency:
+    """BDD: C4 — migration is idempotent (re-running is a no-op).
+    derived_from: spec:C4, dimension:adversarial
+    """
+
+    def test_double_init_does_not_corrupt(self, tmp_path):
+        """Opening EntityDatabase twice on same file should not re-run migration.
+        Anticipate: If migration idempotency check fails, the second init
+        would attempt to recreate tables that already exist, causing errors.
+        """
+        # Given a database file initialized once
+        db_path = str(tmp_path / "double_init.db")
+        db1 = EntityDatabase(db_path)
+        db1.register_entity("project", "p1", "Project 1")
+        p1_uuid = db1.get_entity("project:p1")["uuid"]
+        db1.close()
+        # When opening it again
+        db2 = EntityDatabase(db_path)
+        # Then data is intact, UUID unchanged
+        entity = db2.get_entity("project:p1")
+        assert entity is not None
+        assert entity["uuid"] == p1_uuid
+        assert db2.get_metadata("schema_version") == "2"
+        db2.close()
+
+
+class TestSelfParentViaUuidInSetParent:
+    """Adversarial: self-parent via UUID in set_parent API call.
+    derived_from: dimension:adversarial, spec:R12
+    """
+
+    def test_self_parent_via_uuid_in_set_parent(self, db: EntityDatabase):
+        """set_parent(uuid, uuid) should reject self-parent.
+        Anticipate: If the self-parent check compares type_id strings
+        instead of UUIDs, passing the same UUID for both params might
+        bypass the check.
+        """
+        # Given a registered entity
+        entity_uuid = db.register_entity("feature", "selfie", "Self Test")
+        # When trying to set itself as parent via UUID
+        with pytest.raises((ValueError, sqlite3.IntegrityError)):
+            db.set_parent(entity_uuid, entity_uuid)
+
+
+class TestGetEntityDictContainsBothIdentifiers:
+    """BDD: AC-17 — entity dict includes both uuid and type_id fields.
+    derived_from: spec:AC-17
+    """
+
+    def test_entity_dict_has_both_uuid_and_type_id(self, db: EntityDatabase):
+        """get_entity result dict must include BOTH uuid and type_id.
+        Anticipate: Schema changes might drop one of the fields from
+        SELECT * results, or dict conversion might exclude columns.
+        """
+        # Given a registered entity
+        entity_uuid = db.register_entity("feature", "both-ids", "Both IDs")
+        # When getting entity
+        entity = db.get_entity(entity_uuid)
+        # Then both fields are present and valid
+        assert "uuid" in entity
+        assert "type_id" in entity
+        assert _UUID_V4_RE.match(entity["uuid"])
+        assert entity["type_id"] == "feature:both-ids"
+
+    def test_lineage_dicts_have_both_identifiers(self, db: EntityDatabase):
+        """get_lineage results must include both uuid and type_id per entry.
+        derived_from: spec:R20
+        """
+        # Given a chain
+        db.register_entity("project", "root", "Root")
+        db.register_entity(
+            "feature", "child", "Child", parent_type_id="project:root",
+        )
+        # When getting lineage
+        lineage = db.get_lineage("feature:child", direction="up")
+        # Then each entry has both fields
+        for entry in lineage:
+            assert "uuid" in entry
+            assert "type_id" in entry
+            assert _UUID_V4_RE.match(entry["uuid"])

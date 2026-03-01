@@ -91,10 +91,9 @@ def _migrate_to_uuid_pk(conn):
         )
     try:
         conn.execute("BEGIN IMMEDIATE")
-        # Pre-migration FK check
+        # Pre-migration FK check (rollback handled by except block below)
         fk_violations = conn.execute("PRAGMA foreign_key_check").fetchall()
         if fk_violations:
-            conn.rollback()
             raise RuntimeError(
                 f"FK violations found before migration: {fk_violations}"
             )
@@ -476,8 +475,10 @@ class EntityDatabase:
 
         if direction == "up":
             return self._lineage_up(resolved_uuid, max_depth)
-        else:
+        elif direction == "down":
             return self._lineage_down(resolved_uuid, max_depth)
+        else:
+            raise ValueError(f"Invalid direction: {direction!r} (expected 'up' or 'down')")
 
     def _lineage_up(self, resolved_uuid: str, max_depth: int) -> list[dict]:
         """Walk up the tree from uuid to root, return root-first."""
@@ -549,11 +550,9 @@ class EntityDatabase:
         ValueError
             If the entity does not exist.
         """
-        # Resolve identifier (accepts both UUID and type_id)
-        existing = self.get_entity(type_id)
-        if existing is None:
-            raise ValueError(f"Entity not found: {type_id!r}")
-        entity_uuid = existing["uuid"]
+        # Resolve identifier directly (accepts both UUID and type_id).
+        # Lets ValueError propagate naturally if entity not found.
+        entity_uuid, _ = self._resolve_identifier(type_id)
 
         set_parts: list[str] = ["updated_at = ?"]
         params: list = [self._now_iso()]
@@ -576,10 +575,14 @@ class EntityDatabase:
                 set_parts.append("metadata = ?")
                 params.append(None)
             else:
-                # Shallow merge with existing
+                # Shallow merge with existing — fetch current metadata
+                row = self._conn.execute(
+                    "SELECT metadata FROM entities WHERE uuid = ?",
+                    (entity_uuid,),
+                ).fetchone()
                 existing_meta = {}
-                if existing["metadata"] is not None:
-                    existing_meta = json.loads(existing["metadata"])
+                if row and row["metadata"] is not None:
+                    existing_meta = json.loads(row["metadata"])
                 existing_meta.update(metadata)
                 set_parts.append("metadata = ?")
                 params.append(json.dumps(existing_meta))
@@ -610,13 +613,13 @@ class EntityDatabase:
             Markdown-formatted tree.
         """
         if type_id is not None:
-            try:
-                root_uuid, _ = self._resolve_identifier(type_id)
-            except ValueError:
-                return ""
+            root_uuid, _ = self._resolve_identifier(type_id)
             return self._export_tree(root_uuid)
 
-        # Find all root entities (no parent)
+        # Find all root entities (no parent).
+        # Uses parent_type_id (not parent_uuid) — both are kept in sync by
+        # set_parent(); parent_type_id is the authoritative column for root
+        # detection since backfill populates it from artifact metadata.
         cur = self._conn.execute(
             "SELECT uuid FROM entities WHERE parent_type_id IS NULL "
             "ORDER BY entity_type, name"

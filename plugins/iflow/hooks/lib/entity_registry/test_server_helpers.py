@@ -6,7 +6,14 @@ import uuid
 
 import pytest
 
-from entity_registry.database import EntityDatabase
+import re
+
+from entity_registry.database import EntityDatabase, _UUID_V4_RE
+
+# Non-anchored version for searching within longer strings
+_UUID_V4_SEARCH_RE = re.compile(
+    r'[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
+)
 from entity_registry.server_helpers import (
     _format_entity_label,
     _process_export_lineage_markdown,
@@ -448,7 +455,6 @@ class TestProcessGetLineage:
 
     def test_process_get_lineage_passes_uuid(self):
         """_process_get_lineage passes UUID (not type_id) to render_tree."""
-        import re
         from unittest.mock import patch
 
         from entity_registry.server_helpers import render_tree
@@ -464,10 +470,6 @@ class TestProcessGetLineage:
                 "feature", "leaf", "Leaf Feature",
                 status="done",
                 parent_type_id="feature:mid",
-            )
-
-            _UUID_V4_RE = re.compile(
-                r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
             )
 
             with patch('entity_registry.server_helpers.render_tree', wraps=render_tree) as mock_rt:
@@ -529,12 +531,12 @@ class TestProcessExportLineageMarkdown:
         expected_path = str(tmp_path / "docs" / "lineage.md")
         assert expected_path in result
 
-    def test_nonexistent_entity_returns_empty(self, db: EntityDatabase):
-        """Export with nonexistent type_id returns empty string."""
+    def test_nonexistent_entity_returns_error(self, db: EntityDatabase):
+        """Export with nonexistent type_id returns error string (ValueError propagates from DB layer)."""
         result = _process_export_lineage_markdown(db, "project:nonexistent", None, "/tmp")
         assert isinstance(result, str)
-        # Empty tree returns empty markdown
-        assert result == ""
+        # ValueError propagates from export_lineage_markdown, caught by _process wrapper
+        assert "error" in result.lower()
 
     def test_never_raises(self, db: EntityDatabase):
         """_process_export_lineage_markdown should never raise."""
@@ -845,3 +847,136 @@ class TestFormatEntityLabelDependsOn:
         assert label == (
             'feature:030-auth-module \u2014 "Auth Module" (active, 2026-02-27)'
         )
+
+
+# ---------------------------------------------------------------------------
+# Deepened tests: Phase B — spec-driven test deepening
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterEntityDualIdentityMessage:
+    """BDD: AC-28/R28 — register message includes both UUID and type_id.
+    derived_from: spec:R28, spec:R34
+    """
+
+    def test_register_message_contains_uuid_and_type_id(
+        self, db: EntityDatabase,
+    ):
+        """_process_register_entity returns message with both UUID and type_id.
+        Anticipate: If message format omits UUID, callers would not get the
+        canonical identifier. If it omits type_id, human-readable context is lost.
+        """
+        # Given a database
+        # When registering an entity
+        result = _process_register_entity(
+            db, "project", "p1", "Project One",
+            artifact_path=None, status="active",
+            parent_type_id=None, metadata=None,
+        )
+        # Then the message contains both UUID and type_id
+        assert "project:p1" in result
+        assert _UUID_V4_SEARCH_RE.search(result), (
+            f"Expected UUID in message, got: {result}"
+        )
+        # And the format matches spec R28: "Registered entity: {uuid} ({type_id})"
+        assert "Registered entity:" in result
+
+    def test_register_existing_entity_message_still_dual_identity(
+        self, db: EntityDatabase,
+    ):
+        """Re-registering shows existing UUID (not a new one).
+        Anticipate: If duplicate registration generates a new UUID and
+        returns it in the message, the displayed UUID wouldn't match
+        the stored UUID.
+        derived_from: spec:AC-15a
+        """
+        # Given an already-registered entity
+        first_result = _process_register_entity(
+            db, "feature", "f1", "Feature One",
+            artifact_path=None, status=None,
+            parent_type_id=None, metadata=None,
+        )
+        first_uuid_match = _UUID_V4_SEARCH_RE.search(first_result)
+        assert first_uuid_match
+        first_uuid = first_uuid_match.group()
+        # When registering again
+        second_result = _process_register_entity(
+            db, "feature", "f1", "Feature One Updated",
+            artifact_path=None, status=None,
+            parent_type_id=None, metadata=None,
+        )
+        second_uuid_match = _UUID_V4_SEARCH_RE.search(second_result)
+        assert second_uuid_match
+        # Then the same UUID appears in both messages
+        assert second_uuid_match.group() == first_uuid
+
+
+class TestRenderTreeUuidKeying:
+    """Mutation mindset: render_tree keys on uuid, not type_id.
+    derived_from: dimension:mutation_mindset, spec:R33
+    """
+
+    def test_render_tree_with_uuid_root_id(self):
+        """render_tree requires UUID as root_id, not type_id.
+        Anticipate: If render_tree still keys on type_id internally,
+        passing a UUID as root_id would fail to find the root.
+        """
+        # Given entities with uuid fields
+        entities = _link_parent_uuids([
+            _make_entity("project:root", "Root", "project"),
+            _make_entity(
+                "feature:child", "Child", "feature",
+                parent_type_id="project:root",
+            ),
+        ])
+        root_uuid = entities[0]["uuid"]
+        # When rendering with UUID root_id
+        result = render_tree(entities, root_uuid)
+        # Then both entities appear in output
+        assert "project:root" in result
+        assert "feature:child" in result
+
+    def test_render_tree_type_id_as_root_returns_empty(self):
+        """Passing type_id (not UUID) as root_id should return empty.
+        Anticipate: If render_tree internally keys by_id on type_id,
+        passing a type_id string would work when it shouldn't.
+        derived_from: dimension:mutation_mindset
+        """
+        # Given entities with uuid fields
+        entities = [
+            _make_entity("project:root", "Root", "project"),
+        ]
+        # When passing type_id as root_id (not UUID)
+        result = render_tree(entities, "project:root")
+        # Then empty string (type_id is not a key in by_id — keyed by uuid)
+        assert result == ""
+
+
+class TestProcessGetLineageUuidRoot:
+    """BDD: _process_get_lineage passes UUID to render_tree for root.
+    derived_from: spec:R33, dimension:mutation_mindset
+    """
+
+    def test_downward_lineage_passes_uuid_root(self, db: EntityDatabase):
+        """_process_get_lineage for downward direction passes uuid root.
+        Anticipate: Downward might use a different code path than upward
+        and might pass type_id instead of uuid to render_tree.
+        """
+        # Given a parent-child tree
+        db.register_entity("project", "root", "Root", status="active")
+        db.register_entity(
+            "feature", "child", "Child",
+            parent_type_id="project:root",
+        )
+        # When getting downward lineage
+        from unittest.mock import patch
+        with patch(
+            'entity_registry.server_helpers.render_tree',
+            wraps=render_tree,
+        ) as mock_rt:
+            _process_get_lineage(db, "project:root", "down", 10)
+            # Then render_tree's root_id arg is a UUID
+            root_arg = mock_rt.call_args.args[1]
+            assert _UUID_V4_RE.match(root_arg), (
+                f"Expected UUID root_id for downward lineage, got: {root_arg}"
+            )

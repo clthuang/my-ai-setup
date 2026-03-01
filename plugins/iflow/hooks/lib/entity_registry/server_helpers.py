@@ -11,7 +11,7 @@ from collections import defaultdict
 
 
 def render_tree(
-    entities: list[dict], root_id: str, max_depth: int = 50
+    entities: list[dict], root_type_id: str, max_depth: int = 50
 ) -> str:
     """Render a flat list of entity dicts as a Unicode box-drawing tree.
 
@@ -20,8 +20,9 @@ def render_tree(
     entities:
         Flat list of entity dicts. Each must have keys: uuid, type_id, name,
         entity_type, status, parent_uuid, created_at.
-    root_id:
-        The UUID of the root node for this tree.
+    root_type_id:
+        The UUID of the root node for this tree. Parameter name retained
+        for API compatibility per spec R33, despite now accepting UUID values.
     max_depth:
         Maximum tree depth to render (default 50).
 
@@ -29,27 +30,31 @@ def render_tree(
     -------
     str
         Formatted tree string with Unicode box-drawing characters.
-        Empty string if entities is empty or root_id not found.
+        Empty string if entities is empty or root_type_id not found.
     """
     if not entities:
         return ""
 
-    # Build lookup and children map keyed by UUID
+    # Build lookup map keyed by UUID (first pass)
     by_id: dict[str, dict] = {}
-    children: dict[str, list[str]] = defaultdict(list)
-
     for entity in entities:
         uid = entity["uuid"]
         by_id[uid] = entity
+
+    # Build children map from parent_uuid (second pass — all entities
+    # already in by_id, so ordering within the flat list doesn't matter)
+    children: dict[str, list[str]] = defaultdict(list)
+    for entity in entities:
+        uid = entity["uuid"]
         parent = entity.get("parent_uuid")
         if parent is not None and parent in by_id:
             children[parent].append(uid)
 
-    if root_id not in by_id:
+    if root_type_id not in by_id:
         return ""
 
     lines: list[str] = []
-    _render_node(by_id, children, root_id, "", True, True, lines, 0, max_depth)
+    _render_node(by_id, children, root_type_id, "", True, True, lines, 0, max_depth)
     return "\n".join(lines)
 
 
@@ -317,8 +322,8 @@ def _process_get_lineage(
         # Determine the root of the rendered tree.
         # For "up" direction, lineage is root-first, so root is first element.
         # For "down" direction, the starting entity is the root.
-        root_id = entities[0]["uuid"]
+        root_type_id = entities[0]["uuid"]
 
-        return render_tree(entities, root_id)
+        return render_tree(entities, root_type_id)
     except Exception as exc:
         return f"Error retrieving lineage: {exc}"
