@@ -230,6 +230,7 @@
   **Done:** Test exists, runs red.
 
 - [ ] **T1.4.2: Wrap migration in try/except/finally**
+  **Pre-step:** Read the current `_migrate_to_uuid_pk` function body in full. Verify it contains: PRAGMA OFF block (T1.1.3), BEGIN IMMEDIATE (T1.1.3), FK check (T1.1.3), CREATE TABLE (T1.1.4), data copy steps (T1.2.3-T1.2.4), DROP+RENAME (T1.2.5), triggers (T1.3.3), indexes (T1.3.4). The refactor only reorganizes existing code — no new logic is added except the except/finally blocks and schema_version UPDATE.
   Restructure `_migrate_to_uuid_pk` by moving the PRAGMA OFF + verify block (from T1.1.3) to BEFORE a new try block. The try block begins with `conn.execute("BEGIN IMMEDIATE")`. Move ALL code from T1.1.3's BEGIN IMMEDIATE onward (FK check, CREATE TABLE, data copy, DROP, RENAME, triggers, indexes) inside the try block. Add schema_version update, commit, except/rollback, and finally/PRAGMA ON. Full skeleton:
   ```python
   def _migrate_to_uuid_pk(conn):
@@ -544,9 +545,10 @@
   Capture UUID return from `db.register_entity(...)`. Construct type_id from inputs: `f"{entity_type}:{entity_id}"`. Format message: `f"Registered entity: {uuid} ({type_id})"`.
   **Done:** Register handler returns message like `"Registered entity: 550e8400-... (feature:001-slug)"`.
 
-- [ ] **T3.2.2: Update _process_get_lineage**
-  Pass `entities[0]["uuid"]` to `render_tree` as root identifier (was `entities[0]["type_id"]`). Error message unchanged (echoes caller's identifier verbatim).
-  **Done:** Lineage handler passes uuid to render_tree.
+- [ ] **T3.2.2: Write test and update _process_get_lineage**
+  First, write `test_process_get_lineage_passes_uuid` in `test_server_helpers.py`: register grandparent → parent → child chain via db, call the lineage process handler with child's type_id, assert the returned tree output contains the child's type_id label (confirming render_tree received a valid root and rendered the tree). Run: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/test_server_helpers.py -k "process_get_lineage" -v --tb=short` — expect test to fail (render_tree receives type_id, not uuid).
+  Then update `_process_get_lineage`: pass `entities[0]["uuid"]` to `render_tree` as root identifier (was `entities[0]["type_id"]`). Error message unchanged (echoes caller's identifier verbatim).
+  **Done:** Run `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/test_server_helpers.py -k "process_get_lineage" -v --tb=short`, test passes.
 
 ## Phase 4: MCP Server
 
@@ -600,7 +602,7 @@
 ### 5.1 Existing Test Assertion Updates
 
 - [ ] **T5.1.1: Update schema assertion tests**
-  Update and rename these tests in `test_database.py` (search from project root: `grep -n "def test_entities_has_10\|def test_has_five_triggers\|def test_has_three_indexes" plugins/iflow/hooks/lib/entity_registry/test_database.py` to confirm no other references):
+  Update and rename these tests in `test_database.py` (search from project root to confirm no other references: `grep -n "def test_entities_has_10\|def test_has_five_triggers\|def test_has_three_indexes\|def test_schema_version_is_1\|def test_type_id_is_primary" plugins/iflow/hooks/lib/entity_registry/test_database.py`):
   - `test_entities_has_10_columns` → rename to `test_entities_has_12_columns`, assert 12 columns
   - `test_entities_column_names` → add `uuid`, `parent_uuid` to expected list
   - `test_type_id_is_primary_key` → assert `uuid` is PK, `type_id` is NOT PK (rename to `test_uuid_is_primary_key`)
@@ -628,7 +630,7 @@
   **Done:** 0 failures.
 
 - [ ] **T5.2.2: Verify test count and backfill compatibility**
-  Verify 17 new test functions (15 from design C6 list + `test_update_entity_with_uuid` from T2.5.1 + `test_init_already_migrated_db` from T1.4.4). Hard minimum remains 10 per AC-27. Count new tests: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/test_database.py --collect-only -q | grep 'test_' | wc -l`. Verify backfill imports succeed (requires PYTHONPATH):
+  Verify 17 new test functions added by this feature (15 from design C6 list + `test_update_entity_with_uuid` from T2.5.1 + `test_init_already_migrated_db` from T1.4.4 — the plan's target of 16 omits `test_init_already_migrated_db`; 17 is the correct count). Hard minimum remains 10 per AC-27. Count new tests by matching new function names: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/test_database.py --collect-only -q | grep 'test_' | wc -l`. Verify backfill imports succeed (requires PYTHONPATH):
   ```bash
   PYTHONPATH=plugins/iflow/hooks/lib plugins/iflow/.venv/bin/python -c "from entity_registry.backfill import scan_and_register; print(scan_and_register)"
   ```
