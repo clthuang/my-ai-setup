@@ -70,7 +70,7 @@
 - [ ] Test AC-6: missing each required field individually returns error with field name
 - [ ] Test AC-7: invalid UUID format returns validation error
 - [ ] Test: valid UUID (lowercase) returns no error
-- [ ] Test: valid UUID (uppercase input) returns no error (`.lower()` before regex)
+- [ ] Test: header dict with `entity_uuid` containing uppercase hex (e.g., `"A1B2C3D4-E5F6-4A7B-8C9D-0E1F2A3B4C5D"`) returns empty errors list — lowercased before regex match
 - [ ] Test: invalid `artifact_type` returns validation error
 - [ ] Test: each valid `artifact_type` returns no error
 - [ ] Test: invalid `created_at` (not ISO 8601) returns validation error
@@ -133,7 +133,7 @@
 - [ ] Accumulate lines until closing `---` or EOF
 - [ ] If EOF without closing delimiter: warn, return None
 - [ ] Pass accumulated lines to `_parse_block()`
-- [ ] Handle FileNotFoundError: return None + warning
+- [ ] Handle `FileNotFoundError`: catch → `logger.warning("File not found: %s", filepath)` → return `None`. Do NOT re-raise — `read_frontmatter` is always non-raising (unlike `write_frontmatter` which re-raises as `ValueError` per I2)
 
 **Done when:** All Task 3.1.1 tests pass (GREEN phase).
 
@@ -151,8 +151,8 @@
 - [ ] Test AC-18: existing optional field + `""` in new headers removes field
 - [ ] Test TD-9: existing `created_at` preserved when new headers differ
 - [ ] Test: file does not exist raises `ValueError`
-- [ ] Test: merge — existing key not in new headers is preserved
-- [ ] Test: merge — new key not in existing is added
+- [ ] Test: merge — pre-write file with `write_frontmatter` containing `{entity_uuid, entity_type_id, artifact_type, created_at, feature_id}`, then call `write_frontmatter` again with only `{entity_uuid, artifact_type}` — verify `feature_id` still present in output (preserved key)
+- [ ] Test: merge — pre-write file with `write_frontmatter` containing `{entity_uuid, entity_type_id, artifact_type, created_at}`, then call `write_frontmatter` with `{entity_uuid, artifact_type, feature_id}` — verify `feature_id` now present in output (added key)
 - [ ] Test: validation failure after merge raises `ValueError`, file unchanged
 
 **Done when:** 12 test cases exist and all FAIL (RED phase).
@@ -163,8 +163,9 @@
 - [ ] Test: binary content guard — file with null bytes raises `ValueError`, file unchanged
 - [ ] Test: divergence guard — `read_frontmatter(path)` returns same header as write's internal read
 - [ ] Test: body starting with `---` (markdown horizontal rule) — read logic stops at correct delimiter
+- [ ] Test: structural independence — patch `read_frontmatter` to raise `AssertionError`; call `write_frontmatter`; confirm no `AssertionError` raised (verifies internal read logic is independent of `read_frontmatter`)
 
-**Done when:** 5 test cases exist and all FAIL (RED phase).
+**Done when:** 6 test cases exist and all FAIL (RED phase).
 
 ### Task 4.1.3: Implement `write_frontmatter`
 - [ ] Implement `write_frontmatter(filepath: str, headers: dict) -> None` per I2
@@ -208,7 +209,7 @@
 - [ ] Define `ARTIFACT_BASENAME_MAP` constant (TD-6)
 - [ ] Define `ARTIFACT_PHASE_MAP` constant (I5 step 7)
 
-**Done when:** Script file exists with all imports and constants; `python frontmatter_inject.py` runs without import error (exits with usage message).
+**Done when:** Run: `plugins/iflow/.venv/bin/python plugins/iflow/hooks/lib/entity_registry/frontmatter_inject.py` — exits with non-zero and prints usage to stderr (no `ImportError` or traceback).
 
 ### Task 5.1.2: Implement helper function stubs
 - [ ] Add `_parse_feature_type_id(type_id: str) -> tuple[str, str | None]` with `raise NotImplementedError`
@@ -236,16 +237,16 @@
 
 ### Task 5.3.1: Pre-verify EntityDatabase API
 - [ ] Run: `grep -n "def get_entity" plugins/iflow/hooks/lib/entity_registry/database.py` — confirm method exists
-- [ ] Run: `grep -n "_resolve_identifier" plugins/iflow/hooks/lib/entity_registry/database.py` — confirm get_entity delegates to resolver
+- [ ] Run: `grep -A 10 "def get_entity" plugins/iflow/hooks/lib/entity_registry/database.py | grep "_resolve_identifier"` — confirm get_entity's body delegates to _resolve_identifier
 - [ ] If `get_entity()` only accepts UUID (not type_id), add a comment at the top of Task 5.3.3 noting the alternative call path
 
-**Done when:** Both grep commands return matching lines confirming get_entity exists and uses _resolve_identifier.
+**Done when:** First grep returns the method definition line; second grep returns a line showing `_resolve_identifier` is called within get_entity's body.
 
 ### Task 5.3.2: Pre-verify EntityDatabase teardown API
 - [ ] Read `database.py` for `close()` method, `__exit__` support, or other teardown
-- [ ] Document which teardown method is available for Phase 7 integration tests
+- [ ] Add a comment block to `test_frontmatter.py` before the `TestFrontmatterInjectCLI` class placeholder: `# DB teardown: EntityDatabase.<method>() confirmed available (database.py:<line>)`
 
-**Done when:** Teardown method identified and documented.
+**Done when:** Comment exists in `test_frontmatter.py` specifying the teardown method name and its line number in `database.py`.
 
 ### Task 5.3.3: Implement main function
 - [ ] Parse `sys.argv` — expect 3 args, print usage + exit 1 if wrong
@@ -290,7 +291,7 @@
 - [ ] Add fixture: create temp dir with file-based test DB (`EntityDatabase(str(tmp_path / "test.db"))`)
 - [ ] Add fixture: create temp artifact file (`spec.md` with markdown content)
 - [ ] Add DB teardown: use `db.close()` if available, otherwise `with`-block via `__exit__`, otherwise `del db` — use method confirmed in Task 5.3.2
-- [ ] Add subprocess invocation helper: `subprocess.run([sys.executable, script_path, ...], env={PYTHONPATH, ENTITY_DB_PATH})`
+- [ ] Add subprocess invocation helper: `subprocess.run([sys.executable, script_path, ...], env={PYTHONPATH, ENTITY_DB_PATH})` where `PYTHONPATH = str(Path(__file__).parent.parent)` (resolves to `hooks/lib/` — the test file is in `hooks/lib/entity_registry/`, so `parent.parent` is `hooks/lib/`)
 
 **Done when:** Test class exists with fixtures; subprocess invocation runs without import errors.
 
