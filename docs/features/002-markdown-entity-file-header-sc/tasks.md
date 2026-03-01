@@ -151,7 +151,7 @@
 - [ ] Test AC-18: existing optional field + `""` in new headers removes field
 - [ ] Test TD-9: existing `created_at` preserved when new headers differ
 - [ ] Test: file does not exist raises `ValueError`
-- [ ] Test: merge — pre-write file with `write_frontmatter` containing `{entity_uuid, entity_type_id, artifact_type, created_at, feature_id}`, then call `write_frontmatter` again with only `{entity_uuid, artifact_type}` — verify `feature_id` still present in output (preserved key)
+- [ ] Test: merge-preserve — pre-write file via `write_frontmatter` with full valid header `{"entity_uuid": uuid, "entity_type_id": tid, "artifact_type": at, "created_at": ts, "feature_id": fid}`. Then call `write_frontmatter` with partial dict `{"entity_uuid": same_uuid, "artifact_type": same_at}` (intentionally omits required fields — relies on merge to preserve from existing). Assert `feature_id` still present in output
 - [ ] Test: merge — pre-write file with `write_frontmatter` containing `{entity_uuid, entity_type_id, artifact_type, created_at}`, then call `write_frontmatter` with `{entity_uuid, artifact_type, feature_id}` — verify `feature_id` now present in output (added key)
 - [ ] Test: validation failure after merge raises `ValueError`, file unchanged
 
@@ -209,7 +209,7 @@
 - [ ] Define `ARTIFACT_BASENAME_MAP` constant (TD-6)
 - [ ] Define `ARTIFACT_PHASE_MAP` constant (I5 step 7)
 
-**Done when:** Run: `plugins/iflow/.venv/bin/python plugins/iflow/hooks/lib/entity_registry/frontmatter_inject.py` — exits with non-zero and prints usage to stderr (no `ImportError` or traceback).
+**Done when:** Run: `plugins/iflow/.venv/bin/python -c "import entity_registry.frontmatter_inject"` (with `PYTHONPATH` set to `hooks/lib/`) — exits with code 0, no `ImportError` or traceback.
 
 ### Task 5.1.2: Implement helper function stubs
 - [ ] Add `_parse_feature_type_id(type_id: str) -> tuple[str, str | None]` with `raise NotImplementedError`
@@ -222,7 +222,7 @@
 - [ ] Test: `ARTIFACT_PHASE_MAP` contains all 6 artifact types
 - [ ] Test: `_parse_feature_type_id("feature:002-some-slug")` returns `("002", "some-slug")`
 - [ ] Test: `_parse_feature_type_id("feature:noseparator")` returns `("noseparator", None)`
-- [ ] Test: `_parse_feature_type_id("feature:")` — edge case, empty entity_id
+- [ ] Test: `_parse_feature_type_id("feature:")` returns `("", None)` — empty string entity_id, no slug
 - [ ] Test: `_extract_project_id("project:P001")` returns `"P001"`
 - [ ] Test: `_extract_project_id("brainstorm:abc")` returns `None`
 - [ ] Test: `_extract_project_id(None)` returns `None`
@@ -244,9 +244,9 @@
 
 ### Task 5.3.2: Pre-verify EntityDatabase teardown API
 - [ ] Read `database.py` for `close()` method, `__exit__` support, or other teardown
-- [ ] Add a comment block to `test_frontmatter.py` before the `TestFrontmatterInjectCLI` class placeholder: `# DB teardown: EntityDatabase.<method>() confirmed available (database.py:<line>)`
+- [ ] Add a standalone comment block near the bottom of `test_frontmatter.py` (after the last existing test class): `# DB teardown: EntityDatabase.<method>() confirmed available (database.py:<line>)` — this comment will be superseded by the `TestFrontmatterInjectCLI` class definition in Task 7.1.1
 
-**Done when:** Comment exists in `test_frontmatter.py` specifying the teardown method name and its line number in `database.py`.
+**Done when:** Comment exists near the bottom of `test_frontmatter.py` specifying the teardown method name and its line number in `database.py`.
 
 ### Task 5.3.3: Implement main function
 - [ ] Parse `sys.argv` — expect 3 args, print usage + exit 1 if wrong
