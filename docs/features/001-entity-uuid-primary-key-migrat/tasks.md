@@ -44,6 +44,7 @@
       raise RuntimeError(f"FK violations found before migration: {fk_violations}")
   ```
   **Done:** Function exists. PRAGMA OFF executes and verifies. BEGIN IMMEDIATE starts transaction. FK check runs pre-migration.
+  **Note:** This function body will be restructured in T1.4.2 — the PRAGMA OFF+verify block will move before a try block, and BEGIN IMMEDIATE through FK check will move inside try. Write the code as listed here; T1.4.2 is an explicit refactor step that wraps it.
 
 - [ ] **T1.1.4: Add CREATE TABLE entities_new DDL**
   Inside `_migrate_to_uuid_pk`, after FK check, add step 4:
@@ -153,42 +154,42 @@
   **Done:** Assertions added to existing test.
 
 - [ ] **T1.3.3: Implement trigger recreation — all 8 triggers**
-  After RENAME, create all 8 triggers. **Existing 5** (copy exact DDL from Migration 1 `_create_initial_schema`):
+  After RENAME, create all 8 triggers using `CREATE TRIGGER IF NOT EXISTS` for all triggers (matches Migration 1 DDL style and prevents failures on partial-run recovery). **Existing 5** (based on Migration 1 `_create_initial_schema`, with IS NOT NULL guard added intentionally to self-parent triggers — the original triggers omit the guard, but NULL = type_id evaluates to UNKNOWN in SQL so the trigger never fires on NULL anyway; the guard makes intent explicit and matches the new uuid self-parent triggers):
   ```sql
-  CREATE TRIGGER enforce_immutable_type_id
+  CREATE TRIGGER IF NOT EXISTS enforce_immutable_type_id
       BEFORE UPDATE OF type_id ON entities
       BEGIN SELECT RAISE(ABORT, 'type_id is immutable'); END;
 
-  CREATE TRIGGER enforce_immutable_entity_type
+  CREATE TRIGGER IF NOT EXISTS enforce_immutable_entity_type
       BEFORE UPDATE OF entity_type ON entities
       BEGIN SELECT RAISE(ABORT, 'entity_type is immutable'); END;
 
-  CREATE TRIGGER enforce_immutable_created_at
+  CREATE TRIGGER IF NOT EXISTS enforce_immutable_created_at
       BEFORE UPDATE OF created_at ON entities
       BEGIN SELECT RAISE(ABORT, 'created_at is immutable'); END;
 
-  CREATE TRIGGER enforce_no_self_parent
+  CREATE TRIGGER IF NOT EXISTS enforce_no_self_parent
       BEFORE INSERT ON entities
       WHEN NEW.parent_type_id IS NOT NULL AND NEW.parent_type_id = NEW.type_id
       BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent'); END;
 
-  CREATE TRIGGER enforce_no_self_parent_update
+  CREATE TRIGGER IF NOT EXISTS enforce_no_self_parent_update
       BEFORE UPDATE OF parent_type_id ON entities
       WHEN NEW.parent_type_id IS NOT NULL AND NEW.parent_type_id = NEW.type_id
       BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent'); END;
   ```
   **New 3** (R10, R12):
   ```sql
-  CREATE TRIGGER enforce_immutable_uuid
+  CREATE TRIGGER IF NOT EXISTS enforce_immutable_uuid
       BEFORE UPDATE OF uuid ON entities
       BEGIN SELECT RAISE(ABORT, 'uuid is immutable'); END;
 
-  CREATE TRIGGER enforce_no_self_parent_uuid_insert
+  CREATE TRIGGER IF NOT EXISTS enforce_no_self_parent_uuid_insert
       BEFORE INSERT ON entities
       WHEN NEW.parent_uuid IS NOT NULL AND NEW.parent_uuid = NEW.uuid
       BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent'); END;
 
-  CREATE TRIGGER enforce_no_self_parent_uuid_update
+  CREATE TRIGGER IF NOT EXISTS enforce_no_self_parent_uuid_update
       BEFORE UPDATE OF parent_uuid ON entities
       WHEN NEW.parent_uuid IS NOT NULL AND NEW.parent_uuid = NEW.uuid
       BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent'); END;
@@ -208,16 +209,24 @@
 ### 1.4 Migration Error Handling + Idempotency
 
 - [ ] **T1.4.1: Write test_migration_rollback_on_failure**
-  Create test that builds v1 DB with 2+ entities. Call `_migrate_to_uuid_pk(conn)` directly (not via EntityDatabase) so the test controls the conn object. Monkeypatch `conn.execute` with a call-count side_effect that raises on the DROP TABLE call:
+  Create test that builds v1 DB with 2+ entities. Call `_migrate_to_uuid_pk(wrapped_conn)` with a Python wrapper that intercepts the DROP TABLE call. Note: `sqlite3.Connection.execute` is a C extension method — `monkeypatch.setattr` cannot patch it on instances. Use a thin wrapper class instead:
   ```python
-  original_execute = conn.execute
-  def patched_execute(sql, *args, **kwargs):
-      if isinstance(sql, str) and "DROP TABLE" in sql:
-          raise RuntimeError("injected")
-      return original_execute(sql, *args, **kwargs)
-  monkeypatch.setattr(conn, "execute", patched_execute)
+  class FailOnDropConn:
+      """Proxy that delegates to real conn but raises on DROP TABLE."""
+      def __init__(self, real_conn):
+          self._real = real_conn
+      def execute(self, sql, *args, **kwargs):
+          if isinstance(sql, str) and "DROP TABLE" in sql:
+              raise RuntimeError("injected")
+          return self._real.execute(sql, *args, **kwargs)
+      def __getattr__(self, name):
+          return getattr(self._real, name)
+
+  wrapped = FailOnDropConn(conn)
+  with pytest.raises(RuntimeError, match="injected"):
+      _migrate_to_uuid_pk(wrapped)
   ```
-  After calling `_migrate_to_uuid_pk(conn)` (expect it to raise), verify: original v1 schema intact (type_id is PK, no uuid column), `_metadata.schema_version` remains `'1'`, all data preserved.
+  After the raised exception, verify on the ORIGINAL `conn` (not `wrapped`): original v1 schema intact (type_id is PK, no uuid column), `_metadata.schema_version` remains `'1'`, all data preserved.
   **Done:** Test exists, runs red.
 
 - [ ] **T1.4.2: Wrap migration in try/except/finally**
@@ -258,7 +267,9 @@
           # Re-enable FKs — runs on both success and failure
           conn.execute("PRAGMA foreign_keys = ON")
       # Post-migration FK check — outside try, after commit
-      conn.execute("PRAGMA foreign_key_check")
+      post_violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+      if post_violations:
+          raise RuntimeError(f"FK violations after migration: {post_violations}")
   ```
   Key restructure: the PRAGMA OFF and verify from T1.1.3 are now BEFORE the try block (they were previously at the start of the function body without try wrapping). Everything from BEGIN IMMEDIATE onward moves inside try.
   **Done:** `test_migration_rollback_on_failure` passes (rollback restores v1 schema, PRAGMA ON always re-enabled).
@@ -323,7 +334,12 @@
   2. Add `uuid` to the INSERT column list and `entity_uuid` to the VALUES tuple
   3. After INSERT OR IGNORE (before the existing `self._conn.commit()`), add: `result = self._conn.execute("SELECT uuid FROM entities WHERE type_id = ?", (type_id,)).fetchone()`
   4. Change the return statement from `return type_id` to `return result["uuid"]`
-  **Done:** Both register UUID tests pass. **Expected failures after this task:** `test_insert_or_ignore_idempotency`, `TestRegisterEntity.test_happy_path`, `TestRegisterEntity.test_type_id_auto_constructed`, `TestRegisterEntity.test_all_valid_types` will fail because they assert type_id return values — these are fixed in T5.1.2. Between T2.2.2 and T5.1.2, run only the new UUID-specific tests: `pytest -k "uuid" plugins/iflow/hooks/lib/entity_registry/test_database.py`.
+  5. Update existing tests that assert type_id return values so the suite stays green:
+     - `test_insert_or_ignore_idempotency`: change return assertion to check UUID v4 format (`_UUID_V4_RE.match(result)`)
+     - `TestRegisterEntity.test_happy_path`: change `assert result == "feature:test-id"` to `assert _UUID_V4_RE.match(result)`
+     - `TestRegisterEntity.test_type_id_auto_constructed`: same UUID format assertion
+     - `TestRegisterEntity.test_all_valid_types`: same UUID format assertion
+  **Done:** Both new register UUID tests pass AND all 4 updated existing tests pass. Suite stays green.
 
 ### 2.3 `set_parent` Update
 
@@ -441,7 +457,7 @@
   **Done:** `test_get_lineage_with_uuid` passes.
 
 - [ ] **T2.5.3: Update update_entity implementation**
-  Replace identifier resolution:
+  Replace identifier resolution. Use `self.get_entity(identifier)` (not `_resolve_identifier` directly) because the existing `update_entity` body uses `existing["metadata"]` for a JSON shallow merge further down in the method — the full entity dict is required, not just the UUID:
   ```python
   existing = self.get_entity(identifier)
   if existing is None:
@@ -480,7 +496,7 @@
      ORDER BY t.depth ASC, e.entity_type, e.name
      ```
      Bind `(root_uuid, max_depth)`.
-  4. Update truncation check (find by searching `_export_tree` for `"parent_type_id IN"` or `"leaf_ids"` — near the bottom of the method): build `leaf_ids` from `row["uuid"]` (not `row["type_id"]`) at deepest level, then check:
+  4. Update truncation check. Locate it: `grep -n 'parent_type_id IN\|leaf_ids\|LIMIT 1' plugins/iflow/hooks/lib/entity_registry/database.py`. Find the `SELECT 1 FROM entities WHERE parent_type_id IN (...) LIMIT 1` query. Replace: build `leaf_ids` from `row["uuid"]` (not `row["type_id"]`) at deepest level, and change WHERE clause from `parent_type_id` to `parent_uuid`:
      ```sql
      SELECT 1 FROM entities WHERE parent_uuid IN ({placeholders}) LIMIT 1
      ```
@@ -516,7 +532,7 @@
   )
   ```
   Run render_tree tests to verify they compile: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/test_server_helpers.py -k "render_tree" -v`
-  **Done:** Existing render_tree tests compile without KeyError and pass. Tests that assert register message format (e.g., `"Registered entity: feature:..."`) are expected to fail at this point — they are fixed in T5.1.4. Run only render_tree tests with `-k "render_tree"` to confirm.
+  **Done:** Existing render_tree tests compile without KeyError and pass. Verify with: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/test_server_helpers.py -k "render_tree" -v --tb=short`. **Known failing tests at this point** (NOT regressions — intentionally deferred to T5.1.4): `test_process_register_entity_new`, `test_process_register_entity_existing`, and any other tests asserting `"Registered entity: feature:..."` message format. These are fixed in T5.1.4 when the dual-identity format is applied.
 
 - [ ] **T3.1.2: Update render_tree internals**
   Key `by_id` on `entity["uuid"]`, build `children` from `entity.get("parent_uuid")`, root lookup uses uuid. Update `_render_node` to traverse uuid keys. `_format_entity_label` unchanged.
@@ -541,30 +557,37 @@
 
 - [ ] **T4.1.1: Verify pytest-asyncio and write MCP handler tests**
   Verify pytest-asyncio: `plugins/iflow/.venv/bin/python -c "import pytest_asyncio; print(pytest_asyncio.__version__)"`. If import fails, install: `plugins/iflow/.venv/bin/pip install pytest-asyncio`.
-  Before writing tests, read `plugins/iflow/mcp/entity_server.py` to find how `_db` is declared (search for `_db` at module level). Determine: is it a module-level `EntityDatabase` instance, lazily initialized (`_db = None`), or set via an init function? Document the pattern found:
-  - If module-level instance: monkeypatching `entity_server._db = EntityDatabase(":memory:")` is sufficient.
-  - If lazily initialized (e.g., `_db = None` with a guard in handlers): monkeypatch must also bypass or mock the guard check.
-  - If set via init function: call the init function with `:memory:` path, or monkeypatch the return.
+  `_db` is a module-level `None` initialized via lifespan (`_db: EntityDatabase | None = None`). Each handler has a `if _db is None` guard. Use `monkeypatch.setattr(entity_server, "_db", EntityDatabase(":memory:"))` in test setup — the guard is bypassed because `_db` is no longer `None`.
   Create new test file `plugins/iflow/hooks/lib/entity_registry/test_entity_server.py`. Write two tests using `@pytest.mark.asyncio`:
-  - `test_set_parent_handler_dual_identity_message`: Set up `_db` per the pattern discovered above, register parent + child, call `set_parent` handler, assert response text contains both UUID and type_id.
+  - `test_set_parent_handler_dual_identity_message`: Set up `_db` via monkeypatch as above, register parent + child via `entity_server._db.register_entity(...)`, call `set_parent` handler, assert response text contains both UUID and type_id.
   - `test_update_entity_handler_dual_identity_message`: Same setup, register entity, call `update_entity` handler, assert response contains both UUID and type_id.
-  **Done:** Tests exist, run red. pytest-asyncio installed. _db initialization pattern documented in test file comments.
+  **Done:** Tests exist, run red. pytest-asyncio installed.
 
 - [ ] **T4.1.2: Update set_parent handler message**
-  In `entity_server.py` set_parent handler (around line 150-152):
+  In `entity_server.py`, find the set_parent handler (`grep -n 'set_parent' plugins/iflow/mcp/entity_server.py`). Replace the try-block body (keep existing try/except wrapper intact):
   ```python
-  child_uuid = db.set_parent(type_id, parent_type_id)
-  child = db.get_entity(child_uuid)
-  parent = db.get_entity(child["parent_uuid"])
-  return f"Set parent of {child_uuid} ({child['type_id']}) to {child['parent_uuid']} ({parent['type_id']})"
+  try:
+      child_uuid = _db.set_parent(type_id, parent_type_id)
+      child = _db.get_entity(child_uuid)
+      parent = _db.get_entity(child["parent_uuid"])
+      return f"Set parent of {child_uuid} ({child['type_id']}) to {child['parent_uuid']} ({parent['type_id']})"
+  except Exception as exc:
+      return f"Error setting parent: {exc}"
   ```
   **Done:** `test_set_parent_handler_dual_identity_message` passes.
 
 - [ ] **T4.1.3: Update update_entity handler message**
-  After `db.update_entity(...)`, add:
+  In `entity_server.py`, find the update_entity handler (`grep -n 'update_entity' plugins/iflow/mcp/entity_server.py`). Replace the try-block body (keep existing try/except wrapper intact). The existing `_db.update_entity(...)` call stays — add a get_entity call after it and replace the return:
   ```python
-  entity = db.get_entity(type_id)
-  return f"Updated entity: {entity['uuid']} ({entity['type_id']})"
+  try:
+      _db.update_entity(
+          type_id, name=name, status=status,
+          artifact_path=artifact_path, metadata=parse_metadata(metadata),
+      )
+      entity = _db.get_entity(type_id)
+      return f"Updated entity: {entity['uuid']} ({entity['type_id']})"
+  except Exception as exc:
+      return f"Error updating entity: {exc}"
   ```
   **Done:** `test_update_entity_handler_dual_identity_message` passes.
 
@@ -577,7 +600,7 @@
 ### 5.1 Existing Test Assertion Updates
 
 - [ ] **T5.1.1: Update schema assertion tests**
-  Update and rename these tests in `test_database.py` (search with `grep -n "def test_entities_has_10\|def test_has_five_triggers\|def test_has_three_indexes" test_database.py` to confirm no other references):
+  Update and rename these tests in `test_database.py` (search from project root: `grep -n "def test_entities_has_10\|def test_has_five_triggers\|def test_has_three_indexes" plugins/iflow/hooks/lib/entity_registry/test_database.py` to confirm no other references):
   - `test_entities_has_10_columns` → rename to `test_entities_has_12_columns`, assert 12 columns
   - `test_entities_column_names` → add `uuid`, `parent_uuid` to expected list
   - `test_type_id_is_primary_key` → assert `uuid` is PK, `type_id` is NOT PK (rename to `test_uuid_is_primary_key`)
@@ -586,8 +609,8 @@
   - `test_has_three_indexes` → rename to `test_has_four_indexes`, assert 4 indexes, sorted list: `idx_entity_type`, `idx_parent_type_id`, `idx_parent_uuid`, `idx_status`
   **Done:** All schema assertion tests renamed and pass with new values.
 
-- [ ] **T5.1.2: Update return value assertion tests**
-  Update `test_insert_or_ignore_idempotency`, `TestRegisterEntity.test_happy_path`, `TestRegisterEntity.test_type_id_auto_constructed`, `TestRegisterEntity.test_all_valid_types`, `TestSetParent.test_happy_path` to assert UUID v4 format returns (match `_UUID_V4_RE`).
+- [ ] **T5.1.2: Update set_parent return value assertion tests**
+  Update `TestSetParent.test_happy_path` to assert UUID v4 format return (match `_UUID_V4_RE`). Note: `register_entity` return value tests (`test_insert_or_ignore_idempotency`, `TestRegisterEntity.test_happy_path`, `TestRegisterEntity.test_type_id_auto_constructed`, `TestRegisterEntity.test_all_valid_types`) were already updated in T2.2.2 to keep the suite green.
   **Done:** Return value tests pass.
 
 - [ ] **T5.1.3: Update raw SQL INSERT tests**
@@ -605,7 +628,7 @@
   **Done:** 0 failures.
 
 - [ ] **T5.2.2: Verify test count and backfill compatibility**
-  Verify 16+ new test functions (15 from C6 + `test_update_entity_with_uuid` + `test_init_already_migrated_db`). Verify backfill imports succeed (requires PYTHONPATH):
+  Verify 17 new test functions (15 from design C6 list + `test_update_entity_with_uuid` from T2.5.1 + `test_init_already_migrated_db` from T1.4.4). Hard minimum remains 10 per AC-27. Count new tests: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/test_database.py --collect-only -q | grep 'test_' | wc -l`. Verify backfill imports succeed (requires PYTHONPATH):
   ```bash
   PYTHONPATH=plugins/iflow/hooks/lib plugins/iflow/.venv/bin/python -c "from entity_registry.backfill import scan_and_register; print(scan_and_register)"
   ```
@@ -630,9 +653,9 @@ T1.4.4 → T2.1.1 → T2.1.2 ──┐
                             ├→ T2.3.1 → T2.3.2
                             │          ↓
                             ├→ T2.4.1 → T2.4.2 ──┐ (parallel group B)
-                            │  T2.5.1 → T2.5.2 ──┤
-                            │          T2.4.2 → T2.5.3 ┤ (T2.5.3 depends on T2.4.2)
-                            │                             ↓
+                            │  T2.5.1 → T2.5.2 ──┤ (get_lineage — independent of T2.5.3)
+                            │          T2.4.2 ──→ T2.5.3  (update_entity — needs get_entity from T2.4.2)
+                            │                      ↓
                             └→ T2.6.1 → T2.6.2
 
 T2.6.2 → T3.1.1 → T3.1.2 → T3.2.1
