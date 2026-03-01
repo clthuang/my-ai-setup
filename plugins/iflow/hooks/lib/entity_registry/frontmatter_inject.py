@@ -136,6 +136,7 @@ def main() -> None:
     )
 
     # 4. Instantiate EntityDatabase and look up entity
+    db = None
     try:
         db = EntityDatabase(db_path)
     except (sqlite3.Error, OSError) as exc:
@@ -190,7 +191,8 @@ def main() -> None:
         logger.warning("Frontmatter injection I/O error: %s", exc)
         sys.exit(0)
     finally:
-        db.close()
+        if db is not None:
+            db.close()
 
 
 if __name__ == "__main__":

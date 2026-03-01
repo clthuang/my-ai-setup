@@ -521,10 +521,12 @@ class TestWriteFrontmatter:
 
         header = _full_header()
         write_frontmatter(fpath, header)
-        content_after_first = open(fpath, "r", encoding="utf-8").read()
+        with open(fpath, "r", encoding="utf-8") as f:
+            content_after_first = f.read()
 
         write_frontmatter(fpath, header)
-        content_after_second = open(fpath, "r", encoding="utf-8").read()
+        with open(fpath, "r", encoding="utf-8") as f:
+            content_after_second = f.read()
 
         assert content_after_first == content_after_second
 
