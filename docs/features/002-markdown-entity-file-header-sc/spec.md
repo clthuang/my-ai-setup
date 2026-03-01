@@ -2,9 +2,11 @@
 
 ## Problem Statement
 
-iflow workflow phases produce markdown artifact files (spec.md, design.md, plan.md, tasks.md, retro.md) that contain no embedded identity metadata. Entity identity lives exclusively in `.meta.json` sidecar files and the entity registry DB. If a markdown file is moved, copied, or viewed outside the context of its parent directory, the link between file content and entity identity is lost. Feature 003 (bidirectional UUID sync) depends on a defined header schema to establish the file-to-DB linkage invariant: "UUID in MD file header = foreign key to DB record; file renames don't break linkage" (roadmap.md line 125).
+iflow markdown artifact files carry no embedded identity metadata, causing the link between file content and entity registry records to break when files are moved, copied, or viewed outside their parent directory.
 
-**PRD Traceability:** This feature implements PRD Section "M0: Identity and Taxonomy Foundations" — specifically the bidirectional sync invariant prerequisite (PRD → roadmap.md decomposition → feature 002). The PRD defines high-level goals; the roadmap materializes them as features with dependency ordering. Feature 002 defines the schema; feature 003 implements the sync mechanism.
+### Traceability
+
+This feature implements PRD Section "M0: Identity and Taxonomy Foundations" — specifically the bidirectional sync invariant prerequisite (PRD → roadmap.md decomposition → feature 002). The PRD defines high-level goals; the roadmap materializes them as features with dependency ordering. Feature 002 defines the schema; feature 003 implements the sync mechanism. The file-to-DB linkage invariant: "UUID in MD file header = foreign key to DB record; file renames don't break linkage" (roadmap.md line 125).
 
 ## Goals
 
@@ -73,6 +75,19 @@ iflow workflow phases produce markdown artifact files (spec.md, design.md, plan.
 - C2: File write operations must be atomic — write to a temporary file in the same directory, then `os.rename()` to the target path. This prevents partial writes if the process is interrupted. This assumes POSIX semantics where `os.rename()` is atomic for files on the same filesystem. Windows is not a supported platform.
 - C3: The utility module must have zero dependencies beyond Python stdlib and the existing `entity_registry` package.
 - C4: Frontmatter round-trip fidelity — `read_frontmatter(path)` after `write_frontmatter(path, header)` must return a dict equal to `header` (no data loss or value transformation). Comparison is by dict equality (key-value pairs), not by field ordering in the file.
+
+## Design Constraints (Locked Decisions)
+
+The following implementation decisions are intentionally prescribed in this spec and are locked for the design phase. This is a small, well-scoped utility module where the spec author has pre-resolved these choices to ensure consistency with the existing `entity_registry` package conventions:
+
+- **Function signatures and module location** (R7-R11): The four public functions, their parameters, return types, and module path are fixed. Design should organize internals around these contracts, not redesign them.
+- **Custom YAML parser** (C1): The split-on-first-`: ` parser algorithm is locked. No external YAML library. Design may add internal helper functions but must not change the parsing rules.
+- **UUID validation regex** (R11): The exact UUID v4 regex pattern is locked.
+- **Atomic write mechanism** (C2): POSIX `os.rename()` from temp file in same directory is locked.
+- **CLI invocation format** (R12): The `frontmatter_inject.py` CLI interface and plugin root resolution pattern are locked.
+- **DB access method** (R13): `EntityDatabase` instantiation from `entity_registry` package is locked.
+
+Design decisions that remain open: internal module structure, error message formatting, temp file naming strategy, logging verbosity levels, and any helper functions needed to implement the locked contracts.
 
 ## Acceptance Criteria
 
