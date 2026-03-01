@@ -108,11 +108,12 @@ Design decisions that remain open: internal module structure, error message form
 - AC-15: Header injection is idempotent — running `write_frontmatter` twice with the same header produces identical file content
 - AC-16: `entity_uuid` immutability — `write_frontmatter` on a file that already has frontmatter with a different `entity_uuid` raises `ValueError` (does not silently overwrite)
 - AC-17: `write_frontmatter` on a file with an existing optional field, passing that field as `None` in `headers`, results in the field being absent from the written frontmatter block (explicit deletion per R9)
+- AC-18: `write_frontmatter` on a file with an existing optional field, passing that field as an empty string in `headers`, results in the field being absent from the written frontmatter block (explicit deletion per R9)
 
 ## Test Strategy
 
 Unit tests for the `frontmatter.py` module covering:
-- Read/write/validate/build functions (AC-1 through AC-11, AC-14 through AC-16)
+- Read/write/validate/build functions (AC-1 through AC-11, AC-14 through AC-18)
 - Edge cases: empty files, binary content guard (R8 null-byte detection), very large files, Unicode content
 - Atomic write verification
 
