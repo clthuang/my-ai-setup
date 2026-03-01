@@ -7,7 +7,11 @@ import time
 
 import pytest
 
-from entity_registry.database import EntityDatabase
+from entity_registry.database import (
+    EntityDatabase,
+    _create_initial_schema,
+    _migrate_to_uuid_pk,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -30,6 +34,361 @@ def mem_db():
     database = EntityDatabase(":memory:")
     yield database
     database.close()
+
+
+# ---------------------------------------------------------------------------
+# Migration 2: Schema Foundation tests
+# ---------------------------------------------------------------------------
+
+
+class TestMigration2:
+    def test_migration_fresh_db(self):
+        """Fresh v1 DB migrated to v2 should have correct schema shape."""
+        import sqlite3
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        _create_initial_schema(conn)
+        _migrate_to_uuid_pk(conn)
+
+        # 12 columns
+        cur = conn.execute("PRAGMA table_info(entities)")
+        columns = cur.fetchall()
+        assert len(columns) == 12
+
+        # uuid is PRIMARY KEY
+        col_map = {row[1]: row for row in columns}
+        assert "uuid" in col_map
+        assert col_map["uuid"][5] == 1  # pk flag
+
+        # type_id is NOT PK
+        assert col_map["type_id"][5] == 0
+
+        # type_id has UNIQUE constraint (check via index)
+        idx_cur = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' "
+            "AND sql LIKE '%type_id%' AND sql LIKE '%UNIQUE%'"
+        )
+        # The UNIQUE on type_id creates an autoindex
+        uniq_cur = conn.execute(
+            "PRAGMA index_list(entities)"
+        )
+        unique_cols = []
+        for idx_row in uniq_cur.fetchall():
+            if idx_row[2]:  # unique flag
+                info = conn.execute(
+                    f"PRAGMA index_info({idx_row[1]!r})"
+                ).fetchall()
+                for info_row in info:
+                    unique_cols.append(info_row[2])
+        assert "type_id" in unique_cols
+
+        # parent_uuid column exists
+        assert "parent_uuid" in col_map
+
+        # 8 triggers
+        trigger_cur = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name"
+        )
+        trigger_names = [row[0] for row in trigger_cur.fetchall()]
+        assert trigger_names == [
+            "enforce_immutable_created_at",
+            "enforce_immutable_entity_type",
+            "enforce_immutable_type_id",
+            "enforce_immutable_uuid",
+            "enforce_no_self_parent",
+            "enforce_no_self_parent_update",
+            "enforce_no_self_parent_uuid_insert",
+            "enforce_no_self_parent_uuid_update",
+        ]
+
+        # 4 indexes
+        idx_cur = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' "
+            "AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        )
+        index_names = [row[0] for row in idx_cur.fetchall()]
+        assert index_names == [
+            "idx_entity_type",
+            "idx_parent_type_id",
+            "idx_parent_uuid",
+            "idx_status",
+        ]
+
+        conn.close()
+
+    def test_migration_populated_db_preserves_data(self):
+        """Migrating a v1 DB with data should preserve all rows and add UUIDs."""
+        import sqlite3
+        from entity_registry.database import _UUID_V4_RE
+
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        _create_initial_schema(conn)
+
+        # Insert 3 entities using v1 schema (no uuid column)
+        conn.execute(
+            "INSERT INTO entities (type_id, entity_type, entity_id, name, "
+            "status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("project:p1", "project", "p1", "Project One", "active",
+             "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+        )
+        conn.execute(
+            "INSERT INTO entities (type_id, entity_type, entity_id, name, "
+            "parent_type_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("feature:f1", "feature", "f1", "Feature One", "project:p1",
+             "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+        )
+        conn.execute(
+            "INSERT INTO entities (type_id, entity_type, entity_id, name, "
+            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            ("backlog:b1", "backlog", "b1", "Backlog One",
+             "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+        )
+        conn.commit()
+
+        _migrate_to_uuid_pk(conn)
+
+        # All 3 rows exist
+        rows = conn.execute(
+            "SELECT * FROM entities ORDER BY type_id"
+        ).fetchall()
+        assert len(rows) == 3
+
+        # Field values preserved
+        type_ids = [r["type_id"] for r in rows]
+        assert "backlog:b1" in type_ids
+        assert "feature:f1" in type_ids
+        assert "project:p1" in type_ids
+
+        # Each row has valid UUID v4
+        for row in rows:
+            assert _UUID_V4_RE.match(row["uuid"]), (
+                f"Row {row['type_id']} has invalid uuid: {row['uuid']}"
+            )
+
+        # Specific field values
+        p1 = [r for r in rows if r["type_id"] == "project:p1"][0]
+        assert p1["name"] == "Project One"
+        assert p1["status"] == "active"
+        assert p1["entity_type"] == "project"
+
+        conn.close()
+
+    def test_migration_populates_parent_uuid(self):
+        """Migration should populate parent_uuid from parent_type_id."""
+        import sqlite3
+        from entity_registry.database import _UUID_V4_RE
+
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        _create_initial_schema(conn)
+
+        # Insert parent and child
+        conn.execute(
+            "INSERT INTO entities (type_id, entity_type, entity_id, name, "
+            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            ("project:p1", "project", "p1", "Parent",
+             "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+        )
+        conn.execute(
+            "INSERT INTO entities (type_id, entity_type, entity_id, name, "
+            "parent_type_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("feature:f1", "feature", "f1", "Child", "project:p1",
+             "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+        )
+        conn.commit()
+
+        _migrate_to_uuid_pk(conn)
+
+        parent = conn.execute(
+            "SELECT uuid FROM entities WHERE type_id = 'project:p1'"
+        ).fetchone()
+        child = conn.execute(
+            "SELECT parent_uuid FROM entities WHERE type_id = 'feature:f1'"
+        ).fetchone()
+
+        assert child["parent_uuid"] == parent["uuid"]
+        assert _UUID_V4_RE.match(parent["uuid"])
+
+        conn.close()
+
+    def test_uuid_immutability_trigger(self):
+        """After migration, updating uuid should raise IntegrityError."""
+        import sqlite3
+        import uuid
+
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        _create_initial_schema(conn)
+        _migrate_to_uuid_pk(conn)
+
+        test_uuid = str(uuid.uuid4())
+        conn.execute(
+            "INSERT INTO entities (uuid, type_id, entity_type, entity_id, "
+            "name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (test_uuid, "feature:trig", "feature", "trig", "Trigger Test",
+             "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+        )
+        conn.commit()
+
+        with pytest.raises(sqlite3.IntegrityError, match="uuid is immutable"):
+            conn.execute(
+                "UPDATE entities SET uuid = 'new-uuid' WHERE type_id = ?",
+                ("feature:trig",),
+            )
+        conn.close()
+
+    def test_self_parent_uuid_insert_trigger(self):
+        """Inserting entity where parent_uuid = uuid should raise."""
+        import sqlite3
+        import uuid
+
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        _create_initial_schema(conn)
+        _migrate_to_uuid_pk(conn)
+
+        test_uuid = str(uuid.uuid4())
+        with pytest.raises(
+            sqlite3.IntegrityError, match="entity cannot be its own parent"
+        ):
+            conn.execute(
+                "INSERT INTO entities (uuid, type_id, entity_type, entity_id, "
+                "name, created_at, updated_at, parent_uuid) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (test_uuid, "feature:self", "feature", "self", "Self",
+                 "2026-01-01T00:00:00", "2026-01-01T00:00:00", test_uuid),
+            )
+        conn.close()
+
+    def test_self_parent_uuid_update_trigger(self):
+        """Updating parent_uuid to self should raise."""
+        import sqlite3
+        import uuid
+
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        _create_initial_schema(conn)
+        _migrate_to_uuid_pk(conn)
+
+        test_uuid = str(uuid.uuid4())
+        conn.execute(
+            "INSERT INTO entities (uuid, type_id, entity_type, entity_id, "
+            "name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (test_uuid, "feature:upd", "feature", "upd", "Update Test",
+             "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+        )
+        conn.commit()
+
+        with pytest.raises(
+            sqlite3.IntegrityError, match="entity cannot be its own parent"
+        ):
+            conn.execute(
+                "UPDATE entities SET parent_uuid = uuid WHERE type_id = ?",
+                ("feature:upd",),
+            )
+        conn.close()
+
+    def test_init_already_migrated_db(self, tmp_path):
+        """Creating EntityDatabase on an already-migrated DB should be a no-op."""
+        import sqlite3
+
+        db_path = str(tmp_path / "already_migrated.db")
+
+        # First: create a v2 database via direct migration calls
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        _create_initial_schema(conn)
+        # Set schema_version to 1 (as _create_initial_schema doesn't set it)
+        conn.execute(
+            "INSERT OR REPLACE INTO _metadata(key, value) "
+            "VALUES('schema_version', '1')"
+        )
+        conn.commit()
+        _migrate_to_uuid_pk(conn)
+        conn.close()
+
+        # Now open it with EntityDatabase — should NOT re-run migration
+        db = EntityDatabase(db_path)
+        assert db.get_metadata("schema_version") == "2"
+
+        # Schema should be intact
+        cur = db._conn.execute("PRAGMA table_info(entities)")
+        columns = cur.fetchall()
+        assert len(columns) == 12
+
+        db.close()
+
+    def test_migration_rollback_on_failure(self):
+        """If migration fails mid-way, original schema should be intact."""
+        import sqlite3
+
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        _create_initial_schema(conn)
+
+        # Insert test data in v1 schema
+        conn.execute(
+            "INSERT INTO entities (type_id, entity_type, entity_id, name, "
+            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            ("project:p1", "project", "p1", "Project One",
+             "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+        )
+        conn.execute(
+            "INSERT INTO entities (type_id, entity_type, entity_id, name, "
+            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            ("feature:f1", "feature", "f1", "Feature One",
+             "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+        )
+        conn.commit()
+
+        # Set schema_version to 1 (simulating Migration 1 completed)
+        conn.execute(
+            "INSERT OR REPLACE INTO _metadata(key, value) "
+            "VALUES('schema_version', '1')"
+        )
+        conn.commit()
+
+        class FailOnDropConn:
+            """Proxy that delegates to real conn but raises on DROP TABLE."""
+            def __init__(self, real_conn):
+                self._real = real_conn
+            def execute(self, sql, *args, **kwargs):
+                if isinstance(sql, str) and "DROP TABLE" in sql:
+                    raise RuntimeError("injected")
+                return self._real.execute(sql, *args, **kwargs)
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+        wrapped = FailOnDropConn(conn)
+        with pytest.raises(RuntimeError, match="injected"):
+            _migrate_to_uuid_pk(wrapped)
+
+        # Original v1 schema intact: type_id is PK, no uuid column
+        cur = conn.execute("PRAGMA table_info(entities)")
+        col_map = {row[1]: row for row in cur.fetchall()}
+        assert "type_id" in col_map
+        assert col_map["type_id"][5] == 1  # type_id is still PK
+        assert "uuid" not in col_map
+
+        # schema_version remains '1'
+        ver = conn.execute(
+            "SELECT value FROM _metadata WHERE key='schema_version'"
+        ).fetchone()
+        assert ver[0] == "1"
+
+        # All data preserved
+        count = conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0]
+        assert count == 2
+
+        conn.close()
 
 
 # ---------------------------------------------------------------------------

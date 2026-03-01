@@ -2,9 +2,15 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
+import uuid as uuid_mod
 from collections.abc import Callable
 from datetime import datetime, timezone
+
+_UUID_V4_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+)
 
 
 def _create_initial_schema(conn: sqlite3.Connection) -> None:
@@ -69,9 +75,169 @@ def _create_initial_schema(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migrate_to_uuid_pk(conn):
+    """Migration 2: Add UUID primary key, retain type_id as UNIQUE.
+
+    This migration manages its own transaction (BEGIN IMMEDIATE / COMMIT /
+    ROLLBACK). The outer _migrate() commit is a no-op. Future migrations
+    MUST follow this same pattern if they perform DDL operations.
+    """
+    # OUTSIDE try — PRAGMA cannot run inside transaction
+    conn.execute("PRAGMA foreign_keys = OFF")
+    fk_status = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+    if fk_status != 0:
+        raise RuntimeError(
+            "PRAGMA foreign_keys = OFF did not take effect — aborting migration"
+        )
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        # Pre-migration FK check
+        fk_violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if fk_violations:
+            conn.rollback()
+            raise RuntimeError(
+                f"FK violations found before migration: {fk_violations}"
+            )
+
+        conn.execute("""
+            CREATE TABLE entities_new (
+                uuid           TEXT NOT NULL PRIMARY KEY,
+                type_id        TEXT NOT NULL UNIQUE,
+                entity_type    TEXT NOT NULL CHECK(entity_type IN (
+                    'backlog','brainstorm','project','feature')),
+                entity_id      TEXT NOT NULL,
+                name           TEXT NOT NULL,
+                status         TEXT,
+                parent_type_id TEXT REFERENCES entities_new(type_id),
+                parent_uuid    TEXT REFERENCES entities_new(uuid),
+                artifact_path  TEXT,
+                created_at     TEXT NOT NULL,
+                updated_at     TEXT NOT NULL,
+                metadata       TEXT
+            )
+        """)
+
+        # Step 1: Read all existing rows
+        rows = conn.execute("SELECT * FROM entities").fetchall()
+
+        # Step 2: Generate UUID per row
+        row_uuids = {}
+        for row in rows:
+            row_uuids[row["type_id"]] = str(uuid_mod.uuid4())
+
+        # Step 3: INSERT into entities_new (parent_uuid omitted — defaults NULL)
+        for row in rows:
+            conn.execute(
+                "INSERT INTO entities_new (uuid, type_id, entity_type, "
+                "entity_id, name, status, parent_type_id, artifact_path, "
+                "created_at, updated_at, metadata) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (row_uuids[row["type_id"]], row["type_id"],
+                 row["entity_type"], row["entity_id"], row["name"],
+                 row["status"], row["parent_type_id"], row["artifact_path"],
+                 row["created_at"], row["updated_at"], row["metadata"]),
+            )
+
+        # Step 4: Populate parent_uuid from parent_type_id
+        for row in rows:
+            if row["parent_type_id"] is not None:
+                parent_uuid = row_uuids.get(row["parent_type_id"])
+                if parent_uuid:
+                    conn.execute(
+                        "UPDATE entities_new SET parent_uuid = ? "
+                        "WHERE type_id = ?",
+                        (parent_uuid, row["type_id"]),
+                    )
+
+        conn.execute("DROP TABLE entities")
+        conn.execute("PRAGMA legacy_alter_table = OFF")
+        conn.execute("ALTER TABLE entities_new RENAME TO entities")
+
+        # Recreate all 8 triggers
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS enforce_immutable_type_id
+            BEFORE UPDATE OF type_id ON entities
+            BEGIN SELECT RAISE(ABORT, 'type_id is immutable'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS enforce_immutable_entity_type
+            BEFORE UPDATE OF entity_type ON entities
+            BEGIN SELECT RAISE(ABORT, 'entity_type is immutable'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS enforce_immutable_created_at
+            BEFORE UPDATE OF created_at ON entities
+            BEGIN SELECT RAISE(ABORT, 'created_at is immutable'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS enforce_no_self_parent
+            BEFORE INSERT ON entities
+            WHEN NEW.parent_type_id IS NOT NULL
+                 AND NEW.parent_type_id = NEW.type_id
+            BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS enforce_no_self_parent_update
+            BEFORE UPDATE OF parent_type_id ON entities
+            WHEN NEW.parent_type_id IS NOT NULL
+                 AND NEW.parent_type_id = NEW.type_id
+            BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS enforce_immutable_uuid
+            BEFORE UPDATE OF uuid ON entities
+            BEGIN SELECT RAISE(ABORT, 'uuid is immutable'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS enforce_no_self_parent_uuid_insert
+            BEFORE INSERT ON entities
+            WHEN NEW.parent_uuid IS NOT NULL AND NEW.parent_uuid = NEW.uuid
+            BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS enforce_no_self_parent_uuid_update
+            BEFORE UPDATE OF parent_uuid ON entities
+            WHEN NEW.parent_uuid IS NOT NULL AND NEW.parent_uuid = NEW.uuid
+            BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent'); END
+        """)
+
+        # Recreate all 4 indexes
+        conn.execute(
+            "CREATE INDEX idx_entity_type ON entities(entity_type)"
+        )
+        conn.execute("CREATE INDEX idx_status ON entities(status)")
+        conn.execute(
+            "CREATE INDEX idx_parent_type_id ON entities(parent_type_id)"
+        )
+        conn.execute(
+            "CREATE INDEX idx_parent_uuid ON entities(parent_uuid)"
+        )
+
+        # Update schema_version inside transaction (atomic with DDL/DML)
+        conn.execute(
+            "INSERT INTO _metadata(key, value) VALUES('schema_version', '2') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        # Re-enable FKs — runs on both success and failure
+        conn.execute("PRAGMA foreign_keys = ON")
+
+    # Post-migration FK check — outside try, after commit
+    post_violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+    if post_violations:
+        raise RuntimeError(
+            f"FK violations after migration: {post_violations}"
+        )
+
+
 # Ordered mapping of version -> migration function.
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     1: _create_initial_schema,
+    2: _migrate_to_uuid_pk,
 }
 
 
