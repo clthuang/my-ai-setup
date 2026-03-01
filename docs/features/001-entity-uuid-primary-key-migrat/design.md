@@ -60,6 +60,7 @@ Layer 4: MCP Server (entity_server.py)
 
 **Approach**: Single function that:
 1. Disables foreign key enforcement via `PRAGMA foreign_keys = OFF` (required before table recreation, must be outside any transaction)
+1b. Verifies `PRAGMA foreign_keys` returns 0; if not, raises `RuntimeError("PRAGMA foreign_keys = OFF did not take effect — aborting migration")`
 2. Begins explicit `BEGIN IMMEDIATE` transaction
 3. Runs `PRAGMA foreign_key_check` to validate FK integrity before migration. Aborts with clear error if violations exist (prevents silently orphaned parent_uuid entries).
 4. Creates `entities_new` with exact DDL from I9 (table name `entities_new`):
@@ -129,6 +130,7 @@ Layer 4: MCP Server (entity_server.py)
 | `get_lineage()` | Accepts UUID or type_id | Resolve via `_resolve_identifier` (catch ValueError → []), CTEs join on uuid/parent_uuid | Each dict includes `uuid` field |
 | `update_entity()` | Accepts UUID or type_id | Resolve via `_resolve_identifier` (let ValueError propagate), WHERE clause uses uuid | No change (returns None) |
 | `export_lineage_markdown()` | Accepts UUID or type_id | Root-finding selects uuid, `_export_tree` CTE joins on uuid/parent_uuid | No change (returns markdown) |
+| `_export_tree()` (internal) | None | `leaf_ids` built from `row["uuid"]`; child-check query uses `WHERE parent_uuid IN (...)` instead of `parent_type_id` | None |
 
 ### C4: Server Helpers Updates
 
@@ -504,6 +506,8 @@ for row in rows:
     row_uuids[row["type_id"]] = str(uuid_mod.uuid4())
 
 # Step 3: INSERT into entities_new with uuid
+# parent_uuid intentionally omitted — populated in Step 4 via UPDATE;
+# SQLite defaults omitted column to NULL
 for row in rows:
     conn.execute(
         "INSERT INTO entities_new (uuid, type_id, entity_type, entity_id, "
