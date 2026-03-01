@@ -38,15 +38,15 @@ iflow workflow phases produce markdown artifact files (spec.md, design.md, plan.
   - `feature_slug`: The feature slug (e.g., `markdown-entity-file-header-sc`)
   - `project_id`: The project ID if the feature belongs to a project (e.g., `P001`)
   - `phase`: The workflow phase that produced this artifact (e.g., `specify`, `design`)
-  - `updated_at`: ISO 8601 timestamp of last modification
+  - `updated_at`: ISO 8601 timestamp of last modification (caller-managed — `write_frontmatter` does not auto-populate this field; callers must include it in the `headers` dict if desired)
 - R5: Field ordering in the YAML block follows the order listed in R3 and R4 (entity_uuid first, then entity_type_id, etc.). This is a write-time convention enforced by `write_frontmatter` and `build_header`. The `read_frontmatter` function accepts fields in any order.
 - R6: `entity_uuid` is immutable once written — no process may modify this field after initial creation. This is enforced by the utility module (R11 validation), not by filesystem-level protection.
 
 ### Python Utility Module
 
 - R7: Create module at `plugins/iflow/hooks/lib/entity_registry/frontmatter.py`
-- R8: `read_frontmatter(filepath: str) -> dict | None` — Parse YAML frontmatter from a markdown file. Returns a dict of header fields, or `None` if no valid frontmatter block is found. Does not raise exceptions on malformed frontmatter — returns `None` with a logged warning.
-- R9: `write_frontmatter(filepath: str, headers: dict) -> None` — Prepend YAML frontmatter to an existing markdown file, or update existing frontmatter if already present. When updating existing frontmatter: if `entity_uuid` matches, optional fields in `headers` are merged into the existing header (new values override old values for the same key; existing keys not in `headers` are preserved). If `entity_uuid` does not match, raises `ValueError` (immutability enforcement per R6). Preserves all content after the closing `---` delimiter. File is written atomically (write to temp file, then rename).
+- R8: `read_frontmatter(filepath: str) -> dict | None` — Parse YAML frontmatter from a markdown file. Returns a dict of header fields, or `None` if no valid frontmatter block is found. Does not raise exceptions on malformed frontmatter — returns `None` with a warning logged via Python stdlib `logging` module (logger name: `entity_registry.frontmatter`). Returns `None` without parsing if the file contains null bytes in the first 8192 bytes (binary content guard).
+- R9: `write_frontmatter(filepath: str, headers: dict) -> None` — Prepend YAML frontmatter to an existing markdown file, or update existing frontmatter if already present. When updating existing frontmatter: if `entity_uuid` matches, optional fields in `headers` are merged into the existing header (new values override old values for the same key; existing keys not in `headers` are preserved). If `entity_uuid` does not match, raises `ValueError` (immutability enforcement per R6). After merging, `write_frontmatter` calls `validate_header` on the resulting header dict. If validation fails, the write is aborted and `ValueError` is raised with the validation errors — the original file is not modified. Preserves all content after the closing `---` delimiter. File is written atomically (write to temp file, then rename).
 - R10: `build_header(entity_uuid: str, entity_type_id: str, artifact_type: str, created_at: str, **optional_fields) -> dict` — Construct a valid header dict from required and optional fields. Validates field types and values. Raises `ValueError` for invalid inputs.
 - R11: `validate_header(header: dict) -> list[str]` — Validate a header dict against the schema. Returns a list of validation error strings (empty list = valid). Checks:
   - All R3 required fields present
@@ -57,10 +57,10 @@ iflow workflow phases produce markdown artifact files (spec.md, design.md, plan.
 
 ### Workflow Integration
 
-- R12: Integration is via a Python CLI script (`frontmatter_inject.py`) invoked as a shell command within the `commitAndComplete` pseudocode in the workflow-transitions SKILL.md. The SKILL.md's commit step is extended with a pre-commit shell invocation: `python3 <plugin_root>/hooks/lib/entity_registry/frontmatter_inject.py <artifact_path> <feature_type_id>`. This script reads the entity registry DB, resolves the UUID, and calls `write_frontmatter`. If the script exits non-zero, the workflow logs a warning and proceeds without frontmatter (fail-open).
-- R13: To obtain `entity_uuid`, the CLI script queries the entity registry DB at the path resolved by `ENTITY_DB_PATH` environment variable (falling back to `~/.claude/iflow/entities/entities.db`). The `type_id` is constructed as `feature:{id}-{slug}` from the `.meta.json` fields in the feature directory, or passed as a CLI argument. If the entity is not registered (DB unavailable or entity missing), skip header injection and log a warning to stderr — do not block the workflow.
+- R12: Integration is via a Python CLI script (`frontmatter_inject.py`) invoked as a shell command within the `commitAndComplete` pseudocode in the workflow-transitions SKILL.md. The SKILL.md's commit step is extended with a pre-commit shell invocation. Plugin root resolution uses the two-location Glob pattern from CLAUDE.md: primary `~/.claude/plugins/cache/*/iflow*/*/hooks/lib/entity_registry/frontmatter_inject.py`, fallback `plugins/iflow/hooks/lib/entity_registry/frontmatter_inject.py`. The Python interpreter is `<plugin_root>/.venv/bin/python` to ensure entity_registry package availability. The invocation: `<plugin_root>/.venv/bin/python <plugin_root>/hooks/lib/entity_registry/frontmatter_inject.py <artifact_path> <feature_type_id>`. If the script exits non-zero, the workflow logs a warning and proceeds without frontmatter (fail-open).
+- R13: To obtain `entity_uuid`, the CLI script queries the entity registry DB at the path resolved by `ENTITY_DB_PATH` environment variable (falling back to `~/.claude/iflow/entities/entities.db`). The DB `type_id` column value is constructed as `feature:{id}-{slug}` from the `.meta.json` fields in the feature directory, or passed as a CLI argument. The frontmatter field `entity_type_id` maps directly to the DB column `type_id` — the `entity_` prefix disambiguates from generic type identifiers in the frontmatter context. If the entity is not registered (DB unavailable or entity missing), skip header injection and log a warning to stderr — do not block the workflow.
 - R14: Header injection is idempotent — if the file already has valid frontmatter with the same `entity_uuid`, the existing header is preserved (optional fields may be updated per R9 merge semantics). Files without frontmatter get new headers injected. Files with frontmatter containing a different `entity_uuid` cause the script to raise `ValueError` and exit non-zero (the workflow then skips injection per R12 fail-open behavior).
-- R15: The `artifact_type` is derived from the filename: `spec.md` → `spec`, `design.md` → `design`, `plan.md` → `plan`, `tasks.md` → `tasks`, `retro.md` → `retro`, `prd.md` → `prd`. Files with unrecognized names are skipped (no header injection) and a warning is logged.
+- R15: The `artifact_type` is derived by exact basename match (case-sensitive): `spec.md` → `spec`, `design.md` → `design`, `plan.md` → `plan`, `tasks.md` → `tasks`, `retro.md` → `retro`, `prd.md` → `prd`. Files with any other basename (e.g., `spec-v2.md`, `notes.md`) are skipped — no header injection, warning logged to stderr.
 
 ### Backward Compatibility
 
@@ -69,8 +69,8 @@ iflow workflow phases produce markdown artifact files (spec.md, design.md, plan.
 
 ## Constraints
 
-- C1: No external YAML parsing library. The frontmatter schema uses only flat string key-value pairs (no nested structures, no lists, no multi-line values), so a minimal custom parser is sufficient and is the sole implementation. The parser handles: lines matching `key: value` where key is `[a-z_]+` and value is the remainder of the line after `: `. This avoids any dependency on PyYAML (which is a third-party package, not in Python stdlib).
-- C2: File write operations must be atomic — write to a temporary file in the same directory, then `os.rename()` to the target path. This prevents partial writes if the process is interrupted.
+- C1: No external YAML parsing library. The frontmatter schema uses only flat string key-value pairs (no nested structures, no lists, no multi-line values), so a minimal custom parser is sufficient and is the sole implementation. Parser rules: each line is split on the FIRST occurrence of `: ` (colon followed by a single space). The portion before the first `: ` must match `^[a-z_]+$` — this is the key. The entire remainder of the line after the first `: ` is the value (which may itself contain `: ` sequences, e.g., `entity_type_id: feature:002-foo`). Lines not matching this pattern (including blank lines, comments, lines without `: `) are silently ignored. This avoids any dependency on PyYAML (which is a third-party package, not in Python stdlib).
+- C2: File write operations must be atomic — write to a temporary file in the same directory, then `os.rename()` to the target path. This prevents partial writes if the process is interrupted. This assumes POSIX semantics where `os.rename()` is atomic for files on the same filesystem. Windows is not a supported platform.
 - C3: The utility module must have zero dependencies beyond Python stdlib and the existing `entity_registry` package.
 - C4: Frontmatter round-trip fidelity — `read_frontmatter(path)` after `write_frontmatter(path, header)` must return a dict equal to `header` (no data loss or value transformation). Comparison is by dict equality (key-value pairs), not by field ordering in the file.
 
@@ -84,10 +84,10 @@ iflow workflow phases produce markdown artifact files (spec.md, design.md, plan.
 - AC-6: `validate_header` missing a required field returns a list containing the field name
 - AC-7: `validate_header` with an invalid UUID format returns a validation error
 - AC-8: `write_frontmatter` on a file that already has frontmatter replaces only the frontmatter block, preserving the markdown body
-- AC-9: `write_frontmatter` uses atomic file writes (temp file + rename)
+- AC-9: `write_frontmatter` uses atomic file writes — verified by mocking `os.rename` to confirm it is called with a temp file path in the same directory as the target, or by code review of the implementation
 - AC-10: `build_header` with valid required args returns a dict passing `validate_header`
 - AC-11: `build_header` with invalid `artifact_type` raises `ValueError`
-- AC-12: Integration test: given a temp directory with a feature `.meta.json` and a registered entity in a test DB, when `frontmatter_inject.py` is invoked with the artifact path and type_id, the artifact file contains valid YAML frontmatter with the entity's UUID. Test uses `subprocess.run` to invoke the CLI script with `ENTITY_DB_PATH` pointing to the test DB.
+- AC-12: Integration test: given a temp directory with a feature `.meta.json` and a registered entity in a test DB, when `frontmatter_inject.py` is invoked with the artifact path and type_id, the artifact file contains valid YAML frontmatter with all R3 required fields: `entity_uuid` matching the DB record, `entity_type_id` matching the registered type_id, `artifact_type` derived from the filename, and a valid `created_at` timestamp. Test uses `subprocess.run` to invoke the CLI script with `ENTITY_DB_PATH` pointing to the test DB.
 - AC-13: Integration test: given `ENTITY_DB_PATH` pointing to a nonexistent file, when `frontmatter_inject.py` is invoked, it exits with code 0 (or logs warning to stderr) and the artifact file is unchanged — no crash, no partial write.
 - AC-14: Frontmatter round-trip: `read_frontmatter(path)` after `write_frontmatter(path, h)` returns dict equal to `h`
 - AC-15: Header injection is idempotent — running `write_frontmatter` twice with the same header produces identical file content
@@ -97,7 +97,7 @@ iflow workflow phases produce markdown artifact files (spec.md, design.md, plan.
 
 Unit tests for the `frontmatter.py` module covering:
 - Read/write/validate/build functions (AC-1 through AC-11, AC-14 through AC-16)
-- Edge cases: empty files, binary content guard, very large files, Unicode content
+- Edge cases: empty files, binary content guard (R8 null-byte detection), very large files, Unicode content
 - Atomic write verification
 
 Integration tests:
