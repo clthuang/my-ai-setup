@@ -82,7 +82,7 @@ iflow currently uses a single `status` field on features (`planned`, `active`, `
 | phase_start | wip | Agent begins phase execution |
 | reviewer_dispatch | agent_review | Agent spawns reviewer subagent |
 | human_input_requested | human_review | AskUserQuestion invoked |
-| phase_complete | wip (if next phase auto-starts) | Phase marked completed; does not apply to the `finish` phase (finish completion triggers `feature_completed` instead). If no subsequent phase auto-starts (awaiting human decision), kanban_column remains unchanged until next event |
+| phase_complete | wip (if next phase auto-starts) | Phase marked completed; does not apply to the `finish` phase (finish completion triggers `feature_completed` instead). All phase transitions auto-start the next phase in sequence (brainstorm→specify→design→create-plan→create-tasks→implement→finish) — kanban_column moves to `wip` on each auto-start. No manual pause points exist in the current workflow |
 | phase_blocked | blocked | Prerequisite missing or error |
 | phase_unblocked | wip | Blocker resolved |
 | feature_cancelled | completed | Feature abandoned |
@@ -102,7 +102,7 @@ iflow currently uses a single `status` field on features (`planned`, `active`, `
 
 - Non-participating types (project) have no row in `workflow_phases`
 - Brainstorm and backlog entities have constrained kanban columns (only early-stage columns)
-- Per-entity-type kanban column restrictions are enforced by the state engine (feature 008) at the application level, NOT by DDL constraints — SQLite CHECK constraints cannot reference other tables to determine entity_type
+- Per-entity-type kanban column restrictions are enforced by the state engine (feature 008) at the application level, NOT by DDL constraints — SQLite CHECK constraints cannot reference other tables to determine entity_type. The DDL in AC-6 intentionally allows all 8 kanban_column values for all entity types; column-restriction enforcement is entirely delegated to feature 008
 
 ### AC-6: Schema DDL
 - Given the `workflow_phases` table DDL
@@ -123,6 +123,7 @@ iflow currently uses a single `status` field on features (`planned`, `active`, `
 - Note: Per-phase timestamps (started, completed, iterations, reviewerNotes, skippedPhases) are NOT in this table — they are deferred to the transition log in feature 008 (Decision D-2)
 - The FK references `entities(type_id)` per current schema v1. If feature 001 (UUID migration) changes the PK before this DDL is executed, the FK column and type must be updated accordingly. This ADR records the design intent; the implementing feature (005) will use the PK that exists at implementation time
 - `updated_at` uses UTC in ISO-8601 format (e.g., `2026-03-01T12:00:00Z`) — avoids mixed-timezone inconsistency from .meta.json
+- `skipped_phases` is intentionally absent from this table — it will be managed by feature 008 (WorkflowStateEngine) in its own schema migration as part of the transition log
 
 ### AC-7: Backward Compatibility Mapping — Complete Field Disposition
 
