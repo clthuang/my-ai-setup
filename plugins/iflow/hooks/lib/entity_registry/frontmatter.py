@@ -182,7 +182,8 @@ def read_frontmatter(filepath: str) -> dict | None:
     """
     # Single read: binary guard + text parsing from one open call
     try:
-        raw = open(filepath, "rb").read()
+        with open(filepath, "rb") as f:
+            raw = f.read()
     except FileNotFoundError:
         logger.warning("File not found: %s", filepath)
         return None
@@ -225,7 +226,8 @@ def write_frontmatter(filepath: str, headers: dict) -> None:
     """
     # --- 1. Single read: file-exists guard + binary guard + content ----------
     try:
-        raw = open(filepath, "rb").read()
+        with open(filepath, "rb") as f:
+            raw = f.read()
     except FileNotFoundError:
         raise ValueError(f"File not found: {filepath}")
 
