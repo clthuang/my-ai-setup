@@ -268,6 +268,42 @@ class EntityDatabase:
         self._conn.close()
 
     # ------------------------------------------------------------------
+    # Internal: identifier resolution
+    # ------------------------------------------------------------------
+
+    def _resolve_identifier(self, identifier: str) -> tuple[str, str]:
+        """Resolve a UUID or type_id to a (uuid, type_id) tuple.
+
+        Parameters
+        ----------
+        identifier:
+            Either a UUID v4 string or a type_id string.
+
+        Returns
+        -------
+        tuple[str, str]
+            (uuid, type_id) of the found entity.
+
+        Raises
+        ------
+        ValueError
+            If no entity matches the identifier.
+        """
+        if _UUID_V4_RE.match(identifier.lower()):
+            row = self._conn.execute(
+                "SELECT uuid, type_id FROM entities WHERE uuid = ?",
+                (identifier.lower(),),
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT uuid, type_id FROM entities WHERE type_id = ?",
+                (identifier,),
+            ).fetchone()
+        if row is None:
+            raise ValueError(f"Entity not found: {identifier!r}")
+        return (row["uuid"], row["type_id"])
+
+    # ------------------------------------------------------------------
     # Entity CRUD
     # ------------------------------------------------------------------
 
@@ -303,23 +339,39 @@ class EntityDatabase:
         Returns
         -------
         str
-            The constructed type_id (``f"{entity_type}:{entity_id}"``).
+            The UUID of the registered (or already-existing) entity.
         """
         self._validate_entity_type(entity_type)
         type_id = f"{entity_type}:{entity_id}"
         now = self._now_iso()
         metadata_json = json.dumps(metadata) if metadata is not None else None
 
+        # Resolve parent_uuid from parent_type_id if provided
+        parent_uuid = None
+        if parent_type_id is not None:
+            parent_row = self._conn.execute(
+                "SELECT uuid FROM entities WHERE type_id = ?",
+                (parent_type_id,),
+            ).fetchone()
+            if parent_row is not None:
+                parent_uuid = parent_row["uuid"]
+
+        entity_uuid = str(uuid_mod.uuid4())
         self._conn.execute(
             "INSERT OR IGNORE INTO entities "
-            "(type_id, entity_type, entity_id, name, status, parent_type_id, "
-            "artifact_path, created_at, updated_at, metadata) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (type_id, entity_type, entity_id, name, status, parent_type_id,
-             artifact_path, now, now, metadata_json),
+            "(uuid, type_id, entity_type, entity_id, name, status, "
+            "parent_type_id, parent_uuid, artifact_path, "
+            "created_at, updated_at, metadata) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (entity_uuid, type_id, entity_type, entity_id, name, status,
+             parent_type_id, parent_uuid, artifact_path, now, now,
+             metadata_json),
         )
         self._conn.commit()
-        return type_id
+        result = self._conn.execute(
+            "SELECT uuid FROM entities WHERE type_id = ?", (type_id,)
+        ).fetchone()
+        return result["uuid"]
 
     def set_parent(self, type_id: str, parent_type_id: str) -> str:
         """Set or change the parent of an entity.
@@ -327,14 +379,14 @@ class EntityDatabase:
         Parameters
         ----------
         type_id:
-            The entity to update.
+            The entity to update (UUID or type_id).
         parent_type_id:
-            The new parent entity (must exist).
+            The new parent entity (UUID or type_id, must exist).
 
         Returns
         -------
         str
-            The type_id of the updated entity.
+            The UUID of the updated child entity.
 
         Raises
         ------
@@ -342,40 +394,28 @@ class EntityDatabase:
             If either entity is not found, or if the assignment would
             create a circular reference.
         """
-        # Validate both entities exist
-        cur = self._conn.execute(
-            "SELECT 1 FROM entities WHERE type_id = ?", (type_id,)
+        child_uuid, child_type_id = self._resolve_identifier(type_id)
+        parent_uuid, parent_type_id_resolved = self._resolve_identifier(
+            parent_type_id
         )
-        if cur.fetchone() is None:
-            raise ValueError(f"Entity not found: {type_id!r}")
 
-        cur = self._conn.execute(
-            "SELECT 1 FROM entities WHERE type_id = ?", (parent_type_id,)
-        )
-        if cur.fetchone() is None:
-            raise ValueError(f"Parent entity not found: {parent_type_id!r}")
+        # Self-parent check using UUIDs
+        if child_uuid == parent_uuid:
+            raise ValueError("entity cannot be its own parent")
 
-        # Self-parent check (also enforced by trigger, but give a clear ValueError)
-        if type_id == parent_type_id:
-            raise ValueError(
-                f"Circular reference: entity cannot be its own parent ({type_id!r})"
-            )
-
-        # Circular reference detection: walk up from proposed parent,
-        # check if we ever reach the child entity.
+        # Circular reference detection via UUID-based CTE
         cur = self._conn.execute(
             """
-            WITH RECURSIVE ancestors(tid) AS (
-                SELECT parent_type_id FROM entities WHERE type_id = ?
+            WITH RECURSIVE anc(uid) AS (
+                SELECT parent_uuid FROM entities WHERE uuid = :parent_uuid
                 UNION ALL
-                SELECT e.parent_type_id
-                FROM entities e
-                JOIN ancestors a ON e.type_id = a.tid
-                WHERE e.parent_type_id IS NOT NULL
+                SELECT e.parent_uuid FROM entities e
+                JOIN anc a ON e.uuid = a.uid
+                WHERE e.parent_uuid IS NOT NULL
             )
-            SELECT 1 FROM ancestors WHERE tid = ?
+            SELECT 1 FROM anc WHERE uid = :child_uuid
             """,
-            (parent_type_id, type_id),
+            {"parent_uuid": parent_uuid, "child_uuid": child_uuid},
         )
         if cur.fetchone() is not None:
             raise ValueError(
@@ -384,22 +424,27 @@ class EntityDatabase:
             )
 
         self._conn.execute(
-            "UPDATE entities SET parent_type_id = ?, updated_at = ? "
-            "WHERE type_id = ?",
-            (parent_type_id, self._now_iso(), type_id),
+            "UPDATE entities SET parent_type_id = ?, parent_uuid = ?, "
+            "updated_at = ? WHERE uuid = ?",
+            (parent_type_id_resolved, parent_uuid, self._now_iso(),
+             child_uuid),
         )
         self._conn.commit()
-        return type_id
+        return child_uuid
 
     def get_entity(self, type_id: str) -> dict | None:
-        """Retrieve a single entity by type_id, or ``None`` if not found."""
-        cur = self._conn.execute(
-            "SELECT * FROM entities WHERE type_id = ?", (type_id,)
-        )
-        row = cur.fetchone()
-        if row is None:
+        """Retrieve a single entity by UUID or type_id.
+
+        Returns ``None`` if not found.
+        """
+        try:
+            uuid, _ = self._resolve_identifier(type_id)
+        except ValueError:
             return None
-        return dict(row)
+        row = self._conn.execute(
+            "SELECT * FROM entities WHERE uuid = ?", (uuid,)
+        ).fetchone()
+        return dict(row) if row else None
 
     def get_lineage(
         self,
@@ -424,56 +469,54 @@ class EntityDatabase:
         list[dict]
             Ordered list of entity dicts. Empty if type_id not found.
         """
-        # Check entity exists
-        cur = self._conn.execute(
-            "SELECT 1 FROM entities WHERE type_id = ?", (type_id,)
-        )
-        if cur.fetchone() is None:
+        try:
+            resolved_uuid, _ = self._resolve_identifier(type_id)
+        except ValueError:
             return []
 
         if direction == "up":
-            return self._lineage_up(type_id, max_depth)
+            return self._lineage_up(resolved_uuid, max_depth)
         else:
-            return self._lineage_down(type_id, max_depth)
+            return self._lineage_down(resolved_uuid, max_depth)
 
-    def _lineage_up(self, type_id: str, max_depth: int) -> list[dict]:
-        """Walk up the tree from type_id to root, return root-first."""
+    def _lineage_up(self, resolved_uuid: str, max_depth: int) -> list[dict]:
+        """Walk up the tree from uuid to root, return root-first."""
         cur = self._conn.execute(
             """
-            WITH RECURSIVE ancestors(tid, depth) AS (
+            WITH RECURSIVE ancestors(uid, depth) AS (
                 SELECT ?, 0
                 UNION ALL
-                SELECT e.parent_type_id, a.depth + 1
+                SELECT e.parent_uuid, a.depth + 1
                 FROM entities e
-                JOIN ancestors a ON e.type_id = a.tid
-                WHERE e.parent_type_id IS NOT NULL
+                JOIN ancestors a ON e.uuid = a.uid
+                WHERE e.parent_uuid IS NOT NULL
                   AND a.depth < ?
             )
             SELECT e.* FROM ancestors a
-            JOIN entities e ON e.type_id = a.tid
+            JOIN entities e ON e.uuid = a.uid
             ORDER BY a.depth DESC
             """,
-            (type_id, max_depth),
+            (resolved_uuid, max_depth),
         )
         return [dict(row) for row in cur.fetchall()]
 
-    def _lineage_down(self, type_id: str, max_depth: int) -> list[dict]:
-        """Walk down the tree from type_id to leaves, BFS order."""
+    def _lineage_down(self, resolved_uuid: str, max_depth: int) -> list[dict]:
+        """Walk down the tree from uuid to leaves, BFS order."""
         cur = self._conn.execute(
             """
-            WITH RECURSIVE descendants(tid, depth) AS (
+            WITH RECURSIVE descendants(uid, depth) AS (
                 SELECT ?, 0
                 UNION ALL
-                SELECT e.type_id, d.depth + 1
+                SELECT e.uuid, d.depth + 1
                 FROM entities e
-                JOIN descendants d ON e.parent_type_id = d.tid
+                JOIN descendants d ON e.parent_uuid = d.uid
                 WHERE d.depth < ?
             )
             SELECT e.* FROM descendants d
-            JOIN entities e ON e.type_id = d.tid
+            JOIN entities e ON e.uuid = d.uid
             ORDER BY d.depth ASC
             """,
-            (type_id, max_depth),
+            (resolved_uuid, max_depth),
         )
         return [dict(row) for row in cur.fetchall()]
 
@@ -490,7 +533,7 @@ class EntityDatabase:
         Parameters
         ----------
         type_id:
-            The entity to update.
+            The entity to update (UUID or type_id).
         name:
             New name (if provided).
         status:
@@ -506,10 +549,11 @@ class EntityDatabase:
         ValueError
             If the entity does not exist.
         """
-        # Validate entity exists
+        # Resolve identifier (accepts both UUID and type_id)
         existing = self.get_entity(type_id)
         if existing is None:
             raise ValueError(f"Entity not found: {type_id!r}")
+        entity_uuid = existing["uuid"]
 
         set_parts: list[str] = ["updated_at = ?"]
         params: list = [self._now_iso()]
@@ -540,8 +584,8 @@ class EntityDatabase:
                 set_parts.append("metadata = ?")
                 params.append(json.dumps(existing_meta))
 
-        params.append(type_id)
-        sql = f"UPDATE entities SET {', '.join(set_parts)} WHERE type_id = ?"
+        params.append(entity_uuid)
+        sql = f"UPDATE entities SET {', '.join(set_parts)} WHERE uuid = ?"
         self._conn.execute(sql, params)
         self._conn.commit()
 
@@ -557,8 +601,8 @@ class EntityDatabase:
         Parameters
         ----------
         type_id:
-            If provided, export only the tree rooted at this entity.
-            If None, export all trees (all root entities).
+            If provided (UUID or type_id), export only the tree rooted
+            at this entity.  If None, export all trees (all root entities).
 
         Returns
         -------
@@ -566,52 +610,56 @@ class EntityDatabase:
             Markdown-formatted tree.
         """
         if type_id is not None:
-            return self._export_tree(type_id)
+            try:
+                root_uuid, _ = self._resolve_identifier(type_id)
+            except ValueError:
+                return ""
+            return self._export_tree(root_uuid)
 
         # Find all root entities (no parent)
         cur = self._conn.execute(
-            "SELECT type_id FROM entities WHERE parent_type_id IS NULL "
+            "SELECT uuid FROM entities WHERE parent_type_id IS NULL "
             "ORDER BY entity_type, name"
         )
-        roots = [row[0] for row in cur.fetchall()]
+        roots = [row["uuid"] for row in cur.fetchall()]
 
         if not roots:
             return ""
 
         parts: list[str] = []
-        for root_id in roots:
-            parts.append(self._export_tree(root_id))
+        for root_uuid in roots:
+            parts.append(self._export_tree(root_uuid))
         return "\n".join(parts)
 
-    def _export_tree(self, type_id: str, max_depth: int = 50) -> str:
+    def _export_tree(self, root_uuid: str, max_depth: int = 50) -> str:
         """Export a single entity and its descendants as markdown.
 
-        Uses a single recursive CTE to fetch all descendants with their
-        depth level, avoiding N+1 queries.
+        Uses a single recursive CTE with UUID-based traversal to fetch
+        all descendants with their depth level, avoiding N+1 queries.
 
         Parameters
         ----------
-        type_id:
-            Root entity for the tree.
+        root_uuid:
+            UUID of the root entity for the tree.
         max_depth:
             Maximum tree depth to traverse (default 50).
             When exceeded, a depth-limit indicator is appended.
         """
         cur = self._conn.execute(
             """
-            WITH RECURSIVE tree(tid, depth) AS (
+            WITH RECURSIVE tree(uid, depth) AS (
                 SELECT ?, 0
                 UNION ALL
-                SELECT e.type_id, t.depth + 1
+                SELECT e.uuid, t.depth + 1
                 FROM entities e
-                JOIN tree t ON e.parent_type_id = t.tid
+                JOIN tree t ON e.parent_uuid = t.uid
                 WHERE t.depth < ?
             )
             SELECT e.*, t.depth FROM tree t
-            JOIN entities e ON e.type_id = t.tid
+            JOIN entities e ON e.uuid = t.uid
             ORDER BY t.depth ASC, e.entity_type, e.name
             """,
-            (type_id, max_depth),
+            (root_uuid, max_depth),
         )
         rows = [dict(row) for row in cur.fetchall()]
 
@@ -623,10 +671,10 @@ class EntityDatabase:
         deepest = max(r["depth"] for r in rows)
         if deepest >= max_depth:
             # Check if there are children beyond the limit
-            leaf_ids = [r["type_id"] for r in rows if r["depth"] == deepest]
+            leaf_ids = [r["uuid"] for r in rows if r["depth"] == deepest]
             for lid in leaf_ids:
                 check = self._conn.execute(
-                    "SELECT 1 FROM entities WHERE parent_type_id = ? LIMIT 1",
+                    "SELECT 1 FROM entities WHERE parent_uuid = ? LIMIT 1",
                     (lid,),
                 )
                 if check.fetchone() is not None:

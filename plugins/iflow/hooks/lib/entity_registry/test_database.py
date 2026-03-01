@@ -9,6 +9,7 @@ import pytest
 
 from entity_registry.database import (
     EntityDatabase,
+    _UUID_V4_RE,
     _create_initial_schema,
     _migrate_to_uuid_pk,
 )
@@ -411,26 +412,26 @@ class TestSchemaCreation:
         )
         assert cur.fetchone() is not None
 
-    def test_entities_has_10_columns(self, db: EntityDatabase):
+    def test_entities_has_12_columns(self, db: EntityDatabase):
         cur = db._conn.execute("PRAGMA table_info(entities)")
         columns = cur.fetchall()
-        assert len(columns) == 10
+        assert len(columns) == 12
 
     def test_entities_column_names(self, db: EntityDatabase):
         cur = db._conn.execute("PRAGMA table_info(entities)")
         col_names = [row[1] for row in cur.fetchall()]
         expected = [
-            "type_id", "entity_type", "entity_id", "name", "status",
-            "parent_type_id", "artifact_path", "created_at", "updated_at",
-            "metadata",
+            "uuid", "type_id", "entity_type", "entity_id", "name", "status",
+            "parent_type_id", "parent_uuid", "artifact_path", "created_at",
+            "updated_at", "metadata",
         ]
         assert col_names == expected
 
-    def test_type_id_is_primary_key(self, db: EntityDatabase):
+    def test_uuid_is_primary_key(self, db: EntityDatabase):
         cur = db._conn.execute("PRAGMA table_info(entities)")
-        for row in cur.fetchall():
-            if row[1] == "type_id":
-                assert row[5] == 1  # pk column
+        col_map = {row[1]: row for row in cur.fetchall()}
+        assert col_map["uuid"][5] == 1  # pk flag
+        assert col_map["type_id"][5] == 0  # type_id is NOT pk
 
     def test_entity_type_check_constraint(self, db: EntityDatabase):
         """Only backlog, brainstorm, project, feature should be allowed."""
@@ -444,11 +445,13 @@ class TestSchemaCreation:
 
     def test_valid_entity_types_accepted(self, db: EntityDatabase):
         """All four valid entity types should be insertable."""
+        import uuid
         for etype in ("backlog", "brainstorm", "project", "feature"):
             db._conn.execute(
-                "INSERT INTO entities (type_id, entity_type, entity_id, name, "
-                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (f"{etype}:test", etype, "test", f"Test {etype}",
+                "INSERT INTO entities (uuid, type_id, entity_type, entity_id, "
+                "name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (str(uuid.uuid4()), f"{etype}:test", etype, "test",
+                 f"Test {etype}",
                  "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
             )
         db._conn.commit()
@@ -457,7 +460,7 @@ class TestSchemaCreation:
 
 
 class TestTriggers:
-    def test_has_five_triggers(self, db: EntityDatabase):
+    def test_has_eight_triggers(self, db: EntityDatabase):
         cur = db._conn.execute(
             "SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name"
         )
@@ -466,20 +469,28 @@ class TestTriggers:
             "enforce_immutable_created_at",
             "enforce_immutable_entity_type",
             "enforce_immutable_type_id",
+            "enforce_immutable_uuid",
             "enforce_no_self_parent",
             "enforce_no_self_parent_update",
+            "enforce_no_self_parent_uuid_insert",
+            "enforce_no_self_parent_uuid_update",
         ]
         assert trigger_names == expected
 
 
 class TestIndexes:
-    def test_has_three_indexes(self, db: EntityDatabase):
+    def test_has_four_indexes(self, db: EntityDatabase):
         cur = db._conn.execute(
             "SELECT name FROM sqlite_master WHERE type='index' "
             "AND name NOT LIKE 'sqlite_%' ORDER BY name"
         )
         index_names = [row[0] for row in cur.fetchall()]
-        expected = ["idx_entity_type", "idx_parent_type_id", "idx_status"]
+        expected = [
+            "idx_entity_type",
+            "idx_parent_type_id",
+            "idx_parent_uuid",
+            "idx_status",
+        ]
         assert index_names == expected
 
 
@@ -514,8 +525,8 @@ class TestMetadata:
         db.set_metadata("foo", "baz")
         assert db.get_metadata("foo") == "baz"
 
-    def test_schema_version_is_1(self, db: EntityDatabase):
-        assert db.get_metadata("schema_version") == "1"
+    def test_schema_version_is_2(self, db: EntityDatabase):
+        assert db.get_metadata("schema_version") == "2"
 
 
 # ---------------------------------------------------------------------------
@@ -526,10 +537,10 @@ class TestMetadata:
 class TestRegisterEntity:
     def test_happy_path(self, db: EntityDatabase):
         """Register a feature entity and retrieve it."""
-        type_id = db.register_entity("feature", "feat-001", "My Feature")
-        assert type_id == "feature:feat-001"
+        result = db.register_entity("feature", "feat-001", "My Feature")
+        assert _UUID_V4_RE.match(result), f"Expected UUID v4, got {result!r}"
         cur = db._conn.execute(
-            "SELECT * FROM entities WHERE type_id = ?", (type_id,)
+            "SELECT * FROM entities WHERE type_id = 'feature:feat-001'"
         )
         row = cur.fetchone()
         assert row is not None
@@ -539,13 +550,20 @@ class TestRegisterEntity:
 
     def test_type_id_auto_constructed(self, db: EntityDatabase):
         """type_id should be f'{entity_type}:{entity_id}'."""
-        type_id = db.register_entity("backlog", "item-42", "Backlog Item")
-        assert type_id == "backlog:item-42"
+        result = db.register_entity("backlog", "item-42", "Backlog Item")
+        assert _UUID_V4_RE.match(result), f"Expected UUID v4, got {result!r}"
+        # Verify the type_id was constructed correctly in the DB
+        row = db._conn.execute(
+            "SELECT type_id FROM entities WHERE uuid = ?", (result,)
+        ).fetchone()
+        assert row["type_id"] == "backlog:item-42"
 
     def test_insert_or_ignore_idempotency(self, db: EntityDatabase):
         """Registering the same entity twice should not raise."""
-        db.register_entity("project", "proj-1", "Project One")
-        db.register_entity("project", "proj-1", "Project One Updated")
+        uuid1 = db.register_entity("project", "proj-1", "Project One")
+        uuid2 = db.register_entity("project", "proj-1", "Project One Updated")
+        assert _UUID_V4_RE.match(uuid1)
+        assert uuid1 == uuid2
         cur = db._conn.execute("SELECT COUNT(*) FROM entities")
         assert cur.fetchone()[0] == 1
         # Name should remain the original (INSERT OR IGNORE)
@@ -562,19 +580,19 @@ class TestRegisterEntity:
     def test_all_valid_types(self, db: EntityDatabase):
         """All four valid types should succeed."""
         for etype in ("backlog", "brainstorm", "project", "feature"):
-            type_id = db.register_entity(etype, f"id-{etype}", f"Name {etype}")
-            assert type_id == f"{etype}:id-{etype}"
+            result = db.register_entity(etype, f"id-{etype}", f"Name {etype}")
+            assert _UUID_V4_RE.match(result), f"Expected UUID v4 for {etype}"
 
     def test_optional_fields(self, db: EntityDatabase):
         """artifact_path, status, parent_type_id, metadata should be optional."""
-        type_id = db.register_entity(
+        entity_uuid = db.register_entity(
             "feature", "f1", "Feature One",
             artifact_path="/docs/features/f1",
             status="active",
             metadata={"priority": "high"},
         )
         cur = db._conn.execute(
-            "SELECT * FROM entities WHERE type_id = ?", (type_id,)
+            "SELECT * FROM entities WHERE uuid = ?", (entity_uuid,)
         )
         row = cur.fetchone()
         assert row["artifact_path"] == "/docs/features/f1"
@@ -592,31 +610,32 @@ class TestRegisterEntity:
     def test_valid_parent_type_id(self, db: EntityDatabase):
         """Setting parent_type_id to an existing entity should work."""
         db.register_entity("project", "proj-1", "Project One")
-        type_id = db.register_entity(
+        entity_uuid = db.register_entity(
             "feature", "feat-1", "Feature One",
             parent_type_id="project:proj-1",
         )
         cur = db._conn.execute(
-            "SELECT parent_type_id FROM entities WHERE type_id = ?", (type_id,)
+            "SELECT parent_type_id FROM entities WHERE uuid = ?",
+            (entity_uuid,),
         )
         assert cur.fetchone()[0] == "project:proj-1"
 
     def test_timestamps_set(self, db: EntityDatabase):
         """created_at and updated_at should be set automatically."""
-        type_id = db.register_entity("brainstorm", "b1", "Brainstorm One")
+        entity_uuid = db.register_entity("brainstorm", "b1", "Brainstorm One")
         cur = db._conn.execute(
-            "SELECT created_at, updated_at FROM entities WHERE type_id = ?",
-            (type_id,),
+            "SELECT created_at, updated_at FROM entities WHERE uuid = ?",
+            (entity_uuid,),
         )
         row = cur.fetchone()
         assert row["created_at"] is not None
         assert row["updated_at"] is not None
 
-    def test_returns_type_id_string(self, db: EntityDatabase):
-        """register_entity should return the constructed type_id string."""
+    def test_returns_uuid_string(self, db: EntityDatabase):
+        """register_entity should return a UUID v4 string."""
         result = db.register_entity("feature", "f99", "Feature 99")
         assert isinstance(result, str)
-        assert result == "feature:f99"
+        assert _UUID_V4_RE.match(result), f"Expected UUID v4, got {result!r}"
 
     def test_metadata_stored_as_json(self, db: EntityDatabase):
         """metadata dict should be stored as JSON string in the database."""
@@ -719,9 +738,9 @@ class TestSetParent:
     def test_happy_path(self, db: EntityDatabase):
         """Set parent on a child entity."""
         db.register_entity("project", "proj-1", "Project One")
-        db.register_entity("feature", "f1", "Feature One")
+        child_uuid = db.register_entity("feature", "f1", "Feature One")
         result = db.set_parent("feature:f1", "project:proj-1")
-        assert result == "feature:f1"
+        assert result == child_uuid
         cur = db._conn.execute(
             "SELECT parent_type_id FROM entities WHERE type_id = 'feature:f1'"
         )
@@ -1324,13 +1343,14 @@ class TestBoundaryEntityIdEmpty:
     def test_entity_id_empty_string_registered(self, db: EntityDatabase):
         # Given an empty entity_id string
         # When registering with entity_id=""
-        type_id = db.register_entity("feature", "", "Empty ID Feature")
-        # Then the type_id is "feature:" (colon-separated format)
-        assert type_id == "feature:"
-        # And it's retrievable
+        entity_uuid = db.register_entity("feature", "", "Empty ID Feature")
+        # Then the return is a UUID
+        assert _UUID_V4_RE.match(entity_uuid)
+        # And the type_id is "feature:" (colon-separated format), retrievable
         entity = db.get_entity("feature:")
         assert entity is not None
         assert entity["entity_id"] == ""
+        assert entity["type_id"] == "feature:"
 
 
 class TestDescendantTreeEdgeCases:
@@ -1389,8 +1409,12 @@ class TestTypeIdFormat:
 
     def test_type_id_format_is_colon_separated(self, db: EntityDatabase):
         # Given a feature entity with entity_id "my-feature"
-        type_id = db.register_entity("feature", "my-feature", "My Feature")
-        # Then the type_id uses a colon separator
+        entity_uuid = db.register_entity("feature", "my-feature", "My Feature")
+        # Then the return is a UUID
+        assert _UUID_V4_RE.match(entity_uuid)
+        # And the type_id in the DB uses a colon separator
+        entity = db.get_entity(entity_uuid)
+        type_id = entity["type_id"]
         assert type_id == "feature:my-feature"
         assert ":" in type_id
         parts = type_id.split(":", 1)
@@ -1462,12 +1486,14 @@ class TestBacklogIdWithLeadingZeros:
         self, db: EntityDatabase,
     ):
         # Given a backlog entity with leading zeros in ID
-        type_id = db.register_entity("backlog", "00019", "Item with zeros")
-        # Then the type_id preserves leading zeros
-        assert type_id == "backlog:00019"
+        entity_uuid = db.register_entity("backlog", "00019", "Item with zeros")
+        # Then the return is a UUID
+        assert _UUID_V4_RE.match(entity_uuid)
+        # And the type_id preserves leading zeros
         entity = db.get_entity("backlog:00019")
         assert entity is not None
         assert entity["entity_id"] == "00019"
+        assert entity["type_id"] == "backlog:00019"
 
 
 class TestConcurrentDatabaseAccess:
@@ -1490,3 +1516,144 @@ class TestConcurrentDatabaseAccess:
         finally:
             db1.close()
             db2.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: UUID Dual-Identity tests
+# ---------------------------------------------------------------------------
+
+
+# T2.1.1: _resolve_identifier tests
+class TestResolveIdentifier:
+    def test_resolve_identifier_with_uuid(self, db: EntityDatabase):
+        """_resolve_identifier should resolve a UUID to (uuid, type_id)."""
+        entity_uuid = db.register_entity("feature", "test-id", "Test")
+        result = db._resolve_identifier(entity_uuid)
+        assert result == (entity_uuid, "feature:test-id")
+
+    def test_resolve_identifier_with_type_id(self, db: EntityDatabase):
+        """_resolve_identifier should resolve a type_id to (uuid, type_id)."""
+        entity_uuid = db.register_entity("feature", "test-id", "Test")
+        result = db._resolve_identifier("feature:test-id")
+        assert result == (entity_uuid, "feature:test-id")
+
+    def test_resolve_identifier_not_found(self, db: EntityDatabase):
+        """_resolve_identifier should raise ValueError for unknown identifier."""
+        with pytest.raises(ValueError, match="nonexistent"):
+            db._resolve_identifier("nonexistent")
+
+
+# T2.2.1: register_entity UUID return tests
+class TestRegisterEntityUUID:
+    def test_register_returns_uuid_v4_format(self, db: EntityDatabase):
+        """register_entity should return a valid UUID v4 string."""
+        result = db.register_entity("feature", "test", "Test")
+        assert _UUID_V4_RE.match(result), f"Expected UUID v4, got {result!r}"
+
+    def test_register_duplicate_returns_existing_uuid(self, db: EntityDatabase):
+        """Registering same entity twice should return the same UUID."""
+        uuid1 = db.register_entity("project", "proj-1", "Project One")
+        uuid2 = db.register_entity("project", "proj-1", "Project One Updated")
+        assert uuid1 == uuid2
+
+
+# T2.3.1: set_parent mixed identifier tests
+class TestSetParentUUID:
+    def test_set_parent_mixed_identifiers(self, db: EntityDatabase):
+        """set_parent should accept UUID for child and type_id for parent."""
+        parent_uuid = db.register_entity("project", "proj-1", "Project One")
+        child_uuid = db.register_entity("feature", "f1", "Feature One")
+        result = db.set_parent(child_uuid, "project:proj-1")
+        assert result == child_uuid
+
+    def test_set_parent_updates_both_parent_columns(self, db: EntityDatabase):
+        """set_parent should populate both parent_type_id and parent_uuid."""
+        parent_uuid = db.register_entity("project", "proj-1", "Project One")
+        child_uuid = db.register_entity("feature", "f1", "Feature One")
+        db.set_parent(child_uuid, "project:proj-1")
+        row = db._conn.execute(
+            "SELECT parent_type_id, parent_uuid FROM entities WHERE uuid = ?",
+            (child_uuid,),
+        ).fetchone()
+        assert row["parent_type_id"] == "project:proj-1"
+        assert row["parent_uuid"] == parent_uuid
+
+
+# T2.4.1: get_entity dual-read tests
+class TestGetEntityUUID:
+    def test_get_entity_by_uuid(self, db: EntityDatabase):
+        """get_entity should accept UUID and return dict with uuid field."""
+        entity_uuid = db.register_entity("feature", "f1", "Feature One")
+        result = db.get_entity(entity_uuid)
+        assert result is not None
+        assert result["uuid"] == entity_uuid
+
+    def test_get_entity_by_type_id(self, db: EntityDatabase):
+        """get_entity should accept type_id and return same entity."""
+        entity_uuid = db.register_entity("feature", "f1", "Feature One")
+        result = db.get_entity("feature:f1")
+        assert result is not None
+        assert result["uuid"] == entity_uuid
+        assert result["type_id"] == "feature:f1"
+
+    def test_get_entity_not_found_returns_none(self, db: EntityDatabase):
+        """get_entity should return None for nonexistent identifier."""
+        assert db.get_entity("nonexistent") is None
+
+
+# T2.5.1: get_lineage and update_entity UUID tests
+class TestGetLineageUUID:
+    def test_get_lineage_with_uuid(self, db: EntityDatabase):
+        """get_lineage should accept UUID and return entities with uuid field."""
+        gp_uuid = db.register_entity("project", "gp", "Grandparent")
+        p_uuid = db.register_entity(
+            "feature", "p", "Parent", parent_type_id="project:gp"
+        )
+        c_uuid = db.register_entity(
+            "feature", "c", "Child", parent_type_id="feature:p"
+        )
+        lineage = db.get_lineage(c_uuid, direction="up")
+        assert len(lineage) == 3
+        # Root-first order
+        assert lineage[0]["uuid"] == gp_uuid
+        assert lineage[1]["uuid"] == p_uuid
+        assert lineage[2]["uuid"] == c_uuid
+        # Each dict has uuid field
+        for entry in lineage:
+            assert "uuid" in entry
+
+
+class TestUpdateEntityUUID:
+    def test_update_entity_with_uuid(self, db: EntityDatabase):
+        """update_entity should accept UUID as identifier."""
+        entity_uuid = db.register_entity("feature", "f1", "Original")
+        db.update_entity(entity_uuid, name="New Name")
+        result = db.get_entity(entity_uuid)
+        assert result["name"] == "New Name"
+
+
+# T2.6.1: export UUID internals test
+class TestExportUUIDInternals:
+    def test_export_uses_uuid_internally(self, db: EntityDatabase):
+        """Export should show type_id strings, NOT raw UUIDs."""
+        gp_uuid = db.register_entity("project", "gp", "Grandparent")
+        p_uuid = db.register_entity(
+            "feature", "p", "Parent", parent_type_id="project:gp"
+        )
+        c_uuid = db.register_entity(
+            "feature", "c", "Child", parent_type_id="feature:p"
+        )
+        md = db.export_lineage_markdown()
+        # Output should contain type_id components
+        assert "project" in md
+        assert "Grandparent" in md
+        assert "Parent" in md
+        assert "Child" in md
+        # Output should NOT contain UUID patterns
+        import re
+        uuid_pattern = re.compile(
+            r'[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
+        )
+        assert not uuid_pattern.search(md), (
+            f"Export should not contain UUIDs, but found: {md}"
+        )
