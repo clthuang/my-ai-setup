@@ -148,8 +148,10 @@ async def set_parent(type_id: str, parent_type_id: str) -> str:
         return "Error: database not initialized (server not started)"
 
     try:
-        _db.set_parent(type_id, parent_type_id)
-        return f"Set parent of {type_id} to {parent_type_id}"
+        child_uuid = _db.set_parent(type_id, parent_type_id)
+        child = _db.get_entity(child_uuid)
+        parent = _db.get_entity(child["parent_uuid"])
+        return f"Set parent of {child_uuid} ({child['type_id']}) to {child['parent_uuid']} ({parent['type_id']})"
     except Exception as exc:
         return f"Error setting parent: {exc}"
 
@@ -233,7 +235,8 @@ async def update_entity(
             type_id, name=name, status=status,
             artifact_path=artifact_path, metadata=parse_metadata(metadata),
         )
-        return f"Updated entity: {type_id}"
+        entity = _db.get_entity(type_id)
+        return f"Updated entity: {entity['uuid']} ({entity['type_id']})"
     except Exception as exc:
         return f"Error updating entity: {exc}"
 
