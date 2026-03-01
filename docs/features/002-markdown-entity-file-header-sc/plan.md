@@ -296,7 +296,7 @@ Run `./validate.sh` and confirm no plugin portability violations (hardcoded `plu
 
 Set up test helpers:
 - Create temp directory with `.meta.json` fixture
-- Create **file-based** test DB using `EntityDatabase(str(tmp_path / "test.db"))` — NOT `:memory:` — because the CLI subprocess needs to access it via `ENTITY_DB_PATH` env var. Call `db.close()` before subprocess invocation to flush WAL.
+- Create **file-based** test DB using `EntityDatabase(str(tmp_path / "test.db"))` — NOT `:memory:` — because the CLI subprocess needs to access it via `ENTITY_DB_PATH` env var. Before subprocess invocation, flush the DB: if `EntityDatabase` exposes a `close()` method, call it; if it supports context manager (`__exit__`), use `with` block; otherwise, delete the `db` reference and call `gc.collect()` to trigger SQLite's WAL checkpoint via garbage collection. **Pre-verification:** Read `database.py` to confirm which teardown method is available before writing the test infrastructure.
 - Create temp artifact file (`spec.md` with markdown content)
 - Subprocess invocation uses `subprocess.run([sys.executable, script_path, artifact_path, type_id], env={...})` where `sys.executable` is the test runner's Python, and `env` includes `PYTHONPATH` pointing to the `hooks/lib` directory and `ENTITY_DB_PATH` pointing to the test DB file path. **Common pitfall:** `PYTHONPATH` must resolve to the absolute `hooks/lib` directory so `from entity_registry.frontmatter import ...` works in the subprocess. Integration tests should verify this explicitly by checking exit code and stderr for import errors.
 
@@ -336,8 +336,8 @@ Set up test helpers:
 
 After all phases complete, verify:
 
-- [ ] (Phase 4) All tests pass after Phase 4: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/test_frontmatter.py -v`
-- [ ] (Phase 4) No regressions in existing entity_registry tests: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/ -v`
+- [ ] (Phase 4) All tests written through Phase 4 pass: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/test_frontmatter.py -v`
+- [ ] (Phase 4) No regressions in pre-existing entity_registry tests (database, backfill, server helpers): `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/ -v`
 - [ ] (Phase 4) TD-9 `created_at` immutability on merge is covered by a test in `TestWriteFrontmatter`
 - [ ] (Phase 4) Divergence guard test (write path vs read path consistency) exists in `TestWriteFrontmatter`
 - [ ] (Phase 6) SKILL.md modification is syntactically consistent with surrounding pseudocode
