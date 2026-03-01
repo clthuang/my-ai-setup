@@ -8,7 +8,7 @@
   "project_id": "P001",
   "module": "Status Taxonomy",
   "depends_on_features": [],
-  "lastCompletedPhase": "create-plan",
+  "lastCompletedPhase": "create-tasks",
   "phases": {
     "specify": {
       "started": "2026-03-01T16:50:00+08:00",
@@ -30,7 +30,10 @@
       "completed": "2026-03-01T19:25:00+08:00"
     },
     "create-tasks": {
-      "started": "2026-03-01T19:30:00+08:00"
+      "started": "2026-03-01T19:30:00+08:00",
+      "completed": "2026-03-01T19:55:00+08:00",
+      "taskReview": { "iterations": 2, "approved": true },
+      "chainReview": { "iterations": 1, "approved": true }
     }
   }
 }
