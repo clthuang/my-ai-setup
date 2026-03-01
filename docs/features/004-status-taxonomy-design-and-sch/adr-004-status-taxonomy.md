@@ -84,18 +84,18 @@ The key aspects of this decision:
 
 ### Positive Consequences
 
-- Clean separation of workflow progress and process state -- each dimension evolves independently
-- Independent schema evolution -- `workflow_phases` can be extended (e.g., adding columns for feature 008) without touching the `entities` table
-- Preserves the existing entity registry API surface -- no changes to entity CRUD operations
-- Simple, indexed queries for kanban board views -- `SELECT * FROM workflow_phases WHERE kanban_column = 'wip'` is a single-table indexed scan
-- Database-level enum enforcement via CHECK constraints prevents invalid values even from direct SQL access
+- Kanban board queries are single-table indexed scans — `SELECT * FROM workflow_phases WHERE kanban_column = 'wip'`
+- Adding new workflow columns (e.g., for feature 008) does not require `entities` table migration
+- Entity CRUD operations remain unchanged — no risk to existing registry consumers
+- CHECK constraints enforce valid enum values even from direct SQL access, preventing data corruption
+- `workflow_phase` and `kanban_column` can be queried and filtered independently
 
 ### Negative Consequences
 
-- Application-level enforcement needed for cross-table rules -- entity type restrictions (brainstorm limited to backlog/prioritised) and conflict scenarios (#2, #3, #6) cannot be enforced by DDL alone because SQLite CHECK constraints are row-local
-- JOIN required for combined entity + workflow queries -- `SELECT e.*, wp.* FROM entities e JOIN workflow_phases wp ON e.type_id = wp.type_id` adds complexity to queries that need both entity identity and workflow state
-- No built-in history -- phase transition audit trail is deferred to feature 008's transition log; until that feature ships, there is no record of state changes over time
-- Direct SQL access can bypass application-level constraints -- mitigated by the convention that only the state engine (feature 008) writes to `workflow_phases`
+- Combined entity + workflow queries require a JOIN — `SELECT e.*, wp.* FROM entities e JOIN workflow_phases wp ON e.type_id = wp.type_id`
+- Cross-table rules (entity type restrictions, conflict scenarios #2/#3/#6) require application-level enforcement — SQLite CHECK constraints are row-local
+- No transition history until feature 008 ships — current state snapshot only
+- Direct SQL writes can bypass application-level constraints — mitigated by convention that only the state engine writes to `workflow_phases`
 
 ## Appendices
 
@@ -111,9 +111,7 @@ The key aspects of this decision:
 | `implement` | Writing code, tests, and executing tasks |
 | `finish` | Final review, documentation, merge, and retrospective |
 
-`workflow_phase` is nullable -- NULL means "not started" (no sentinel value). Brainstorm and backlog entities always have NULL workflow_phase (they do not progress through workflow phases).
-
-SQLite CHECK constraint form: `CHECK(workflow_phase IN ('brainstorm','specify','design','create-plan','create-tasks','implement','finish') OR workflow_phase IS NULL)`.
+`workflow_phase` is nullable -- NULL means "not started" (no sentinel value). Brainstorm and backlog entities always have NULL workflow_phase (they do not progress through workflow phases). See Appendix E for the DDL CHECK constraint.
 
 ### Appendix B: Kanban Column Definitions
 
@@ -168,9 +166,9 @@ The following DDL defines the `workflow_phases` table as migration version 2 in 
 
 ```sql
 CREATE TABLE IF NOT EXISTS workflow_phases (
-    -- FK uses implicit ON DELETE RESTRICT (SQLite default). Deleting an entity
-    -- while its workflow_phases row exists will fail, which is the desired behavior —
-    -- workflow state should be explicitly cleaned up before entity deletion.
+    -- FK uses implicit ON DELETE NO ACTION (SQLite default). Deleting an entity
+    -- while its workflow_phases row exists will fail at statement end, which is
+    -- the desired behavior — workflow state must be cleaned up before entity deletion.
     type_id                    TEXT PRIMARY KEY REFERENCES entities(type_id),
     workflow_phase             TEXT CHECK(workflow_phase IN (
                                    'brainstorm','specify','design',
@@ -229,72 +227,69 @@ CREATE INDEX IF NOT EXISTS idx_wp_workflow_phase ON workflow_phases(workflow_pha
 
 This table covers feature and brainstorm entity `.meta.json` fields. Project entity fields (e.g., `expected_lifetime`, `milestones` sub-fields) are excluded because projects do not participate in `workflow_phases` (AC-5).
 
-#### Field Disposition Table
+#### Fields with Action in This Feature
 
 | .meta.json Field | Disposition | Target |
 |-----------------|-------------|--------|
-| `id` | Stays in .meta.json | Not migrated -- display identifier |
-| `slug` | Stays in .meta.json | Not migrated -- display identifier |
 | `status` | Maps to kanban_column | See status conversion table below |
-| `created` | Already in entities table | `entities.created_at` |
 | `completed` | Maps to workflow_phases | Captured via kanban_column=`completed` + `updated_at` |
 | `mode` | Maps to workflow_phases | `workflow_phases.mode` |
-| `branch` | Stays in .meta.json | Not migrated -- git concern, not workflow state |
+| `lastCompletedPhase` | Maps to workflow_phases | `workflow_phases.last_completed_phase` |
+| `created` | Already in entities table | `entities.created_at` |
 | `project_id` | Already in entities table | Via `parent_type_id` (e.g., project:P001) |
 | `module` | Already in entities metadata | `entities.metadata` JSON |
 | `depends_on_features` | Already in entities metadata | `entities.metadata` JSON |
-| `lastCompletedPhase` | Maps to workflow_phases | `workflow_phases.last_completed_phase` |
-| `skippedPhases` | Deferred to feature 008 | Transition log responsibility |
-| `phases.{name}.started` | Deferred to feature 008 | Per-phase timestamps in transition log |
-| `phases.{name}.completed` | Deferred to feature 008 | Per-phase timestamps in transition log |
-| `phases.{name}.iterations` | Deferred to feature 008 | Per-phase iteration count in transition log |
-| `phases.{name}.reviewerNotes` | Deferred to feature 008 | Reviewer notes in transition log |
-| `phases.{name}.taskReview.*` | Deferred to feature 008 | Task review sub-object (iterations, approved, concerns) in transition log |
-| `phases.{name}.chainReview.*` | Deferred to feature 008 | Chain review sub-object (iterations, approved, concerns) in transition log |
-| `phases.{name}.reviewIterations` | Deferred to feature 008 | Per-phase review iteration count in transition log |
-| `phases.{name}.approved` | Deferred to feature 008 | Per-phase approval status in transition log |
-| `phases.{name}.status` | Deferred to feature 008 | Phase-level status in transition log |
-| `phases.design.stages.*` | Deferred to feature 008 | Design-specific sub-structure in transition log |
-| `backlog_source` | Stays in .meta.json | Not migrated -- provenance metadata linking feature to backlog item |
-| `brainstorm_source` | Stays in .meta.json | Not migrated -- provenance metadata |
+| `id` | Stays in .meta.json | Display identifier |
+| `slug` | Stays in .meta.json | Display identifier |
+| `branch` | Stays in .meta.json | Git concern, not workflow state |
+| `backlog_source` | Stays in .meta.json | Provenance metadata linking feature to backlog item |
+| `brainstorm_source` | Stays in .meta.json | Provenance metadata |
 | `abandoned_reason` | Stays in .meta.json | Contextual narrative; `backward_transition_reason` in workflow_phases captures structured reason |
 | `retro_completed` | Stays in .meta.json | Process metadata, not workflow state |
 | `lastCompletedMilestone` | Stays in .meta.json | Project-level, not feature workflow |
 | `milestones` | Stays in .meta.json | Project-level, not feature workflow |
 | `features` | Stays in .meta.json | Project-level, not feature workflow |
 
-**Additional discovered fields (nested in phases):**
+#### Fields Deferred to Feature 008 (Transition Log)
 
-| .meta.json Field | Disposition | Target |
-|-----------------|-------------|--------|
-| `phases.{name}.skipped` | Deferred to feature 008 | Transition log (phase skip tracking) |
-| `phases.{name}.concerns` | Deferred to feature 008 | Transition log (reviewer concerns) |
-| `phases.{name}.capReached` | Deferred to feature 008 | Transition log (iteration cap tracking) |
-| `phases.{name}.phaseReview.*` | Deferred to feature 008 | Phase review sub-object in transition log |
-| `phases.{name}.planReview.*` | Deferred to feature 008 | Plan review sub-object in transition log |
-| `phases.{name}.specReviewer.*` | Deferred to feature 008 | Spec reviewer sub-object in transition log |
-| `phases.{name}.phaseReviewer.*` | Deferred to feature 008 | Phase reviewer sub-object in transition log |
-| `phases.{name}.planReviewer.*` | Deferred to feature 008 | Plan reviewer sub-object in transition log |
-| `phases.{name}.phaseReviewIterations` | Deferred to feature 008 | Phase-level review iteration count in transition log |
-| `phases.{name}.planReviewIterations` | Deferred to feature 008 | Plan-level review iteration count in transition log |
-| `phases.{name}.reviewResult` | Deferred to feature 008 | Review result in transition log |
-| `phases.{name}.reworked` | Deferred to feature 008 | Rework tracking in transition log |
-| `phases.{name}.reworkReason` | Deferred to feature 008 | Rework reason in transition log |
-| `phases.{name}.revised` | Deferred to feature 008 | Revision tracking in transition log |
-| `phases.{name}.verified` | Deferred to feature 008 | Verification status in transition log |
-| `phases.{name}.notes` | Deferred to feature 008 | Phase notes in transition log |
-| `phases.{name}.artifact` | Deferred to feature 008 | Artifact reference in transition log |
-| `phases.{name}.artifacts` | Deferred to feature 008 | Artifact references in transition log |
-| `phases.{name}.startedAt` | Deferred to feature 008 | Per-phase timestamp (alternate key) in transition log |
-| `phases.{name}.completedAt` | Deferred to feature 008 | Per-phase timestamp (alternate key) in transition log |
-| `phases.{name}.testsDeepenedCount` | Deferred to feature 008 | Test deepening count in transition log |
-| `phases.{name}.result` | Deferred to feature 008 | Phase result in transition log |
-| `phases.{name}.name` | Deferred to feature 008 | Phase name (redundant with key) in transition log |
-| `phases.design.stages.research` | Deferred to feature 008 | Design research stage sub-object in transition log |
-| `phases.design.stages.architecture` | Deferred to feature 008 | Design architecture stage sub-object in transition log |
-| `phases.design.stages.interface` | Deferred to feature 008 | Design interface stage sub-object in transition log |
-| `phases.design.stages.designReview` | Deferred to feature 008 | Design review stage sub-object in transition log |
-| `phases.design.stages.handoffReview` | Deferred to feature 008 | Design handoff review stage sub-object in transition log |
+All per-phase sub-fields are deferred to feature 008's transition log. These fields track phase-level detail (timestamps, review iterations, approval status) that belongs in a structured transition history rather than the current-state snapshot table.
+
+| .meta.json Field | Target |
+|-----------------|--------|
+| `skippedPhases` | Phase skip tracking |
+| `phases.{name}.started` | Per-phase timestamp |
+| `phases.{name}.completed` | Per-phase timestamp |
+| `phases.{name}.iterations` | Per-phase iteration count |
+| `phases.{name}.reviewerNotes` | Reviewer notes |
+| `phases.{name}.taskReview.*` | Task review sub-object (iterations, approved, concerns) |
+| `phases.{name}.chainReview.*` | Chain review sub-object (iterations, approved, concerns) |
+| `phases.{name}.reviewIterations` | Per-phase review iteration count |
+| `phases.{name}.approved` | Per-phase approval status |
+| `phases.{name}.status` | Phase-level status |
+| `phases.{name}.skipped` | Phase skip flag |
+| `phases.{name}.concerns` | Reviewer concerns |
+| `phases.{name}.capReached` | Iteration cap tracking |
+| `phases.{name}.phaseReview.*` | Phase review sub-object |
+| `phases.{name}.planReview.*` | Plan review sub-object |
+| `phases.{name}.specReviewer.*` | Spec reviewer sub-object |
+| `phases.{name}.phaseReviewer.*` | Phase reviewer sub-object |
+| `phases.{name}.planReviewer.*` | Plan reviewer sub-object |
+| `phases.{name}.phaseReviewIterations` | Phase-level review iteration count |
+| `phases.{name}.planReviewIterations` | Plan-level review iteration count |
+| `phases.{name}.reviewResult` | Review result |
+| `phases.{name}.reworked` | Rework tracking |
+| `phases.{name}.reworkReason` | Rework reason |
+| `phases.{name}.revised` | Revision tracking |
+| `phases.{name}.verified` | Verification status |
+| `phases.{name}.notes` | Phase notes |
+| `phases.{name}.artifact` | Artifact reference |
+| `phases.{name}.artifacts` | Artifact references |
+| `phases.{name}.startedAt` | Per-phase timestamp (alternate key) |
+| `phases.{name}.completedAt` | Per-phase timestamp (alternate key) |
+| `phases.{name}.testsDeepenedCount` | Test deepening count |
+| `phases.{name}.result` | Phase result |
+| `phases.{name}.name` | Phase name (redundant with key) |
+| `phases.design.stages.*` | Design stage sub-objects (research, architecture, interface, designReview, handoffReview) |
 
 #### Status to kanban_column Conversion Table
 
