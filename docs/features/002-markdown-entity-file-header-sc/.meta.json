@@ -11,7 +11,7 @@
   "depends_on_features": [
     "001-entity-uuid-primary-key-migrat"
   ],
-  "lastCompletedPhase": "design",
+  "lastCompletedPhase": "create-plan",
   "phases": {
     "specify": {
       "started": "2026-03-02T18:00:00+08:00",
@@ -38,6 +38,21 @@
         "interface": { "started": "2026-03-02T21:45:00+08:00", "completed": "2026-03-02T22:15:00+08:00" },
         "designReview": { "started": "2026-03-02T22:30:00+08:00", "completed": "2026-03-02T23:20:00+08:00", "iterations": 3, "reviewerNotes": [] },
         "handoffReview": { "started": "2026-03-02T23:25:00+08:00", "completed": "2026-03-02T23:30:00+08:00", "iterations": 2, "approved": true, "reviewerNotes": [] }
+      }
+    },
+    "create-plan": {
+      "started": "2026-03-02T23:30:00+08:00",
+      "completed": "2026-03-03T00:40:00+08:00",
+      "status": "completed",
+      "reviewIterations": 4,
+      "reviewOutcome": "approved",
+      "phaseReview": {
+        "iterations": 5,
+        "capReached": true,
+        "concerns": [
+          "Step 5.3 API pre-verification lacks fallback instruction if get_entity() only accepts UUID",
+          "Step 7.1 DB teardown pre-verification leaves choice open mid-implementation"
+        ]
       }
     }
   }
