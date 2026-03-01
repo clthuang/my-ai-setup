@@ -251,13 +251,12 @@ Create CLI script with:
 9. Derive `phase` from `ARTIFACT_PHASE_MAP[artifact_type]`
 10. Build header via `build_header()` with required + optional fields
 11. Call `write_frontmatter(artifact_path, header)`
-12. Exception handling per operation — see **Error boundary** subsection below for the full specification. In summary: `ValueError` → exit 1; `OSError` → warn, exit 0; unexpected exceptions propagate (not caught)
 
-**Error boundary:** Targeted exception handling, NOT a blanket `try/except Exception`. Each operation catches specific exceptions:
-- `EntityDatabase(db_path)`: catches `(sqlite3.Error, OSError)` → warn, exit 0
-- `db.get_entity(type_id)`: catches `(sqlite3.Error,)` → warn, exit 0
-- `write_frontmatter(path, header)`: catches `ValueError` (UUID mismatch) → exit 1; catches `OSError` → warn, exit 0
-- Unexpected exceptions (TypeError, AttributeError, NameError, etc.) propagate as unhandled — the `|| true` in SKILL.md already provides the fail-open safety net at the workflow level. This makes programming bugs visible in stderr instead of being silently swallowed.
+**Error boundary (governs steps 4, 5, 11):** Targeted exception handling, NOT a blanket `try/except Exception`. Each operation catches specific exceptions:
+- **Step 4** — `EntityDatabase(db_path)`: catches `(sqlite3.Error, OSError)` → warn, exit 0
+- **Step 5** — `db.get_entity(type_id)`: catches `(sqlite3.Error,)` → warn, exit 0
+- **Step 11** — `write_frontmatter(path, header)`: catches `ValueError` (UUID mismatch) → exit 1; catches `OSError` → warn, exit 0
+- **All other steps** — unexpected exceptions (TypeError, AttributeError, NameError, etc.) propagate as unhandled — the `|| true` in SKILL.md already provides the fail-open safety net at the workflow level. This makes programming bugs visible in stderr instead of being silently swallowed.
 
 ---
 
@@ -331,16 +330,19 @@ Set up test helpers:
 
 ## Verification Checklist
 
+**Gate condition:** Each item below MUST be confirmed before the implementation is considered complete. Items marked with a phase number should be verified at the end of that phase (not deferred to the end). Items without a phase number are final checks after Phase 7.
+
 After all phases complete, verify:
 
-- [ ] All 18 acceptance criteria (AC-1 through AC-18) have corresponding tests
-- [ ] All tests pass: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/test_frontmatter.py -v`
-- [ ] No regressions in existing entity_registry tests: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/ -v`
-- [ ] `frontmatter_inject.py` is executable and handles all error cases with fail-open behavior
-- [ ] SKILL.md modification is syntactically consistent with surrounding pseudocode
-- [ ] No external dependencies added (stdlib + entity_registry only)
-- [ ] All file I/O uses `encoding='utf-8'` (TD-10)
-- [ ] Atomic writes use `tempfile.NamedTemporaryFile(delete=False, dir=same_dir)` + `os.rename()` (C2)
-- [ ] TD-9 `created_at` immutability on merge is covered by a test in `TestWriteFrontmatter`
-- [ ] Divergence guard test (write path vs read path consistency) exists in `TestWriteFrontmatter`
-- [ ] Any new dependencies managed via `uv add` (not `pip install`). This feature requires no new external deps (C3), but if any tooling changes are needed, use `uv`.
+- [ ] (Phase 4) All tests pass after Phase 4: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/test_frontmatter.py -v`
+- [ ] (Phase 4) No regressions in existing entity_registry tests: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/ -v`
+- [ ] (Phase 4) TD-9 `created_at` immutability on merge is covered by a test in `TestWriteFrontmatter`
+- [ ] (Phase 4) Divergence guard test (write path vs read path consistency) exists in `TestWriteFrontmatter`
+- [ ] (Phase 6) SKILL.md modification is syntactically consistent with surrounding pseudocode
+- [ ] (Phase 6) `./validate.sh` passes — no plugin portability violations
+- [ ] (Phase 7) All 18 acceptance criteria (AC-1 through AC-18) have corresponding tests
+- [ ] (Phase 7) `frontmatter_inject.py` is executable and handles all error cases with fail-open behavior
+- [ ] (Final) No external dependencies added (stdlib + entity_registry only)
+- [ ] (Final) All file I/O uses `encoding='utf-8'` (TD-10)
+- [ ] (Final) Atomic writes use `tempfile.NamedTemporaryFile(delete=False, dir=same_dir)` + `os.rename()` (C2)
+- [ ] (Final) Any new dependencies managed via `uv add` (not `pip install`). This feature requires no new external deps (C3), but if any tooling changes are needed, use `uv`.
