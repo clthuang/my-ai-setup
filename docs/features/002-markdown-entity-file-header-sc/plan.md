@@ -251,7 +251,7 @@ Create CLI script with:
 9. Derive `phase` from `ARTIFACT_PHASE_MAP[artifact_type]`
 10. Build header via `build_header()` with required + optional fields
 11. Call `write_frontmatter(artifact_path, header)`
-12. Catch `ValueError` (UUID mismatch) → exit 1; all other exceptions → warn, exit 0
+12. Exception handling per operation — see **Error boundary** subsection below for the full specification. In summary: `ValueError` → exit 1; `OSError` → warn, exit 0; unexpected exceptions propagate (not caught)
 
 **Error boundary:** Targeted exception handling, NOT a blanket `try/except Exception`. Each operation catches specific exceptions:
 - `EntityDatabase(db_path)`: catches `(sqlite3.Error, OSError)` → warn, exit 0
@@ -277,9 +277,15 @@ Insert the frontmatter injection pseudocode (I6) into the `commitAndComplete` fu
 
 **Verification:** Read the modified SKILL.md to confirm the pseudocode is in the correct location and syntactically consistent with surrounding pseudocode.
 
+### Step 6.2: Validate SKILL.md modification
+
+Run `./validate.sh` and confirm no plugin portability violations (hardcoded `plugins/iflow/` paths) are flagged in the modified SKILL.md. The pseudocode uses the two-location Glob pattern per CLAUDE.md convention — `validate.sh` catches violations.
+
 ---
 
 ## Phase 7: Integration Tests
+
+**Note:** AC-12 tests the CLI subprocess directly (not via the SKILL.md pseudocode path). The SKILL.md integration is verified manually in Phase 6 Step 6.1/6.2. The SKILL.md pseudocode is LLM-interpreted at runtime — automated testing of that path requires an end-to-end workflow execution which is outside this feature's scope.
 
 **Goal:** End-to-end tests for the CLI script with a real (test) database.
 
@@ -335,4 +341,6 @@ After all phases complete, verify:
 - [ ] No external dependencies added (stdlib + entity_registry only)
 - [ ] All file I/O uses `encoding='utf-8'` (TD-10)
 - [ ] Atomic writes use `tempfile.NamedTemporaryFile(delete=False, dir=same_dir)` + `os.rename()` (C2)
+- [ ] TD-9 `created_at` immutability on merge is covered by a test in `TestWriteFrontmatter`
+- [ ] Divergence guard test (write path vs read path consistency) exists in `TestWriteFrontmatter`
 - [ ] Any new dependencies managed via `uv add` (not `pip install`). This feature requires no new external deps (C3), but if any tooling changes are needed, use `uv`.
