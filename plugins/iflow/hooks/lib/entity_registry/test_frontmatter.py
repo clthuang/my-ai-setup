@@ -19,6 +19,7 @@ from entity_registry.frontmatter import (
     build_header,
     read_frontmatter,
     validate_header,
+    write_frontmatter,
 )
 
 # Valid UUID v4 for reuse across tests
@@ -458,3 +459,401 @@ class TestReadFrontmatter:
         result = read_frontmatter(fpath)
         assert result is not None
         assert result == {"entity_uuid": VALID_UUID}
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Write Function
+# ---------------------------------------------------------------------------
+
+
+def _full_header(**overrides) -> dict:
+    """Helper: return a full valid header dict with optional overrides."""
+    header = {
+        "entity_uuid": VALID_UUID,
+        "entity_type_id": VALID_TYPE_ID,
+        "artifact_type": VALID_ARTIFACT_TYPE,
+        "created_at": VALID_CREATED_AT,
+    }
+    header.update(overrides)
+    return header
+
+
+class TestWriteFrontmatter:
+    """Tests for write_frontmatter -- core behavior (Task 4.1.1)."""
+
+    def test_ac1_new_file_prepends_header_preserves_body(self, tmp_path):
+        """AC-1: new file (no frontmatter) gets header prepended, body preserved."""
+        fpath = str(tmp_path / "spec.md")
+        body = "# Spec Content\n\nSome body text.\n"
+        _write_file(fpath, body)
+
+        header = _full_header()
+        write_frontmatter(fpath, header)
+
+        content = open(fpath, "r", encoding="utf-8").read()
+        assert content.startswith("---\n")
+        assert f"entity_uuid: {VALID_UUID}\n" in content
+        assert content.endswith(body)
+
+    def test_ac8_existing_frontmatter_replaced_body_preserved(self, tmp_path):
+        """AC-8: file with existing frontmatter gets header replaced, body preserved."""
+        fpath = str(tmp_path / "spec.md")
+        body = "# Body\n"
+        _write_file(fpath, (
+            "---\n"
+            f"entity_uuid: {VALID_UUID}\n"
+            f"entity_type_id: {VALID_TYPE_ID}\n"
+            f"artifact_type: {VALID_ARTIFACT_TYPE}\n"
+            f"created_at: {VALID_CREATED_AT}\n"
+            "---\n"
+            + body
+        ))
+
+        new_header = _full_header(phase="specify")
+        write_frontmatter(fpath, new_header)
+
+        content = open(fpath, "r", encoding="utf-8").read()
+        assert "phase: specify" in content
+        assert content.endswith(body)
+
+    def test_ac15_idempotent(self, tmp_path):
+        """AC-15: write twice with same header produces identical content."""
+        fpath = str(tmp_path / "spec.md")
+        body = "# Body\n"
+        _write_file(fpath, body)
+
+        header = _full_header()
+        write_frontmatter(fpath, header)
+        content_after_first = open(fpath, "r", encoding="utf-8").read()
+
+        write_frontmatter(fpath, header)
+        content_after_second = open(fpath, "r", encoding="utf-8").read()
+
+        assert content_after_first == content_after_second
+
+    def test_ac16_uuid_mismatch_raises(self, tmp_path):
+        """AC-16: UUID mismatch raises ValueError."""
+        fpath = str(tmp_path / "spec.md")
+        _write_file(fpath, (
+            "---\n"
+            f"entity_uuid: {VALID_UUID}\n"
+            f"entity_type_id: {VALID_TYPE_ID}\n"
+            f"artifact_type: {VALID_ARTIFACT_TYPE}\n"
+            f"created_at: {VALID_CREATED_AT}\n"
+            "---\n"
+            "# Body\n"
+        ))
+
+        different_uuid = "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e"
+        with pytest.raises(ValueError):
+            write_frontmatter(fpath, _full_header(entity_uuid=different_uuid))
+
+    def test_ac16_uuid_case_mismatch_does_not_raise(self, tmp_path):
+        """AC-16 variant: UUID case mismatch (same UUID different case) does NOT raise."""
+        fpath = str(tmp_path / "spec.md")
+        _write_file(fpath, (
+            "---\n"
+            f"entity_uuid: {VALID_UUID}\n"
+            f"entity_type_id: {VALID_TYPE_ID}\n"
+            f"artifact_type: {VALID_ARTIFACT_TYPE}\n"
+            f"created_at: {VALID_CREATED_AT}\n"
+            "---\n"
+            "# Body\n"
+        ))
+
+        upper_uuid = VALID_UUID.upper()
+        # Should not raise -- same UUID, different case
+        write_frontmatter(fpath, _full_header(entity_uuid=upper_uuid))
+
+    def test_ac17_none_removes_optional_field(self, tmp_path):
+        """AC-17: existing optional field + None in new headers removes field."""
+        fpath = str(tmp_path / "spec.md")
+        _write_file(fpath, (
+            "---\n"
+            f"entity_uuid: {VALID_UUID}\n"
+            f"entity_type_id: {VALID_TYPE_ID}\n"
+            f"artifact_type: {VALID_ARTIFACT_TYPE}\n"
+            f"created_at: {VALID_CREATED_AT}\n"
+            "feature_id: 002\n"
+            "---\n"
+            "# Body\n"
+        ))
+
+        write_frontmatter(fpath, _full_header(feature_id=None))
+
+        content = open(fpath, "r", encoding="utf-8").read()
+        assert "feature_id" not in content
+
+    def test_ac18_empty_string_removes_optional_field(self, tmp_path):
+        """AC-18: existing optional field + '' in new headers removes field."""
+        fpath = str(tmp_path / "spec.md")
+        _write_file(fpath, (
+            "---\n"
+            f"entity_uuid: {VALID_UUID}\n"
+            f"entity_type_id: {VALID_TYPE_ID}\n"
+            f"artifact_type: {VALID_ARTIFACT_TYPE}\n"
+            f"created_at: {VALID_CREATED_AT}\n"
+            "phase: specify\n"
+            "---\n"
+            "# Body\n"
+        ))
+
+        write_frontmatter(fpath, _full_header(phase=""))
+
+        content = open(fpath, "r", encoding="utf-8").read()
+        assert "phase" not in content
+
+    def test_td9_created_at_preserved(self, tmp_path):
+        """TD-9: existing created_at preserved when new headers differ."""
+        fpath = str(tmp_path / "spec.md")
+        original_ts = "2026-01-01T00:00:00+00:00"
+        _write_file(fpath, (
+            "---\n"
+            f"entity_uuid: {VALID_UUID}\n"
+            f"entity_type_id: {VALID_TYPE_ID}\n"
+            f"artifact_type: {VALID_ARTIFACT_TYPE}\n"
+            f"created_at: {original_ts}\n"
+            "---\n"
+            "# Body\n"
+        ))
+
+        new_ts = "2026-06-15T12:00:00+00:00"
+        write_frontmatter(fpath, _full_header(created_at=new_ts))
+
+        content = open(fpath, "r", encoding="utf-8").read()
+        assert f"created_at: {original_ts}" in content
+        assert new_ts not in content
+
+    def test_file_not_found_raises_valueerror(self, tmp_path):
+        """File does not exist raises ValueError."""
+        fpath = str(tmp_path / "nonexistent.md")
+        with pytest.raises(ValueError, match="File not found"):
+            write_frontmatter(fpath, _full_header())
+
+    def test_merge_preserve_existing_optional(self, tmp_path):
+        """Merge-preserve: partial write preserves existing optional fields."""
+        fpath = str(tmp_path / "spec.md")
+        _write_file(fpath, "# Body\n")
+
+        # First write: full header with feature_id
+        full = _full_header(feature_id="002")
+        write_frontmatter(fpath, full)
+
+        # Second write: partial dict (entity_uuid + artifact_type only)
+        # Omits required fields -- relies on merge to preserve from existing
+        partial = {"entity_uuid": VALID_UUID, "artifact_type": VALID_ARTIFACT_TYPE}
+        write_frontmatter(fpath, partial)
+
+        result = read_frontmatter(fpath)
+        assert result is not None
+        assert result["feature_id"] == "002"
+        # Also verify required fields preserved via merge
+        assert result["entity_type_id"] == VALID_TYPE_ID
+        assert result["created_at"] == VALID_CREATED_AT
+
+    def test_merge_add_new_optional(self, tmp_path):
+        """Merge-add: writing with new optional field adds it."""
+        fpath = str(tmp_path / "spec.md")
+        _write_file(fpath, "# Body\n")
+
+        # First write: full header without feature_id
+        write_frontmatter(fpath, _full_header())
+
+        # Second write: add feature_id
+        write_frontmatter(fpath, {
+            "entity_uuid": VALID_UUID,
+            "artifact_type": VALID_ARTIFACT_TYPE,
+            "feature_id": "002",
+        })
+
+        result = read_frontmatter(fpath)
+        assert result is not None
+        assert result["feature_id"] == "002"
+
+    def test_validation_failure_after_merge_raises_file_unchanged(self, tmp_path):
+        """Validation failure after merge raises ValueError, file unchanged."""
+        fpath = str(tmp_path / "spec.md")
+        original_content = (
+            "---\n"
+            f"entity_uuid: {VALID_UUID}\n"
+            f"entity_type_id: {VALID_TYPE_ID}\n"
+            f"artifact_type: {VALID_ARTIFACT_TYPE}\n"
+            f"created_at: {VALID_CREATED_AT}\n"
+            "---\n"
+            "# Body\n"
+        )
+        _write_file(fpath, original_content)
+
+        # Try to merge in an unknown field -- should fail validation
+        with pytest.raises(ValueError):
+            write_frontmatter(fpath, {
+                "entity_uuid": VALID_UUID,
+                "bogus_field": "bad_value",
+            })
+
+        # File should be unchanged
+        assert open(fpath, "r", encoding="utf-8").read() == original_content
+
+
+class TestWriteFrontmatterAtomicAndGuards:
+    """Tests for write_frontmatter -- atomic write and guards (Task 4.1.2)."""
+
+    def test_ac9_atomic_write_uses_rename(self, tmp_path, monkeypatch):
+        """AC-9: atomic write -- mock os.rename to verify temp file in same dir."""
+        fpath = str(tmp_path / "spec.md")
+        _write_file(fpath, "# Body\n")
+
+        rename_calls = []
+        original_rename = os.rename
+
+        def mock_rename(src, dst):
+            rename_calls.append((src, dst))
+            original_rename(src, dst)
+
+        monkeypatch.setattr(os, "rename", mock_rename)
+        write_frontmatter(fpath, _full_header())
+
+        assert len(rename_calls) == 1
+        src, dst = rename_calls[0]
+        # Temp file must be in the same directory as target
+        assert os.path.dirname(src) == os.path.dirname(dst)
+        assert dst == fpath
+        assert src.endswith(".tmp")
+
+    def test_temp_file_cleanup_on_error(self, tmp_path, monkeypatch):
+        """Temp file is cleaned up if write fails before rename."""
+        fpath = str(tmp_path / "spec.md")
+        _write_file(fpath, "# Body\n")
+
+        # Force os.rename to raise an error
+        def failing_rename(src, dst):
+            raise OSError("simulated rename failure")
+
+        monkeypatch.setattr(os, "rename", failing_rename)
+
+        with pytest.raises(OSError):
+            write_frontmatter(fpath, _full_header())
+
+        # No leftover .tmp files in the directory
+        tmp_files = [f for f in os.listdir(str(tmp_path)) if f.endswith(".tmp")]
+        assert tmp_files == [], f"Leftover temp files: {tmp_files}"
+
+    def test_binary_content_guard(self, tmp_path):
+        """Binary content (null bytes) raises ValueError, file unchanged."""
+        fpath = str(tmp_path / "binary.md")
+        binary_content = b"---\n\x00binary data\n---\n# Body\n"
+        _write_binary(fpath, binary_content)
+
+        with pytest.raises(ValueError, match="[Bb]inary"):
+            write_frontmatter(fpath, _full_header())
+
+        # File unchanged
+        assert open(fpath, "rb").read() == binary_content
+
+    def test_divergence_guard_read_consistent(self, tmp_path):
+        """Divergence guard: read_frontmatter returns same header as write's internal read."""
+        fpath = str(tmp_path / "spec.md")
+        _write_file(fpath, "# Body\n")
+
+        header = _full_header(feature_id="002", phase="specify")
+        write_frontmatter(fpath, header)
+
+        # read_frontmatter should return exactly what write stored
+        result = read_frontmatter(fpath)
+        assert result == header
+
+    def test_body_starting_with_triple_dash(self, tmp_path):
+        """Body starting with --- (markdown horizontal rule) -- read logic stops at correct delimiter."""
+        fpath = str(tmp_path / "spec.md")
+        body = "---\n\nThis is after a horizontal rule.\n"
+        _write_file(fpath, (
+            "---\n"
+            f"entity_uuid: {VALID_UUID}\n"
+            f"entity_type_id: {VALID_TYPE_ID}\n"
+            f"artifact_type: {VALID_ARTIFACT_TYPE}\n"
+            f"created_at: {VALID_CREATED_AT}\n"
+            "---\n"
+            + body
+        ))
+
+        # Write with updated header
+        write_frontmatter(fpath, _full_header(phase="specify"))
+
+        content = open(fpath, "r", encoding="utf-8").read()
+        assert "phase: specify" in content
+        # Body with --- should be preserved intact
+        assert content.endswith(body)
+
+    def test_structural_independence_from_read_frontmatter(self, tmp_path, monkeypatch):
+        """Structural independence: write_frontmatter does NOT call read_frontmatter internally."""
+        fpath = str(tmp_path / "spec.md")
+        _write_file(fpath, "# Body\n")
+
+        # Patch read_frontmatter at the module level to raise AssertionError
+        import entity_registry.frontmatter as fm_module
+
+        def bomb_read(filepath):
+            raise AssertionError("read_frontmatter should not be called by write_frontmatter")
+
+        monkeypatch.setattr(fm_module, "read_frontmatter", bomb_read)
+
+        # Should NOT raise AssertionError -- write_frontmatter uses its own read logic
+        write_frontmatter(fpath, _full_header())
+
+
+class TestRoundTrip:
+    """Round-trip tests: write then read returns equal dict (Task 4.2.1)."""
+
+    def test_ac14_round_trip_basic(self, tmp_path):
+        """AC-14: read_frontmatter(path) after write_frontmatter(path, h) returns dict equal to h."""
+        fpath = str(tmp_path / "spec.md")
+        _write_file(fpath, "# Body\n")
+
+        header = _full_header(feature_id="002", phase="specify")
+        write_frontmatter(fpath, header)
+
+        result = read_frontmatter(fpath)
+        assert result == header
+
+    def test_round_trip_required_fields_only(self, tmp_path):
+        """Round-trip with all required fields only."""
+        fpath = str(tmp_path / "spec.md")
+        _write_file(fpath, "# Body\n")
+
+        header = _full_header()
+        write_frontmatter(fpath, header)
+
+        result = read_frontmatter(fpath)
+        assert result == header
+
+    def test_round_trip_all_optional_fields(self, tmp_path):
+        """Round-trip with required + all optional fields."""
+        fpath = str(tmp_path / "spec.md")
+        _write_file(fpath, "# Body\n")
+
+        header = _full_header(
+            feature_id="002",
+            feature_slug="markdown-entity-file-header-sc",
+            project_id="P001",
+            phase="specify",
+            updated_at="2026-03-02T10:00:00+00:00",
+        )
+        write_frontmatter(fpath, header)
+
+        result = read_frontmatter(fpath)
+        assert result == header
+
+    def test_round_trip_values_with_colons(self, tmp_path):
+        """Round-trip with values containing ': ' characters."""
+        fpath = str(tmp_path / "spec.md")
+        _write_file(fpath, "# Body\n")
+
+        header = _full_header(
+            entity_type_id="feature:002-markdown-entity-file-header-sc",
+        )
+        # entity_type_id already contains ':' -- verify round-trip fidelity
+        write_frontmatter(fpath, header)
+
+        result = read_frontmatter(fpath)
+        assert result == header
+        assert result["entity_type_id"] == "feature:002-markdown-entity-file-header-sc"

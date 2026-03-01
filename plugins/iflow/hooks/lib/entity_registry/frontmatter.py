@@ -205,3 +205,111 @@ def read_frontmatter(filepath: str) -> dict | None:
         # EOF without closing delimiter -- malformed
         logger.warning("Malformed frontmatter (no closing ---): %s", filepath)
         return None
+
+
+def write_frontmatter(filepath: str, headers: dict) -> None:
+    """Prepend or update YAML frontmatter in a markdown file.
+
+    Merges *headers* into any existing frontmatter (preserving ``created_at``
+    per TD-9). Writes atomically via temp-file + ``os.rename`` (C2).
+
+    Raises ``ValueError`` on UUID mismatch, validation failure, file not found,
+    or binary content.
+    """
+    # --- 1. File-exists guard ------------------------------------------------
+    try:
+        with open(filepath, "rb") as bf:
+            chunk = bf.read(8192)
+    except FileNotFoundError:
+        raise ValueError(f"File not found: {filepath}")
+
+    # --- 2. Binary content guard ---------------------------------------------
+    if b"\x00" in chunk:
+        raise ValueError(f"Binary content detected: {filepath}")
+
+    # --- 3. Read existing content (own line-by-line logic, NOT read_frontmatter)
+    with open(filepath, "r", encoding="utf-8") as f:
+        all_lines = f.readlines()
+
+    existing_header: dict[str, str] = {}
+    body_lines: list[str] = []
+    has_frontmatter = False
+
+    if all_lines and all_lines[0].rstrip("\n") == "---":
+        # Frontmatter detected -- accumulate until closing ---
+        idx = 1
+        block_lines: list[str] = []
+        while idx < len(all_lines):
+            stripped = all_lines[idx].rstrip("\n")
+            if stripped == "---":
+                # Found closing delimiter
+                has_frontmatter = True
+                existing_header = _parse_block(block_lines)
+                body_lines = all_lines[idx + 1:]
+                break
+            block_lines.append(stripped)
+            idx += 1
+        else:
+            # EOF without closing --- : treat entire file as body (no frontmatter)
+            body_lines = all_lines
+    else:
+        body_lines = all_lines
+
+    # --- 4. UUID match check -------------------------------------------------
+    if has_frontmatter and "entity_uuid" in existing_header and "entity_uuid" in headers:
+        if existing_header["entity_uuid"].lower() != headers["entity_uuid"].lower():
+            raise ValueError(
+                f"UUID mismatch: file has {existing_header['entity_uuid']!r}, "
+                f"got {headers['entity_uuid']!r}"
+            )
+
+    # --- 5. Merge: existing <- new -------------------------------------------
+    merged = dict(existing_header)  # start with existing
+
+    for key, value in headers.items():
+        if value is None or value == "":
+            # Explicit deletion (R9)
+            merged.pop(key, None)
+        else:
+            merged[key] = value
+
+    # TD-9: created_at is preserved from existing (immutable after first write)
+    if "created_at" in existing_header:
+        merged["created_at"] = existing_header["created_at"]
+
+    # --- 6. Validate merged header -------------------------------------------
+    errors = validate_header(merged)
+    if errors:
+        raise ValueError(
+            f"Validation failed after merge: {'; '.join(errors)}"
+        )
+
+    # --- 7. Serialize --------------------------------------------------------
+    new_content = _serialize_header(merged) + "".join(body_lines)
+
+    # --- 8. Atomic write: temp file + os.rename (C2, TD-3) -------------------
+    target_dir = os.path.dirname(os.path.abspath(filepath))
+    tmp_fd = None
+    tmp_path = None
+    try:
+        tmp_fd = tempfile.NamedTemporaryFile(
+            mode="w",
+            dir=target_dir,
+            delete=False,
+            suffix=".tmp",
+            encoding="utf-8",
+        )
+        tmp_path = tmp_fd.name
+        tmp_fd.write(new_content)
+        tmp_fd.close()
+        tmp_fd = None  # closed successfully
+        os.rename(tmp_path, filepath)
+        tmp_path = None  # rename succeeded -- no cleanup needed
+    finally:
+        if tmp_fd is not None:
+            tmp_fd.close()
+        if tmp_path is not None:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
