@@ -271,3 +271,21 @@ Planning tasks that require `claude -p` or interactive CC sessions without expli
 - Confidence: high
 - Last observed: Feature #033
 - Observation count: 1
+
+### Anti-Pattern: Deferring SQLite Platform-Default Verification to Implement Review
+Leaving SQLite FK ON DELETE defaults, CHECK constraint syntax, and WAL mode implications unverified at design time causes comment-level corrections (RESTRICT vs NO ACTION) to surface as security-reviewer blockers during implementation, consuming 2+ review iterations on a non-behavioral fix.
+- Observed in: Feature #004, implement iters 2-3 — SQLite FK default NO ACTION vs RESTRICT unknown at design time; caught by security reviewer; drove 2 of 4 implement iterations
+- Cost: 2 implement review iterations on a one-lookup platform fact
+- Instead: Add a platform-default verification checklist to design-reviewer for database schema features
+- Confidence: high
+- Last observed: Feature #004
+- Observation count: 1
+
+### Anti-Pattern: Specifying Forward Transitions Without Addressing Backward Transitions
+When a spec defines state-machine forward transitions without explicitly addressing backward transitions (even as an out-of-scope statement), plan reviewers treat the silence as an open gap and raise it as a blocker — two phases after the appropriate fix point.
+- Observed in: Feature #004, create-plan phase — backward transition gap raised at plan review rather than specify; resolved with one sentence that should have been in the spec
+- Cost: 1 plan-review iteration on a one-sentence scope clarification
+- Instead: Spec-reviewer checklist should require explicit backward-transition coverage for any feature specifying state-machine transitions
+- Confidence: medium
+- Last observed: Feature #004
+- Observation count: 1

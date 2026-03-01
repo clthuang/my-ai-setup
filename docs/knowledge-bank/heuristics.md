@@ -259,3 +259,17 @@ Text-refactoring features (70+ files, uniform mechanical changes) produce clean 
 - Confidence: medium
 - Last observed: Feature #033
 - Observation count: 1
+
+### SQLite Platform Default Verification at Design Time
+For database schema features using SQLite, verify FK ON DELETE default (NO ACTION, not RESTRICT), CHECK constraint syntax, and WAL mode implications during design. These are one-lookup facts that surface as security-reviewer blockers when deferred to implementation.
+- Source: Feature #004 — SQLite FK default unknown at design time consumed 2 of 4 implement review iterations
+- Confidence: high
+- Last observed: Feature #004
+- Observation count: 1
+
+### Explicit Verification Strategy for Documentation-Only Features
+Documentation-only features (ADRs, design docs, knowledge artifacts) should include a verification strategy section in the plan that distinguishes automatable grep checks from manual readability and completeness gates. Without explicit labeling, grep checks appear equivalent to executable tests in review.
+- Source: Feature #004 — grep-based verification was the only strategy; readability issue surfaced at implement review with no earlier gate
+- Confidence: medium
+- Last observed: Feature #004
+- Observation count: 1
