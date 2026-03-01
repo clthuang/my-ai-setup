@@ -71,7 +71,7 @@ This feature produces an **ADR document** containing schema DDL — it is a desi
 ### Component 2: Migration DDL
 - Purpose: SQL schema for the `workflow_phases` table, to be added as migration version 2 in `database.py`
 - Inputs: AC-6 schema definition from spec
-- Outputs: Python function `_create_workflow_phases_table(conn)` containing `executescript()` DDL
+- Outputs: DDL content embedded in ADR document (the Python migration function wrapping this DDL is implemented by feature 005)
 - Location: Content defined in design; implemented by feature 005
 - **Deliverable boundary:** Feature 004 produces the DDL content as part of the ADR document. The Python migration function code is implemented by feature 005. Feature 004 delivers documentation only — no Python code.
 
