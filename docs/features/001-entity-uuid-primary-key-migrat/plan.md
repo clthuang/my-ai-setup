@@ -61,7 +61,7 @@ Phase 5: Test Finalization & Verification
 
 ### 1.1 Migration 2 Schema DDL
 
-**Tests first:** Write `test_migration_fresh_db` — verify fresh DB produces 12-column schema with uuid PK, type_id UNIQUE, parent_uuid FK, 8 triggers, 4 indexes. **TDD approach for Phase 1:** All migration tests call `_migrate_to_uuid_pk(conn)` directly on a manually-constructed v1 schema (created via `_create_initial_schema(conn)` + data population), NOT via `EntityDatabase.__init__`. This is because `_migrate_to_uuid_pk` is being developed incrementally across 1.1-1.3, and `MIGRATIONS[2]` registration happens only in 1.4 as the final wiring step. Tests import and call the function directly.
+**Tests first:** Write `test_migration_fresh_db` — verify fresh DB produces 12-column schema with uuid PK, type_id UNIQUE, parent_uuid FK. **In 1.1, this test asserts schema shape ONLY** (columns, PK, UNIQUE constraint) — trigger and index assertions are deferred to 1.3 where they are implemented. This follows TDD red-green: the test in 1.1 can go green as soon as 1.1's CREATE TABLE is implemented. **TDD approach for Phase 1:** All migration tests call `_migrate_to_uuid_pk(conn)` directly on a manually-constructed v1 schema (created via `_create_initial_schema(conn)` + data population), NOT via `EntityDatabase.__init__`. This is because `_migrate_to_uuid_pk` is being developed incrementally across 1.1-1.3, and `MIGRATIONS[2]` registration happens only in 1.4 as the final wiring step. Tests import and call the function directly.
 
 **Implementation:**
 1. Add `import uuid as uuid_mod` and `import re` at module top
@@ -92,7 +92,7 @@ Phase 5: Test Finalization & Verification
 
 ### 1.3 Trigger + Index Recreation
 
-**Tests first:** Write `test_uuid_immutability_trigger`, `test_self_parent_uuid_insert_trigger`, `test_self_parent_uuid_update_trigger`.
+**Tests first:** Write `test_uuid_immutability_trigger`, `test_self_parent_uuid_insert_trigger`, `test_self_parent_uuid_update_trigger`. Also **extend `test_migration_fresh_db`** (written in 1.1) to now assert 8 triggers and 4 indexes — these assertions were deferred from 1.1 because triggers/indexes are implemented in this step. After 1.3 is complete, `test_migration_fresh_db` covers the full schema shape.
 
 **Implementation:**
 1. Step 10: Recreate all 8 triggers — 5 existing + 3 new. **Complete sorted list:** `enforce_immutable_created_at`, `enforce_immutable_entity_type`, `enforce_immutable_type_id`, `enforce_immutable_uuid`, `enforce_no_self_parent`, `enforce_no_self_parent_update`, `enforce_no_self_parent_uuid_insert`, `enforce_no_self_parent_uuid_update`. **Existing 5 trigger DDL must be reproduced identically from Migration 1** — copy the exact CREATE TRIGGER statements (first 3: immutability; next 2: self-parent type_id) with no modifications to logic or naming. New 3 (last 3 in list): uuid immutability per R10, self-parent-uuid check on insert per R11, self-parent-uuid check on update per R12.
@@ -142,7 +142,7 @@ Phase 5: Test Finalization & Verification
 **Implementation:**
 1. Generate `entity_uuid = str(uuid_mod.uuid4())` before INSERT
 2. Add uuid column to INSERT statement
-3. After INSERT OR IGNORE, always SELECT uuid by type_id (TD-4, R35 — always-SELECT pattern). **Commit ordering:** Python sqlite3 default `isolation_level=''` does NOT auto-commit DML — the INSERT starts an implicit transaction. The SELECT executes within the same implicit transaction and reads the just-inserted (or ignored) row. The existing `self._conn.commit()` after the SELECT result is captured commits both operations. No transaction management changes needed — the existing commit() call handles this correctly.
+3. After INSERT OR IGNORE, add a SELECT to retrieve uuid by type_id (TD-4, R35 — always-SELECT pattern). **Commit ordering — current vs new flow:** Current code (pre-migration): INSERT → `self._conn.commit()` → return type_id. New code (post-implementation): INSERT → SELECT uuid → `self._conn.commit()` → return uuid. The new SELECT is added between INSERT and the existing `conn.commit()`. Python sqlite3 default `isolation_level=''` does NOT auto-commit DML — the INSERT starts an implicit transaction, the SELECT reads within the same implicit transaction, and the existing `conn.commit()` (already in the method) commits both. Verify the existing `conn.commit()` is positioned after the new SELECT — if it was before the SELECT insertion point, move it to follow the SELECT.
 4. Return the uuid from SELECT result (existing uuid on duplicate, new uuid on fresh insert)
 
 **Done criteria:** Returns valid UUID v4. Duplicates return existing UUID.
@@ -154,7 +154,18 @@ Phase 5: Test Finalization & Verification
 **Implementation:**
 1. Resolve both params via `_resolve_identifier` — unpack `(child_uuid, child_type_id)` and `(parent_uuid, parent_type_id)` (I4)
 2. Self-parent check using UUIDs
-3. Circular reference CTE: anchor `SELECT parent_uuid FROM entities WHERE uuid = ?` (using resolved parent_uuid), recursive join on `e.uuid = a.uid WHERE e.parent_uuid IS NOT NULL`, check `WHERE uid = ?` (child_uuid)
+3. Circular reference CTE — complete SQL:
+   ```sql
+   WITH RECURSIVE anc(uid) AS (
+       SELECT parent_uuid FROM entities WHERE uuid = :parent_uuid
+       UNION ALL
+       SELECT e.parent_uuid FROM entities e
+       JOIN anc a ON e.uuid = a.uid
+       WHERE e.parent_uuid IS NOT NULL
+   )
+   SELECT 1 FROM anc WHERE uid = :child_uuid
+   ```
+   The CTE walks UP from the proposed parent toward the root. If the child's uuid appears in the parent's ancestry chain, a cycle would be created.
 4. UPDATE sets both `parent_type_id = parent_type_id` (from `_resolve_identifier` result, NOT the raw input parameter) and `parent_uuid = parent_uuid` (from `_resolve_identifier` result) — this ensures normalized/resolved values are stored (R16, AC-28)
 5. Return child_uuid
 
@@ -204,7 +215,7 @@ Phase 5: Test Finalization & Verification
 
 ### 3.1 `render_tree` Internal Updates
 
-**Tests first:** Update `_make_entity` helper in test_server_helpers.py to include `uuid` and `parent_uuid` fields. **Helper must generate internally consistent values:** each entity gets a deterministic uuid (e.g., `str(uuid.uuid5(uuid.NAMESPACE_DNS, type_id))`), and `parent_uuid` is derived from `parent_type_id` using the same deterministic function: `parent_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, parent_type_id)) if parent_type_id else None`. This ensures parent_uuid always references the uuid of an existing entity in the test fixture (not a random value). Existing render_tree tests will crash with KeyError without this update.
+**Tests first:** Update `_make_entity` helper in test_server_helpers.py to include `uuid` and `parent_uuid` fields. **Helper must generate valid UUID v4 format strings** — NOT uuid5, which produces version-5 UUIDs that fail `_UUID_V4_RE` validation. Use a fixed mapping of hardcoded UUID v4 strings keyed by type_id (e.g., `ENTITY_UUIDS = {"feature:001": "550e8400-e29b-41d4-a716-446655440000", ...}`). Each entity gets `uuid = ENTITY_UUIDS[type_id]`, and `parent_uuid = ENTITY_UUIDS[parent_type_id] if parent_type_id else None`. This ensures parent_uuid references an existing entity's uuid AND all UUIDs pass v4 regex validation if fed through `_resolve_identifier`. Existing render_tree tests will crash with KeyError without this update.
 
 **Implementation:**
 1. Key `by_id` dict on `entity["uuid"]` (I7)
@@ -221,7 +232,7 @@ Phase 5: Test Finalization & Verification
 
 **Implementation:**
 1. `_process_register_entity`: Capture UUID return, construct type_id from inputs (no extra DB call per C4, I8), format dual-identity message
-2. `_process_get_lineage`: Pass `entities[0]["uuid"]` to `render_tree` (C4). **Directional note:** `entities[0]` is always the start entity regardless of traversal direction (up or down) — `get_lineage` returns the start entity first in both cases. **Error message handling:** When `get_lineage` returns empty list (entity not found), the error message already uses the raw `type_id` parameter from the MCP call — this works unchanged for both UUID and type_id inputs since it echoes the caller's identifier verbatim.
+2. `_process_get_lineage`: Pass `entities[0]["uuid"]` to `render_tree` (C4). **Directional note:** `entities[0]` is the correct root for `render_tree` in BOTH directions, but for different reasons: for down-traversal, `entities[0]` is the start entity (depth=0, `ORDER BY depth ASC`); for up-traversal, `entities[0]` is the root ancestor (highest depth, `ORDER BY depth DESC`). In both cases, `entities[0]` is the tree root that `render_tree` needs. **Error message handling:** When `get_lineage` returns empty list (entity not found), the error message already uses the raw `type_id` parameter from the MCP call — this works unchanged for both UUID and type_id inputs since it echoes the caller's identifier verbatim.
 
 **Done criteria:** Messages show both UUID and type_id.
 
@@ -231,7 +242,7 @@ Phase 5: Test Finalization & Verification
 
 ### 4.1 Tool Handler Message Updates
 
-**Tests first:** Write `test_set_parent_handler_dual_identity_message`, `test_update_entity_handler_dual_identity_message` — verify MCP tool handlers return messages containing both UUID and type_id in the response text. **Test approach:** The `set_parent` and `update_entity` handlers in `entity_server.py` call `db.set_parent()` and `db.update_entity()` directly (no server helper wrappers exist for these). Test by calling the handler functions with a mock/real DB, verifying the returned message text contains both identifiers. This avoids MCP server bootstrapping while testing the actual message formatting code.
+**Tests first:** Write `test_set_parent_handler_dual_identity_message`, `test_update_entity_handler_dual_identity_message` — verify MCP tool handlers return messages containing both UUID and type_id in the response text. **Test approach:** The `set_parent` and `update_entity` handlers in `entity_server.py` call `db.set_parent()` and `db.update_entity()` directly (no server helper wrappers exist for these). These handlers are `async def` functions — use `pytest-asyncio` with `@pytest.mark.asyncio` decorator and monkeypatch `entity_server._db` with a real in-memory `EntityDatabase(":memory:")`. This avoids MCP server bootstrapping while testing the actual message formatting code.
 
 **Implementation:**
 1. `set_parent` handler: Capture UUID return, get_entity for both child and parent, format dual-identity message (C5, I8)
@@ -264,7 +275,7 @@ Phase 5: Test Finalization & Verification
 1. Run full entity registry test suite: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/ -v`
 2. Verify 0 failures
 3. Verify new test count: target 15 new test functions, hard minimum 10 per AC-27
-4. Run backfill test if available
+4. Run backfill tests: `backfill.py` has no dedicated test file — AC-24 (backfill compatibility) is verified indirectly through the full suite run since backfill calls `register_entity` and `set_parent` which are tested by the database test suite. Verify backfill imports succeed by running `python -c "from entity_registry.backfill import ..."`.
 5. Run entity server bootstrap test: `bash plugins/iflow/mcp/test_entity_server.sh`
 
 **Done criteria:** All tests pass. No regressions. Minimum test count met.
