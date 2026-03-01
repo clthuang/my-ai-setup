@@ -157,6 +157,23 @@ Execute after phase work and reviews are done.
 
 ### Step 1: Auto-Commit
 
+**Frontmatter injection (before git add):**
+
+For each artifact file being committed, invoke the frontmatter injection CLI
+to embed entity identity headers. Resolve the plugin root using the
+two-location pattern. Construct `entity_type_id` as `"feature:{id}-{slug}"`
+from `.meta.json`. Suppress stderr and ignore non-zero exit (fail-open).
+
+```
+PLUGIN_ROOT=$(ls -d ~/.claude/plugins/cache/*/iflow*/*/hooks 2>/dev/null | head -1 | xargs dirname)
+if [ -z "$PLUGIN_ROOT" ]; then PLUGIN_ROOT="plugins/iflow"; fi  # Fallback (dev workspace)
+for artifact in {artifacts}; do
+  "$PLUGIN_ROOT/.venv/bin/python" \
+    "$PLUGIN_ROOT/hooks/lib/entity_registry/frontmatter_inject.py" \
+    "$artifact" "feature:{id}-{slug}" 2>/dev/null || true
+done
+```
+
 ```bash
 git add {artifacts joined by space} {iflow_artifacts_root}/features/{id}-{slug}/.meta.json {iflow_artifacts_root}/features/{id}-{slug}/.review-history.md
 git commit -m "phase({phaseName}): {slug} - approved"

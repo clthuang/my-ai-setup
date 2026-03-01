@@ -18,3 +18,5 @@
 | 00030 | 2026-03-01T08:36:34Z | Fix register_entity MCP tool to correctly process metadata parameter with JSON objects (e.g. `{"depends_on_features": []}`) — currently rejects dict input due to Pydantic string_type validation. |
 | 00031 | 2026-03-01T15:00:00+08:00 | Handle DB write lock and concurrent write — ensure entity registry handles SQLite busy/locked errors gracefully under concurrent access. |
 | 00032 | 2026-03-01T12:49:31Z | Fix the workflow progression such that if a PRD is missing then go to the PRD creation step |
+| 00033 | 2026-03-02T23:15:00+08:00 | Reduce diff comparison for deploying reviewers. Phase-specific reviewers should handle diff operations themselves and reuse the same reviewer for the same type of review, unless the subagent ID is lost then spin up a new instance. Ensure maximum caching possibility for token efficiency. |
+| 00034 | 2026-03-02T23:45:00+08:00 | Update code simplifier to use Claude Code's native simplify command instead of custom agent dispatch. |
