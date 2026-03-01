@@ -114,7 +114,7 @@ The entity registry uses `type_id` (format `"{entity_type}:{entity_id}"`) as its
 - AC-2: After migration, `entities` table has `parent_uuid TEXT REFERENCES entities(uuid)`
 - AC-3: All existing entities have valid UUID v4 values in the `uuid` column
 - AC-4: `_metadata.schema_version` equals `"2"` after migration
-- AC-5: Foreign key constraint on `parent_uuid` is enforced (inserting invalid parent_uuid fails)
+- AC-5: Foreign key constraint on `parent_uuid` is enforced (inserting invalid parent_uuid fails). Additionally, verify `PRAGMA foreign_keys` returns 1 after migration completes — confirming the pragma persists through table recreation and is not silently reset.
 
 ### Immutability
 
@@ -141,7 +141,7 @@ The entity registry uses `type_id` (format `"{entity_type}:{entity_id}"`) as its
 
 ### Migration Safety
 
-- AC-18: Migration 2 runs within an explicit `BEGIN IMMEDIATE` transaction — failure rolls back all DDL and DML completely. Does NOT use `conn.executescript()` (which auto-commits) or rely on implicit transactions (which don't cover DDL). Testable via: inject a failure mid-migration (e.g., monkeypatch to raise after CREATE TABLE but before RENAME) and verify original schema is intact — schema_version remains 1, entities table still has type_id as PRIMARY KEY, no uuid column exists, all data preserved.
+- AC-18: Migration 2 runs within an explicit `BEGIN IMMEDIATE` transaction — failure rolls back all DDL and DML completely. Does NOT use `conn.executescript()` (which auto-commits) or rely on implicit transactions (which don't cover DDL). Testable via: inject a failure mid-migration (e.g., monkeypatch to raise after CREATE TABLE but before RENAME) and verify original schema is intact — schema_version remains 1, entities table still has type_id as PRIMARY KEY, no uuid column exists, all data preserved. Additionally: verify that the outer `_migrate()` loop's `conn.commit()` after Migration 2 (which is a no-op because Migration 2 already committed) does not raise an error or corrupt DB state — confirmed implicitly by `EntityDatabase.__init__` on a v1 DB completing with clean schema_version=2.
 - AC-19: Running migration on a fresh database (no existing data) produces correct schema
 - AC-20: Running migration on a database with existing entities preserves all data (zero loss)
 - AC-21: `parent_uuid` values correctly reference the UUID of the entity previously referenced by `parent_type_id`
