@@ -111,23 +111,36 @@ Five methods following existing patterns:
 ```
 entities table ──→ type_id, entity_type, artifact_path
                       │
-.meta.json files ──→  status (primary), lastCompletedPhase, mode
-                      │
-entities.status  ──→  status (fallback, often NULL)
-                      │
                       ▼
-              ┌─────────────────┐
-              │  Derivation     │
-              │  Engine         │
-              │                 │
-              │  status →       │
-              │    kanban_column│
-              │                 │
-              │  lastCompleted  │
-              │  Phase →        │
-              │    workflow_    │
-              │    phase        │
-              └────────┬────────┘
+              ┌─────────────────────┐
+              │  .meta.json read    │
+              │  (via _resolve_     │
+              │   meta_path)        │
+              └────────┬────────────┘
+                       │
+                       ▼
+              ┌─────────────────────┐
+              │  Status Resolution  │
+              │  (ordered fallback) │
+              │                     │
+              │  1. .meta.json      │
+              │     "status" field  │
+              │  2. entities.status │
+              │     (often NULL)    │
+              │  3. default:        │
+              │     "planned"       │
+              └────────┬────────────┘
+                       │
+                       ▼
+              ┌─────────────────────┐
+              │  Derivation Engine  │
+              │                     │
+              │  status →           │
+              │    kanban_column    │
+              │                     │
+              │  lastCompletedPhase │
+              │    → workflow_phase │
+              └────────┬────────────┘
                        │
                        ▼
               INSERT OR IGNORE
