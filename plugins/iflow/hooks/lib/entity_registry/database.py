@@ -333,6 +333,9 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     3: _create_workflow_phases_table,
 }
 
+# Sentinel object to distinguish "not provided" from explicit ``None``.
+_UNSET = object()
+
 
 class EntityDatabase:
     """SQLite-backed storage for entity registry.
@@ -817,6 +820,240 @@ class EntityDatabase:
             lines.append(f"{indent}- ... (depth limit reached)")
 
         return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Workflow Phase CRUD
+    # ------------------------------------------------------------------
+
+    def create_workflow_phase(
+        self,
+        type_id: str,
+        *,
+        kanban_column: str = "backlog",
+        workflow_phase: str | None = None,
+        last_completed_phase: str | None = None,
+        mode: str | None = None,
+        backward_transition_reason: str | None = None,
+    ) -> dict:
+        """Create a workflow_phases row for an existing entity.
+
+        Parameters
+        ----------
+        type_id:
+            The entity type_id (must exist in the entities table).
+        kanban_column:
+            Kanban column (default ``"backlog"``).
+        workflow_phase:
+            Current workflow phase (nullable).
+        last_completed_phase:
+            Last completed phase (nullable).
+        mode:
+            Workflow mode — ``"standard"`` or ``"full"`` (nullable).
+        backward_transition_reason:
+            Reason for backward transition (nullable).
+
+        Returns
+        -------
+        dict
+            The inserted row as a plain dict.
+
+        Raises
+        ------
+        ValueError
+            If the entity does not exist, a row already exists, or a
+            CHECK constraint is violated.
+        """
+        # FK check: entity must exist
+        row = self._conn.execute(
+            "SELECT type_id FROM entities WHERE type_id = ?", (type_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Entity not found: {type_id}")
+
+        now = self._now_iso()
+        try:
+            self._conn.execute(
+                "INSERT INTO workflow_phases "
+                "(type_id, kanban_column, workflow_phase, "
+                "last_completed_phase, mode, backward_transition_reason, "
+                "updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (type_id, kanban_column, workflow_phase,
+                 last_completed_phase, mode, backward_transition_reason,
+                 now),
+            )
+            self._conn.commit()
+        except sqlite3.IntegrityError as e:
+            msg = str(e)
+            if "UNIQUE constraint" in msg:
+                raise ValueError(
+                    f"Workflow phase already exists for: {type_id}"
+                ) from e
+            if "CHECK constraint" in msg:
+                raise ValueError(f"Invalid value: {e}") from e
+            raise ValueError(msg) from e
+
+        result = self._conn.execute(
+            "SELECT * FROM workflow_phases WHERE type_id = ?", (type_id,)
+        ).fetchone()
+        return dict(result)
+
+    def get_workflow_phase(self, type_id: str) -> dict | None:
+        """Retrieve a workflow_phases row by type_id.
+
+        Returns ``None`` if not found.
+        """
+        row = self._conn.execute(
+            "SELECT * FROM workflow_phases WHERE type_id = ?", (type_id,)
+        ).fetchone()
+        return dict(row) if row is not None else None
+
+    def update_workflow_phase(
+        self,
+        type_id: str,
+        *,
+        kanban_column=_UNSET,
+        workflow_phase=_UNSET,
+        last_completed_phase=_UNSET,
+        mode=_UNSET,
+        backward_transition_reason=_UNSET,
+    ) -> dict:
+        """Update mutable fields of an existing workflow_phases row.
+
+        Only fields explicitly passed are updated. Omitted fields (using
+        the ``_UNSET`` sentinel) are left unchanged. Passing ``None``
+        explicitly sets the column to NULL.
+
+        Parameters
+        ----------
+        type_id:
+            The entity type_id (must have a workflow_phases row).
+        kanban_column:
+            New kanban column value.
+        workflow_phase:
+            New workflow phase value.
+        last_completed_phase:
+            New last completed phase value.
+        mode:
+            New mode value.
+        backward_transition_reason:
+            New backward transition reason value.
+
+        Returns
+        -------
+        dict
+            The updated row as a plain dict.
+
+        Raises
+        ------
+        ValueError
+            If the row does not exist or a CHECK constraint is violated.
+        """
+        # Existence check
+        row = self._conn.execute(
+            "SELECT type_id FROM workflow_phases WHERE type_id = ?",
+            (type_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Workflow phase not found: {type_id}")
+
+        set_parts: list[str] = ["updated_at = ?"]
+        params: list = [self._now_iso()]
+
+        if kanban_column is not _UNSET:
+            set_parts.append("kanban_column = ?")
+            params.append(kanban_column)
+        if workflow_phase is not _UNSET:
+            set_parts.append("workflow_phase = ?")
+            params.append(workflow_phase)
+        if last_completed_phase is not _UNSET:
+            set_parts.append("last_completed_phase = ?")
+            params.append(last_completed_phase)
+        if mode is not _UNSET:
+            set_parts.append("mode = ?")
+            params.append(mode)
+        if backward_transition_reason is not _UNSET:
+            set_parts.append("backward_transition_reason = ?")
+            params.append(backward_transition_reason)
+
+        params.append(type_id)
+        sql = (
+            f"UPDATE workflow_phases SET {', '.join(set_parts)} "
+            f"WHERE type_id = ?"
+        )
+        try:
+            self._conn.execute(sql, params)
+            self._conn.commit()
+        except sqlite3.IntegrityError as e:
+            msg = str(e)
+            if "UNIQUE constraint" in msg:
+                raise ValueError(
+                    f"Workflow phase already exists for: {type_id}"
+                ) from e
+            if "CHECK constraint" in msg:
+                raise ValueError(f"Invalid value: {e}") from e
+            raise ValueError(msg) from e
+
+        result = self._conn.execute(
+            "SELECT * FROM workflow_phases WHERE type_id = ?", (type_id,)
+        ).fetchone()
+        return dict(result)
+
+    def delete_workflow_phase(self, type_id: str) -> None:
+        """Delete a workflow_phases row by type_id.
+
+        Raises
+        ------
+        ValueError
+            If no row exists for the given type_id.
+        """
+        row = self._conn.execute(
+            "SELECT type_id FROM workflow_phases WHERE type_id = ?",
+            (type_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Workflow phase not found: {type_id}")
+
+        self._conn.execute(
+            "DELETE FROM workflow_phases WHERE type_id = ?", (type_id,)
+        )
+        self._conn.commit()
+
+    def list_workflow_phases(
+        self,
+        *,
+        kanban_column: str | None = None,
+        workflow_phase: str | None = None,
+    ) -> list[dict]:
+        """List workflow_phases rows with optional filters.
+
+        Parameters
+        ----------
+        kanban_column:
+            If provided, filter by kanban_column.
+        workflow_phase:
+            If provided, filter by workflow_phase.
+
+        Returns
+        -------
+        list[dict]
+            Matching rows as plain dicts. Both filters use AND logic.
+        """
+        clauses: list[str] = []
+        params: list = []
+
+        if kanban_column is not None:
+            clauses.append("kanban_column = ?")
+            params.append(kanban_column)
+        if workflow_phase is not None:
+            clauses.append("workflow_phase = ?")
+            params.append(workflow_phase)
+
+        sql = "SELECT * FROM workflow_phases"
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+
+        rows = self._conn.execute(sql, params).fetchall()
+        return [dict(row) for row in rows]
 
     # ------------------------------------------------------------------
     # Metadata helpers
