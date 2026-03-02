@@ -185,7 +185,7 @@ Depends on: Phase 1 (table), Phase 2 (for test fixtures)
 - **AC**: AC-14, AC-18
 - [ ] Test entity with artifact_path (directory) → `{artifact_path}/.meta.json` if file exists
 - [ ] Test entity with artifact_path (file, e.g. brainstorm .prd.md) → derived path doesn't exist, falls through to convention fallback
-- [ ] Test entity without artifact_path → convention fallback `{artifacts_root}/{entity_type}s/{entity_id}/.meta.json`
+- [ ] Test entity without artifact_path → convention fallback `{artifacts_root}/{entity_type}s/{entity_id}/.meta.json` — note: `entity_id` here is the slug portion (e.g., `005-workflowphases-table-with-dual`), NOT the full `type_id` (e.g., `feature:005-workflowphases-table-with-dual`). The entity dict from the DB query has both columns; use `entity_id` for path construction.
 - [ ] Test neither path exists → returns None
 - **Done when**: _resolve_meta_path tests written and fail (RED)
 
@@ -252,7 +252,7 @@ Depends on: Phase 1 (table), Phase 2 (for test fixtures)
 - [ ] Implement `STATUS_TO_KANBAN` dict constant
 - [ ] Implement `VALID_MODES` frozenset constant
 - [ ] Implement `_derive_next_phase(last_completed)` → str | None
-- [ ] Implement `_read_meta_json(path)` → dict | None (calls co-located `_read_json` in same backfill.py module)
+- [ ] Implement `_read_meta_json(path)` → dict | None — wraps existing `_read_json` in backfill.py. **Pre-check**: grep for `def _read_json` in backfill.py to confirm it exists before implementing; if missing, implement `_read_json` first.
 - [ ] Implement `_resolve_meta_path(entity, artifacts_root)` → str | None
 - **Done when**: All 6 constants/helpers implemented in backfill.py
 
