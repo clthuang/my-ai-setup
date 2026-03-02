@@ -12,7 +12,7 @@ The result: the "UUID in MD file header = foreign key to DB record" invariant (r
 
 ### Traceability
 
-This feature implements PRD Section "M0: Identity and Taxonomy Foundations" — specifically the bidirectional sync invariant. Feature 001 established UUID as the canonical DB primary key. Feature 002 defined the frontmatter schema and write-time injection. Feature 003 closes the loop: DB→file backfill, file→DB sync, and drift detection. The downstream consumer is feature 011 (reconciliation MCP tool), which depends on this sync mechanism to detect and report drift.
+This feature implements PRD Section "M0: Identity and Taxonomy Foundations" — specifically the bidirectional sync invariant (roadmap.md line 125: "Bidirectional sync invariant: UUID in MD file header = foreign key to DB record; file renames don't break linkage"). Feature 001 established UUID as the canonical DB primary key. Feature 002 defined the frontmatter schema and write-time injection. Feature 003 closes the loop: DB→file backfill, file→DB sync, and drift detection. The downstream consumer is feature 011 (reconciliation MCP tool), which depends on this sync mechanism to detect and report drift.
 
 Note: PRD FR-14 specifies reconciliation between `.meta.json` and DB state — that is a distinct comparison axis (workflow state vs DB) handled by feature 011. Feature 003's drift detection compares frontmatter headers vs DB entity records (identity metadata). Feature 011 will cover both `.meta.json`-vs-DB and frontmatter-vs-DB drift detection, building on top of feature 003's sync primitives.
 
@@ -65,14 +65,14 @@ Note: PRD FR-14 specifies reconciliation between `.meta.json` and DB state — t
 - R8a: Action value mapping for `stamp_header`:
   - `"created"`: file had no existing frontmatter — header was injected for the first time
   - `"updated"`: file had existing frontmatter with matching `entity_uuid` — optional fields were merged from DB
-  - `"skipped"`: not used by stamp_header (reserved for future callers)
+  - `"skipped"`: not used by stamp_header directly — used by `backfill_headers` (R20 step 2d) when a derived directory does not exist on disk
   - `"error"`: entity not found in DB (R11), or file has frontmatter with mismatched `entity_uuid` (R10), or other failure (DB connection error, file not found)
 - R9: If the file already has frontmatter with a matching `entity_uuid`, merge new optional fields from the DB record (update direction: DB→file). The `write_frontmatter` merge semantics from feature 002 handle this. This returns `action="updated"`.
 - R10: If the file already has frontmatter with a *different* `entity_uuid`, return `StampResult` with `action="error"` and descriptive message. Do not modify the file. Do not raise an exception — callers handle the error report.
 - R11: If the entity is not found in the DB (`db.get_entity(type_id)` returns None), return `StampResult` with `action="error"`.
 - R12: stamp_header flow: (1) call `db.get_entity(type_id)` — if None, return error per R11; (2) extract `entity_uuid` from result `["uuid"]`, `entity_type_id` from result `["type_id"]`, `created_at` from result `["created_at"]`; (3) derive optional fields per R13; (4) call `read_frontmatter(filepath)` to check existing state; (5) if existing header has mismatched UUID, return error per R10; (6) call `write_frontmatter(filepath, header)` — catch `FrontmatterUUIDMismatch` as error; (7) return `action="created"` if no prior header existed, `action="updated"` if prior header was present.
 - R13: Optional field derivation rules. These follow the existing `_parse_feature_type_id` and `_extract_project_id` patterns from `frontmatter_inject.py` (lines 67-104):
-  - `feature_id` and `feature_slug`: extracted from type_id using the same algorithm as `frontmatter_inject.py`'s `_parse_feature_type_id` (lines 67-85). Strip the `entity_type:` prefix (split on first `:`), then split the remaining entity_id on the first `-`. The portion before the hyphen is `feature_id`, the portion after is `feature_slug`. Only applies when `entity_type == "feature"`. If no hyphen in entity_id, `feature_slug` is omitted. Example: type_id `"feature:003-bidirectional-uuid-sync-betwee"` → `feature_id="003"`, `feature_slug="bidirectional-uuid-sync-betwee"`. Implementation should reuse `_parse_feature_type_id` by importing from `frontmatter_inject` or extracting it into a shared helper.
+  - `feature_id` and `feature_slug`: extracted from type_id using the same algorithm as `frontmatter_inject.py`'s `_parse_feature_type_id` (lines 67-85). Strip the `entity_type:` prefix (split on first `:`), then split the remaining entity_id on the first `-`. The portion before the hyphen is `feature_id`, the portion after is `feature_slug`. Only applies when `entity_type == "feature"`. If no hyphen in entity_id, `feature_slug` is omitted. Example: type_id `"feature:003-bidirectional-uuid-sync-betwee"` → `feature_id="003"`, `feature_slug="bidirectional-uuid-sync-betwee"`. Implementation should import `_parse_feature_type_id` directly from `frontmatter_inject` (no change to that file needed).
   - `project_id`: best-effort derivation with two sources checked in order: (1) parse entity's `metadata` JSON and look for key `"project_id"` — if present and non-empty, use it; (2) otherwise, check entity's `parent_type_id` field — if present and the parent entity's type starts with `"project:"`, extract the entity_id portion (e.g., `"project:P001-iflow-arch-evolution"` → `"P001"`). This uses the entity record's `parent_type_id` field directly — no second DB lookup needed. If neither source yields a value, omit `project_id` from the header.
   - `phase`: from `artifact_type` parameter (maps 1:1: spec→specify, design→design, plan→create-plan, tasks→create-tasks, retro→finish, prd→brainstorm)
 
@@ -81,7 +81,7 @@ Note: PRD FR-14 specifies reconciliation between `.meta.json` and DB state — t
 - R14: `ingest_header(db: EntityDatabase, filepath: str) -> IngestResult` — Read frontmatter from `filepath` and update the corresponding DB record. This is the "file is authoritative" direction.
 - R15: `IngestResult` is a dataclass with: `filepath: str`, `action: str` (one of: `"updated"`, `"skipped"`, `"error"`), `message: str`
 - R16: The DB record is looked up by `entity_uuid` from the file header (via `db.get_entity(entity_uuid)`). If no record is found, return `action="error"` (we don't create DB records from file headers alone — registration is the DB's responsibility).
-- R17: Updatable fields from file→DB: only `artifact_path` (set to the absolute filepath). The `entity_type`, `entity_id`, `type_id`, `uuid`, `name`, `status`, and `created_at` are immutable — never modified by ingest. The frontmatter fields `feature_id`, `feature_slug`, `project_id`, `phase` are informational decorations derived from the DB during stamp — they do NOT flow back into the DB during ingest (the DB is the canonical source for these values). The update is performed via `db.update_entity(entity_uuid, artifact_path=filepath)`.
+- R17: Updatable fields from file→DB: only `artifact_path` (set to the absolute filepath). The `entity_type`, `entity_id`, `type_id`, `uuid`, `name`, `status`, and `created_at` are immutable — never modified by ingest. The frontmatter fields `feature_id`, `feature_slug`, `project_id`, `phase` are informational decorations derived from the DB during stamp — they do NOT flow back into the DB during ingest (the DB is the canonical source for these values). The update is performed via `db.update_entity(entity_uuid, artifact_path=filepath)` — note: `update_entity`'s first parameter is named `type_id` but accepts UUIDs via dual-read resolver (feature 001 R18).
 - R18: If the file has no frontmatter, return `action="skipped"`.
 
 ### Bulk Migration (Backfill Headers)
@@ -92,6 +92,7 @@ Note: PRD FR-14 specifies reconciliation between `.meta.json` and DB state — t
   2. For each feature entity, derive the feature directory using this fallback chain: (a) if entity has `artifact_path` and `os.path.isdir(artifact_path)`, use it; (b) if entity has `artifact_path` and `os.path.isfile(artifact_path)`, use `os.path.dirname(artifact_path)`; (c) if entity has no `artifact_path` (None), construct from entity_id: `{artifacts_root}/features/{entity_id}/`; (d) if the derived directory does not exist on disk, skip this entity (include a `StampResult` with `action="skipped"` and message indicating missing directory)
   3. For each known artifact filename (`spec.md`, `design.md`, `plan.md`, `tasks.md`, `retro.md`, `prd.md`), check if the file exists in the feature directory
   4. For each existing file, call `stamp_header` to inject/update the header
+  Note: after `ingest_header` (R17) runs, a feature entity's `artifact_path` may point to a specific file rather than the feature directory. Step 2b handles this case (`os.path.isfile` → `dirname`). Backfill tolerates both cases.
 - R21: Files that already have valid frontmatter with matching `entity_uuid` are updated (optional fields merged) but not reported as errors. Files with mismatched `entity_uuid` are reported as errors and skipped.
 - R22: `backfill_headers` returns a list of all `StampResult` outcomes for logging/auditing.
 - R23: The function is idempotent — running it multiple times produces the same file state.
@@ -100,7 +101,7 @@ Note: PRD FR-14 specifies reconciliation between `.meta.json` and DB state — t
 
 - R24: Extend `backfill.py` with an optional `header_aware: bool = False` parameter on `run_backfill`. When `True`, call `backfill_headers(db, artifacts_root)` to stamp headers on all discovered artifact files.
 - R25: The `header_aware` parameter defaults to `False` to maintain backward compatibility. Existing callers are not affected.
-- R26: Header stamping runs OUTSIDE and AFTER the `backfill_complete` early-return guard. The existing guard (line 44: `if db.get_metadata("backfill_complete") == "1": return`) prevents re-running entity registration on already-backfilled databases. Header stamping is independent of entity registration — it operates on entities that already exist in the DB. Therefore, the `run_backfill` function structure is: (1) if `header_aware`, call `backfill_headers` regardless of backfill_complete state; (2) then check `backfill_complete` guard for entity registration. This ensures `header_aware=True` works on production databases where entity backfill has already completed.
+- R26: Header stamping runs BEFORE and INDEPENDENTLY of the `backfill_complete` early-return guard. The existing guard (line 44: `if db.get_metadata("backfill_complete") == "1": return`) prevents re-running entity registration on already-backfilled databases. Header stamping is independent of entity registration — it operates on entities that already exist in the DB. Therefore, the `run_backfill` function structure is: (1) if `header_aware`, call `backfill_headers` regardless of backfill_complete state; (2) then check `backfill_complete` guard for entity registration. This ensures `header_aware=True` works on production databases where entity backfill has already completed.
 
 ### CLI Interface
 
@@ -135,7 +136,7 @@ Note: PRD FR-14 specifies reconciliation between `.meta.json` and DB state — t
 - **CLI location**: `frontmatter_sync_cli.py` in same directory
 - **Dataclass return types**: `DriftReport`, `FieldMismatch`, `StampResult`, `IngestResult` are Python dataclasses (stdlib `dataclasses` module)
 - **DB access method**: `EntityDatabase` instantiation from `entity_registry` package (same pattern as feature 002's `frontmatter_inject.py`)
-- **Comparable fields for drift**: Only `entity_uuid`, `entity_type_id`, `artifact_type` — keeping the comparison set small to avoid false-positive drift on informational fields
+- **Comparable fields for drift**: Only `entity_uuid` and `entity_type_id` (artifact_type is excluded per R6 — no DB column exists for it) — keeping the comparison set small to avoid false-positive drift on informational fields
 
 Design decisions that remain open: internal helper decomposition, logging verbosity levels, batch size for bulk operations, progress reporting mechanism for bulk backfill.
 
@@ -151,7 +152,8 @@ Design decisions that remain open: internal helper decomposition, logging verbos
 
 ### DB→File Sync (Stamp)
 
-- AC-6: `stamp_header` on a file with no existing frontmatter creates a valid header with all R3 required fields from the DB record. Verified by `read_frontmatter` returning a dict with `entity_uuid` matching the DB record's UUID.
+- AC-6: `stamp_header` on a file with no existing frontmatter creates a valid header with all required frontmatter fields (`entity_uuid`, `entity_type_id`, `artifact_type`, `created_at` — per feature 002 R3) from the DB record. Verified by `read_frontmatter` returning a dict with `entity_uuid` matching the DB record's UUID.
+- AC-6a: `stamp_header` on a feature entity whose metadata JSON contains `{"project_id": "P001"}` and whose `parent_type_id` is not a project type includes `project_id="P001"` in the stamped header. Verifies metadata-based derivation takes priority over `parent_type_id` fallback.
 - AC-7: `stamp_header` on a file with existing matching frontmatter updates optional fields from DB without changing `entity_uuid`. Verified by `read_frontmatter` before and after showing same `entity_uuid`.
 - AC-8: `stamp_header` on a file with mismatched `entity_uuid` returns `action="error"` and does not modify the file
 - AC-9: `stamp_header` with a nonexistent `type_id` returns `action="error"`
