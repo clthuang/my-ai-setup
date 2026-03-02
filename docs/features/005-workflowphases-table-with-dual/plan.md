@@ -71,6 +71,7 @@ Write tests that verify:
 Implement `_create_workflow_phases_table(conn)`:
 - Self-managed transaction pattern (copy migration 2 structure)
 - DDL from ADR-004 Appendix E adapted for migration 3
+- DDL source: `docs/features/004-status-taxonomy-design-and-sch/design.md` Appendix E (the ADR containing the canonical schema)
 - Register in `MIGRATIONS[3]` — the target version is `max(MIGRATIONS)` (no separate SCHEMA_VERSION constant exists; adding `3: _create_workflow_phases_table` to the dict is sufficient)
 
 ### Step 1.7: Verify Phase 1
