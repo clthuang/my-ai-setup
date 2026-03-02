@@ -254,7 +254,7 @@ def backfill_workflow_phases(
                 type_id, kanban_column, workflow_phase,
                 last_completed_phase, mode, None, db._now_iso(),
             )
-            cursor = db._conn.execute(insert_sql, params)
+            cursor = db._conn.execute(insert_sql, params)  # TD-10: bypasses CRUD for INSERT OR IGNORE
 
             if cursor.rowcount > 0:
                 created += 1
@@ -264,7 +264,7 @@ def backfill_workflow_phases(
         except Exception as exc:
             errors.append(f"Error processing {entity.get('type_id', '?')}: {exc}")
 
-    # Commit once at end
+    # Commit once at end (TD-10: direct connection access for bulk insert)
     db._conn.commit()
 
     return {"created": created, "skipped": skipped, "errors": errors}
