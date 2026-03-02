@@ -21,11 +21,11 @@ The entity registry database has no concept of workflow phase state or kanban pr
 
 - Database migration 3: `workflow_phases` table DDL, immutability trigger, indexes (from ADR-004 Appendix E)
 - `EntityDatabase` methods for `workflow_phases` CRUD:
-  - `create_workflow_phase(type_id, ...)` — insert a row
-  - `get_workflow_phase(type_id)` — read a row by PK
-  - `update_workflow_phase(type_id, **kwargs)` — update mutable fields
-  - `delete_workflow_phase(type_id)` — delete a row
-  - `list_workflow_phases(kanban_column=None, workflow_phase=None)` — query with optional filters
+  - `create_workflow_phase(type_id, ...) -> dict` — insert a row, return the inserted row as dict
+  - `get_workflow_phase(type_id) -> dict | None` — read a row by PK, return None if not found
+  - `update_workflow_phase(type_id, **kwargs) -> dict` — update mutable fields, return updated row; `updated_at` is always auto-generated via `_now_iso()`, not caller-supplied
+  - `delete_workflow_phase(type_id) -> None` — delete a row
+  - `list_workflow_phases(kanban_column=None, workflow_phase=None) -> list[dict]` — query with optional filters
 - Backfill function: `backfill_workflow_phases(db, artifacts_root)` — scan entities and `.meta.json` files to populate rows
 - Schema version bump to 3
 - Test coverage for migration, CRUD methods, backfill, edge cases
@@ -88,6 +88,10 @@ The entity registry database has no concept of workflow phase state or kanban pr
 3. If `lastCompletedPhase` contains an unrecognized phase value (not in the 7-phase sequence) → set `workflow_phase` and `last_completed_phase` to NULL, log a warning
 4. If `mode` contains an invalid value (not `standard`/`full`) → set `mode` to NULL, log a warning
 **Rationale:** `.meta.json` files are written by the LLM and have known inconsistencies (per PRD problem statement). Backfill must be resilient to malformed data.
+
+### D-10: CRUD methods do not enforce entity-type restrictions
+**Decision:** CRUD methods in this feature do NOT enforce per-entity-type `kanban_column` restrictions (e.g., brainstorm entities limited to `backlog`/`prioritised`). That is feature 008's responsibility. Backfill data written by this feature may violate application-level invariants from ADR-004 Appendix D; feature 008's state engine is expected to reconcile on first use.
+**Rationale:** Keeping CRUD methods simple and generic. Application-level validation belongs in the state engine layer, not the data access layer.
 
 ## Acceptance Criteria
 
