@@ -185,7 +185,12 @@ def _derive_feature_directory(entity: dict, artifacts_root: str) -> str | None:
             return ap
         if os.path.isfile(ap):
             return os.path.dirname(ap)
-    # Construct from entity_id
+    # Construct from entity_id (fallback step c)
+    # Assumption: entity_id matches directory basename (e.g., "003-bidirectional-uuid-sync-betwee").
+    # This holds for entities registered by backfill._scan_features, which derives entity_id
+    # from .meta.json's id+slug fields matching the directory convention.
+    # For entities registered via other means (MCP tools, manual), artifact_path (steps a/b)
+    # is the primary resolution path; this construction is only a fallback.
     candidate = os.path.join(artifacts_root, "features", entity["entity_id"])
     if os.path.isdir(candidate):
         return candidate
@@ -200,7 +205,7 @@ def _derive_feature_directory(entity: dict, artifacts_root: str) -> str | None:
 
 ### TD-5: CLI DB lifecycle
 
-**Decision:** CLI handlers follow `frontmatter_inject.py` pattern: `ENTITY_DB_PATH` env var → fallback path. DB opened once per subcommand invocation, closed in `finally` block.
+**Decision:** CLI handlers follow `frontmatter_inject.py` pattern: `ENTITY_DB_PATH` env var → fallback path. DB opened once per subcommand invocation, closed in `finally` block. Each subcommand handler wraps `_open_db()` in a try/except to catch `sqlite3.OperationalError` and other construction failures, printing a JSON error to stdout and exiting with code 1.
 
 **Implementation:**
 ```python
@@ -210,6 +215,19 @@ def _open_db() -> EntityDatabase:
         os.path.expanduser("~/.claude/iflow/entities/entities.db"),
     )
     return EntityDatabase(db_path)
+
+def _run_handler(func):
+    """Shared wrapper: opens DB, runs handler, closes DB, catches fatal errors."""
+    db = None
+    try:
+        db = _open_db()
+        func(db)
+    except Exception as exc:
+        print(json.dumps({"error": f"Fatal: {exc}"}, indent=2))
+        sys.exit(1)
+    finally:
+        if db is not None:
+            db.close()
 ```
 
 ### TD-6: CLI JSON serialization
@@ -279,17 +297,20 @@ Output: DriftReport
 
 Flow:
   1. header = read_frontmatter(filepath)
-  2. If header is None and type_id is None → return no_header
-  3. If header is not None:
-       uuid_key = header.get("entity_uuid")
-       If uuid_key is None and type_id is None → return no_header
-         (header exists but has no entity_uuid and no type_id to look up — treat as untracked)
-       If type_id provided → use type_id for DB lookup
-       Else → use uuid_key for DB lookup
-  4. entity = db.get_entity(lookup_key)
-  5. If header and not entity → return file_only
-  6. If not header and entity → return db_only(type_id=entity["type_id"])
-  7. Compare COMPARABLE_FIELD_MAP fields
+  2. Determine lookup_key:
+     a. If type_id is provided → lookup_key = type_id
+     b. Else if header is not None:
+          uuid_key = header.get("entity_uuid")
+          If uuid_key is None → return no_header (header has no entity_uuid, no type_id — untracked)
+          lookup_key = uuid_key
+     c. Else → return no_header (no header, no type_id)
+  3. entity = db.get_entity(lookup_key)
+  4. If header and not entity → return file_only
+  5. If not header and entity → return db_only(type_id=entity["type_id"])
+  6. If not header and not entity → return no_header (should not happen after step 2, but defensive)
+  7. Compare COMPARABLE_FIELD_MAP fields:
+     - entity_uuid: case-insensitive (.lower() on both sides, per UUID convention)
+     - entity_type_id: case-sensitive (structured identifiers)
      Note: When type_id is provided and the file header contains a different
      entity_uuid than the DB entity's uuid, this naturally produces a
      FieldMismatch on entity_uuid → returned as "diverged". This correctly
@@ -297,7 +318,8 @@ Flow:
   8. If mismatches → return diverged with FieldMismatch list
   9. Else → return in_sync
 
-Error: If db.get_entity raises → catch, return DriftReport with status="error" (defensive)
+Error: If db.get_entity raises (sqlite3.OperationalError for broken connection
+       or locked DB) → catch, return DriftReport with status="error" (defensive)
 ```
 
 #### `stamp_header(db, filepath, type_id, artifact_type) -> StampResult`
@@ -319,8 +341,10 @@ Flow (spec R12):
        4. header = build_header(uuid, type_id, artifact_type, created_at, **optional)
           (can raise ValueError on invalid fields)
        5. existing = read_frontmatter(filepath)
-       6. If existing and existing["entity_uuid"].lower() != uuid.lower()
+       6. If existing and existing.get("entity_uuid")
+            and existing["entity_uuid"].lower() != uuid.lower()
           → return error("UUID mismatch")
+          (If existing header has no entity_uuid, treat as create — merge will add it)
        7. write_frontmatter(filepath, header)
      except FrontmatterUUIDMismatch → return error("UUID mismatch: ...")
      except ValueError → return error("Stamp failed: {details}")
@@ -381,6 +405,9 @@ Output: list[DriftReport]
 
 Flow: Same as backfill_headers but calls detect_drift(db, filepath, entity["type_id"])
      instead of stamp_header for each file.
+     Note: Since scan_all always passes entity["type_id"] to detect_drift, the
+     "no_header" status is not possible in results. Files without frontmatter
+     return "db_only" instead.
 ```
 
 ### Modified API: `backfill.py`
@@ -404,7 +431,7 @@ def run_backfill(db: EntityDatabase, artifacts_root: str, header_aware: bool = F
 Usage: python frontmatter_sync_cli.py <subcommand> [args]
 
 Subcommands:
-  drift <filepath> [type_id]                → JSON DriftReport to stdout (type_id optional, matches API)
+  drift <filepath> <type_id>                 → JSON DriftReport to stdout
   stamp <filepath> <type_id> <artifact_type> → JSON StampResult to stdout
   ingest <filepath>                          → JSON IngestResult to stdout
   backfill <artifacts_root>                  → JSON list[StampResult] to stdout
