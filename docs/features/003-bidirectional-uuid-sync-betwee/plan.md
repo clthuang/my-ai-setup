@@ -133,7 +133,7 @@ Tests (TDD — write first):
   - test_derive_dir_from_artifact_path_dir: artifact_path is a directory
   - test_derive_dir_from_artifact_path_file: artifact_path is a file → dirname
   - test_derive_dir_from_entity_id: no artifact_path, construct from entity_id
-    Setup: create {tmp_path}/features/{entity_id}/ directory before calling
+    Setup: pass artifacts_root=str(tmp_path), create {tmp_path}/features/{entity_id}/ directory before calling
   - test_derive_dir_none: no artifact_path, constructed path doesn't exist → None
     Setup: do NOT create directory — os.path.isdir check should fail
 ```
