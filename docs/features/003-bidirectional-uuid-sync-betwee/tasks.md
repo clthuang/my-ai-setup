@@ -71,7 +71,7 @@
 - **Steps:**
   1. Add 7 tests to `test_frontmatter_sync.py` — all call `_derive_optional_fields(entity, artifact_type)`:
      - `test_derive_feature_entity`: feature type_id, `artifact_type="spec"` → result has feature_id, feature_slug, phase
-     - `test_derive_project_id_from_metadata`: metadata JSON with project_id, `artifact_type="spec"` → result has project_id
+     - `test_derive_project_id_from_metadata`: entity with `metadata='{"project_id": "P001"}'` (JSON string, not dict), `artifact_type="spec"` → result has project_id="P001"
      - `test_derive_project_id_from_parent`: parent_type_id="project:P001", `artifact_type="spec"` → result project_id="P001"
      - `test_derive_metadata_priority`: both metadata JSON and parent_type_id → metadata wins
      - `test_derive_non_feature_entity`: project type_id, `artifact_type="spec"` → no feature_id/feature_slug in result
@@ -104,7 +104,7 @@
   1. Add 4 tests to `test_frontmatter_sync.py`:
      - `test_derive_dir_from_artifact_path_dir`: artifact_path is a directory → returns it
      - `test_derive_dir_from_artifact_path_file`: artifact_path is a file → returns dirname
-     - `test_derive_dir_from_entity_id`: no artifact_path, construct from entity_id with `artifacts_root=str(tmp_path)`, create `{tmp_path}/features/{entity_id}/` directory → returns constructed path
+     - `test_derive_dir_from_entity_id`: no artifact_path, entity with `entity_id="003-my-feature"`, `artifacts_root=str(tmp_path)`, create `{tmp_path}/features/003-my-feature/` directory → returns that path
      - `test_derive_dir_none`: no artifact_path, constructed path doesn't exist (do NOT create directory) → returns None
   2. Run tests — confirm all 4 FAIL
 - **Done when:** 4 tests exist and all fail
@@ -207,7 +207,7 @@
      - `test_ingest_no_frontmatter`: no header → action="skipped" (AC-12)
      - `test_ingest_entity_not_found`: UUID not in DB → action="error" (AC-13)
      - `test_ingest_no_uuid_in_header`: header without entity_uuid → action="skipped"
-     - `test_ingest_race_condition`: entity deleted between check and update → action="error"
+     - `test_ingest_race_condition`: mock `db.update_entity` to raise `ValueError("Entity not found")` after `db.get_entity` succeeds → action="error"
   2. Each test: create temp file, set up DB, call `ingest_header(db, filepath)`
   3. Run tests — confirm all 5 FAIL
 - **Done when:** 5 tests exist and all fail
@@ -237,7 +237,7 @@
 - **Steps:**
   1. Add 5 tests:
      - `test_backfill_stamps_all`: 3 features × 2 files each = 6 stamps (AC-14)
-       Setup: register 3 feature entities, create directories with 2 artifact files each
+       Setup: register 3 feature entities, create directories with `spec.md` and `design.md` in each
      - `test_backfill_idempotent`: run twice → identical file content (AC-15)
      - `test_backfill_skips_mismatch`: mismatched UUID → error in results (AC-16)
      - `test_backfill_skips_missing_dir`: entity with no directory → "skipped" result
