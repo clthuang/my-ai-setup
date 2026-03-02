@@ -985,10 +985,6 @@ class EntityDatabase:
             self._conn.commit()
         except sqlite3.IntegrityError as e:
             msg = str(e)
-            if "UNIQUE constraint" in msg:
-                raise ValueError(
-                    f"Workflow phase already exists for: {type_id}"
-                ) from e
             if "CHECK constraint" in msg:
                 raise ValueError(f"Invalid value: {e}") from e
             raise ValueError(msg) from e
