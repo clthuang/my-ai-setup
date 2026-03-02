@@ -96,9 +96,10 @@ Five methods following existing patterns:
 **Design decisions**:
 - CRUD methods operate on `type_id` directly (no UUID resolution needed — `type_id` IS the PK of `workflow_phases`)
 - `create_workflow_phase` validates FK existence via SELECT before INSERT to provide clear ValueError rather than raw IntegrityError
-- `update_workflow_phase` uses `set_parts/params` dynamic builder matching `update_entity` pattern; always auto-sets `updated_at` via `_now_iso()`
+- `update_workflow_phase` uses `set_parts/params` dynamic builder matching `update_entity` pattern; always auto-sets `updated_at` via `self._now_iso()`
 - No entity-type restrictions (D-10) — all type_ids accepted; application-level validation deferred to feature 008
 - `updated_at` always auto-generated, never caller-supplied
+- **IntegrityError handling**: Both `create_workflow_phase` and `update_workflow_phase` catch `IntegrityError` and inspect the error message string to distinguish causes: `"UNIQUE constraint failed"` → `ValueError("Workflow phase already exists for: {type_id}")`, `"CHECK constraint failed"` → `ValueError("Invalid value: {error_detail}")`, other → re-raise as `ValueError` with original SQLite message. This ensures callers always get `ValueError` with a descriptive message, never raw `IntegrityError`.
 
 ### Component 3: Backfill Function
 
@@ -131,8 +132,10 @@ entities.status  ──→  status (fallback, often NULL)
                        ▼
               INSERT OR IGNORE
               into workflow_phases
-              (updated_at = _now_iso())
+              (updated_at = db._now_iso())
 ```
+
+**Entity query**: `SELECT type_id, entity_type, status, artifact_path FROM entities WHERE entity_type != 'project'` — project exclusion at query level (not per-row skip).
 
 **Status resolution priority**: The existing `_scan_features()` backfill does NOT pass `status` to `register_entity()`, so `entities.status` is NULL for most entities. The backfill resolves status via:
 1. `.meta.json` `status` field (primary — always populated by iflow workflow)
@@ -147,14 +150,14 @@ entities.status  ──→  status (fallback, often NULL)
 5. Map resolved status → `kanban_column` via `STATUS_TO_KANBAN`
 6. Extract `lastCompletedPhase` and `mode` from `.meta.json`
 7. Derive `workflow_phase` per D-5 rules
-8. Generate `updated_at` via `_now_iso()` (see TD-8)
+8. Generate `updated_at` via `db._now_iso()` (see TD-8)
 9. `INSERT OR IGNORE` into `workflow_phases` (all 7 columns supplied)
 
 **Phase sequence constant**: `PHASE_SEQUENCE = ("brainstorm", "specify", "design", "create-plan", "create-tasks", "implement", "finish")`
 
 **Status-to-kanban mapping**: `STATUS_TO_KANBAN = {"planned": "backlog", "active": "wip", "completed": "completed", "abandoned": "completed"}`
 
-**Timestamp generation**: Backfill generates `updated_at` using `_now_iso()` — a module-level utility (see TD-8). This is the same function used by CRUD methods, ensuring consistent ISO 8601 UTC format across all `workflow_phases` writes.
+**Timestamp generation**: Backfill generates `updated_at` via `db._now_iso()` (see TD-8). This is the same `@staticmethod` used by CRUD methods, ensuring consistent ISO 8601 UTC format across all `workflow_phases` writes.
 
 **Brainstorm/backlog entities**: `_resolve_meta_path` returns `None` for entities without `artifact_path` and no matching convention directory. This is expected — brainstorms and backlogs may lack `.meta.json` files. When `_resolve_meta_path` returns `None`, the backfill uses defaults: `kanban_column` from status resolution, `workflow_phase = None`, `last_completed_phase = None`, `mode = None`.
 
@@ -188,9 +191,9 @@ entities.status  ──→  status (fallback, often NULL)
 **Decision**: Backfill uses `logging.getLogger(__name__).warning()` for error tolerance messages (malformed JSON, unrecognized phase, invalid mode).
 **Rationale**: Follows Python logging best practice. Callers can configure handlers. No `print(file=sys.stderr)` — that pattern is for hooks only.
 
-### TD-8: `_now_iso()` as shared utility
-**Decision**: `_now_iso()` remains a module-level function in `database.py` (not a private method of `EntityDatabase`). Both CRUD methods and backfill use it for `updated_at` generation.
-**Rationale**: `_now_iso()` is already module-level in `database.py` (line 756). Backfill imports it directly: `from .database import _now_iso`. The leading underscore indicates "internal to the package" (not "private to the class"), which is correct — both modules are within the same `entity_registry` package. This avoids duplicating timestamp logic.
+### TD-8: `_now_iso()` access for backfill
+**Decision**: `_now_iso()` is a `@staticmethod` on `EntityDatabase` (not a module-level function). Backfill accesses it via `db._now_iso()` using the passed `db: EntityDatabase` parameter.
+**Rationale**: The backfill already receives a `db` instance. Calling `db._now_iso()` is the simplest path — no import gymnastics, no extracting the static method. CRUD methods access it as `self._now_iso()` internally. Both paths produce the same ISO 8601 UTC timestamp.
 
 ### TD-9: FK validation is advisory, not authoritative
 **Decision**: `create_workflow_phase`'s pre-INSERT `SELECT 1 FROM entities WHERE type_id = ?` is an advisory check — a TOCTOU race condition exists between the SELECT and INSERT.
@@ -209,8 +212,10 @@ def _create_workflow_phases_table(conn: sqlite3.Connection) -> None:
     """Migration 3: Create workflow_phases table with dual-dimension status model.
 
     Self-managed transaction (BEGIN IMMEDIATE / COMMIT / ROLLBACK).
-    The outer _migrate() also writes schema_version — this is a redundant
-    but safe double-write (both set schema_version='3').
+    The outer _migrate() performs a second schema_version upsert + commit
+    after this function returns. Both writes set version=3, so the second
+    write is a no-op at the data level but does execute a SQL statement
+    and commit.
     """
 ```
 
@@ -422,7 +427,10 @@ def _derive_next_phase(last_completed: str) -> str | None:
     """Return the phase after last_completed, or None if finish/unrecognized."""
 
 def _read_meta_json(path: str) -> dict | None:
-    """Read and parse .meta.json. Returns None on any error (logged)."""
+    """Read and parse .meta.json. Wraps existing _read_json with
+    additional warning logging for malformed files per D-9 error tolerance.
+    Reuses _read_json for file I/O and JSON parsing; adds entity-specific
+    field validation warnings (missing lastCompletedPhase, invalid mode)."""
 
 def _resolve_meta_path(
     entity: dict, artifacts_root: str
