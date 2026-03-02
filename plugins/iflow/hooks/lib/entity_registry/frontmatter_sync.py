@@ -167,7 +167,10 @@ def _derive_feature_directory(entity: dict, artifacts_root: str) -> str | None:
         if os.path.isfile(ap):
             return os.path.dirname(ap)
     # Construct from entity_id (fallback step c)
-    candidate = os.path.join(artifacts_root, "features", entity["entity_id"])
+    eid = entity["entity_id"]
+    if ".." in eid or "/" in eid or "\\" in eid or "\0" in eid:
+        return None
+    candidate = os.path.join(artifacts_root, "features", eid)
     if os.path.isdir(candidate):
         return candidate
     return None
@@ -258,22 +261,12 @@ def detect_drift(
                 mismatches=[],
             )
 
-        if header is None and entity is None:
-            # Defensive: should not happen after step 2, but guard anyway
-            return DriftReport(
-                filepath=filepath,
-                type_id=type_id,
-                status="no_header",
-                file_fields=None,
-                db_fields=None,
-                mismatches=[],
-            )
-
         # Step 7: Both exist -- compare COMPARABLE_FIELD_MAP fields
+        assert header is not None and entity is not None
         mismatches: list[FieldMismatch] = []
         for file_field, db_column in COMPARABLE_FIELD_MAP.items():
-            file_val = header.get(file_field)  # type: ignore[union-attr]
-            db_val = entity.get(db_column)  # type: ignore[union-attr]
+            file_val = header.get(file_field)
+            db_val = entity.get(db_column)
 
             if file_field == "entity_uuid":
                 # UUID comparison is case-insensitive
@@ -296,10 +289,10 @@ def detect_drift(
         status = "diverged" if mismatches else "in_sync"
         return DriftReport(
             filepath=filepath,
-            type_id=entity["type_id"],  # type: ignore[index]
+            type_id=entity["type_id"],
             status=status,
-            file_fields=dict(header),  # type: ignore[arg-type]
-            db_fields=dict(entity),  # type: ignore[arg-type]
+            file_fields=dict(header),
+            db_fields=dict(entity),
             mismatches=mismatches,
         )
 
@@ -343,33 +336,26 @@ def stamp_header(
     -------
     StampResult
     """
-    # Step 1: Look up entity in DB
     try:
+        # Step 1: Look up entity in DB
         entity = db.get_entity(type_id)
-    except Exception as exc:
-        return StampResult(
-            filepath=filepath,
-            action="error",
-            message=f"DB error looking up {type_id!r}: {exc}",
-        )
 
-    if entity is None:
-        return StampResult(
-            filepath=filepath,
-            action="error",
-            message=f"Entity not found: {type_id!r}",
-        )
+        if entity is None:
+            return StampResult(
+                filepath=filepath,
+                action="error",
+                message=f"Entity not found: {type_id!r}",
+            )
 
-    # Step 2: Extract required fields
-    entity_uuid = entity["uuid"]
-    entity_type_id = entity["type_id"]
-    created_at = entity["created_at"]
+        # Step 2: Extract required fields
+        entity_uuid = entity["uuid"]
+        entity_type_id = entity["type_id"]
+        created_at = entity["created_at"]
 
-    # Step 3: Derive optional fields
-    optional = _derive_optional_fields(entity, artifact_type)
+        # Step 3: Derive optional fields
+        optional = _derive_optional_fields(entity, artifact_type)
 
-    # Steps 4-7: build_header -> read existing -> UUID mismatch check -> write
-    try:
+        # Steps 4-7: build_header -> read existing -> UUID mismatch check -> write
         header = build_header(
             entity_uuid, entity_type_id, artifact_type, created_at, **optional
         )
@@ -390,15 +376,23 @@ def stamp_header(
                 ),
             )
 
+        errors = validate_header(header)
+        if errors:
+            return StampResult(
+                filepath=filepath,
+                action="error",
+                message=f"Header validation failed: {'; '.join(errors)}",
+            )
+
         write_frontmatter(filepath, header)
 
     except FrontmatterUUIDMismatch as exc:
         return StampResult(
             filepath=filepath,
             action="error",
-            message=f"UUID mismatch: {exc}",
+            message=f"UUID mismatch during stamp: {exc}",
         )
-    except (ValueError, Exception) as exc:
+    except Exception as exc:
         return StampResult(
             filepath=filepath,
             action="error",
@@ -474,7 +468,7 @@ def ingest_header(
             return IngestResult(
                 filepath=filepath,
                 action="error",
-                message=f"Entity disappeared between read and write: {entity_uuid!r}",
+                message=f"Entity update failed for {entity_uuid!r}: {exc}",
             )
 
         # Step 6: Success
@@ -491,3 +485,100 @@ def ingest_header(
             action="error",
             message=f"Ingest failed: {exc}",
         )
+
+
+# ---------------------------------------------------------------------------
+# Public API: Bulk functions
+# ---------------------------------------------------------------------------
+
+
+def backfill_headers(
+    db: EntityDatabase,
+    artifacts_root: str,
+) -> list[StampResult]:
+    """Stamp frontmatter headers on all known artifact files (bulk DB-to-file).
+
+    Scans all registered feature entities, derives their directories, and
+    stamps headers on artifact files that exist on disk. Files with
+    mismatched UUIDs are reported as errors; missing directories are skipped.
+
+    Never raises: individual file failures are caught and returned as
+    ``action="error"`` results.
+
+    Parameters
+    ----------
+    db:
+        Entity database instance.
+    artifacts_root:
+        Root directory for artifact files (e.g. "docs").
+
+    Returns
+    -------
+    list[StampResult]
+        One result per file attempted, plus skipped-directory entries.
+    """
+    results: list[StampResult] = []
+    features = db.list_entities(entity_type="feature")
+
+    for entity in features:
+        feat_dir = _derive_feature_directory(entity, artifacts_root)
+        if feat_dir is None:
+            results.append(StampResult(
+                filepath=entity.get("type_id", "unknown"),
+                action="skipped",
+                message=f"No directory found for entity {entity['type_id']!r}",
+            ))
+            continue
+
+        for basename, artifact_type in ARTIFACT_BASENAME_MAP.items():
+            filepath = os.path.join(feat_dir, basename)
+            if not os.path.isfile(filepath):
+                continue
+            result = stamp_header(db, filepath, entity["type_id"], artifact_type)
+            results.append(result)
+
+    return results
+
+
+def scan_all(
+    db: EntityDatabase,
+    artifacts_root: str,
+) -> list[DriftReport]:
+    """Drift-scan all registered feature entities' artifact files.
+
+    Mirrors :func:`backfill_headers` structure but calls :func:`detect_drift`
+    instead of :func:`stamp_header`. Since ``type_id`` is always passed to
+    ``detect_drift``, files without frontmatter return ``status="db_only"``
+    (not ``"no_header"``).
+
+    Never raises: individual file failures are caught and returned as
+    ``status="error"`` reports.
+
+    Parameters
+    ----------
+    db:
+        Entity database instance.
+    artifacts_root:
+        Root directory for artifact files (e.g. "docs").
+
+    Returns
+    -------
+    list[DriftReport]
+        One report per file examined. Callers can filter by ``status``.
+    """
+    reports: list[DriftReport] = []
+    features = db.list_entities(entity_type="feature")
+
+    for entity in features:
+        feat_dir = _derive_feature_directory(entity, artifacts_root)
+        if feat_dir is None:
+            continue
+
+        for basename in ARTIFACT_BASENAME_MAP:
+            filepath = os.path.join(feat_dir, basename)
+            if not os.path.isfile(filepath):
+                continue
+            report = detect_drift(db, filepath, type_id=entity["type_id"])
+            reports.append(report)
+
+    return reports
