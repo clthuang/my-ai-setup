@@ -36,7 +36,7 @@
 - **Complexity:** Simple
 - **Steps:**
   1. Create `test_frontmatter_sync.py` with 6 tests:
-     - `test_field_mismatch_construction`: FieldMismatch(field, db_value, header_value) — verify fields accessible
+     - `test_field_mismatch_construction`: FieldMismatch(field="entity_uuid", file_value="abc", db_value="xyz") — verify all 3 fields accessible (spec R4: field, file_value, db_value)
      - `test_drift_report_construction`: DriftReport with 6 fields — verify all accessible
      - `test_stamp_result_construction`: StampResult with 3 fields — verify all accessible
      - `test_ingest_result_construction`: IngestResult with 3 fields — verify all accessible
@@ -203,7 +203,7 @@
 - **Steps:**
   1. Add 5 tests — all call `ingest_header(db, filepath)` (db first, per design C4):
      - `test_ingest_updates_path`: valid header → action="updated", artifact_path set (AC-11)
-       Assert: DB entity's artifact_path updated; UUID passed to update_entity (validates _resolve_identifier path)
+       Assert: DB entity's artifact_path updated to absolute filepath; verify `db.update_entity` was called with the UUID string (not type_id), confirming the _resolve_identifier path is exercised (spec R17)
      - `test_ingest_no_frontmatter`: no header → action="skipped" (AC-12)
      - `test_ingest_entity_not_found`: UUID not in DB → action="error" (AC-13)
      - `test_ingest_no_uuid_in_header`: header without entity_uuid → action="skipped"
@@ -360,7 +360,7 @@
 
 | Metric | Value |
 |--------|-------|
-| Total tasks | 25 |
+| Total tasks | 23 |
 | Phases | 5 |
 | Parallel groups | 5 (P1-P5) |
 | Total test functions | ~47 |
