@@ -217,7 +217,8 @@ def _open_db() -> EntityDatabase:
     return EntityDatabase(db_path)
 
 def _run_handler(func):
-    """Shared wrapper: opens DB, runs handler, closes DB, catches fatal errors."""
+    """Shared wrapper: opens DB, runs handler, closes DB, catches fatal errors.
+    `func` is a closure over parsed argparse args, accepting only `db`."""
     db = None
     try:
         db = _open_db()
@@ -271,7 +272,7 @@ class FieldMismatch:
 class DriftReport:
     filepath: str
     type_id: str | None
-    status: str   # "in_sync" | "file_only" | "db_only" | "diverged" | "no_header"
+    status: str   # "in_sync" | "file_only" | "db_only" | "diverged" | "no_header" | "error"
     file_fields: dict | None
     db_fields: dict | None
     mismatches: list[FieldMismatch]
@@ -459,7 +460,7 @@ def list_entities(self, entity_type: str | None = None) -> list[dict]:
     """Return all entities, optionally filtered by entity_type."""
 ```
 
-This keeps all SQL within `database.py` and gives `frontmatter_sync.py` a clean public interface.
+Returns dicts with the same keys as `get_entity`: `uuid`, `type_id`, `entity_id`, `entity_type`, `name`, `status`, `artifact_path`, `parent_type_id`, `metadata`, `created_at`, `updated_at`. This keeps all SQL within `database.py` and gives `frontmatter_sync.py` a clean public interface.
 
 ### R2: `_parse_feature_type_id` called with non-feature type_ids
 
