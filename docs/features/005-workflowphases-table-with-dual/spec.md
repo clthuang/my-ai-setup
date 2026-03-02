@@ -6,7 +6,7 @@ The entity registry database has no concept of workflow phase state or kanban pr
 
 ## Success Criteria
 
-- [ ] `workflow_phases` table created via migration 3 in `database.py` matching ADR-004 Appendix E DDL (adapted: FK targets `entities(type_id)` which is UNIQUE after migration 2)
+- [ ] `workflow_phases` table created via migration 3 in `database.py` matching ADR-004 Appendix E DDL (adapted: migration 3 instead of ADR-004's migration 2; FK targets `entities(type_id)` which is UNIQUE after migration 2)
 - [ ] `EntityDatabase` exposes CRUD methods for `workflow_phases`: create, get, update, delete, list/query
 - [ ] Backfill function populates `workflow_phases` rows for all existing feature, brainstorm, and backlog entities (project entities excluded per ADR-004 Appendix D)
 - [ ] Backfill maps existing `status` field to `kanban_column` per ADR-004 Appendix G conversion table
@@ -39,6 +39,7 @@ The entity registry database has no concept of workflow phase state or kanban pr
 - Kanban UI rendering (feature 019)
 - Reconciliation tool (feature 011)
 - Modifying any existing command or skill to use these methods
+- FR-5 per-phase timestamps, iterations, reviewerNotes, skippedPhases — partially addressed by this feature (table creation, lastCompletedPhase, mode, kanban_column) and partially deferred to feature 008 (transition log with per-phase detail)
 
 ## Decisions
 
@@ -59,8 +60,33 @@ The entity registry database has no concept of workflow phase state or kanban pr
 **Rationale:** The PRD identifies one-shot backfill as a known anti-pattern. Idempotent backfill is safer for migration reruns and testing.
 
 ### D-5: workflow_phase derivation during backfill
-**Decision:** For active features (status=active), set `workflow_phase` to the phase after `lastCompletedPhase` in the sequence. For completed features (status=completed), set `workflow_phase` to `finish`. For planned features (status=planned), set `workflow_phase` to NULL. For brainstorm/backlog entities, always NULL.
-**Rationale:** The `workflow_phase` column represents the current active phase. Deriving it from `lastCompletedPhase` is the most accurate mapping without a running state engine.
+**Decision:** The ordered phase sequence for derivation is: `brainstorm`, `specify`, `design`, `create-plan`, `create-tasks`, `implement`, `finish`. Derivation rules by entity status:
+- **active** → `workflow_phase` = the phase after `lastCompletedPhase` in the sequence. If `lastCompletedPhase` is `finish`, set to `finish`. If `lastCompletedPhase` is NULL or unrecognized, set to NULL.
+- **completed** → `workflow_phase` = `finish`
+- **planned** → `workflow_phase` = NULL
+- **abandoned** → `workflow_phase` = the phase after `lastCompletedPhase` if available (preserving the phase where work stopped), or NULL if `lastCompletedPhase` is unavailable. This aligns with ADR-004 Appendix F scenario #6 where `kanban_column=completed` AND `workflow_phase != finish` signals abandonment.
+- **brainstorm/backlog entities** → always NULL regardless of status.
+**Rationale:** The `workflow_phase` column represents the current active phase. Deriving it from `lastCompletedPhase` is the most accurate mapping without a running state engine. Abandoned features preserve their last-known phase position to distinguish them from completed features.
+
+### D-6: Migration 3 transaction management
+**Decision:** Migration 3 follows the same self-managed transaction pattern as migration 2 (`BEGIN IMMEDIATE` / `COMMIT` / `ROLLBACK`), including updating `schema_version` within its own transaction.
+**Rationale:** Migration 3 performs DDL operations (CREATE TABLE, CREATE TRIGGER, CREATE INDEX). The database.py migration 2 docstring explicitly requires: "Future migrations MUST follow this same pattern if they perform DDL operations." The outer `_migrate()` commit is a no-op for self-managed migrations.
+
+### D-7: Backfill invocation timing
+**Decision:** Backfill is a separate callable function, not automatically invoked by migration 3. Migration 3 only creates the table structure. Backfill must be invoked separately (e.g., by the caller after `EntityDatabase` construction, or by a dedicated backfill script/CLI).
+**Rationale:** Separating DDL migration from data migration keeps the migration function simple, testable, and safe for fresh databases (which have no entities to backfill).
+
+### D-8: .meta.json path resolution
+**Decision:** Backfill locates `.meta.json` files using the `artifact_path` column from the `entities` table. For each entity with a non-NULL `artifact_path`, the backfill looks for `{artifact_path}/.meta.json`. If `artifact_path` is NULL, the backfill falls back to the convention `{artifacts_root}/{entity_type}s/{entity_id}/.meta.json` (e.g., `docs/features/005-workflowphases-table-with-dual/.meta.json`). If `.meta.json` does not exist for an entity, backfill proceeds with default values (`workflow_phase=NULL`, `mode=NULL`, `last_completed_phase=NULL`).
+**Rationale:** The `entities` table already stores `artifact_path` for most entities. Falling back to convention-based paths handles legacy entries. Missing `.meta.json` is a normal condition for brainstorm/backlog entities.
+
+### D-9: .meta.json error tolerance
+**Decision:** Backfill handles `.meta.json` gracefully:
+1. If `.meta.json` does not exist → proceed with defaults (NULL for all .meta.json-sourced fields)
+2. If `.meta.json` contains malformed JSON → log a warning, proceed with defaults
+3. If `lastCompletedPhase` contains an unrecognized phase value (not in the 7-phase sequence) → set `workflow_phase` and `last_completed_phase` to NULL, log a warning
+4. If `mode` contains an invalid value (not `standard`/`full`) → set `mode` to NULL, log a warning
+**Rationale:** `.meta.json` files are written by the LLM and have known inconsistencies (per PRD problem statement). Backfill must be resilient to malformed data.
 
 ## Acceptance Criteria
 
@@ -112,7 +138,7 @@ The entity registry database has no concept of workflow phase state or kanban pr
 - Given a `workflow_phases` row exists
 - When `update_workflow_phase(type_id, kanban_column='wip', workflow_phase='design')` is called
 - Then the row is updated with the new values
-- And `updated_at` is refreshed to current UTC timestamp
+- And `updated_at` is refreshed to current UTC time in ISO-8601 format (matching `EntityDatabase._now_iso()` pattern)
 - And calling it for a non-existent type_id raises ValueError
 - And `type_id` cannot be updated (trigger enforces immutability)
 
@@ -142,12 +168,22 @@ The entity registry database has no concept of workflow phase state or kanban pr
   - completed → completed
   - abandoned → completed
 - And `last_completed_phase` is read from `.meta.json` `lastCompletedPhase` field if available
+- And `workflow_phase` is derived per D-5:
+  - active → next phase after `lastCompletedPhase` (or NULL if unavailable)
+  - completed → `finish`
+  - planned → NULL
+  - abandoned → next phase after `lastCompletedPhase` (or NULL if unavailable)
 
 ### AC-11: Backfill — Brainstorm and Backlog Entities
 - Given brainstorm and backlog entities exist
 - When backfill runs
-- Then `workflow_phases` rows are created with `workflow_phase=NULL` and `kanban_column='backlog'`
-- And brainstorm/backlog entities with status 'completed' get `kanban_column='completed'`
+- Then `workflow_phases` rows are created with `workflow_phase=NULL` (always NULL for brainstorm/backlog)
+- And `kanban_column` uses the same status-to-column conversion as features:
+  - planned → backlog
+  - active → wip
+  - completed → completed
+  - abandoned → completed
+- Note: ADR-004 Appendix D restricts brainstorm/backlog to `backlog` and `prioritised` columns at application level. This backfill intentionally writes `completed` for completed brainstorms — feature 008's state engine may normalize these values when it assumes authority over transitions.
 
 ### AC-12: Backfill — Project Entities Excluded
 - Given project entities exist
@@ -159,7 +195,7 @@ The entity registry database has no concept of workflow phase state or kanban pr
 - When backfill is run again
 - Then no errors occur (INSERT OR IGNORE)
 - And existing rows are not modified
-- And the function returns a result indicating how many rows were created vs skipped
+- And the function returns a dict: `{"created": int, "skipped": int, "errors": list[str]}` summarizing the backfill outcome
 
 ### AC-14: Backfill — Mode and workflow_phase from .meta.json
 - Given a feature entity with a `.meta.json` containing `"mode": "standard"` and `"lastCompletedPhase": "design"`
@@ -179,6 +215,27 @@ The entity registry database has no concept of workflow phase state or kanban pr
 - Then the INSERT fails with IntegrityError
 - When attempting to DELETE an entity that has a `workflow_phases` row
 - Then the DELETE fails with IntegrityError (ON DELETE NO ACTION)
+
+### AC-17: Backfill — Abandoned Features
+- Given a feature entity with status `abandoned` and `.meta.json` containing `"lastCompletedPhase": "design"`
+- When backfill runs for that entity
+- Then `kanban_column` is set to `completed` (per conversion table)
+- And `workflow_phase` is derived as the next phase after `design` (i.e., `create-plan`) — preserving where work stopped
+- And `last_completed_phase` is set to `design`
+- This distinguishes abandoned from completed: both have `kanban_column=completed`, but completed features have `workflow_phase=finish` while abandoned have `workflow_phase != finish`
+
+### AC-18: Backfill — .meta.json Error Tolerance
+- Given a feature entity whose `.meta.json` contains malformed JSON
+- When backfill runs for that entity
+- Then backfill proceeds with defaults (`workflow_phase=NULL`, `mode=NULL`, `last_completed_phase=NULL`)
+- And a warning is logged (not an exception)
+- Given a feature entity whose `.meta.json` has `"lastCompletedPhase": "unknown-invalid-phase"`
+- When backfill runs for that entity
+- Then `workflow_phase` and `last_completed_phase` are set to NULL
+- And a warning is logged
+- Given a feature entity with no `.meta.json` file
+- When backfill runs for that entity
+- Then backfill proceeds with defaults (no error)
 
 ## Feasibility Assessment
 
