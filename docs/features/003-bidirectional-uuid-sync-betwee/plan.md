@@ -282,7 +282,8 @@ Implementation (per design C7/TD-7):
 
 Tests (TDD — write first):
   - test_backfill_header_aware_true: stamps headers even after backfill_complete (AC-18)
-    Note: requires Phases 1-4 complete (frontmatter_sync.py must be fully importable)
+    Note: requires Phases 1-4 complete (frontmatter_sync.py must be fully importable).
+    Write test stub with pytest.mark.skip until Phase 4.2 is complete; remove skip marker as final step of Phase 5.1.
   - test_backfill_header_aware_false: no headers stamped — backward compat (AC-19)
 ```
 
