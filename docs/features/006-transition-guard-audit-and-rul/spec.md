@@ -108,7 +108,7 @@ For each file type, read and identify guard logic:
 1. All `.md` files in `plugins/iflow/commands/` — look for BLOCKED, prerequisite, and AskUserQuestion patterns
 2. All `.md` files in `plugins/iflow/skills/` — look for validate, transition, and state logic
 3. All `.sh` files in `plugins/iflow/hooks/` — look for permissionDecision, decision, and phase checks
-4. All `.py` files in `plugins/iflow/hooks/lib/` — look for validate, guard, transition, prerequisite, and phase-check patterns
+4. All `.py` files in `plugins/iflow/hooks/lib/` — look for validate, guard, transition, prerequisite, and phase-check patterns (particularly `entity_registry/` for database validation patterns; `semantic_memory/` is lower priority but scan for completeness)
 5. All `.md` files in `plugins/iflow/agents/` — look for guard-related review criteria
 6. All files in `plugins/iflow/references/`, `plugins/iflow/templates/`, `plugins/iflow/scripts/`, and `plugins/iflow/mcp/` — scan for guard patterns (Pass 1 grep covers these; this step confirms no guards were missed)
 7. Cross-reference against `plugins/iflow/hooks/hooks.json` hook entries (the hooks registry that defines SessionStart, PreToolUse, PostToolUse, and Stop hooks)
@@ -118,7 +118,7 @@ For each file type, read and identify guard logic:
 ## Scope
 
 ### In Scope
-- Audit ALL files under `plugins/iflow/` (skills, commands, hooks, agents, references, templates, scripts) for transition guard logic
+- Audit ALL files under `plugins/iflow/` (skills, commands, hooks, agents, references, templates, scripts, mcp) for transition guard logic
 - Create structured YAML rule inventory (`guard-rules.yaml`)
 - Create human-readable audit report (`audit-report.md`)
 - Identify all duplicate encodings and cross-reference them
