@@ -29,7 +29,7 @@ This is a documentation/analysis feature with no runtime code. The implementatio
 
 **Steps:**
 1. **Commands walk:** Read all `.md` files in `plugins/iflow/commands/` — identify BLOCKED messages, prerequisite checks, AskUserQuestion gates, review-quality loops
-2. **Skills walk:** Read `.md` files in `plugins/iflow/skills/` — prioritize SKILL.md files first (the main skill definitions where guards live), then selectively scan references/ subdirectories only for workflow-related skills. Workflow-related skills (known from design prior art): `workflow-state`, `workflow-transitions`, `finishing-branch`, `implementing`, `planning`, `breaking-down-tasks`, `specifying`, `designing`, `retrospecting`, `reviewing-artifacts`. Non-workflow skills (crypto-analysis, game-design, etc.) can be skipped after confirming their SKILL.md has no guard logic.
+2. **Skills walk:** Read `.md` files in `plugins/iflow/skills/` — prioritize SKILL.md files first (the main skill definitions where guards live), then selectively scan references/ subdirectories only for workflow-related skills. Workflow-related skills (known from design prior art): `workflow-state`, `workflow-transitions`, `finishing-branch`, `implementing`, `planning`, `breaking-down-tasks`, `specifying`, `designing`, `retrospecting`, `reviewing-artifacts`. Non-workflow skills (crypto-analysis, game-design, etc.) can be skipped after reading their SKILL.md and confirming no guard-related keywords (validate, block, prerequisite, transition, phase) appear.
 3. **Hooks walk (shell):** Read all `.sh` files in `plugins/iflow/hooks/` — identify permissionDecision patterns, phase checks, circuit breakers, YOLO guards. Note: some `.sh` files may not be registered in hooks.json (e.g., standalone utility scripts like cleanup-sandbox.sh). These should still be scanned but will likely triage as non-guards. The hooks.json cross-reference in Step 7 surfaces any discrepancies.
 4. **Hooks walk (Python):** Read all `.py` files in `plugins/iflow/hooks/lib/` — including top-level files (e.g., `memory.py`) plus `entity_registry/` (focus: phase sequence encodings) and `semantic_memory/` (scan for completeness). Test files (`test_*.py`) can be batch-skipped after confirming they contain only test assertions, not guard logic.
 5. **Agents walk:** Read all `.md` files in `plugins/iflow/agents/` — look for guard-related review criteria (expected: none are guards per design decision, but scan to confirm)
@@ -80,6 +80,7 @@ This phase has two sub-tasks: mechanical population (4a) and judgment-based enri
 2. Identify duplicate clusters: guards that enforce the same logical rule from different locations
 3. Set `duplicates` field with cross-references to other guard IDs
 4. Write `consolidation_notes` for guards targeting transition_gate (describe merge strategy)
+5. **Fallback for ambiguous context:** If source context is insufficient to determine `yolo_behavior`, default to `unchanged` with a note in `consolidation_notes`. If `consolidation_target` cannot be determined, default to `transition_gate` with a rationale flag for reviewer attention.
 
 **4c. Write and validate guard-rules.yaml:**
 1. Write YAML file to `docs/features/006-transition-guard-audit-and-rul/guard-rules.yaml`
