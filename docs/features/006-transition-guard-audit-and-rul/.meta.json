@@ -1,0 +1,27 @@
+{
+  "id": "006",
+  "slug": "transition-guard-audit-and-rul",
+  "status": "active",
+  "created": "2026-03-01T16:27:59+08:00",
+  "mode": "standard",
+  "branch": "feature/006-transition-guard-audit-and-rul",
+  "project_id": "P001",
+  "module": "State Engine",
+  "depends_on_features": [
+    "004-status-taxonomy-design-and-sch"
+  ],
+  "lastCompletedPhase": "specify",
+  "phases": {
+    "specify": {
+      "started": "2026-03-03T14:00:00+08:00",
+      "completed": "2026-03-03T15:50:00+08:00",
+      "phaseReview": {
+        "iterations": 5,
+        "approved": false,
+        "reviewerNotes": [
+          "Pass 1 triage completion criterion not explicitly defined — acceptable risk for skilled implementer"
+        ]
+      }
+    }
+  }
+}
