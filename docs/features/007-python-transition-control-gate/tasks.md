@@ -31,7 +31,7 @@
 - [ ] Add model instantiation tests: construct each enum value, each dataclass
 - [ ] Verify `Phase.create_plan == "create-plan"` (str mixin test)
 - [ ] Verify `TransitionResult` is frozen: construct instance, attempt `result.allowed = False`, assert `FrozenInstanceError` is raised
-- **Done when:** `pytest test_gate.py -v` passes with all model tests green
+- **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -v` passes with all model tests green
 
 ## Phase 2: Constants (constants.py) + Tests
 
@@ -47,8 +47,8 @@
 ### Task 2.2: Add prerequisite and artifact maps
 - [ ] Define `HARD_PREREQUISITES: dict[str, list[str]]` — 7 entries with transitive enrichment. Docstring must document G-08 divergence (transitive closure vs direct-only semantics)
 - [ ] Define `ARTIFACT_PHASE_MAP: dict[str, str]` — 5 entries
-- [ ] Define `ARTIFACT_GUARD_MAP: dict[tuple[str, str], str]` — default G-05; (implement, tasks.md)→G-06
-- **Done when:** `HARD_PREREQUISITES["create-tasks"] == ["spec.md", "design.md", "plan.md"]`
+- [ ] Define `ARTIFACT_GUARD_MAP: dict[tuple[str, str], str]` — exactly 2 explicit entries: `{("implement", "spec.md"): "G-05", ("implement", "tasks.md"): "G-06"}`. All other (phase, artifact_name) pairs resolve to G-05 via caller-side default lookup (not stored in dict).
+- **Done when:** `HARD_PREREQUISITES["create-tasks"] == ["spec.md", "design.md", "plan.md"]` and `ARTIFACT_GUARD_MAP[("implement", "tasks.md")] == "G-06"` and `len(ARTIFACT_GUARD_MAP) == 2`
 
 ### Task 2.3: Add service, iteration, and phase guard maps
 - [ ] Define `SERVICE_GUARD_MAP: dict[str, str]` — 4 entries (G-13..16)
@@ -72,7 +72,7 @@
 - [ ] `assert len(GUARD_METADATA) == 43`
 - [ ] Assert all Phase enum values present in PHASE_SEQUENCE, length == 7
 - [ ] 3 spot-check tests: G-22 enforcement=soft_warn, G-41 yolo_behavior=hard_stop, G-49 enforcement=soft_warn. Note: only G-51 has enforcement override.
-- **Done when:** `pytest test_gate.py -v -k "integrity or spot"` all green
+- **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -v -k "integrity or spot"` all green
 
 ### Task 2.7: Add guard coverage introspection test (xfail)
 - [ ] Implement test: collect test function names matching `test_G\d+_` via inspect module, extract guard IDs, assert coverage of all 43 in EXPECTED_GUARD_IDS
@@ -85,7 +85,7 @@
 - [ ] Normalize YAML hyphens to Python underscores: `yaml_value.replace("-", "_")` for enforcement and yolo_behavior
 - [ ] Special-case G-51: skip enforcement comparison for G-51 (intentional override from soft-warn to hard-block per spec), add comment explaining the exception
 - [ ] Graceful: `pytest.skip("guard-rules.yaml not found")` if file missing
-- **Done when:** `pytest test_gate.py -v -k "yaml_validation"` passes
+- **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -v -k "yaml_validation"` passes
 
 ## Phase 3: Gate Functions (gate.py) + Tests
 
@@ -99,13 +99,13 @@
 - [ ] Implement `_warn(guard_id, reason)` → TransitionResult(True, reason, Severity.warn, guard_id)
 - [ ] Implement `_phase_index(phase)` → index in PHASE_SEQUENCE or -1 for invalid
 - [ ] Add 3 `_phase_index` tests: valid returns index, invalid returns -1, first/last return 0/6
-- **Done when:** `pytest test_gate.py -v -k "phase_index"` passes
+- **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -v -k "phase_index"` passes
 
 ### Task 3.2: Implement check_yolo_override + tests
 **Prerequisite:** Task 3.1 complete.
 - [ ] Implement `check_yolo_override(guard_id, is_yolo)` — lookup GUARD_METADATA, return pre-built result for skip/auto_select, None for hard_stop/unchanged/unknown
 - [ ] Add 6 tests: skip→TransitionResult(allowed=True), auto_select→TransitionResult(allowed=True, severity=warn), hard_stop→None, unchanged→None, unknown guard_id→None, is_yolo=False→None
-- **Done when:** `pytest test_gate.py -v -k "yolo_override"` passes
+- **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -v -k "yolo_override"` passes
 
 ### Task 3.3: Implement artifact & prerequisite functions (G-02..09) + tests
 **Prerequisite:** Tasks 3.1 and 3.2 complete.
@@ -115,14 +115,14 @@
 - [ ] `validate_prd(prd_path_exists)` — G-07 simple boolean check
 - [ ] `check_prd_exists(prd_path_exists, meta_has_brainstorm_source)` — G-09 soft redirect
 - [ ] Add 18 tests: G-02..06 (10+ covering all 4 levels pass/fail), G-07 (2), G-08 (4 including empty prerequisites), G-09 (2)
-- **Done when:** `pytest test_gate.py -v -k "G02 or G03 or G04 or G05 or G06 or G07 or G08 or G09"` passes
+- **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -v -k "G02 or G03 or G04 or G05 or G06 or G07 or G08 or G09"` passes
 
 ### Task 3.4: Implement branch & service functions (G-11, G-13..16) + tests
 **Prerequisite:** Tasks 3.1 and 3.2 complete.
 - [ ] `check_branch(current_branch, expected_branch)` — G-11 string comparison
 - [ ] `fail_open_mcp(service_name, service_available)` — G-13..16, always allowed=True on failure (warn)
 - [ ] Add 10 tests: G-11 (2), G-13..16 (8: 4 services x pass/fail)
-- **Done when:** `pytest test_gate.py -v -k "G11 or G13 or G14 or G15 or G16"` passes
+- **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -v -k "G11 or G13 or G14 or G15 or G16"` passes
 
 ### Task 3.5: Implement phase transition functions (G-17, G-18, G-22, G-23, G-25) + tests
 **Prerequisite:** Tasks 3.1 and 3.2 complete.
@@ -132,14 +132,14 @@
 - [ ] `check_soft_prerequisites(target_phase, completed_phases)` — G-23
 - [ ] `get_next_phase(last_completed_phase)` — G-25
 - [ ] Add 11 tests: G-17 (2), G-18 (2), G-22 (3), G-23 (2), G-25 (2 including end-of-sequence)
-- **Done when:** `pytest test_gate.py -v -k "G17 or G18 or G22 or G23 or G25"` passes
+- **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -v -k "G17 or G18 or G22 or G23 or G25"` passes
 
 ### Task 3.6: Implement pre-merge functions (G-27..30) + tests
 **Prerequisite:** Tasks 3.1 and 3.2 complete.
 - [ ] `pre_merge_validation(checks_passed, max_attempts, current_attempt)` — G-27/29 with truth table
 - [ ] `check_merge_conflict(is_yolo, merge_succeeded)` — G-28/30 with truth table
 - [ ] Add 8 tests: G-27/29 (4 covering truth table), G-28/30 (4 covering truth table)
-- **Done when:** `pytest test_gate.py -v -k "G27 or G28 or G29 or G30"` passes
+- **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -v -k "G27 or G28 or G29 or G30"` passes
 
 ### Task 3.7: Implement review gate functions (G-31..41, G-46, G-47) + tests
 **Prerequisite:** Tasks 3.1 and 3.2 complete.
@@ -149,7 +149,7 @@
 - [ ] `phase_handoff_gate(phase, iteration, max_iterations, reviewer_approved, has_blockers_or_warnings)` — G-35/37/39/47 via PHASE_GUARD_MAP
 - [ ] `implement_circuit_breaker(is_yolo, iteration, max_iterations)` — G-41
 - [ ] Add 28 tests: G-31/33 (4), G-32 (3), G-34/36/38/40/46 (10 across phases), G-35/37/39/47 (8 across phases), G-41 (3 including YOLO hard-stop)
-- **Done when:** `pytest test_gate.py -v -k "G31 or G32 or G33 or G34 or G35 or G36 or G37 or G38 or G39 or G40 or G41 or G46 or G47"` passes
+- **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -v -k "G31 or G32 or G33 or G34 or G35 or G36 or G37 or G38 or G39 or G40 or G41 or G46 or G47"` passes
 
 ### Task 3.8: Implement status & feature functions (G-45, G-48..53, G-60) + tests
 **Prerequisite:** Tasks 3.1 and 3.2 complete.
@@ -161,7 +161,7 @@
 - [ ] `check_task_completion(incomplete_task_count)` — G-52/53
 - [ ] `check_orchestrate_prerequisite(is_yolo)` — G-60
 - [ ] Add 16 tests: G-45 (2), G-48 (2), G-49 (2), G-50 (3), G-51 (3 including terminal statuses), G-52/53 (2), G-60 (2)
-- **Done when:** `pytest test_gate.py -v -k "G45 or G48 or G49 or G50 or G51 or G52 or G53 or G60"` passes
+- **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -v -k "G45 or G48 or G49 or G50 or G51 or G52 or G53 or G60"` passes
 
 ## Phase 4: Public API (__init__.py) + Tests
 
@@ -178,9 +178,9 @@
 
 ### Task 4.2: Add import verification tests
 - [ ] Verify `from transition_gate import validate_transition, TransitionResult, Phase` works
-- [ ] Verify `__all__` length matches expected count
-- [ ] Verify all 26 functions accessible from package root
-- **Done when:** `pytest test_gate.py -v -k "import"` passes
+- [ ] Verify `__all__` length matches expected count (26 functions + 4 enums + 3 dataclasses + 5 constants = 38)
+- [ ] Verify all names in `__all__` are accessible: iterate `__all__`, call `getattr(transition_gate, name)` for each, assert no `AttributeError`
+- **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -v -k "import"` passes with zero `AttributeError`s and `len(__all__) == 38`
 
 ## Phase 5: Integration Verification + SC-5 Test
 
@@ -191,7 +191,7 @@
 - [ ] Path: `Path(__file__).resolve().parents[3] / "skills" / "workflow-state" / "SKILL.md"`
 - [ ] Extract arrow-delimited sequence, compare against PHASE_SEQUENCE
 - [ ] Graceful: `pytest.skip("SKILL.md not found at expected path")` if missing
-- **Done when:** `pytest test_gate.py -v -k "canonical_sequence"` passes
+- **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -v -k "canonical_sequence"` passes
 
 ### Task 5.2: Remove xfail and verify full coverage
 - [ ] Remove `@pytest.mark.xfail` from guard coverage introspection test (Phase 2 Task 2.7)
