@@ -92,7 +92,7 @@ The audit identified **7 duplicate clusters** involving **27 guards** (45% of al
 
 | Guard ID | Name | Source | Lines |
 |----------|------|--------|-------|
-| **G-22** | Phase sequence validation (validateTransition) (canonical) | skills/workflow-state/SKILL.md | 16, 126-156 |
+| **G-22** | Phase sequence validation (validateTransition) (canonical) | skills/workflow-state/SKILL.md | 16; 126-156 |
 | G-18 | Backward transition warning | skills/workflow-state/SKILL.md | 158-176 |
 | G-19 | Phase sequence encoding (detect_phase) | hooks/session-start.sh | 112-128 |
 | G-20 | Phase-to-command mapping (get_next_command) | hooks/session-start.sh | 131-143 |

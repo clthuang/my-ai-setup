@@ -12,17 +12,16 @@
 #   consolidation_target: transition_gate | hook | deprecated
 #   affected_phases: specify | design | create-plan | create-tasks | implement | finish
 #
-# Duplicate clusters (10 clusters, 27 guards involved):
+# Duplicate clusters (7 clusters, 27 guards involved):
 #   1. Hard prerequisite definition + per-command checks: G-02, G-03, G-04, G-05, G-06, G-08
-#   2. Phase sequence encodings: G-19, G-20, G-21, G-22, G-24, G-25, G-26
+#   2. Phase sequence encodings: G-18, G-19, G-20, G-21, G-22, G-23, G-24, G-25, G-26
+#      (G-22 is the canonical guard; G-18 backward transition and G-23 soft prerequisites
+#       are cross-cluster relationships within this phase sequence cluster)
 #   3. Branch validation (session-start vs validateAndSetup): G-10, G-11
-#   4. Backward transition + validateTransition: G-18, G-22
-#   5. Soft prerequisites + validateTransition: G-22, G-23
-#   6. Pre-merge validation (finish-feature vs wrap-up): G-27, G-29
-#   7. YOLO merge conflict hard-stop (finish-feature vs wrap-up): G-28, G-30
-#   8. Task completion gate (finish-feature vs wrap-up): G-52, G-53
-#   9. Fail-open MCP guards: G-13, G-14, G-15, G-16
-#  10. (G-22 appears in clusters 2, 4, and 5 as the canonical phase sequence guard)
+#   4. Pre-merge validation (finish-feature vs wrap-up): G-27, G-29
+#   5. YOLO merge conflict hard-stop (finish-feature vs wrap-up): G-28, G-30
+#   6. Task completion gate (finish-feature vs wrap-up): G-52, G-53
+#   7. Fail-open MCP guards: G-13, G-14, G-15, G-16
 
 # =============================================================================
 # ARTIFACT-CONTENT (2 guards)
@@ -362,12 +361,12 @@
     - "specify"
   yolo_behavior: "unchanged"
   consolidation_target: "transition_gate"
-  consolidation_notes: >
-    Merge with G-13 into fail_open_mcp() wrapper in transition_gate.py.
   duplicates:
     - "G-13"
     - "G-15"
     - "G-16"
+  consolidation_notes: >
+    Merge with G-13 into fail_open_mcp() wrapper in transition_gate.py.
 - id: "G-15"
   name: "Fail-open MCP guard (create-project)"
   category: "graceful-degradation"
@@ -571,7 +570,10 @@
     Validates that the requested phase transition follows the canonical sequence ordering. Returns block/warn/allow based on phase ordering. Contains the canonical sequence definition and hard-block, backward, skip, and proceed logic branches.
   source_files:
     - file: "plugins/iflow/skills/workflow-state/SKILL.md"
-      lines: "16, 126-156"
+      lines: "16"
+      anchor: "Canonical Sequence"
+    - file: "plugins/iflow/skills/workflow-state/SKILL.md"
+      lines: "126-156"
       anchor: "validateTransition()"
   trigger: "Any phase command invocation via validateAndSetup()"
   enforcement: "soft-warn"
@@ -943,6 +945,8 @@
     - "design"
   yolo_behavior: "unchanged"
   consolidation_target: "transition_gate"
+  consolidation_notes: >
+    Encode as review_quality_gate(phase='design', reviewer='design-reviewer', max_iterations=5) in transition_gate.py. Same parameterized pattern as G-34 and G-46.
 - id: "G-39"
   name: "Design phase handoff review gate"
   category: "review-quality"
@@ -959,6 +963,8 @@
     - "design"
   yolo_behavior: "unchanged"
   consolidation_target: "transition_gate"
+  consolidation_notes: >
+    Encode as phase_handoff_gate(phase='design', reviewer='phase-reviewer', max_iterations=5) in transition_gate.py. Same parameterized pattern as G-35 and G-47.
 - id: "G-40"
   name: "Implement review quality gate"
   category: "review-quality"
@@ -975,6 +981,8 @@
     - "implement"
   yolo_behavior: "unchanged"
   consolidation_target: "transition_gate"
+  consolidation_notes: >
+    Encode as review_quality_gate(phase='implement', reviewer=['implementation-reviewer', 'code-quality-reviewer', 'security-reviewer'], max_iterations=5) in transition_gate.py. Multi-reviewer variant of the parameterized pattern used by G-34, G-38, G-46. Includes circuit breaker linkage to G-41.
 - id: "G-41"
   name: "Implement YOLO circuit breaker"
   category: "review-quality"
@@ -1092,6 +1100,8 @@
     - "specify"
   yolo_behavior: "unchanged"
   consolidation_target: "transition_gate"
+  consolidation_notes: >
+    Encode as review_quality_gate(phase='specify', reviewer='spec-reviewer', max_iterations=5) in transition_gate.py. Same parameterized pattern as G-34, G-38, G-40.
 - id: "G-47"
   name: "Specify phase handoff review gate"
   category: "review-quality"
@@ -1108,6 +1118,8 @@
     - "specify"
   yolo_behavior: "unchanged"
   consolidation_target: "transition_gate"
+  consolidation_notes: >
+    Encode as phase_handoff_gate(phase='specify', reviewer='phase-reviewer', max_iterations=5) in transition_gate.py. Same parameterized pattern as G-35, G-39.
 
 # =============================================================================
 # STATUS-TRANSITION (4 guards)
@@ -1176,7 +1188,7 @@
   name: "Terminal status enforcement"
   category: "status-transition"
   description: >
-    Prevents changing completed or abandoned statuses. Terminal statuses cannot be reverted. New work requires a new feature.
+    Prevents any phase transitions or status changes on features with terminal statuses (completed or abandoned). Once a feature reaches a terminal status, it is permanently frozen -- no phases can be started, no status changes are allowed, and no workflow commands will operate on it. Users must create a new feature for any follow-up work rather than reopening a closed feature.
   source_files:
     - file: "plugins/iflow/skills/workflow-state/SKILL.md"
       lines: "346"
@@ -1194,7 +1206,7 @@
   yolo_behavior: "unchanged"
   consolidation_target: "transition_gate"
   consolidation_notes: >
-    Encode as check_terminal_status() in transition_gate.py. Convention-based constraint with no code enforcement currently. Should be a hard-block in transition_gate.
+    Encode as check_terminal_status() in transition_gate.py. Currently a convention-based constraint with no code enforcement -- the LLM is expected to respect this rule but nothing prevents violation. Should be a hard-block in transition_gate to guarantee terminal status immutability.
 
 # =============================================================================
 # TASK-COMPLETION (2 guards)
