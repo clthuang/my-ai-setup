@@ -11,6 +11,7 @@
     "004-status-taxonomy-design-and-sch"
   ],
   "lastCompletedPhase": "create-tasks",
+  "currentPhase": "implement",
   "phases": {
     "specify": {
       "started": "2026-03-03T14:00:00+08:00",
