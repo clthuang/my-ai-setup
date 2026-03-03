@@ -61,7 +61,7 @@
 - [ ] Define `GUARD_METADATA: dict[str, dict]` — 43 entries populated from `docs/features/006-transition-guard-audit-and-rul/guard-rules.yaml`, including only guards where `consolidation_target: transition_gate` (filter out guards with consolidation_target: hook or deprecated)
 - [ ] Each entry: `{"enforcement": Enforcement.X, "yolo_behavior": YoloBehavior.Y, "affected_phases": [...]}`
 - [ ] Apply G-51 enforcement override: set to `Enforcement.hard_block` (YAML source says soft-warn, but spec requires hard-block — this is an intentional upgrade, add inline comment documenting the override)
-- **Done when:** `len(GUARD_METADATA) == 43` and `GUARD_METADATA["G-51"]["enforcement"] == Enforcement.hard_block`
+- **Done when:** `len(GUARD_METADATA) == 43` and `GUARD_METADATA["G-51"]["enforcement"] == Enforcement.hard_block`. Note: after writing all 43 entries, immediately write Task 2.8's YAML validation test and run it (`-k "yaml_validation"`) to catch transcription errors before proceeding to Task 2.5+.
 
 ### Task 2.5: Define EXPECTED_GUARD_IDS
 - [ ] Define `EXPECTED_GUARD_IDS: frozenset[str]` — explicit set of all 43 guard IDs (G-02 through G-60, excluding deprecated G-24/G-26 and 15 hook guards)
@@ -90,6 +90,7 @@
 ## Phase 3: Gate Functions (gate.py) + Tests
 
 **Dependencies:** Phase 2 complete
+**Parallelism:** Tasks 3.3–3.8 are independent of each other and can be worked in parallel. All depend only on Tasks 3.1 and 3.2.
 
 ### Task 3.1: Create gate.py with internal helpers
 - [ ] Create `gate.py` with file header
@@ -141,15 +142,20 @@
 - [ ] Add 8 tests: G-27/29 (4 covering truth table), G-28/30 (4 covering truth table)
 - **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -v -k "G27 or G28 or G29 or G30"` passes
 
-### Task 3.7: Implement review gate functions (G-31..41, G-46, G-47) + tests
+### Task 3.7a: Implement brainstorm gate functions (G-31..33) + tests
 **Prerequisite:** Tasks 3.1 and 3.2 complete.
 - [ ] `brainstorm_quality_gate(iteration, max_iterations, reviewer_approved)` — G-32
 - [ ] `brainstorm_readiness_gate(iteration, max_iterations, reviewer_approved, has_blockers)` — G-31/33 with decision matrix
+- [ ] Add 7 tests: G-31/33 (4), G-32 (3)
+- **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -v -k "G31 or G32 or G33"` passes
+
+### Task 3.7b: Implement review/handoff gate + circuit breaker functions (G-34..41, G-46, G-47) + tests
+**Prerequisite:** Tasks 3.1 and 3.2 complete.
 - [ ] `review_quality_gate(phase, iteration, max_iterations, reviewer_approved, has_blockers_or_warnings)` — G-34/36/38/40/46 via PHASE_GUARD_MAP
 - [ ] `phase_handoff_gate(phase, iteration, max_iterations, reviewer_approved, has_blockers_or_warnings)` — G-35/37/39/47 via PHASE_GUARD_MAP
 - [ ] `implement_circuit_breaker(is_yolo, iteration, max_iterations)` — G-41
-- [ ] Add 28 tests: G-31/33 (4), G-32 (3), G-34/36/38/40/46 (10 across phases), G-35/37/39/47 (8 across phases), G-41 (3 including YOLO hard-stop)
-- **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -v -k "G31 or G32 or G33 or G34 or G35 or G36 or G37 or G38 or G39 or G40 or G41 or G46 or G47"` passes
+- [ ] Add 21 tests: G-34/36/38/40/46 (10 across phases), G-35/37/39/47 (8 across phases), G-41 (3 including YOLO hard-stop)
+- **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -v -k "G34 or G35 or G36 or G37 or G38 or G39 or G40 or G41 or G46 or G47"` passes
 
 ### Task 3.8: Implement status & feature functions (G-45, G-48..53, G-60) + tests
 **Prerequisite:** Tasks 3.1 and 3.2 complete.
@@ -190,7 +196,7 @@
 - [ ] `test_canonical_sequence_matches_skill_md` — reads SKILL.md under "Canonical Sequence" heading (note: spec says "Phase Sequence" but SKILL.md uses "Canonical Sequence" — search for either heading to handle both)
 - [ ] Path: `Path(__file__).resolve().parents[3] / "skills" / "workflow-state" / "SKILL.md"`
 - [ ] Extract arrow-delimited sequence, compare against PHASE_SEQUENCE
-- [ ] Graceful: `pytest.skip("SKILL.md not found at expected path")` if missing
+- [ ] Graceful: `pytest.skip("SKILL.md not found at expected path")` if file missing; `pytest.fail("Arrow-delimited sequence not found under any expected heading in SKILL.md")` if file exists but heading not found
 - **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -v -k "canonical_sequence"` passes
 
 ### Task 5.2: Remove xfail and verify full coverage
