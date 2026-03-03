@@ -10,7 +10,6 @@
   "depends_on_features": [
     "006-transition-guard-audit-and-rul"
   ],
-  "lastCompletedPhase": "specify",
   "phases": {
     "specify": {
       "started": "2026-03-03T23:00:00+08:00",
@@ -26,8 +25,11 @@
         "research": { "started": "2026-03-04T00:25:00+08:00", "completed": "2026-03-04T00:30:00+08:00", "skipped": false },
         "architecture": { "started": "2026-03-04T00:30:00+08:00", "completed": "2026-03-04T00:40:00+08:00" },
         "interface": { "started": "2026-03-04T00:40:00+08:00", "completed": "2026-03-04T00:45:00+08:00" },
-        "designReview": { "started": "2026-03-04T00:45:00+08:00", "completed": "2026-03-04T01:15:00+08:00", "iterations": 3, "reviewerNotes": [] }
-      }
+        "designReview": { "started": "2026-03-04T00:45:00+08:00", "completed": "2026-03-04T01:15:00+08:00", "iterations": 3, "reviewerNotes": [] },
+        "handoffReview": { "started": "2026-03-04T01:20:00+08:00", "completed": "2026-03-04T01:25:00+08:00", "iterations": 2, "approved": true, "reviewerNotes": [] }
+      },
+      "completed": "2026-03-04T01:25:00+08:00"
     }
-  }
+  },
+  "lastCompletedPhase": "design"
 }
