@@ -15,7 +15,7 @@ This is a documentation/analysis feature with no runtime code. The implementatio
 4. Record triage rationale for each match (one line per match)
 5. Produce `pass1_guards` list conforming to the Pass 1 → Convergence Checker interface
 
-**Completion signal:** pass1_guards list finalized in working memory with all matches triaged.
+**Completion signal:** pass1_guards list finalized and written to a scratch note (e.g., `agent_sandbox/006-pass1-scratch.md`) before proceeding to Phase 2. This is a required checkpoint — do not proceed without persisting the triage results.
 
 **Key risk:** Pattern 1 (`block|BLOCK|prevent|...`) will produce hundreds of matches. Triage must be thorough — every match reviewed, not just sampled.
 
@@ -38,7 +38,7 @@ This is a documentation/analysis feature with no runtime code. The implementatio
 
 **For each guard found:** Record file, line range, anchor, guard summary, initial category, enforcement type, and enforcement mechanism (conforming to Pass 2 → Convergence Checker interface).
 
-**Completion signal:** pass2_guards list finalized in working memory with all structural steps complete and hooks.json cross-referenced.
+**Completion signal:** pass2_guards list finalized and written to a scratch note (e.g., `agent_sandbox/006-pass2-scratch.md`) before proceeding to Phase 3. This is a required checkpoint — do not proceed without persisting the structural walk results.
 
 ### Phase 3: Convergence Check (C3)
 
