@@ -8,7 +8,7 @@ This is a **documentation/analysis** feature — deliverable is a structured rul
 
 ## Background
 
-iflow's workflow state management encodes transition guards as text in 14+ markdown files across skills, commands, and hooks. The same rules exist in multiple locations — the PRD documents phase sequence duplication across 5 locations: `workflow-state/SKILL.md` (3 representations), `secretary.md` (Phase Progression Table), and `create-specialist-team.md` (inline prose). Feature 004 established the status taxonomy ADR. This feature completes the prerequisite chain by cataloging all guards before 007 encodes them in Python.
+iflow's workflow state management encodes transition guards as text in 14+ markdown files across skills, commands, and hooks. The same rules exist in multiple locations — the PRD documents phase sequence duplication across 5 locations: `workflow-state/SKILL.md` (3 representations), `secretary.md` (Phase Progression Table), and `create-specialist-team.md` (inline prose). Feature 004 established the status taxonomy ADR. This feature completes the prerequisite chain by cataloging all guards before 007 encodes them in Python. It implements the roadmap's cross-cutting concern: "Transition guard audit prerequisite: Complete inventory of all current guards before encoding in Python" (roadmap.md). The guard inventory is a prerequisite for FR-1/FR-2/FR-3 (state engine transition validation) — it defines what the Python engine must encode.
 
 ## Feasibility
 
@@ -31,7 +31,7 @@ This feature produces documentation artifacts only — no runtime code, no DB ch
   - Executive summary of guard landscape (total count, breakdown by category and enforcement type)
   - Duplicate analysis with specific file:line cross-references
   - Gap analysis (enforced-only vs documented-only, with counts per category)
-  - Consolidation summary table: count of guards per `consolidation_target` (transition_gate / hook / deprecated), rationale for each deprecated guard, and grouping of related guards that should merge into single Python functions
+  - Consolidation summary table: count of guards per `consolidation_target` (transition_gate / hook / deprecated), rationale for each deprecated guard, and grouping of related guards that should merge into single Python functions. Guards are grouped for merging when they enforce the same logical rule from different source locations (i.e., duplicates) or when they enforce sequential steps of a single validation (e.g., check artifact exists + check artifact has required sections = single `validate_artifact()` function).
 - AC-4: Guard categories cover at minimum the following initial categories: phase-sequence, artifact-existence, artifact-content, branch-validation, status-transition, review-quality, yolo-mode, pre-merge, task-completion, partial-recovery. If the audit discovers guards outside these categories, new categories are added and documented with rationale.
 - AC-5: All guards found by the Verification Procedure are documented. The audit report includes the search methodology, total guard count, and verification results.
 - AC-6: The YAML schema includes a `consolidation_target` field per guard indicating whether the rule should be encoded in `transition_gate.py` (feature 007), remain in its current location (hooks), or be deprecated.
@@ -72,6 +72,11 @@ Each guard entry in `guard-rules.yaml` must conform to this structure:
     Merge G-01, G-23, G-28 into single get_next_phase() function
 ```
 
+**Anchor selection guidance:** Anchors provide resilience against line number shifts. Choose based on file type:
+- For `.md` files: section headers (e.g., `### Hard Prerequisites`) or unique prose fragments (e.g., `BLOCKED: missing artifact`)
+- For `.sh` files: function names (e.g., `phase_map=`) or unique variable assignments (e.g., `permissionDecision`)
+- For `.py` files: function/class names (e.g., `def validate_transition`) or unique string literals
+
 **Required fields:** `id`, `name`, `category`, `source_files`, `trigger`, `enforcement`, `enforcement_mechanism`, `affected_phases`, `yolo_behavior`, `consolidation_target`
 
 **Optional fields:** `description`, `duplicates`, `consolidation_notes`
@@ -101,10 +106,12 @@ For each file type, read and identify guard logic:
 1. All `.md` files in `plugins/iflow/commands/` — look for BLOCKED, prerequisite, and AskUserQuestion patterns
 2. All `.md` files in `plugins/iflow/skills/` — look for validate, transition, and state logic
 3. All `.sh` files in `plugins/iflow/hooks/` — look for permissionDecision, decision, and phase checks
-4. All `.md` files in `plugins/iflow/agents/` — look for guard-related review criteria
-5. Cross-reference against `plugins/iflow/.claude-plugin/plugin.json` hooks entries
+4. All `.py` files in `plugins/iflow/hooks/lib/` — look for validate, guard, transition, prerequisite, and phase-check patterns
+5. All `.md` files in `plugins/iflow/agents/` — look for guard-related review criteria
+6. All files in `plugins/iflow/references/`, `plugins/iflow/templates/`, and `plugins/iflow/scripts/` — scan for guard patterns (Pass 1 grep covers these; this step confirms no guards were missed)
+7. Cross-reference against `plugins/iflow/hooks/hooks.json` hook entries (the hooks registry that defines SessionStart, PreToolUse, PostToolUse, and Stop hooks)
 
-**Convergence check:** Both passes must identify the same set of guards. Any guard found by only one pass is investigated and resolved (either added to the set or documented as a false positive with rationale).
+**Convergence check:** Both passes must identify the same set of guards. Any guard found by only one pass is investigated and resolved (either added to the set or documented as a false positive with rationale). If after investigation a potential guard cannot be definitively classified as guard vs. non-guard, document it in `audit-report.md` under a "Boundary Cases" section with the rationale for inclusion or exclusion. Non-convergence on boundary cases does not block completion; non-convergence on clear guards does.
 
 ## Scope
 
