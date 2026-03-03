@@ -25,13 +25,13 @@ This feature produces documentation artifacts only — no runtime code, no DB ch
 
 ## Acceptance Criteria
 
-- AC-1: `guard-rules.yaml` file created in feature directory containing all guards conforming to the Guard Entry Schema.
+- AC-1: `guard-rules.yaml` file created at `docs/features/006-transition-guard-audit-and-rul/guard-rules.yaml` containing all guards conforming to the Guard Entry Schema.
 - AC-2: Each guard entry contains all required fields per the Guard Entry Schema defined below.
-- AC-3: `audit-report.md` file created in feature directory containing:
+- AC-3: `audit-report.md` file created at `docs/features/006-transition-guard-audit-and-rul/audit-report.md` containing:
   - Executive summary of guard landscape (total count, breakdown by category and enforcement type)
   - Duplicate analysis with specific file:line cross-references
   - Gap analysis (enforced-only vs documented-only, with counts per category). Guards with `enforcement_mechanism: convention` are reported as a distinct sub-bucket of documented-only in the gap analysis, since they share the characteristic of having no independent enforcement.
-  - Consolidation summary table: count of guards per `consolidation_target` (transition_gate / hook / deprecated), rationale for each deprecated guard, and grouping of related guards that should merge into single Python functions. Guards are grouped for merging when they enforce the same logical rule from different source locations (i.e., duplicates) or when they enforce sequential steps of a single validation (e.g., check artifact exists + check artifact has required sections = single `validate_artifact()` function).
+  - Consolidation summary table: count of guards per `consolidation_target` (transition_gate / hook / deprecated), rationale for each deprecated guard, and grouping of related guards that should merge into single Python functions. Guards are grouped for merging when they enforce the same logical rule from different source locations (i.e., duplicates) or when they share the same trigger condition and operate on the same artifact or transition event (e.g., check artifact exists + check artifact has required sections = single `validate_artifact()` function, since both trigger on the same phase entry and operate on the same artifact).
 - AC-4: Guard categories cover at minimum the following initial categories: phase-sequence, artifact-existence, artifact-content, branch-validation, status-transition, review-quality, yolo-mode, pre-merge, task-completion, partial-recovery. If the audit discovers guards outside these categories, new categories are added and documented with rationale.
 - AC-5: All guards found by the Verification Procedure are documented. The audit report includes the search methodology, total guard count, and verification results.
 - AC-6: The YAML schema includes a `consolidation_target` field per guard indicating whether the rule should be encoded in `transition_gate.py` (feature 007), remain in its current location (hooks), or be deprecated.
