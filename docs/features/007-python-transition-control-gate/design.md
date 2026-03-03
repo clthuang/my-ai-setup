@@ -460,6 +460,23 @@ def check_orchestrate_prerequisite(is_yolo: bool) -> TransitionResult:
     Blocks when is_yolo=False."""
 ```
 
+### YOLO Caller Contract
+
+For guards with `yolo_behavior` of `skip` or `auto_select`, callers must invoke `check_yolo_override` before calling the gate function:
+
+```python
+# Caller pattern (feature 008 WorkflowStateEngine):
+yolo_result = check_yolo_override(guard_id, is_yolo)
+if yolo_result is not None:
+    return yolo_result  # Guard bypassed by YOLO
+result = gate_function(...)  # Normal evaluation
+```
+
+Only 3 functions accept `is_yolo` directly because YOLO changes their internal behavior:
+- `check_merge_conflict` — YOLO triggers hard_stop on merge failure (G-30)
+- `implement_circuit_breaker` — YOLO triggers hard_stop at cap (G-41)
+- `check_orchestrate_prerequisite` — YOLO is the prerequisite itself (G-60)
+
 ### Constants Structure
 
 ```python
@@ -513,6 +530,7 @@ PHASE_GUARD_MAP = {
         "implement": "G-40",
     },
     "phase_handoff": {
+        # implement has no handoff gate — uses 3-reviewer loop + implement_circuit_breaker (G-41) instead
         "specify": "G-47", "design": "G-39",
         "create-plan": "G-35", "create-tasks": "G-37",
     },
