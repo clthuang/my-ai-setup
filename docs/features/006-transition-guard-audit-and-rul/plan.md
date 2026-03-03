@@ -80,7 +80,8 @@ This phase has two sub-tasks: mechanical population (4a) and judgment-based enri
 2. Identify duplicate clusters: guards that enforce the same logical rule from different locations
 3. Set `duplicates` field with cross-references to other guard IDs
 4. Write `consolidation_notes` for guards targeting transition_gate (describe merge strategy)
-5. **Fallback for ambiguous context:** If source context is insufficient to determine `yolo_behavior`, default to `unchanged` with a note in `consolidation_notes`. If `consolidation_target` cannot be determined, default to `transition_gate` with a rationale flag for reviewer attention.
+5. **Duplicate symmetry check:** After setting all `duplicates` fields, verify symmetry — if G-01 lists G-05 as a duplicate, G-05 must also list G-01. This mechanical check catches cross-reference errors before writing YAML.
+6. **Fallback for ambiguous context:** If source context is insufficient to determine `yolo_behavior`, default to `unchanged` with a note in `consolidation_notes`. If `consolidation_target` cannot be determined, default to `transition_gate` with a rationale flag for reviewer attention.
 
 **4c. Write and validate guard-rules.yaml:**
 1. Write YAML file to `docs/features/006-transition-guard-audit-and-rul/guard-rules.yaml`
@@ -109,7 +110,7 @@ This phase has two sub-tasks: mechanical population (4a) and judgment-based enri
 ## Recovery Strategy
 
 - **C1-C3 ephemeral:** If interrupted before C4, re-execute from C1 (inputs are stable codebase files, grep/read operations are fast)
-- **C4 checkpoint:** If guard-rules.yaml exists on disk AND passes schema validation (Phase 4c checks), C4 is complete — skip to C5. If the file exists but is incomplete or malformed, re-execute from C4.
+- **C4 checkpoint:** If guard-rules.yaml exists on disk AND passes schema validation (Phase 4c checks), C4 is complete — skip to C5. If the file exists but fails validation, overwrite it by re-executing from Phase 4a (do not patch in place — partial YAML is error-prone).
 - **C5 checkpoint:** If audit-report.md exists on disk, C5 is complete — done
 
 ## Verification
