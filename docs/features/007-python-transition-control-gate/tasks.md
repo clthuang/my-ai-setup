@@ -58,7 +58,7 @@
 - **Done when:** `PHASE_GUARD_MAP["review_quality"]["specify"] == "G-46"` and `MIN_ARTIFACT_SIZE == 100`
 
 ### Task 2.4a: Define GUARD_METADATA first half (G-02..G-33, ~22 entries)
-- [ ] Define `GUARD_METADATA: dict[str, dict]` — begin populating from `docs/features/006-transition-guard-audit-and-rul/guard-rules.yaml`, including only guards where `consolidation_target: transition_gate` (filter out guards with consolidation_target: hook or deprecated)
+- [ ] Define `GUARD_METADATA: dict[str, dict]` — begin populating from `docs/features/006-transition-guard-audit-and-rul/guard-rules.yaml`, including only guards where `consolidation_target: transition_gate`. Exclude: all hook-targeted guards (G-10, G-12, G-19, G-20, G-21, G-42, G-43, G-44, G-54, G-55, G-56, G-57, G-58, G-59), deprecated guards (G-24, G-26), and any guard with `consolidation_target: hook` or `consolidation_target: deprecated`.
 - [ ] Each entry: `{"enforcement": Enforcement.X, "yolo_behavior": YoloBehavior.Y, "affected_phases": [...]}`
 - [ ] Populate guards G-02 through G-33 (approximately 22 entries)
 - **Done when:** All guards from G-02 through G-33 with `consolidation_target: transition_gate` are present in GUARD_METADATA
@@ -199,7 +199,7 @@
 **Dependencies:** Phase 4 complete
 
 ### Task 5.1: Implement SC-5 canonical sequence test
-- [ ] `test_canonical_sequence_matches_skill_md` — reads SKILL.md under "Canonical Sequence" heading (note: spec says "Phase Sequence" but SKILL.md uses "Canonical Sequence" — search for either heading to handle both)
+- [ ] `test_canonical_sequence_matches_skill_md` — reads SKILL.md, searches for arrow-delimited phase sequence under either "Canonical Sequence" or "Phase Sequence" heading (verify the actual heading in SKILL.md before implementing — the correct heading should be confirmed, not assumed)
 - [ ] Path: `Path(__file__).resolve().parents[3] / "skills" / "workflow-state" / "SKILL.md"`
 - [ ] Extract arrow-delimited sequence, compare against PHASE_SEQUENCE
 - [ ] Graceful: `pytest.skip("SKILL.md not found at expected path")` if file missing; `pytest.fail("Arrow-delimited sequence not found under any expected heading in SKILL.md")` if file exists but heading not found
