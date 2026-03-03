@@ -383,12 +383,12 @@
     - "specify"
   yolo_behavior: "unchanged"
   consolidation_target: "transition_gate"
-  consolidation_notes: >
-    Merge with G-13 into fail_open_mcp() wrapper in transition_gate.py.
   duplicates:
     - "G-13"
     - "G-14"
     - "G-16"
+  consolidation_notes: >
+    Merge with G-13 into fail_open_mcp() wrapper in transition_gate.py.
 - id: "G-16"
   name: "Fail-open memory store guard (retrospective)"
   category: "graceful-degradation"
