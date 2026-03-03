@@ -50,7 +50,7 @@ Phase 5: Integration Verification + SC-5 test   — end-to-end validation
 2. Import `Phase`, `Enforcement`, `YoloBehavior` from `.models`
 3. Define `PHASE_SEQUENCE: tuple[Phase, ...]` — all 7 phases in canonical order
 4. Define `COMMAND_PHASES: tuple[Phase, ...]` — `PHASE_SEQUENCE[1:]` (specify through finish)
-5. Define `HARD_PREREQUISITES: dict[str, list[str]]` — 7 entries. **Note:** This is a transitive enrichment of guard-rules.yaml's G-08 (which only defines per-phase direct prerequisites). The library adds transitive closure for caller convenience — e.g., create-tasks requires spec.md+design.md+plan.md (not just plan.md). This design decision is documented in design.md Technical Decisions. **Implementation note:** The docstring for HARD_PREREQUISITES must document this transitive enrichment so callers understand the semantic difference from guard-rules.yaml. Entries: brainstorm:[], specify:[], design:["spec.md"], create-plan:["spec.md","design.md"], create-tasks:["spec.md","design.md","plan.md"], implement:["spec.md","tasks.md"], finish:[]
+5. Define `HARD_PREREQUISITES: dict[str, list[str]]` — 7 entries. **Note:** This is a transitive enrichment of guard-rules.yaml's G-08 (which only defines per-phase direct prerequisites). The library adds transitive closure for caller convenience — e.g., create-tasks requires spec.md+design.md+plan.md (not just plan.md). This design decision is documented in design.md Technical Decisions. **Implementation note:** The docstring for HARD_PREREQUISITES must document this transitive enrichment and explicitly state it diverges from G-08's direct-only semantics, explaining the caller convenience rationale. Entries: brainstorm:[], specify:[], design:["spec.md"], create-plan:["spec.md","design.md"], create-tasks:["spec.md","design.md","plan.md"], implement:["spec.md","tasks.md"], finish:[]
 6. Define `ARTIFACT_PHASE_MAP: dict[str, str]` — 5 entries mapping phase→output artifact
 7. Define `ARTIFACT_GUARD_MAP: dict[tuple[str, str], str]` — default G-05; (implement, tasks.md)→G-06
 8. Define `SERVICE_GUARD_MAP: dict[str, str]` — 4 entries for fail_open_mcp (G-13..16)
@@ -63,9 +63,9 @@ Phase 5: Integration Verification + SC-5 test   — end-to-end validation
     - `assert set(GUARD_METADATA.keys()) == EXPECTED_GUARD_IDS` (exact membership, not just count)
     - `assert len(GUARD_METADATA) == 43` (redundant count check for clarity)
     - Assert all Phase enum values present in PHASE_SEQUENCE, assert PHASE_SEQUENCE length is 7
-    - Add 3 spot-check tests verifying specific GUARD_METADATA entries against known guard-rules.yaml values (e.g., G-22 enforcement=hard_block, G-41 yolo_behavior=hard_stop, G-49 enforcement=soft_warn)
-15. Add guard coverage introspection test: collect all test function names matching `test_G\d+_` pattern via `inspect` module, extract guard IDs, assert coverage of all 43 guard IDs in EXPECTED_GUARD_IDS. This test runs at Phase 2 so missing coverage is caught early (test will initially fail for unimplemented guards — mark with `@pytest.mark.xfail` until Phase 3 completes all categories, then remove xfail).
-16. Add programmatic GUARD_METADATA validation test: reads `guard-rules.yaml` (path: `pathlib.Path(__file__).resolve().parents[3] / "references" / "guard-rules.yaml"`), parses YAML, validates every entry in GUARD_METADATA matches the source file's enforcement, yolo_behavior, and affected_phases. Graceful failure: if guard-rules.yaml not found, `pytest.skip("guard-rules.yaml not found at expected path")`. **Note:** Test code may perform I/O (SC-3 purity applies to library functions, not tests).
+    - Add 3 spot-check tests verifying specific GUARD_METADATA entries against known guard-rules.yaml values (e.g., G-22 enforcement=soft_warn, G-41 yolo_behavior=hard_stop, G-49 enforcement=soft_warn). **Note:** The only documented enforcement override is G-51 (soft_warn→hard_block per spec Enforcement Overrides table).
+15. Add guard coverage introspection test: collect all test function names matching `test_G\d+_` pattern (case-sensitive, uppercase G required) via `inspect` module, extract guard IDs, assert coverage of all 43 guard IDs in EXPECTED_GUARD_IDS. **Naming convention:** Add a prominent comment at the top of `test_gate.py`: `# NAMING: All guard tests MUST follow test_G{XX}_{description} pattern (uppercase G) for coverage introspection.` This test runs at Phase 2 so missing coverage is caught early (test will initially fail for unimplemented guards — mark with `@pytest.mark.xfail` until Phase 3 completes all categories, then remove xfail).
+16. Add programmatic GUARD_METADATA validation test: reads `guard-rules.yaml` using line-by-line string parsing (no PyYAML dependency — parse `id:`, `enforcement:`, `yolo_behavior:` fields via regex). Path resolution: walk up from `pathlib.Path(__file__).resolve()` until `.git/` is found (project root), then navigate to `docs/features/006-transition-guard-audit-and-rul/guard-rules.yaml`. Validates every entry in GUARD_METADATA matches the source file's enforcement and yolo_behavior. Graceful failure: if guard-rules.yaml not found, `pytest.skip("guard-rules.yaml not found")`. **Note:** Test code may perform I/O (SC-3 purity applies to library functions, not tests).
 
 **Verification:** Run tests — all integrity, spot-check, coverage introspection, and YAML validation tests pass.
 
@@ -86,7 +86,7 @@ Phase 5: Integration Verification + SC-5 test   — end-to-end validation
 3. Implement `_warn(guard_id, reason)` → `TransitionResult(True, reason, Severity.warn, guard_id)`
 4. Implement `_phase_index(phase)` → returns index in PHASE_SEQUENCE or -1 for invalid
 
-No tests for internal helpers (tested indirectly via public functions).
+Add 3 direct tests for `_phase_index`: valid phase returns correct index, invalid string returns -1, first and last phase in sequence return 0 and 6 respectively. Other helpers (`_pass_result`, `_block`, `_warn`) are trivial constructors tested indirectly via public functions.
 
 ### Phase 3b: YOLO Helper (exported) + Tests
 
@@ -171,9 +171,9 @@ No tests for internal helpers (tested indirectly via public functions).
 1. Implement SC-5 test: `test_canonical_sequence_matches_skill_md` — reads SKILL.md, searches for arrow-delimited sequence under the "Phase Sequence" heading (line format: `brainstorm → specify → ...`), extracts phase names, compares against PHASE_SEQUENCE tuple. Path resolution: `pathlib.Path(__file__).resolve().parents[3] / "skills" / "workflow-state" / "SKILL.md"` (navigates from `hooks/lib/transition_gate/` up to plugin root). Graceful failure: if SKILL.md not found, `pytest.skip("SKILL.md not found at expected path")`. **Spec divergence note:** The spec references this as "Canonical Sequence" heading, but the actual SKILL.md heading is "Phase Sequence" — this plan uses the actual heading. The test searches for "Phase Sequence".
 2. Remove `@pytest.mark.xfail` from guard coverage introspection test (Phase 2 step 15) — all 43 guard IDs should now have test coverage after Phase 3.
 3. Run full test suite: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/ -v`
-4. Verify no new dependencies: `grep -r "^import\|^from" plugins/iflow/hooks/lib/transition_gate/ | grep -v "transition_gate\|dataclasses\|enum\|typing\|__future__\|pytest\|pathlib\|yaml\|inspect\|re"` — should return empty (no external deps except pytest, pyyaml, inspect, re for tests)
+4. Verify no new dependencies: `grep -r "^import\|^from" plugins/iflow/hooks/lib/transition_gate/ | grep -v "transition_gate\|dataclasses\|enum\|typing\|__future__\|pytest\|pathlib\|inspect\|re"` — should return empty (no external deps except pytest, inspect, re for tests; all stdlib)
 
-**Verification:** All tests pass, all 43 guard IDs covered, zero external runtime dependencies (yaml/inspect/re are test-only).
+**Verification:** All tests pass, all 43 guard IDs covered, zero external runtime dependencies (inspect/re are stdlib, test-only).
 
 ## Dependency Graph
 
@@ -195,11 +195,10 @@ constants.py            gate.py
 
 Within Phase 3, sub-phases 3c through 3h are independent of each other (all depend only on 3a/3b helpers). An implementer can work on any category without waiting for others.
 
-## Estimated Scope
+## Complexity Assessment
 
-- **models.py:** ~60 lines (4 enums + 3 dataclasses)
-- **constants.py:** ~210 lines (dominated by 43-entry GUARD_METADATA + EXPECTED_GUARD_IDS)
-- **gate.py:** ~400 lines (25 functions + helpers)
-- **__init__.py:** ~30 lines (imports + __all__)
-- **test_gate.py:** ~600 lines (90+ test cases including YAML validation and coverage introspection)
-- **Total:** ~1300 lines of Python
+- **Phase 1 (Simple):** `models.py` — 4 enums + 3 dataclasses, all instantiation tests pass
+- **Phase 2 (Complex):** `constants.py` — 43-entry GUARD_METADATA + EXPECTED_GUARD_IDS, all integrity + YAML validation tests pass
+- **Phase 3 (Complex):** `gate.py` — 25 functions + helpers across 6 independent sub-phases, per-category tests pass
+- **Phase 4 (Simple):** `__init__.py` — re-exports + `__all__`, import tests pass
+- **Phase 5 (Simple):** Integration verification — SC-5 test, xfail removal, full suite green
