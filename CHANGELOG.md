@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Transition guard audit with 60 guard rules in `guard-rules.yaml` covering all 7 workflow phases
+- Five-section audit report analyzing guard coverage, gap identification, and risk assessment
+
 ## [4.7.0] - 2026-03-03
 
 ### Added
