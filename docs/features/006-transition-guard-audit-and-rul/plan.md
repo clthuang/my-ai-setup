@@ -109,7 +109,7 @@ This phase has two sub-tasks: mechanical population (4a) and judgment-based enri
 
 ## Recovery Strategy
 
-- **C1-C3 ephemeral:** If interrupted before C4, re-execute from C1 (inputs are stable codebase files, grep/read operations are fast)
+- **C1-C3 intermediate checkpoints:** Although C1-C3 outputs are logically ephemeral, the implementer should write pass1_guards and pass2_guards lists to scratch notes (e.g., in working memory or agent_sandbox/) before entering C3. This avoids re-running the expensive grep scan and structural walk if context is lost between phases. If interrupted before C4 and scratch notes are unavailable, re-execute from C1 (inputs are stable codebase files, grep/read operations are fast).
 - **C4 checkpoint:** If guard-rules.yaml exists on disk AND passes schema validation (Phase 4c checks), C4 is complete — skip to C5. If the file exists but fails validation, overwrite it by re-executing from Phase 4a (do not patch in place — partial YAML is error-prone).
 - **C5 checkpoint:** If audit-report.md exists on disk, C5 is complete — done
 
