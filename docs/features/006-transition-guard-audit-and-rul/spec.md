@@ -51,7 +51,7 @@ Each guard entry in `guard-rules.yaml` must conform to this structure:
   source_files:                      # All locations where this guard is encoded
     - file: "plugins/iflow/skills/workflow-state/SKILL.md"
       lines: "126-155"
-      anchor: "function validateTransition"  # Content anchor for line-shift resilience
+      anchor: "validateTransition()"  # Content anchor — pseudocode function name as unique string in markdown
   trigger: >                         # Condition that activates this guard
     Any phase command invocation via validateAndSetup()
   enforcement: "soft-warn"           # One of: hard-block | soft-warn | informational
@@ -101,6 +101,8 @@ Search all files under `plugins/iflow/` for these regex patterns:
 - `status.*planned|status.*active|status.*completed|status.*abandoned`
 - `circuit.breaker|max.*iteration|iteration.*cap`
 
+**Pass 1 triage:** Broad patterns (especially the first) will produce hundreds of matches, most of which are not guards (e.g., descriptive prose, crypto analysis references, game design frameworks). A match is a guard candidate only if it appears in a control flow context — conditional branching, error return, user prompt, or enforcement action. Descriptive prose mentioning "block" or "prevent" without gating behavior is not a guard. Complete Pass 1 results before starting Pass 2 to avoid confirmation bias.
+
 **Pass 2 — Structural walk:**
 For each file type, read and identify guard logic:
 1. All `.md` files in `plugins/iflow/commands/` — look for BLOCKED, prerequisite, and AskUserQuestion patterns
@@ -108,7 +110,7 @@ For each file type, read and identify guard logic:
 3. All `.sh` files in `plugins/iflow/hooks/` — look for permissionDecision, decision, and phase checks
 4. All `.py` files in `plugins/iflow/hooks/lib/` — look for validate, guard, transition, prerequisite, and phase-check patterns
 5. All `.md` files in `plugins/iflow/agents/` — look for guard-related review criteria
-6. All files in `plugins/iflow/references/`, `plugins/iflow/templates/`, and `plugins/iflow/scripts/` — scan for guard patterns (Pass 1 grep covers these; this step confirms no guards were missed)
+6. All files in `plugins/iflow/references/`, `plugins/iflow/templates/`, `plugins/iflow/scripts/`, and `plugins/iflow/mcp/` — scan for guard patterns (Pass 1 grep covers these; this step confirms no guards were missed)
 7. Cross-reference against `plugins/iflow/hooks/hooks.json` hook entries (the hooks registry that defines SessionStart, PreToolUse, PostToolUse, and Stop hooks)
 
 **Convergence check:** Both passes must identify the same set of guards. Any guard found by only one pass is investigated and resolved (either added to the set or documented as a false positive with rationale). If after investigation a potential guard cannot be definitively classified as guard vs. non-guard, document it in `audit-report.md` under a "Boundary Cases" section with the rationale for inclusion or exclusion. Non-convergence on boundary cases does not block completion; non-convergence on clear guards does.
