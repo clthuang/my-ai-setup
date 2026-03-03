@@ -53,7 +53,7 @@ Read files by type across 7 structural steps and identify guard logic through se
 1. **Commands walk:** Read all `.md` files in `plugins/iflow/commands/` — identify BLOCKED messages, prerequisite checks, AskUserQuestion gates, review-quality loops
 2. **Skills walk:** Read `.md` files in `plugins/iflow/skills/` — prioritize SKILL.md files. For workflow-related skills (`workflow-state`, `workflow-transitions`, `finishing-branch`, `implementing`, `planning`, `breaking-down-tasks`, `specifying`, `designing`, `retrospecting`, `reviewing-artifacts`), also scan references/ subdirectories. Non-workflow skills: read SKILL.md, skip if no guard keywords (validate, block, prerequisite, transition, phase) appear.
 3. **Hooks walk (shell):** Read all `.sh` files in `plugins/iflow/hooks/` — identify permissionDecision patterns, phase checks, circuit breakers, YOLO guards
-4. **Hooks walk (Python):** Read all `.py` files in `plugins/iflow/hooks/lib/` — including `entity_registry/` (phase sequence encodings) and `semantic_memory/` (completeness scan). Batch-skip test files after confirming no guard logic.
+4. **Hooks walk (Python):** Read all `.py` files in `plugins/iflow/hooks/lib/` — including `entity_registry/` (phase sequence encodings) and `semantic_memory/` (completeness scan). To batch-skip test files: run grep for guard keywords (`validate|block|permissionDecision|phase_check`) against `plugins/iflow/hooks/lib/test_*.py` and `plugins/iflow/hooks/lib/entity_registry/test_*.py`. If zero matches, batch-skip all test files. If matches appear, read those specific files.
 5. **Agents walk:** Read all `.md` files in `plugins/iflow/agents/` — confirm no guards (expected per design decision)
 6. **Peripheral directories walk:** Scan `plugins/iflow/references/`, `plugins/iflow/templates/`, `plugins/iflow/scripts/`, `plugins/iflow/mcp/` — confirm no guards missed
 7. **Hooks registry cross-reference:** Read `plugins/iflow/hooks/hooks.json` and verify all registered hooks were examined in steps 3-4
@@ -118,7 +118,7 @@ Assign guard IDs, populate all 11 required schema fields, identify duplicates, a
 3. Copy captured fields: file, lines, anchor, guard_summary → description, category, enforcement, enforcement_mechanism
 
 **4b. Judgment-based enrichment (per guard):**
-1. Read source file context to determine: `name`, `trigger`, `affected_phases`, `yolo_behavior`, `consolidation_target`
+1. Read source file context to determine: `name`, `trigger`, `affected_phases`, `yolo_behavior`, `consolidation_target`. For `affected_phases`: use the guard's trigger and source location to bound the phase list. Guard in finish-feature.md with no cross-phase trigger → [finish]. Phase-sequence guard with no file-specific phase constraint → all 6 phases (specify, design, create-plan, create-tasks, implement, finish). YOLO-mode guards → all phases where YOLO mode is active. If ambiguous, list all phases where the guard's source file is referenced and flag in consolidation_notes.
 2. Identify duplicate clusters using two criteria: (a) same logical rule encoded in multiple source locations (e.g., phase sequence in 5+ files), OR (b) same trigger condition AND same artifact/transition event (e.g., artifact-existence check + artifact-content check on the same phase entry → merge into single `validate_artifact()` function per AC-3)
 3. Set `duplicates` field with cross-references
 4. Write `consolidation_notes` for transition_gate guards
