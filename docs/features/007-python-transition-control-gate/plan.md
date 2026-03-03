@@ -23,7 +23,7 @@ Phase 5: Integration Verification + SC-5 test   — end-to-end validation
 **Dependencies:** None (stdlib only: `enum`, `dataclasses`, `__future__`).
 
 **Steps:**
-1. Create `plugins/iflow/hooks/lib/transition_gate/` directory
+1. Create `plugins/iflow/hooks/lib/transition_gate/` directory and empty `__init__.py` stub (ensures package is importable during TDD verification in Phases 1-3; replaced with full exports in Phase 4)
 2. Create `models.py` with file header (`"""Transition gate models."""` + `from __future__ import annotations`)
 3. Implement `Phase(str, Enum)` — 7 values with hyphen string values: `brainstorm="brainstorm"`, `specify="specify"`, `design="design"`, `create_plan="create-plan"`, `create_tasks="create-tasks"`, `implement="implement"`, `finish="finish"`
 4. Implement `Severity(str, Enum)` — `block="block"`, `warn="warn"`, `info="info"`
