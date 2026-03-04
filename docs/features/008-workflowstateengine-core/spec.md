@@ -97,7 +97,7 @@ The remaining 20 gate functions (including `get_next_phase`, brainstorm gates, m
 `complete_phase(feature_type_id, phase)` records phase as completed:
 
 1. Read current state
-2. Validate that `phase` matches the current active phase (or is a backward re-run where `phase` index <= `last_completed_phase` index). If `phase` does not match and is not a backward re-run, raise `ValueError` describing the mismatch
+2. Validate that `phase` matches the current active phase (or is a backward re-run where `phase` index <= `last_completed_phase` index). If `phase` does not match and is not a backward re-run, raise `ValueError` describing the mismatch. On a backward re-run, `last_completed_phase` is updated to the provided `phase`, effectively resetting progress to that point (phases after `phase` are no longer considered completed).
 3. Derive next `workflow_phase` from `PHASE_SEQUENCE` indexing: find `phase` index in `PHASE_SEQUENCE`, set `workflow_phase = PHASE_SEQUENCE[idx + 1].value` if within bounds, else `None` (end of sequence)
 4. Update `workflow_phases` table: set `last_completed_phase = phase`, `workflow_phase = derived_next_phase`
 5. Return updated `FeatureWorkflowState`
@@ -121,18 +121,16 @@ On first access per feature (when `get_workflow_phase()` returns None):
 
 **Precondition:** The entity must already be registered in the `entities` table (via entity_registry). If `get_entity(type_id)` returns None, hydration returns None — the engine does not register entities.
 
-1. Check if `.meta.json` exists at `{artifacts_root}/features/{feature_slug}/`
-2. If exists: parse `lastCompletedPhase`, `status`, `mode`, `phases` dict
-3. Derive `workflow_phase` based on status (status field takes precedence over `lastCompletedPhase`):
+1. Verify entity exists via `get_entity(type_id)`. If not found, return None (fail fast before any I/O)
+2. Check if `.meta.json` exists at `{artifacts_root}/features/{feature_slug}/`. If missing, return None (feature doesn't exist)
+3. Parse `.meta.json`: extract `lastCompletedPhase`, `status`, `mode`, `phases` dict
+4. Derive `workflow_phase` based on status (status field takes precedence over `lastCompletedPhase`):
    - If status is `"active"`: derive next phase from `PHASE_SEQUENCE` indexing — find `lastCompletedPhase` index, set `workflow_phase = PHASE_SEQUENCE[idx + 1].value` (or `PHASE_SEQUENCE[0].value` if `lastCompletedPhase` is null)
    - If status is `"completed"`: set `workflow_phase = None` (workflow is done), regardless of `lastCompletedPhase` value
    - If status is `"planned"`: set `workflow_phase = None`, `last_completed_phase = None` (not started — any non-null `lastCompletedPhase` in .meta.json is treated as stale data)
    - For any other status value (e.g., `"abandoned"`, `"on-hold"`): set `workflow_phase = None`, `last_completed_phase = None` (unknown/terminal statuses are treated as inactive)
-4. Verify entity exists via `get_entity(type_id)`. If not found, return None
 5. Call `create_workflow_phase()` to backfill the row
 6. Return the hydrated state
-
-If `.meta.json` also missing: return None (feature doesn't exist).
 
 ### FR-7: Artifact Existence Check
 
