@@ -320,6 +320,8 @@ def _process_validate_prerequisites(
         return f"Internal error: {type(exc).__name__}: {exc}"
 
 def _process_list_features_by_phase(engine: WorkflowStateEngine, phase: str) -> str:
+    # ValueError from _row_to_state on corrupt DB data is intentionally caught
+    # by Exception and reported as "Internal error:" (not user input error).
     try:
         states = engine.list_by_phase(phase)
         return json.dumps([_serialize_state(s) for s in states])
@@ -327,6 +329,8 @@ def _process_list_features_by_phase(engine: WorkflowStateEngine, phase: str) -> 
         return f"Internal error: {type(exc).__name__}: {exc}"
 
 def _process_list_features_by_status(engine: WorkflowStateEngine, status: str) -> str:
+    # ValueError from _row_to_state on corrupt DB data is intentionally caught
+    # by Exception and reported as "Internal error:" (not user input error).
     try:
         states = engine.list_by_status(status)
         return json.dumps([_serialize_state(s) for s in states])
@@ -432,7 +436,7 @@ def engine(db, tmp_path):
 def seeded_engine(engine, db):
     """Engine with a test feature seeded in DB."""
     db.register_entity("feature", "009-test", "Test Feature", status="active")
-    db.create_workflow_phase("feature:009-test", "specify")
+    db.create_workflow_phase("feature:009-test", workflow_phase="specify")
     return engine
 ```
 
