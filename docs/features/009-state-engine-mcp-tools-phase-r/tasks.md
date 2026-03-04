@@ -124,7 +124,7 @@
 **Depends on:** 2.2
 **AC coverage:** AC-2, AC-7 (yolo_active), AC-11 (invalid phase)
 **Gate details:** G-08 (hard_block, unchanged — blocks missing hard prereq artifacts), G-23 (soft_warn, auto_select — YOLO-overridable soft prerequisites)
-**Done when:** 5 tests pass — success, blocked (G-08 verified in results), yolo_active (G-23 overridden, both with/without YOLO verified), ValueError, unexpected exception.
+**Done when:** 5 tests pass — success, blocked (G-08 verified in results), yolo_active (`yolo_active=False` returns `transitioned: false` AND `yolo_active=True` returns `transitioned: true` for the same feature/phase), ValueError, unexpected exception.
 
 ---
 
@@ -291,8 +291,8 @@
 
 ### Task 5.4: Performance check (SC-6)
 
-- [ ] Add `large_db` fixture with `tmp_path` parameter: `def large_db(tmp_path)` — create `EntityDatabase(":memory:")`, loop `for i in range(50)`: `db.register_entity("feature", f"perf-{i:03d}", f"Perf Test {i}", status="active")` then `db.create_workflow_phase(f"feature:perf-{i:03d}", workflow_phase="specify")`. Return `WorkflowStateEngine(db, str(tmp_path))`.
-- [ ] Add `test_performance_get_phase`: use `large_db` fixture, assert `_process_get_phase(engine, "feature:perf-025")` completes in < 100ms (use `time.perf_counter()`)
+- [ ] Add `perf_engine` fixture with `tmp_path` parameter: `def perf_engine(tmp_path)` — create `EntityDatabase(":memory:")`, loop `for i in range(50)`: `db.register_entity("feature", f"perf-{i:03d}", f"Perf Test {i}", status="active")` then `db.create_workflow_phase(f"feature:perf-{i:03d}", workflow_phase="specify")`. Return `WorkflowStateEngine(db, str(tmp_path))`.
+- [ ] Add `test_performance_get_phase`: use `perf_engine` fixture, assert `_process_get_phase(engine, "feature:perf-025")` completes in < 100ms (use `time.perf_counter()`)
 - [ ] Add `test_performance_list_by_phase`: assert `_process_list_features_by_phase(engine, "specify")` completes in < 100ms with 50 features
 - [ ] Add `test_performance_list_by_status`: assert `_process_list_features_by_status(engine, "active")` completes in < 100ms with 50 features
 - [ ] Add `test_performance_validate_prerequisites`: assert `_process_validate_prerequisites(engine, "feature:perf-025", "design")` completes in < 100ms with 50 features
