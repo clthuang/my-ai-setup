@@ -53,44 +53,49 @@ The plan follows a TDD-compatible dependency order: bootstrap infrastructure fir
 - **Design ref:** I0, I4 (serializers)
 - **AC coverage:** SC-2
 
-#### 2.3 Implement `_process_get_phase` + tests
+#### 2.3 Tests + `_process_get_phase`
 
-- **Tests:** (a) success with seeded feature, (b) not-found returns string, (d) unexpected exception
+- **Tests (RED):** (a) success with seeded feature, (b) not-found returns string, (d) unexpected exception
+- **Implement (GREEN):** Write `_process_get_phase` to pass tests
 - **Depends on:** 2.2
 - **Design ref:** I4
 - **AC coverage:** AC-1, AC-10
 
-#### 2.4 Implement `_process_transition_phase` + tests
+#### 2.4 Tests + `_process_transition_phase`
 
-- **Tests:** (a) all gates pass → `transitioned: true`, (a2) gate blocks → `transitioned: false`, (c) ValueError, (d) unexpected exception
+- **Tests (RED):** (a) all gates pass → `transitioned: true`, (a2) gate blocks → `transitioned: false` (use target_phase where hard prerequisite artifacts are missing, e.g., transition to `design` without spec.md in tmp_path), (c) ValueError, (d) unexpected exception
 - **Depends on:** 2.2
 - **Design ref:** I4
 - **AC coverage:** AC-2, AC-7 (yolo_active), AC-11 (invalid phase)
 
-#### 2.5 Implement `_process_complete_phase` + tests
+#### 2.5 Tests + `_process_complete_phase`
 
-- **Tests:** (a) success advances phase, (c) ValueError on unknown phase/mismatch, (d) unexpected exception
+- **Tests (RED):** (a) success advances phase (seeded fixture has `workflow_phase="specify"`, so call `complete_phase(type_id, "specify")` which succeeds because phase matches current_phase), (c) ValueError on unknown phase/mismatch, (d) unexpected exception
+- **Implement (GREEN):** Write `_process_complete_phase` to pass tests
 - **Depends on:** 2.2
 - **Design ref:** I4
 - **AC coverage:** AC-3
 
-#### 2.6 Implement `_process_validate_prerequisites` + tests
+#### 2.6 Tests + `_process_validate_prerequisites`
 
-- **Tests:** (a) gates pass, (a2) gates fail, (c) ValueError, (d) unexpected exception, verify no DB mutation
+- **Tests (RED):** (a) gates pass, (a2) gates fail, (c) ValueError, (d) unexpected exception, verify no DB mutation
+- **Implement (GREEN):** Write `_process_validate_prerequisites` to pass tests
 - **Depends on:** 2.2
 - **Design ref:** I4
 - **AC coverage:** AC-4, AC-11
 
-#### 2.7 Implement `_process_list_features_by_phase` + tests
+#### 2.7 Tests + `_process_list_features_by_phase`
 
-- **Tests:** (a) populated result, (b) empty array for unknown phase, (d) unexpected exception → "Internal error:"
+- **Tests (RED):** (a) populated result, (b) empty array for unknown phase, (d) unexpected exception → "Internal error:"
+- **Implement (GREEN):** Write `_process_list_features_by_phase` to pass tests
 - **Depends on:** 2.2
 - **Design ref:** I4
 - **AC coverage:** AC-5
 
-#### 2.8 Implement `_process_list_features_by_status` + tests
+#### 2.8 Tests + `_process_list_features_by_status`
 
-- **Tests:** (a) populated result, (b) empty array for unknown status, (d) unexpected exception
+- **Tests (RED):** (a) populated result, (b) empty array for unknown status, (d) unexpected exception
+- **Implement (GREEN):** Write `_process_list_features_by_status` to pass tests
 - **Depends on:** 2.2
 - **Design ref:** I4
 - **AC coverage:** AC-6
