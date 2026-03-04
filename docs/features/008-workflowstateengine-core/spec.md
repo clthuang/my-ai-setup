@@ -98,7 +98,7 @@ The remaining 20 gate functions (including `get_next_phase`, brainstorm gates, m
 
 1. Read current state
 2. Validate that `phase` matches the current active phase (or is a backward re-run where `phase` index <= `last_completed_phase` index). If `phase` does not match and is not a backward re-run, raise `ValueError` describing the mismatch. On a backward re-run, `last_completed_phase` is updated to the provided `phase`, effectively resetting progress to that point (phases after `phase` are no longer considered completed).
-3. Derive next `workflow_phase` from `PHASE_SEQUENCE` indexing: find `phase` index in `PHASE_SEQUENCE`, set `workflow_phase = PHASE_SEQUENCE[idx + 1].value` if within bounds, else `None` (end of sequence)
+3. Derive next `workflow_phase` from `PHASE_SEQUENCE` indexing: find `phase` index in `PHASE_SEQUENCE`, set `workflow_phase = PHASE_SEQUENCE[idx + 1].value` if within bounds. If at end of sequence (no next phase), set `workflow_phase = phase` (keep current phase value, e.g. "finish" stays as "finish" per TD-8 convention)
 4. Update `workflow_phases` table: set `last_completed_phase = phase`, `workflow_phase = derived_next_phase`
 5. Return updated `FeatureWorkflowState`
 

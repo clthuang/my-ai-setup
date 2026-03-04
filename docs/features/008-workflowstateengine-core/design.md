@@ -110,7 +110,7 @@ The engine does NOT use `transitions`, `python-statemachine`, or any external FS
 - `artifacts_root` is the filesystem path for resolving feature artifact directories
 
 **Public methods:** 6 methods matching spec (FR-1 through FR-7)
-**Private helpers:** `_extract_slug()`, `_get_existing_artifacts()`, `_hydrate_from_meta_json()`, `_derive_completed_phases()`, `_next_phase_value()`, `_evaluate_gates()`
+**Private helpers:** `_extract_slug()`, `_get_existing_artifacts()`, `_hydrate_from_meta_json()`, `_derive_completed_phases()`, `_next_phase_value()`, `_evaluate_gates()` (applies I6 skip conditions and YOLO override per TD-3)
 
 ### C2: FeatureWorkflowState (models.py)
 
@@ -198,7 +198,7 @@ class WorkflowStateEngine:
 
         Returns:
             List of TransitionResult in gate evaluation order.
-            Skipped gates are omitted. YOLO overrides replace in-place.
+            Skipped gates are omitted. YOLO overrides appear in place of skipped gates.
             Identical return type for success and failure paths.
 
         Side effects:
@@ -311,7 +311,7 @@ class WorkflowStateEngine:
 @dataclass(frozen=True)
 class FeatureWorkflowState:
     feature_type_id: str            # "feature:{id}-{slug}"
-    current_phase: str | None       # current workflow_phase value, None if workflow done
+    current_phase: str | None       # current workflow_phase value, None if no workflow_phases row exists
     last_completed_phase: str | None # None if no phases completed yet
     completed_phases: tuple[str, ...]  # derived from last_completed_phase via PHASE_SEQUENCE
     mode: str | None                # "standard" | "full" | None
@@ -347,6 +347,7 @@ def _get_existing_artifacts(self, feature_slug: str) -> list[str]:
 
 def _hydrate_from_meta_json(self, feature_type_id: str) -> FeatureWorkflowState | None:
     """Lazy hydration: parse .meta.json, derive state, backfill DB row.
+    Calls _extract_slug(feature_type_id) to resolve the feature directory path.
     Returns None if entity not registered or .meta.json missing.
     Catches ValueError from _derive_completed_phases for malformed
     .meta.json data (unrecognized phase values) and returns None."""
