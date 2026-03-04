@@ -47,7 +47,7 @@ class TransitionResult:
 
 A new FastMCP server named `workflow-engine` registered in `plugin.json` alongside the existing `memory-server` and `entity-registry` servers.
 
-**Lifespan:** Initialize `EntityDatabase` and `WorkflowStateEngine` during startup, close DB on shutdown. Resolve `artifacts_root` from project config using `semantic_memory.config.read_config()` (same import as `entity_server.py`).
+**Lifespan:** Initialize `EntityDatabase` and `WorkflowStateEngine` during startup, close DB on shutdown. Resolve `artifacts_root` from project config using `semantic_memory.config.read_config()` (same import as `entity_server.py`). Resolve `PROJECT_ROOT` from the `PROJECT_ROOT` environment variable, falling back to `os.getcwd()` (same pattern as `entity_server.py`).
 
 **Bootstrap:** Shell script `run-workflow-server.sh` following the same 4-step resolution pattern as `run-entity-server.sh`: (1) venv fast-path, (2) system python3, (3) uv bootstrap, (4) pip fallback. Must set `PYTHONPATH` to include `hooks/lib/` and `PYTHONUNBUFFERED=1`.
 
@@ -75,7 +75,7 @@ Validate and enter a target phase.
 - **Output:** JSON string with:
   - `allowed: bool` — true only if ALL gate results are allowed
   - `results: list` — per-gate result objects (`allowed`, `reason`, `severity`, `guard_id`)
-  - `transitioned: bool` — derived in the processing function: `transitioned = all(r.allowed for r in results)`, mirroring the engine logic where DB update only occurs when all gates pass
+  - `transitioned: bool` — derived in the processing function: `transitioned = all(r.allowed for r in results)`, computed to report whether the engine performed the DB update (the engine only updates when all gates pass)
 - **Error:** `"Error: {exception message}"` on ValueError from engine
 - **Maps to:** `WorkflowStateEngine.transition_phase()`
 
@@ -131,9 +131,11 @@ Processing functions never raise exceptions — they catch `ValueError` (from en
 
 `FeatureWorkflowState` and `TransitionResult` are frozen dataclasses. The server must serialize them to JSON dicts using manual dict construction with explicit `.value` for enum members (e.g., `severity.value`). `dataclasses.asdict()` does not automatically convert `Severity(str, Enum)` members to string values, so manual construction is preferred for correctness. The `completed_phases` tuple must serialize as a JSON array.
 
+**Phase validation responsibility:** The MCP tools do NOT validate `target_phase` against canonical phase values before calling the engine. Invalid phase strings are handled by the engine's gate functions, which return `TransitionResult` objects with `allowed=False`. This keeps validation logic in a single place (the engine/gates).
+
 ### R5: Plugin Registration
 
-Add the `workflow-engine` server entry to `plugin.json`:
+Add the `workflow-engine` server entry to `.claude-plugin/plugin.json` under the `mcpServers` key:
 ```json
 "workflow-engine": {
   "command": "${CLAUDE_PLUGIN_ROOT}/mcp/run-workflow-server.sh",
@@ -168,7 +170,7 @@ NFR numbers reference the iflow architecture evolution roadmap (P001 `roadmap.md
 - SC-3: Bootstrap script resolves Python environment correctly (4-step: venv → system python3 → uv bootstrap → pip fallback).
 - SC-4: Plugin.json updated and server discoverable by Claude.
 - SC-5: No stdout output from bootstrap script before `exec` (MCP stdio safety).
-- SC-6: Read tools respond within 100ms when tested against a database seeded with 50 feature entities with workflow phase records.
+- SC-6: Read tools respond within 100ms (wall-clock time of `_process_*()` function execution, not MCP round-trip) when tested against a database seeded with 50 feature entities with workflow phase records. Note: `validate_prerequisites` involves filesystem I/O for artifact checks — the 100ms budget accounts for this.
 
 ## Acceptance Criteria
 
@@ -182,4 +184,4 @@ NFR numbers reference the iflow architecture evolution roadmap (P001 `roadmap.md
 - AC-8: Bootstrap script sets `PYTHONPATH` to include `hooks/lib/` and `PYTHONUNBUFFERED=1`.
 - AC-9: Server registered in `plugin.json` under `mcpServers.workflow-engine`.
 - AC-10: Processing functions testable in isolation (no MCP server required).
-- AC-11: `transition_phase` and `validate_prerequisites` with an invalid phase string return an error string (not an unhandled exception).
+- AC-11: `transition_phase` and `validate_prerequisites` with an invalid phase string return gate results containing `allowed: false` (not an unhandled exception). The gate functions handle invalid phases by returning `TransitionResult` objects rather than raising exceptions.
