@@ -20,3 +20,6 @@
 | 00032 | 2026-03-01T12:49:31Z | Fix the workflow progression such that if a PRD is missing then go to the PRD creation step |
 | 00033 | 2026-03-02T23:15:00+08:00 | Reduce diff comparison for deploying reviewers. Phase-specific reviewers should handle diff operations themselves and reuse the same reviewer for the same type of review, unless the subagent ID is lost then spin up a new instance. Ensure maximum caching possibility for token efficiency. |
 | 00034 | 2026-03-02T23:45:00+08:00 | Update code simplifier to use Claude Code's native simplify command instead of custom agent dispatch. |
+| 00035 | 2026-03-04T00:35:00+08:00 | Enrich secretary problem solving frameworks and brainstorm frameworks. |
+| 00036 | 2026-03-04T00:35:00+08:00 | Add system design architect and solution architect skills/references for design executor and design reviewer. |
+| 00037 | 2026-03-04T00:35:00+08:00 | Add product manager skills and references for create-feature executor and reviewer. |
