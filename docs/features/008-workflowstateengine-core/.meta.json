@@ -1,0 +1,16 @@
+{
+  "id": "008",
+  "slug": "workflowstateengine-core",
+  "status": "active",
+  "created": "2026-03-01T16:27:59+08:00",
+  "mode": "standard",
+  "branch": "feature/008-workflowstateengine-core",
+  "project_id": "P001",
+  "module": "State Engine",
+  "depends_on_features": [
+    "007-python-transition-control-gate",
+    "005-workflowphases-table-with-dual"
+  ],
+  "lastCompletedPhase": null,
+  "phases": {}
+}
