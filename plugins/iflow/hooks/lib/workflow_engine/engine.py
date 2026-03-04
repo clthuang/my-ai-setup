@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 
 from entity_registry.database import EntityDatabase
 from transition_gate import (
@@ -110,7 +111,14 @@ class WorkflowStateEngine:
             workflow_phase=next_phase,
         )
 
-        return self.get_state(feature_type_id)  # type: ignore[return-value]
+        return FeatureWorkflowState(
+            feature_type_id=feature_type_id,
+            current_phase=next_phase,
+            last_completed_phase=phase,
+            completed_phases=self._derive_completed_phases(phase),
+            mode=state.mode,
+            source="db",
+        )
 
     def validate_prerequisites(
         self, feature_type_id: str, target_phase: str
@@ -296,8 +304,8 @@ class WorkflowStateEngine:
     @staticmethod
     def _run_gate(
         guard_id: str,
-        gate_fn: ...,
-        *args: ...,
+        gate_fn: Callable[..., TransitionResult],
+        *args: object,
         yolo_active: bool,
     ) -> TransitionResult:
         """Run a single gate with optional YOLO override."""
