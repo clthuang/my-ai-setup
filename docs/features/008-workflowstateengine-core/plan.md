@@ -40,7 +40,7 @@ The plan follows a bottom-up TDD approach: models first (no dependencies), then 
 **2d. _get_existing_artifacts**
 - RED: Write `TestHelpers.test_get_existing_artifacts_some_present`, `test_get_existing_artifacts_none_present`, `test_get_existing_artifacts_all_present`
 - GREEN: Implement: scan feature directory for filenames from `HARD_PREREQUISITES`. Uses `self.artifacts_root` + filesystem checks
-- Import verification test: `test_hard_prerequisites_import` — verify `from transition_gate.constants import HARD_PREREQUISITES; assert isinstance(HARD_PREREQUISITES, dict)` succeeds (concrete R1 mitigation). Note: the existing test runner command (`plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/workflow_engine/`) resolves `transition_gate` because `plugins/iflow/hooks/lib/` is on `sys.path` via the venv's path setup — same mechanism used by transition_gate's own tests. If needed, add a `conftest.py` with `sys.path.insert(0, ...)` as a deliverable.
+- Import verification test: `test_hard_prerequisites_import` — verify `from transition_gate.constants import HARD_PREREQUISITES; assert isinstance(HARD_PREREQUISITES, dict)` succeeds (concrete R1 mitigation). Note: the existing test runner command (`plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/workflow_engine/`) resolves `transition_gate` because `plugins/iflow/hooks/lib/` is on `sys.path` via the venv's path setup — same mechanism used by transition_gate's own tests. If needed, add a `conftest.py` with `sys.path.insert(0, ...)` as a deliverable. Tests requiring filesystem operations (e.g., `test_get_existing_artifacts_*`) use pytest's `tmp_path` fixture for isolated temp directories — no manual cleanup needed
 
 **2e. _GATE_GUARD_IDS class variable**
 - Define mapping: `check_backward_transition→G-18`, `check_hard_prerequisites→G-08`, `check_soft_prerequisites→G-23`, `validate_transition→G-22`
@@ -59,7 +59,10 @@ The plan follows a bottom-up TDD approach: models first (no dependencies), then 
 - RED: Write `TestHydration` class — tests for: active status, completed status (workflow_phase="finish"), planned status, unknown status, missing entity, missing .meta.json, malformed .meta.json (unrecognized phase), concurrent hydration race (ValueError "already exists"), active-but-finished edge case (status="active" + lastCompletedPhase="finish" → workflow_phase="finish")
 - GREEN: Implement: check entity exists → check .meta.json exists → parse JSON → derive state by status → create_workflow_phase() → return FeatureWorkflowState
   - Handle all status paths per FR-6: active, completed, planned, catch-all
-  - **Active status derivation:** For active features, derive workflow_phase from lastCompletedPhase: use `_next_phase_value(lastCompletedPhase)`. If lastCompletedPhase is the terminal phase ("finish"), set workflow_phase="finish" (semantically contradictory but defensive — treat as effectively completed)
+  - **Active status derivation:** For active features, derive workflow_phase from lastCompletedPhase:
+    - If lastCompletedPhase is None: set workflow_phase = `PHASE_SEQUENCE[0].value` (i.e., "brainstorm") directly — do NOT call `_next_phase_value(None)` which would raise ValueError. Add test: `test_hydrate_active_no_completed_phase`
+    - If lastCompletedPhase is the terminal phase ("finish"): set workflow_phase="finish" (semantically contradictory but defensive — treat as effectively completed)
+    - Otherwise: use `_next_phase_value(lastCompletedPhase)`
   - Catch `ValueError` from `_derive_completed_phases` for malformed data → return None
   - **Race condition handling:** Wrap `create_workflow_phase()` in try/except for `ValueError` (message contains "already exists"). EntityDatabase.create_workflow_phase() internally catches `sqlite3.IntegrityError` and re-raises as `ValueError("Workflow phase already exists for: {type_id}")`. On this specific ValueError, fall back to `get_workflow_phase()` which returns the row created by the concurrent caller. Distinguish from other ValueErrors (e.g., "Entity not found") by checking the message substring "already exists".
 
@@ -84,7 +87,7 @@ The plan follows a bottom-up TDD approach: models first (no dependencies), then 
   - `test_skip_validate_when_current_phase_none` — new feature, no ordering check
   - `test_yolo_overrides_soft_gates` — G-18 (auto_select), G-22 (auto_select), G-23 (auto_select) return YOLO override results
   - `test_yolo_does_not_override_hard_gate` — G-08 (check_hard_prerequisites) has `yolo_behavior=unchanged`, YOLO override returns None, gate runs normally even when `yolo_active=True`
-- GREEN: Implement gate evaluation loop: iterate ordered gates, apply I6 skip conditions. For each non-skipped gate: if `yolo_active`, call `check_yolo_override(guard_id, True)` FIRST — if non-None, short-circuit (use override, skip gate call); if None, call gate normally
+- GREEN: Implement gate evaluation loop: iterate ordered gates, apply I6 skip conditions. For each non-skipped gate: if `yolo_active`, call `check_yolo_override(guard_id, True)` FIRST — if non-None, short-circuit (use override, skip gate call); if None, call gate normally. **Type note:** `state.completed_phases` is `tuple[str, ...]` (frozen dataclass); gate functions expect `list[str]` — pass `list(state.completed_phases)` at call sites
 
 **YOLO override behavior by gate (critical distinction):**
 | Gate | Guard ID | yolo_behavior | YOLO overridable? |
