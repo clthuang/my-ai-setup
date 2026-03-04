@@ -47,7 +47,7 @@ Feature 007 delivered 25 pure gate functions covering all 43 transition guards. 
 The engine reads feature workflow state from two sources with defined priority:
 
 1. **Primary:** `EntityDatabase.get_workflow_phase(type_id)` — returns `{workflow_phase, kanban_column, last_completed_phase, mode}`
-2. **Fallback:** Parse `.meta.json` from feature artifacts directory — derive `workflow_phase` from `lastCompletedPhase` using `get_next_phase()`
+2. **Fallback:** Parse `.meta.json` from feature artifacts directory — derive `workflow_phase` from `lastCompletedPhase` using `PHASE_SEQUENCE` indexing (see Technical Notes: Deriving next phase)
 
 State reading returns a `FeatureWorkflowState` dataclass:
 ```python
