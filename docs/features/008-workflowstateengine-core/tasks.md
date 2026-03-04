@@ -164,20 +164,25 @@
 
 ## Phase 7: Integration Tests
 
-### Task 7.1: Write full lifecycle integration test (RED+GREEN)
-- **Action:** Write `test_full_lifecycle_all_6_phases` (SC-1): use `EntityDatabase(":memory:")` for DB fixture, `tmp_path` pytest fixture for artifacts directory, initialize `WorkflowStateEngine(db, str(tmp_path))`. Register entity via `db.create_entity(...)`. Create .meta.json in `tmp_path/features/{slug}/`. Call get_state (triggers hydration) → for each of 6 command phases: transition_phase() + create required artifacts + complete_phase() → verify final state. Interleave artifact creation per HARD_PREREQUISITES (specify→spec.md, design→design.md, create-plan→plan.md, create-tasks→tasks.md, implement→no new artifacts needed as spec.md+tasks.md already exist, finish→no prerequisites)
-- **Done when:** Test passes end-to-end
+### Task 7.1a: Write lifecycle integration test setup (RED+GREEN)
+- **Action:** Write `test_full_lifecycle_all_6_phases` (SC-1) — setup portion: use `EntityDatabase(":memory:")` for DB fixture, `tmp_path` pytest fixture for artifacts directory, initialize `WorkflowStateEngine(db, str(tmp_path))`. Register entity via `db.create_entity(...)`. Create .meta.json in `tmp_path/features/{slug}/`. Call get_state (triggers hydration) → verify source="meta_json"
+- **Done when:** Test setup passes: entity registered, .meta.json created, get_state returns FeatureWorkflowState with source="meta_json"
 - **Dependencies:** Task 6.6
+
+### Task 7.1b: Write lifecycle integration test phases (RED+GREEN)
+- **Action:** Extend `test_full_lifecycle_all_6_phases` — lifecycle portion: for each of 6 command phases: transition_phase() + create required artifacts + complete_phase() → verify final state. Interleave artifact creation per HARD_PREREQUISITES (specify→spec.md, design→design.md, create-plan→plan.md, create-tasks→tasks.md, implement→no new artifacts needed as spec.md+tasks.md already exist, finish→no prerequisites)
+- **Done when:** Test passes end-to-end — all 6 phases transition and complete, final state has last_completed_phase="finish"
+- **Dependencies:** Task 7.1a
 
 ### Task 7.2: Write gate coverage integration test (RED+GREEN)
 - **Action:** Write `test_all_5_consumed_gates_exercised` (SC-10): patch all 5 gates at the engine module namespace (since engine.py uses `from transition_gate import ...`) — `workflow_engine.engine.check_backward_transition`, `workflow_engine.engine.check_hard_prerequisites`, `workflow_engine.engine.check_soft_prerequisites`, `workflow_engine.engine.validate_transition`, `workflow_engine.engine.check_yolo_override` — each with `side_effect=original_fn` so calls are tracked but still execute normally. Run a lifecycle scenario that includes at least one `transition_phase(..., yolo_active=True)` call (e.g., the first transition to "specify") to exercise check_yolo_override, then proceed with remaining phases normally (yolo_active=False). Assert `mock.call_count >= 1` for each of the 5 gates
 - **Done when:** Test passes, all 5 gates verified with call_count >= 1
-- **Dependencies:** Task 7.1
+- **Dependencies:** Task 7.1b
 
 ### Task 7.3: Write hydration-then-transition integration test (RED+GREEN)
 - **Action:** Write `test_hydration_then_transition` (SC-4 + SC-9): feature with .meta.json but no DB row → get_state hydrates (source="meta_json") → transition succeeds using hydrated state
 - **Done when:** Test passes
-- **Dependencies:** Task 7.1
+- **Dependencies:** Task 7.1b
 
 ## Phase 8: Final Verification
 
@@ -187,8 +192,8 @@
 - **Dependencies:** Task 7.3
 
 ### Task 8.2: Verify acceptance criteria
-- **Action:** Verify each acceptance criterion concretely: (1) Module exists: `ls plugins/iflow/hooks/lib/workflow_engine/`. (2) 6 public methods: `python -c "from workflow_engine import WorkflowStateEngine; print([m for m in dir(WorkflowStateEngine) if not m.startswith('_')])"` lists exactly get_state, transition_phase, complete_phase, validate_prerequisites, list_by_phase, list_by_status. (3) All 10 SC: confirmed by test suite in Task 8.1. (4) Zero external deps: `grep -r "^import \|^from " plugins/iflow/hooks/lib/workflow_engine/ | grep -v "transition_gate\|entity_registry\|__future__\|dataclasses\|os\|json\|typing\|unittest\|pytest"` returns no matches. (5) No modifications: `git diff plugins/iflow/hooks/lib/transition_gate/ plugins/iflow/hooks/lib/entity_registry/` shows no changes
-- **Done when:** All 5 verification commands produce expected results
+- **Action:** Run 5 verification commands sequentially, stop on first failure: (1) Module exists: `ls plugins/iflow/hooks/lib/workflow_engine/`. (2) 6 public methods: `python -c "from workflow_engine import WorkflowStateEngine; print([m for m in dir(WorkflowStateEngine) if not m.startswith('_')])"` lists exactly get_state, transition_phase, complete_phase, validate_prerequisites, list_by_phase, list_by_status. (3) All 10 SC: confirmed by test suite in Task 8.1. (4) Zero external deps: `grep -r "^import \|^from " plugins/iflow/hooks/lib/workflow_engine/ | grep -v "transition_gate\|entity_registry\|__future__\|dataclasses\|os\|json\|typing\|unittest\|pytest"` returns no matches. (5) No modifications: `git diff plugins/iflow/hooks/lib/transition_gate/ plugins/iflow/hooks/lib/entity_registry/` shows no changes
+- **Done when:** All 5 commands pass — single gate: if any command produces unexpected output, the task fails and the failing command is reported
 - **Dependencies:** Task 8.1
 
 ## Dependency Graph
@@ -214,8 +219,8 @@ Phase 6 (sequential, depends on 5.4):
   6.1 → 6.2 → 6.3 → 6.4 → 6.5 → 6.6
 
 Phase 7 (sequential, depends on 6.6):
-  7.1 → 7.2 (parallel with 7.3)
-       → 7.3
+  7.1a → 7.1b → 7.2 (parallel with 7.3)
+                → 7.3
 
 Phase 8 (sequential, depends on 7.2 + 7.3):
   8.1 → 8.2
@@ -228,7 +233,7 @@ scopes (gate spy verification vs hydration path) — parallel execution is safe.
 
 ## Summary
 
-- **Total tasks:** 30
+- **Total tasks:** 31
 - **Phases:** 8
 - **Parallel groups:** 2 (Task 2.9 parallel with 2.1-2.8; Task 7.2 parallel with 7.3)
 - **TDD pattern:** RED task (write failing tests) → GREEN task (implement to pass) in each phase
