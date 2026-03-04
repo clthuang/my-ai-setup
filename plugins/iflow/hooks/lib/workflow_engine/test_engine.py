@@ -225,15 +225,25 @@ class TestHelpers:
         result = engine._get_existing_artifacts("008-foo")
         assert set(result) == all_artifacts
 
-    # -- _GATE_GUARD_IDS (2.9) --
+    # -- Guard IDs in gate evaluation (2.9) --
 
-    def test_gate_guard_ids_exists(self) -> None:
-        assert hasattr(WorkflowStateEngine, "_GATE_GUARD_IDS")
-        assert len(WorkflowStateEngine._GATE_GUARD_IDS) == 4
-        assert WorkflowStateEngine._GATE_GUARD_IDS["check_backward_transition"] == "G-18"
-        assert WorkflowStateEngine._GATE_GUARD_IDS["check_hard_prerequisites"] == "G-08"
-        assert WorkflowStateEngine._GATE_GUARD_IDS["check_soft_prerequisites"] == "G-23"
-        assert WorkflowStateEngine._GATE_GUARD_IDS["validate_transition"] == "G-22"
+    def test_guard_ids_in_gate_results(self, tmp_path) -> None:
+        """Guard IDs G-18, G-08, G-23, G-22 appear in gate evaluation results."""
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="design",
+            last_completed_phase="specify",
+        )
+        state = engine.get_state(type_id)
+        assert state is not None
+        results = engine._evaluate_gates(
+            state, "design", [], yolo_active=False
+        )
+        guard_ids = {r.guard_id for r in results}
+        assert "G-18" in guard_ids
+        assert "G-08" in guard_ids
+        assert "G-23" in guard_ids
+        assert "G-22" in guard_ids
 
 
 # ===========================================================================
@@ -1124,3 +1134,614 @@ class TestIntegration:
         state = engine.get_state(type_id)
         assert state is not None
         assert state.source == "db"
+
+
+# ===========================================================================
+# Phase 8: Deepened Tests (test-deepener)
+# ===========================================================================
+
+
+class TestDeepenedBoundaryValues:
+    """Boundary value and equivalence partitioning tests.
+
+    Dimension 2: Tests boundary conditions not covered by existing TDD suite.
+    """
+
+    # -- _derive_completed_phases boundary: first phase (brainstorm) --
+
+    def test_derive_completed_phases_first_phase_brainstorm(self) -> None:
+        """BVA: first phase returns only that phase in completed tuple.
+
+        Anticipate: Off-by-one in slicing could return empty or include next.
+        derived_from: dimension:boundary_values (BVA min)
+        """
+        # Given the first phase in the sequence (brainstorm)
+        engine = WorkflowStateEngine(_make_db(), "/tmp")
+        # When deriving completed phases for the first phase
+        result = engine._derive_completed_phases("brainstorm")
+        # Then only brainstorm is in the completed tuple
+        assert result == ("brainstorm",)
+        assert len(result) == 1
+
+    # -- _extract_slug boundary: multiple colons --
+
+    def test_extract_slug_multiple_colons_returns_full_slug(self) -> None:
+        """BVA: slug with embedded colons preserves everything after first colon.
+
+        Anticipate: Using split() without maxsplit=1 would drop parts after second colon.
+        derived_from: dimension:boundary_values (string edge)
+        """
+        # Given a type_id with multiple colons
+        engine = WorkflowStateEngine(_make_db(), "/tmp")
+        # When extracting the slug
+        result = engine._extract_slug("feature:008-foo:bar:baz")
+        # Then everything after first colon is returned
+        assert result == "008-foo:bar:baz"
+
+    # -- list_by_status empty results --
+
+    def test_list_by_status_no_entities_returns_empty(self, tmp_path) -> None:
+        """BVA: empty DB returns empty list for list_by_status.
+
+        Anticipate: Missing guard on empty entity list could raise.
+        derived_from: dimension:boundary_values (empty collection)
+        """
+        # Given an empty database
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        # When querying by status
+        results = engine.list_by_status("active")
+        # Then empty list is returned
+        assert results == []
+
+    # -- _get_existing_artifacts when feature dir doesn't exist --
+
+    def test_get_existing_artifacts_missing_dir_returns_empty(self, tmp_path) -> None:
+        """BVA: non-existent feature dir returns empty list (not error).
+
+        Anticipate: os.path.exists on children of missing dir could raise or
+        the sorted() comprehension could fail.
+        derived_from: dimension:boundary_values (empty/missing)
+        """
+        # Given a feature slug whose directory does not exist
+        engine = WorkflowStateEngine(_make_db(), str(tmp_path))
+        # When checking artifacts
+        result = engine._get_existing_artifacts("999-nonexistent")
+        # Then empty list is returned (no error)
+        assert result == []
+
+    # -- _derive_completed_phases boundary: second phase (specify) --
+
+    def test_derive_completed_phases_second_phase_includes_first(self) -> None:
+        """BVA: second phase returns first two phases in order.
+
+        Anticipate: Off-by-one in idx+1 slicing could miss first or include third.
+        derived_from: dimension:boundary_values (BVA min+1)
+        """
+        # Given the second phase (specify)
+        engine = WorkflowStateEngine(_make_db(), "/tmp")
+        # When deriving completed phases
+        result = engine._derive_completed_phases("specify")
+        # Then brainstorm and specify are included in order
+        assert result == ("brainstorm", "specify")
+        assert len(result) == 2
+
+    # -- _next_phase_value boundary: second-to-last phase --
+
+    def test_next_phase_value_second_to_last_returns_finish(self) -> None:
+        """BVA: implement (second-to-last) returns finish (last).
+
+        Anticipate: Off-by-one in idx >= len-1 check could wrongly return None.
+        derived_from: dimension:boundary_values (BVA max-1)
+        """
+        # Given the second-to-last phase (implement)
+        engine = WorkflowStateEngine(_make_db(), "/tmp")
+        # When getting next phase
+        result = engine._next_phase_value("implement")
+        # Then finish is returned
+        assert result == "finish"
+
+    # -- list_by_phase with many features, only one matches --
+
+    def test_list_by_phase_single_match_among_many(self, tmp_path) -> None:
+        """BVA: one-of-many match returns exactly one result.
+
+        Anticipate: Filtering bug could return all or none.
+        derived_from: dimension:boundary_values (collection single element)
+        """
+        # Given 5 features in various phases, only 1 in "implement"
+        db = _make_db()
+        for i, phase in enumerate(
+            ["design", "design", "specify", "implement", "finish"]
+        ):
+            slug = f"00{i}-feat"
+            tid = _register_feature(db, slug)
+            db.create_workflow_phase(tid, workflow_phase=phase)
+
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        # When listing by phase "implement"
+        results = engine.list_by_phase("implement")
+        # Then exactly one result
+        assert len(results) == 1
+        assert results[0].current_phase == "implement"
+
+
+class TestDeepenedAdversarial:
+    """Adversarial and negative testing.
+
+    Dimension 3: Edge cases that could reveal hidden bugs.
+    """
+
+    def test_transition_to_unknown_phase_gate_returns_invalid(self, tmp_path) -> None:
+        """Adversarial: transitioning to a nonexistent phase name.
+
+        Anticipate: _evaluate_gates passes unknown phase to gate functions which
+        should return INVALID results, not crash.
+        derived_from: dimension:adversarial (wrong data type/logically invalid)
+        """
+        # Given a feature at specify
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="specify",
+            last_completed_phase="brainstorm",
+        )
+        # When transitioning to an invalid phase
+        results = engine.transition_phase(type_id, "nonexistent-phase")
+        # Then at least one gate blocks with INVALID guard_id
+        blocked = [r for r in results if not r.allowed]
+        assert len(blocked) > 0
+
+    def test_complete_unknown_phase_raises_valueerror(self, tmp_path) -> None:
+        """Adversarial: completing a nonexistent phase name raises ValueError.
+
+        Anticipate: Missing validation on phase name could lead to index errors.
+        derived_from: dimension:adversarial (wrong data)
+        """
+        # Given a feature at specify
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="specify",
+            last_completed_phase="brainstorm",
+        )
+        # When completing an unknown phase
+        with pytest.raises(ValueError, match="Unknown phase"):
+            engine.complete_phase(type_id, "nonexistent-phase")
+
+    def test_hydrate_meta_json_with_corrupt_json(self, tmp_path) -> None:
+        """Adversarial: .meta.json contains invalid JSON.
+
+        Anticipate: json.load raises JSONDecodeError. If unhandled, engine crashes
+        instead of returning None.
+        derived_from: dimension:adversarial (starve/corrupt input)
+        """
+        # Given corrupt .meta.json
+        db = _make_db()
+        type_id = _register_feature(db, "008-corrupt")
+        feature_dir = tmp_path / "features" / "008-corrupt"
+        feature_dir.mkdir(parents=True)
+        (feature_dir / ".meta.json").write_text("{not valid json!!!")
+
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        # When hydrating -- should either return None or raise a clean error
+        # (implementation may raise JSONDecodeError -- this is a spec divergence
+        # if the spec expects graceful fallback)
+        try:
+            state = engine._hydrate_from_meta_json(type_id)
+            # If it returns, it should be None (graceful fallback)
+            assert state is None
+        except json.JSONDecodeError:
+            # Acceptable: engine propagates decode error rather than masking it
+            pass
+
+    def test_validate_prerequisites_unknown_phase_gates_handle(
+        self, tmp_path
+    ) -> None:
+        """Adversarial: validate_prerequisites with unknown target phase.
+
+        Anticipate: Gate functions should return blocking results, not crash.
+        derived_from: dimension:adversarial (logically invalid but syntactically correct)
+        """
+        # Given a feature at design
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="design",
+            last_completed_phase="specify",
+        )
+        # When validating unknown target
+        results = engine.validate_prerequisites(type_id, "imaginary-phase")
+        # Then should have blocking results (from G-08 at minimum)
+        blocked = [r for r in results if not r.allowed]
+        assert len(blocked) > 0
+
+    def test_transition_to_same_phase_as_current(self, tmp_path) -> None:
+        """Adversarial: transitioning to the same phase you're already in.
+
+        Anticipate: Edge case -- this is technically backward (target_idx <= current_idx).
+        G-22 should warn, G-18 should warn if last_completed covers it.
+        derived_from: dimension:adversarial (zero/one/many -- zero distance)
+        """
+        # Given a feature at design with specify completed
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="design",
+            last_completed_phase="specify",
+        )
+        feature_dir = tmp_path / "features" / "008-test-feature"
+        feature_dir.mkdir(parents=True, exist_ok=True)
+        (feature_dir / "spec.md").write_text("# Spec")
+
+        # When transitioning to the same phase (design)
+        results = engine.transition_phase(type_id, "design")
+        # Then G-22 should warn about target not ahead
+        g22 = [r for r in results if r.guard_id == "G-22"]
+        assert len(g22) == 1
+        assert g22[0].severity.value == "warn"
+
+
+class TestDeepenedErrorPropagation:
+    """Error propagation and failure mode tests.
+
+    Dimension 4: Verify error messages are informative and errors propagate correctly.
+    """
+
+    def test_valueerror_message_contains_feature_type_id(self, tmp_path) -> None:
+        """Error messages include the feature_type_id for debuggability.
+
+        Anticipate: Generic "not found" without context makes debugging hard.
+        derived_from: dimension:error_propagation (informative error messages)
+        """
+        # Given a nonexistent feature
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        # When calling transition_phase
+        with pytest.raises(ValueError, match="999-nonexistent"):
+            engine.transition_phase("feature:999-nonexistent", "specify")
+
+    def test_complete_phase_mismatch_message_includes_both_phases(
+        self, tmp_path
+    ) -> None:
+        """Phase mismatch error includes both current and requested phase.
+
+        Anticipate: Error message missing context makes it unclear what failed.
+        derived_from: dimension:error_propagation (informative error messages)
+        """
+        # Given a feature at specify
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="specify",
+            last_completed_phase="brainstorm",
+        )
+        # When completing wrong phase (design, which is ahead)
+        with pytest.raises(ValueError) as exc_info:
+            engine.complete_phase(type_id, "design")
+        # Then error mentions both phases
+        msg = str(exc_info.value)
+        assert "design" in msg
+        assert "specify" in msg
+
+    def test_yolo_override_replaces_gate_result_in_place(self, tmp_path) -> None:
+        """YOLO override replaces the gate result entirely (not appended).
+
+        Anticipate: If YOLO result is appended alongside original, result count doubles.
+        derived_from: dimension:error_propagation (YOLO override contract)
+        """
+        # Given a feature at design with specify completed
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="design",
+            last_completed_phase="specify",
+        )
+        # When evaluating gates with and without YOLO
+        state = engine.get_state(type_id)
+        assert state is not None
+
+        results_normal = engine._evaluate_gates(
+            state, "create-plan", ["spec.md", "design.md"], yolo_active=False
+        )
+        results_yolo = engine._evaluate_gates(
+            state, "create-plan", ["spec.md", "design.md"], yolo_active=True
+        )
+        # Then both produce the same number of results (replacement, not addition)
+        assert len(results_normal) == len(results_yolo)
+
+    def test_transition_blocked_does_not_update_db(self, tmp_path) -> None:
+        """When any gate blocks, DB must NOT be updated.
+
+        Anticipate: If DB update happens before gate check, state corrupts.
+        derived_from: dimension:error_propagation (partial failure consistency)
+        """
+        # Given a feature at specify, missing required artifacts for design
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="specify",
+            last_completed_phase="brainstorm",
+        )
+        # When transition is blocked (no spec.md for design)
+        results = engine.transition_phase(type_id, "design")
+        assert any(not r.allowed for r in results)
+        # Then DB still shows "specify"
+        row = db.get_workflow_phase(type_id)
+        assert row is not None
+        assert row["workflow_phase"] == "specify"
+        assert row["last_completed_phase"] == "brainstorm"
+
+
+class TestDeepenedMutationMindset:
+    """Mutation-targeted behavioral pinning tests.
+
+    Dimension 5: Each test targets a specific mutation operator that could
+    silently corrupt behavior if applied.
+    """
+
+    def test_complete_phase_updates_both_last_completed_and_workflow_phase(
+        self, tmp_path
+    ) -> None:
+        """Pin: complete_phase must update BOTH last_completed AND workflow_phase.
+
+        Mutation target: Deleting the last_completed_phase= kwarg in update call.
+        derived_from: dimension:mutation_mindset (line deletion)
+        """
+        # Given a feature at specify with brainstorm completed
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="specify",
+            last_completed_phase="brainstorm",
+        )
+        # When completing specify
+        state = engine.complete_phase(type_id, "specify")
+        # Then BOTH fields updated
+        assert state.last_completed_phase == "specify"  # last_completed updated
+        assert state.current_phase == "design"  # workflow_phase advanced
+        # Verify via raw DB too
+        row = db.get_workflow_phase(type_id)
+        assert row["last_completed_phase"] == "specify"
+        assert row["workflow_phase"] == "design"
+
+    def test_transition_phase_only_updates_workflow_phase_not_last_completed(
+        self, tmp_path
+    ) -> None:
+        """Pin: transition_phase must ONLY update workflow_phase.
+
+        Mutation target: Adding last_completed_phase= to the transition update call.
+        derived_from: dimension:mutation_mindset (line deletion / return value mutation)
+        """
+        # Given a feature at specify with brainstorm completed
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="specify",
+            last_completed_phase="brainstorm",
+        )
+        feature_dir = tmp_path / "features" / "008-test-feature"
+        feature_dir.mkdir(parents=True, exist_ok=True)
+        (feature_dir / "spec.md").write_text("# Spec")
+
+        # When transitioning to design
+        results = engine.transition_phase(type_id, "design")
+        assert all(r.allowed for r in results)
+        # Then workflow_phase changed but last_completed_phase did NOT change
+        row = db.get_workflow_phase(type_id)
+        assert row["workflow_phase"] == "design"
+        assert row["last_completed_phase"] == "brainstorm"  # unchanged!
+
+    def test_all_gates_must_pass_for_transition_not_any(self, tmp_path) -> None:
+        """Pin: transition uses all() not any() for gate pass check.
+
+        Mutation target: Swapping all(r.allowed ...) to any(r.allowed ...).
+        If any() were used, transition would proceed even with one blocking gate.
+        derived_from: dimension:mutation_mindset (logic inversion)
+        """
+        # Given a feature at specify, missing required artifact for design
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="specify",
+            last_completed_phase="brainstorm",
+        )
+        # No spec.md -> G-08 will block, but G-23 might pass
+        results = engine.transition_phase(type_id, "design")
+
+        # Verify at least one gate blocks
+        blocked = [r for r in results if not r.allowed]
+        assert len(blocked) >= 1
+        # Verify at least one gate passes (so any() would wrongly pass)
+        passed = [r for r in results if r.allowed]
+        assert len(passed) >= 1
+        # And transition did NOT happen (all() correctly blocked)
+        row = db.get_workflow_phase(type_id)
+        assert row["workflow_phase"] == "specify"  # unchanged
+
+    def test_backward_skip_uses_last_completed_not_current_phase(
+        self, tmp_path
+    ) -> None:
+        """Pin: backward gate skip condition checks last_completed_phase, not current_phase.
+
+        Mutation target: Changing `state.last_completed_phase is not None` to
+        `state.current_phase is not None` in _evaluate_gates.
+        derived_from: dimension:mutation_mindset (boundary shift)
+        """
+        # Given a feature with current_phase set but last_completed_phase=None
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="brainstorm",
+            last_completed_phase=None,
+        )
+        state = engine.get_state(type_id)
+        assert state is not None
+        assert state.current_phase == "brainstorm"  # current_phase IS set
+        assert state.last_completed_phase is None  # last_completed IS None
+
+        # When evaluating gates
+        results = engine._evaluate_gates(
+            state, "brainstorm", [], yolo_active=False
+        )
+        # Then backward gate (G-18) is SKIPPED (because last_completed is None)
+        guard_ids = [r.guard_id for r in results]
+        assert "G-18" not in guard_ids
+        # If the mutation were applied (checking current_phase instead),
+        # G-18 would be included because current_phase is set.
+
+    def test_backward_rerun_boundary_uses_strict_greater_not_gte(
+        self, tmp_path
+    ) -> None:
+        """Pin: backward re-run check uses `phase_idx > last_idx` not `>=`.
+
+        Mutation target: Changing > to >= in complete_phase would cause completing
+        the same phase as last_completed to raise ValueError instead of allowing it.
+        derived_from: dimension:mutation_mindset (boundary shift >= vs >)
+        """
+        # Given a feature at design with design as last_completed
+        # (i.e., re-running the current phase)
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="design",
+            last_completed_phase="design",
+        )
+        # When completing design (same as last_completed, so phase_idx == last_idx)
+        # This is NOT a mismatch, it's the current phase = design
+        state = engine.complete_phase(type_id, "design")
+        # Then it should succeed (not raise ValueError)
+        assert state.last_completed_phase == "design"
+        assert state.current_phase == "create-plan"
+
+    def test_hydration_completed_status_overrides_last_completed_to_finish(
+        self, tmp_path
+    ) -> None:
+        """Pin: completed status sets last_completed = last_completed or 'finish'.
+
+        Mutation target: Removing the `or "finish"` fallback would leave
+        last_completed as None for completed features without lastCompletedPhase.
+        derived_from: dimension:mutation_mindset (return value mutation)
+        """
+        # Given a completed feature with NO lastCompletedPhase in meta
+        db = _make_db()
+        type_id = _register_feature(db, "008-comp-null")
+        _create_meta_json(
+            tmp_path,
+            "008-comp-null",
+            status="completed",
+            last_completed_phase=None,  # absent
+        )
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        # When hydrating
+        state = engine._hydrate_from_meta_json(type_id)
+        # Then last_completed defaults to "finish" (not None)
+        assert state is not None
+        assert state.last_completed_phase == "finish"
+        assert state.current_phase == "finish"
+        assert len(state.completed_phases) == 7  # all phases
+
+    def test_terminal_phase_next_returns_none_triggers_fallback(
+        self, tmp_path
+    ) -> None:
+        """Pin: _next_phase_value('finish') returns None, complete_phase uses fallback.
+
+        Mutation target: Removing `if next_phase is None: next_phase = phase`
+        would set workflow_phase to None after finishing.
+        derived_from: dimension:mutation_mindset (return value mutation + line deletion)
+        """
+        # Given a feature at finish
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="finish",
+            last_completed_phase="implement",
+        )
+        # When completing finish
+        state = engine.complete_phase(type_id, "finish")
+        # Then workflow_phase stays "finish" (not None)
+        assert state.current_phase == "finish"
+        row = db.get_workflow_phase(type_id)
+        assert row["workflow_phase"] == "finish"
+        assert row["workflow_phase"] is not None
+
+    def test_hydration_planned_status_clears_non_null_last_completed(
+        self, tmp_path
+    ) -> None:
+        """Pin: planned status nullifies lastCompletedPhase even if non-null in meta.
+
+        Mutation target: Removing `last_completed = None` for non-active/completed
+        statuses would preserve stale lastCompletedPhase data.
+        derived_from: dimension:mutation_mindset (line deletion)
+        """
+        # Given a planned feature with stale lastCompletedPhase
+        db = _make_db()
+        type_id = _register_feature(db, "008-stale-planned")
+        _create_meta_json(
+            tmp_path,
+            "008-stale-planned",
+            status="planned",
+            last_completed_phase="design",  # stale data
+        )
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        # When hydrating
+        state = engine._hydrate_from_meta_json(type_id)
+        # Then planned status overrides to null
+        assert state is not None
+        assert state.last_completed_phase is None
+        assert state.current_phase is None
+        assert state.completed_phases == ()
+
+
+class TestDeepenedPerformance:
+    """Performance contract tests.
+
+    Dimension 6: Basic timing assertions for engine operations.
+    """
+
+    def test_single_transition_under_50ms(self, tmp_path) -> None:
+        """Performance: single transition should complete within 50ms.
+
+        derived_from: dimension:performance_contracts (SLA: single operation)
+        """
+        import time
+
+        # Given a feature ready for transition
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="specify",
+            last_completed_phase="brainstorm",
+        )
+        feature_dir = tmp_path / "features" / "008-test-feature"
+        feature_dir.mkdir(parents=True, exist_ok=True)
+        (feature_dir / "spec.md").write_text("# Spec")
+
+        # When timing a transition
+        times = []
+        for _ in range(10):
+            # Reset state for each iteration
+            db.update_workflow_phase(type_id, workflow_phase="specify")
+            start = time.perf_counter()
+            engine.transition_phase(type_id, "design")
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            times.append(elapsed_ms)
+
+        # Then median should be under 50ms
+        times.sort()
+        median = times[len(times) // 2]
+        assert median < 50, f"Median transition time {median:.1f}ms exceeds 50ms SLA"
+
+    def test_batch_query_100_features_under_200ms(self, tmp_path) -> None:
+        """Performance: batch query of 100 features should complete within 200ms.
+
+        derived_from: dimension:performance_contracts (SLA: batch operation)
+        """
+        import time
+
+        # Given 100 registered features with workflow rows
+        db = _make_db()
+        for i in range(100):
+            slug = f"{i:03d}-perf-feature"
+            tid = _register_feature(db, slug, status="active")
+            phase = ["specify", "design", "implement"][i % 3]
+            db.create_workflow_phase(tid, workflow_phase=phase)
+
+        engine = WorkflowStateEngine(db, str(tmp_path))
+
+        # When timing list_by_status
+        start = time.perf_counter()
+        results = engine.list_by_status("active")
+        elapsed_ms = (time.perf_counter() - start) * 1000
+
+        # Then under 200ms and correct count
+        assert len(results) == 100
+        assert elapsed_ms < 200, (
+            f"Batch query time {elapsed_ms:.1f}ms exceeds 200ms SLA"
+        )

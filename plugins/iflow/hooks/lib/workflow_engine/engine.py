@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import os
-from typing import ClassVar
 
 from entity_registry.database import EntityDatabase
 from transition_gate import (
@@ -19,16 +18,15 @@ from transition_gate.constants import HARD_PREREQUISITES
 
 from .models import FeatureWorkflowState
 
+# Precomputed constants from immutable sources
+_PHASE_VALUES: tuple[str, ...] = tuple(p.value for p in PHASE_SEQUENCE)
+_ALL_HARD_ARTIFACTS: frozenset[str] = frozenset(
+    name for names in HARD_PREREQUISITES.values() for name in names
+)
+
 
 class WorkflowStateEngine:
     """Stateless orchestrator -- no mutable instance state beyond constructor refs."""
-
-    _GATE_GUARD_IDS: ClassVar[dict[str, str]] = {
-        "check_backward_transition": "G-18",
-        "check_hard_prerequisites": "G-08",
-        "check_soft_prerequisites": "G-23",
-        "validate_transition": "G-22",
-    }
 
     def __init__(self, db: EntityDatabase, artifacts_root: str) -> None:
         """Store references only. No DB calls, no I/O."""
@@ -43,16 +41,7 @@ class WorkflowStateEngine:
         """Read feature workflow state from DB, falling back to .meta.json hydration."""
         row = self.db.get_workflow_phase(feature_type_id)
         if row is not None:
-            return FeatureWorkflowState(
-                feature_type_id=row["type_id"],
-                current_phase=row["workflow_phase"],
-                last_completed_phase=row["last_completed_phase"],
-                completed_phases=self._derive_completed_phases(
-                    row["last_completed_phase"]
-                ),
-                mode=row["mode"],
-                source="db",
-            )
+            return self._row_to_state(row)
         return self._hydrate_from_meta_json(feature_type_id)
 
     def transition_phase(
@@ -91,12 +80,10 @@ class WorkflowStateEngine:
                 f"{feature_type_id}"
             )
 
-        phase_values = [p.value for p in PHASE_SEQUENCE]
-
-        if phase not in phase_values:
+        if phase not in _PHASE_VALUES:
             raise ValueError(f"Unknown phase: {phase}")
 
-        phase_idx = phase_values.index(phase)
+        phase_idx = _PHASE_VALUES.index(phase)
 
         if phase != state.current_phase:
             # Check if this is a backward re-run
@@ -105,7 +92,7 @@ class WorkflowStateEngine:
                     f"Phase mismatch: cannot complete '{phase}' when current "
                     f"phase is '{state.current_phase}' and no phases completed yet"
                 )
-            last_idx = phase_values.index(state.last_completed_phase)
+            last_idx = _PHASE_VALUES.index(state.last_completed_phase)
             if phase_idx > last_idx:
                 raise ValueError(
                     f"Phase mismatch: cannot complete '{phase}' when current "
@@ -142,19 +129,7 @@ class WorkflowStateEngine:
     def list_by_phase(self, phase: str) -> list[FeatureWorkflowState]:
         """All features currently in the given phase."""
         rows = self.db.list_workflow_phases(workflow_phase=phase)
-        return [
-            FeatureWorkflowState(
-                feature_type_id=row["type_id"],
-                current_phase=row["workflow_phase"],
-                last_completed_phase=row["last_completed_phase"],
-                completed_phases=self._derive_completed_phases(
-                    row["last_completed_phase"]
-                ),
-                mode=row["mode"],
-                source="db",
-            )
-            for row in rows
-        ]
+        return [self._row_to_state(row) for row in rows]
 
     def list_by_status(self, status: str) -> list[FeatureWorkflowState]:
         """All features with the given entity status."""
@@ -166,18 +141,7 @@ class WorkflowStateEngine:
             type_id = entity["type_id"]
             wp_row = self.db.get_workflow_phase(type_id)
             if wp_row is not None:
-                results.append(
-                    FeatureWorkflowState(
-                        feature_type_id=type_id,
-                        current_phase=wp_row["workflow_phase"],
-                        last_completed_phase=wp_row["last_completed_phase"],
-                        completed_phases=self._derive_completed_phases(
-                            wp_row["last_completed_phase"]
-                        ),
-                        mode=wp_row["mode"],
-                        source="db",
-                    )
-                )
+                results.append(self._row_to_state(wp_row))
             else:
                 results.append(
                     FeatureWorkflowState(
@@ -194,6 +158,21 @@ class WorkflowStateEngine:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _row_to_state(
+        self, row: dict, source: str = "db"
+    ) -> FeatureWorkflowState:
+        """Build FeatureWorkflowState from a workflow_phases DB row."""
+        return FeatureWorkflowState(
+            feature_type_id=row["type_id"],
+            current_phase=row["workflow_phase"],
+            last_completed_phase=row["last_completed_phase"],
+            completed_phases=self._derive_completed_phases(
+                row["last_completed_phase"]
+            ),
+            mode=row["mode"],
+            source=source,
+        )
 
     def _extract_slug(self, feature_type_id: str) -> str:
         """Extract slug from type_id. 'feature:008-foo' -> '008-foo'."""
@@ -214,35 +193,30 @@ class WorkflowStateEngine:
         """Derive completed phases tuple from last_completed_phase."""
         if not last_completed:
             return ()
-        phase_values = [p.value for p in PHASE_SEQUENCE]
-        if last_completed not in phase_values:
+        if last_completed not in _PHASE_VALUES:
             raise ValueError(f"Unknown phase: {last_completed}")
-        idx = phase_values.index(last_completed)
-        return tuple(phase_values[: idx + 1])
+        idx = _PHASE_VALUES.index(last_completed)
+        return tuple(_PHASE_VALUES[: idx + 1])
 
     def _next_phase_value(self, current_phase: str) -> str | None:
         """Return the next phase value, or None if at end of sequence."""
-        phase_values = [p.value for p in PHASE_SEQUENCE]
-        if current_phase not in phase_values:
+        if current_phase not in _PHASE_VALUES:
             raise ValueError(f"Unknown phase: {current_phase}")
-        idx = phase_values.index(current_phase)
-        if idx >= len(phase_values) - 1:
+        idx = _PHASE_VALUES.index(current_phase)
+        if idx >= len(_PHASE_VALUES) - 1:
             return None
-        return phase_values[idx + 1]
+        return _PHASE_VALUES[idx + 1]
 
     def _get_existing_artifacts(self, feature_slug: str) -> list[str]:
         """Return list of artifact filenames that exist for this feature."""
         feature_dir = os.path.join(
             self.artifacts_root, "features", feature_slug
         )
-        all_artifacts: set[str] = set()
-        for artifacts_list in HARD_PREREQUISITES.values():
-            all_artifacts.update(artifacts_list)
-        return [
+        return sorted(
             name
-            for name in sorted(all_artifacts)
+            for name in _ALL_HARD_ARTIFACTS
             if os.path.exists(os.path.join(feature_dir, name))
-        ]
+        )
 
     def _hydrate_from_meta_json(
         self, feature_type_id: str
@@ -307,16 +281,7 @@ class WorkflowStateEngine:
                 # Race condition: another caller created the row first
                 row = self.db.get_workflow_phase(feature_type_id)
                 if row is not None:
-                    return FeatureWorkflowState(
-                        feature_type_id=row["type_id"],
-                        current_phase=row["workflow_phase"],
-                        last_completed_phase=row["last_completed_phase"],
-                        completed_phases=self._derive_completed_phases(
-                            row["last_completed_phase"]
-                        ),
-                        mode=row["mode"],
-                        source="meta_json",
-                    )
+                    return self._row_to_state(row, source="meta_json")
             raise
 
         return FeatureWorkflowState(
@@ -327,6 +292,20 @@ class WorkflowStateEngine:
             mode=mode,
             source="meta_json",
         )
+
+    @staticmethod
+    def _run_gate(
+        guard_id: str,
+        gate_fn: ...,
+        *args: ...,
+        yolo_active: bool,
+    ) -> TransitionResult:
+        """Run a single gate with optional YOLO override."""
+        if yolo_active:
+            override = check_yolo_override(guard_id, True)
+            if override is not None:
+                return override
+        return gate_fn(*args)
 
     def _evaluate_gates(
         self,
@@ -340,80 +319,32 @@ class WorkflowStateEngine:
 
         # Gate 1: check_backward_transition (skip if last_completed_phase is None)
         if state.last_completed_phase is not None:
-            guard_id = self._GATE_GUARD_IDS["check_backward_transition"]
-            if yolo_active:
-                override = check_yolo_override(guard_id, True)
-                if override is not None:
-                    results.append(override)
-                else:
-                    results.append(
-                        check_backward_transition(
-                            target_phase, state.last_completed_phase
-                        )
-                    )
-            else:
-                results.append(
-                    check_backward_transition(
-                        target_phase, state.last_completed_phase
-                    )
-                )
+            results.append(self._run_gate(
+                "G-18", check_backward_transition,
+                target_phase, state.last_completed_phase,
+                yolo_active=yolo_active,
+            ))
 
         # Gate 2: check_hard_prerequisites (never skipped)
-        guard_id = self._GATE_GUARD_IDS["check_hard_prerequisites"]
-        if yolo_active:
-            override = check_yolo_override(guard_id, True)
-            if override is not None:
-                results.append(override)
-            else:
-                results.append(
-                    check_hard_prerequisites(target_phase, existing_artifacts)
-                )
-        else:
-            results.append(
-                check_hard_prerequisites(target_phase, existing_artifacts)
-            )
+        results.append(self._run_gate(
+            "G-08", check_hard_prerequisites,
+            target_phase, existing_artifacts,
+            yolo_active=yolo_active,
+        ))
 
         # Gate 3: check_soft_prerequisites (never skipped)
-        guard_id = self._GATE_GUARD_IDS["check_soft_prerequisites"]
-        if yolo_active:
-            override = check_yolo_override(guard_id, True)
-            if override is not None:
-                results.append(override)
-            else:
-                results.append(
-                    check_soft_prerequisites(
-                        target_phase, list(state.completed_phases)
-                    )
-                )
-        else:
-            results.append(
-                check_soft_prerequisites(
-                    target_phase, list(state.completed_phases)
-                )
-            )
+        results.append(self._run_gate(
+            "G-23", check_soft_prerequisites,
+            target_phase, list(state.completed_phases),
+            yolo_active=yolo_active,
+        ))
 
         # Gate 4: validate_transition (skip if current_phase is None)
         if state.current_phase is not None:
-            guard_id = self._GATE_GUARD_IDS["validate_transition"]
-            if yolo_active:
-                override = check_yolo_override(guard_id, True)
-                if override is not None:
-                    results.append(override)
-                else:
-                    results.append(
-                        validate_transition(
-                            state.current_phase,
-                            target_phase,
-                            list(state.completed_phases),
-                        )
-                    )
-            else:
-                results.append(
-                    validate_transition(
-                        state.current_phase,
-                        target_phase,
-                        list(state.completed_phases),
-                    )
-                )
+            results.append(self._run_gate(
+                "G-22", validate_transition,
+                state.current_phase, target_phase, list(state.completed_phases),
+                yolo_active=yolo_active,
+            ))
 
         return results
