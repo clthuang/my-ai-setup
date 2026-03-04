@@ -59,7 +59,7 @@
 - [ ] Add `import pytest`, `import json`
 - [ ] Add `from entity_registry.database import EntityDatabase`
 - [ ] Add `from workflow_engine.engine import WorkflowStateEngine`
-- [ ] **Verify API signatures exist:** Run `plugins/iflow/.venv/bin/python -c "from entity_registry.database import EntityDatabase; db = EntityDatabase(':memory:'); db.register_entity('feature', 'x', 'X'); db.create_workflow_phase('feature:x', workflow_phase='specify'); print('API OK')"` — must print "API OK" without error
+- [ ] **Verify API signatures exist:** Run `plugins/iflow/.venv/bin/python -c "from entity_registry.database import EntityDatabase; db = EntityDatabase(':memory:'); db.register_entity('feature', 'x', 'X', status='active'); db.create_workflow_phase('feature:x', workflow_phase='specify'); print('API OK')"` — must print "API OK" without error
 - [ ] Create `db` fixture returning `EntityDatabase(":memory:")`
 - [ ] Create `engine` fixture returning `WorkflowStateEngine(db, str(tmp_path))`
 - [ ] Create `seeded_engine` fixture: register entity `("feature", "009-test", "Test Feature", status="active")`, create workflow phase `("feature:009-test", workflow_phase="specify")`, return engine
@@ -111,8 +111,8 @@
 ### Task 2.4: Tests + `_process_transition_phase`
 
 - [ ] **RED:** Write test `test_transition_phase_success` — all gates pass → `transitioned: true`, `allowed: true`
-- [ ] **RED:** Write test `test_transition_phase_blocked` — transition to `design` without `spec.md` in `tmp_path`. Gate G-08 (`check_hard_prerequisites`, enforcement=hard_block, yolo_behavior=unchanged) blocks because `spec.md` is a hard prerequisite for `design` phase. Assert `transitioned: false` and result contains `guard_id: "G-08"`.
-- [ ] **RED:** Write test `test_transition_phase_yolo_active` — seed feature at `specify` phase (via `seeded_engine`), attempt transition to `create-plan` without completing `specify` first (no `specify` in `completed_phases`). Gate G-23 (`check_soft_prerequisites`, enforcement=soft_warn, yolo_behavior=auto_select) would normally block. Call with `yolo_active=True` → YOLO overrides G-23 → assert `transitioned: true`. Note: still need `spec.md` in `tmp_path` for G-08 hard prereq to pass.
+- [ ] **RED:** Write test `test_transition_phase_blocked` — transition to `design` without `spec.md` in `tmp_path`. Gate G-08 (`check_hard_prerequisites`, enforcement=hard_block, yolo_behavior=unchanged) blocks because `spec.md` is a hard prerequisite for `design` phase. Assert `transitioned: false`. Parse JSON result and verify at least one result entry has `guard_id: "G-08"` — this confirms the correct gate fired, not some other failure.
+- [ ] **RED:** Write test `test_transition_phase_yolo_active` — **Prerequisite verification:** Run `plugins/iflow/.venv/bin/python -c "from transition_gate.constants import GUARD_METADATA; meta = GUARD_METADATA['G-23']; print(f'enforcement={meta[\"enforcement\"]}, yolo={meta[\"yolo_behavior\"]}')"` to confirm G-23 is soft_warn/auto_select. **Test setup:** Use `seeded_engine` (feature at `specify` phase, `completed_phases` is empty). Create `spec.md` in `tmp_path` so G-08 hard prereqs pass for `design` target. Attempt transition to `design` with `yolo_active=False` first and assert `transitioned: false` (G-23 blocks on soft prereq — specify not in completed_phases). Then call with `yolo_active=True` → YOLO overrides G-23 → assert `transitioned: true`.
 - [ ] **RED:** Write test `test_transition_phase_value_error` — monkeypatch `engine.transition_phase` to raise `ValueError("bad phase")`, assert `"Error: bad phase"`
 - [ ] **RED:** Write test `test_transition_phase_unexpected_exception` — monkeypatch `engine.transition_phase` to raise `RuntimeError`, assert `"Internal error: ..."` prefix
 - [ ] Verify tests fail (RED)
@@ -124,7 +124,7 @@
 **Depends on:** 2.2
 **AC coverage:** AC-2, AC-7 (yolo_active), AC-11 (invalid phase)
 **Gate details:** G-08 (hard_block, unchanged — blocks missing hard prereq artifacts), G-23 (soft_warn, auto_select — YOLO-overridable soft prerequisites)
-**Done when:** 5 tests pass — success, blocked (G-08), yolo_active (G-23 overridden), ValueError, unexpected exception.
+**Done when:** 5 tests pass — success, blocked (G-08 verified in results), yolo_active (G-23 overridden, both with/without YOLO verified), ValueError, unexpected exception.
 
 ---
 
@@ -211,7 +211,7 @@
 - [ ] Verify: lifespan uses `read_config()` for `artifacts_root`
 - [ ] Verify: lifespan creates `WorkflowStateEngine(_db, _artifacts_root)`
 - [ ] Verify: cleanup closes DB and sets globals to None
-- [ ] **Integration check:** Run `plugins/iflow/.venv/bin/python -c "import workflow_state_server; print('lifespan OK')"` — verify module still imports without error after adding lifespan
+- [ ] **Integration check:** Run `cd plugins/iflow/mcp && ../../../plugins/iflow/.venv/bin/python -c "import workflow_state_server; print('lifespan OK')"` — verify module still imports without error after adding lifespan (must run from mcp/ directory for module resolution)
 
 **File:** `plugins/iflow/mcp/workflow_state_server.py` (Modify — add I1, I2)
 **Design ref:** I1, I2
@@ -226,7 +226,7 @@
 - [ ] Add 6 `@mcp.tool()` async functions: `get_phase`, `transition_phase`, `complete_phase`, `validate_prerequisites`, `list_features_by_phase`, `list_features_by_status` per I3
 - [ ] Each handler: None-guard on `_engine`, delegates to corresponding `_process_*()` function
 - [ ] Add `if __name__ == "__main__": mcp.run(transport="stdio")` entry point
-- [ ] Verify: `plugins/iflow/.venv/bin/python -c "import workflow_state_server"` succeeds (no import errors)
+- [ ] Verify: `cd plugins/iflow/mcp && ../../../plugins/iflow/.venv/bin/python -c "import workflow_state_server; print('import OK')"` succeeds (must run from mcp/ directory)
 
 **File:** `plugins/iflow/mcp/workflow_state_server.py` (Modify — add I3)
 **Design ref:** I3
@@ -291,7 +291,7 @@
 
 ### Task 5.4: Performance check (SC-6)
 
-- [ ] Add `large_db` fixture: create `EntityDatabase(":memory:")`, loop `for i in range(50)`: `db.register_entity("feature", f"perf-{i:03d}", f"Perf Test {i}", status="active")` then `db.create_workflow_phase(f"feature:perf-{i:03d}", workflow_phase="specify")`. Return `WorkflowStateEngine(db, str(tmp_path))`.
+- [ ] Add `large_db` fixture with `tmp_path` parameter: `def large_db(tmp_path)` — create `EntityDatabase(":memory:")`, loop `for i in range(50)`: `db.register_entity("feature", f"perf-{i:03d}", f"Perf Test {i}", status="active")` then `db.create_workflow_phase(f"feature:perf-{i:03d}", workflow_phase="specify")`. Return `WorkflowStateEngine(db, str(tmp_path))`.
 - [ ] Add `test_performance_get_phase`: use `large_db` fixture, assert `_process_get_phase(engine, "feature:perf-025")` completes in < 100ms (use `time.perf_counter()`)
 - [ ] Add `test_performance_list_by_phase`: assert `_process_list_features_by_phase(engine, "specify")` completes in < 100ms with 50 features
 - [ ] Add `test_performance_list_by_status`: assert `_process_list_features_by_status(engine, "active")` completes in < 100ms with 50 features
@@ -301,7 +301,7 @@
 **File:** `plugins/iflow/mcp/test_workflow_state_server.py` (Modify — add timing tests)
 **Depends on:** 5.1
 **AC coverage:** SC-6
-**Done when:** All 4 performance tests pass under 100ms. If CI fails due to contention, mark with `@pytest.mark.slow`.
+**Done when:** Fixture signature includes `tmp_path` parameter. All 4 performance tests pass under 100ms. If CI fails due to contention, mark with `@pytest.mark.slow`.
 
 ---
 
