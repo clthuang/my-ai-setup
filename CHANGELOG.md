@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- WorkflowStateEngine: stateless orchestrator for workflow phase transitions with DB + .meta.json hydration fallback
+- Ordered gate evaluation pipeline composing transition_gate functions (backward, hard prerequisites, soft prerequisites, validate_transition)
+- YOLO override integration via `check_yolo_override` at each gate
+- Lazy hydration from .meta.json with automatic DB backfill and race condition handling
+- 85 tests covering all transition paths, gate combinations, hydration scenarios, and edge cases (4.7:1 test-to-code ratio)
+
 ## [4.8.0] - 2026-03-04
 
 ### Added
