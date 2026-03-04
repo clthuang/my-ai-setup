@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.8.0] - 2026-03-04
+
 ### Added
 - Python transition control gate library with 25 gate functions covering all 43 guard IDs across 7 workflow phases
 - Pure stdlib implementation (zero external dependencies) with `GateResult` dataclass return type
