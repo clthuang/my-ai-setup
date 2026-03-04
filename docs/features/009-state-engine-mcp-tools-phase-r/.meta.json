@@ -10,7 +10,7 @@
   "depends_on_features": [
     "008-workflowstateengine-core"
   ],
-  "lastCompletedPhase": "design",
+  "lastCompletedPhase": "create-plan",
   "phases": {
     "specify": {
       "started": "2026-03-04T15:00:00+08:00",
@@ -30,6 +30,18 @@
         "handoffReview": { "started": "2026-03-04T16:40:00+08:00", "completed": "2026-03-04T16:50:00+08:00", "iterations": 2, "approved": true, "reviewerNotes": [] }
       },
       "completed": "2026-03-04T16:50:00+08:00"
+    },
+    "create-plan": {
+      "started": "2026-03-04T16:55:00+08:00",
+      "completed": "2026-03-04T17:30:00+08:00",
+      "planReview": {
+        "iterations": 3,
+        "approved": true
+      },
+      "chainReview": {
+        "iterations": 3,
+        "approved": true
+      }
     }
   }
 }
