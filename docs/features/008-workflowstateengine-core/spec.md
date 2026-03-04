@@ -56,7 +56,7 @@ class FeatureWorkflowState:
     feature_type_id: str       # e.g., "feature:008-workflowstateengine-core"
     current_phase: str | None  # current workflow_phase value
     last_completed_phase: str | None
-    completed_phases: list[str]  # all phases up to and including last_completed_phase
+    completed_phases: tuple[str, ...]  # all phases up to and including last_completed_phase
     mode: str | None           # "standard" | "full" | None (workflow mode, not runtime YOLO flag)
     source: str                # "db" | "meta_json" — indicates which source was used
 ```
@@ -126,7 +126,7 @@ On first access per feature (when `get_workflow_phase()` returns None):
 3. Parse `.meta.json`: extract `lastCompletedPhase`, `status`, `mode`, `phases` dict
 4. Derive `workflow_phase` based on status (status field takes precedence over `lastCompletedPhase`):
    - If status is `"active"`: derive next phase from `PHASE_SEQUENCE` indexing — find `lastCompletedPhase` index, set `workflow_phase = PHASE_SEQUENCE[idx + 1].value` (or `PHASE_SEQUENCE[0].value` if `lastCompletedPhase` is null)
-   - If status is `"completed"`: set `workflow_phase = None` (workflow is done), regardless of `lastCompletedPhase` value
+   - If status is `"completed"`: set `workflow_phase = "finish"` (aligns with backfill.py convention — see Design TD-8), regardless of `lastCompletedPhase` value
    - If status is `"planned"`: set `workflow_phase = None`, `last_completed_phase = None` (not started — any non-null `lastCompletedPhase` in .meta.json is treated as stale data)
    - For any other status value (e.g., `"abandoned"`, `"on-hold"`): set `workflow_phase = None`, `last_completed_phase = None` (unknown/terminal statuses are treated as inactive)
 5. Call `create_workflow_phase()` to backfill the row
@@ -247,12 +247,12 @@ All engine methods accept `feature_type_id` in the format `"feature:{id}-{slug}"
 ```python
 from transition_gate import PHASE_SEQUENCE
 
-def _derive_completed_phases(last_completed: str | None) -> list[str]:
+def _derive_completed_phases(last_completed: str | None) -> tuple[str, ...]:
     if not last_completed:
-        return []
+        return ()
     phase_values = [p.value for p in PHASE_SEQUENCE]
     idx = phase_values.index(last_completed)
-    return phase_values[:idx + 1]
+    return tuple(phase_values[:idx + 1])
 ```
 
 ### Deriving next phase from PHASE_SEQUENCE
