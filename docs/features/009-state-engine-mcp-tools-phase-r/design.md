@@ -340,7 +340,7 @@ def _process_list_features_by_status(engine: WorkflowStateEngine, status: str) -
 
 **Key design notes:**
 - `_serialize_state()` and `_serialize_result()` are shared helpers, not processing functions. They don't catch exceptions.
-- `_process_get_phase` does NOT catch `ValueError` separately because `get_state()` returns `None` (not raises) for missing features.
+- `_process_get_phase` does NOT catch `ValueError` separately because `get_state()` returns `None` (not raises) for missing features. This is guaranteed by the `WorkflowStateEngine` public API contract (spec Dependency API): `get_state() -> FeatureWorkflowState | None`. Any future engine change that breaks this contract would be a breaking API change requiring coordinated updates.
 - `_process_list_*` functions do NOT catch `ValueError` separately because `list_by_phase()` and `list_by_status()` don't raise `ValueError`.
 - `_process_transition_phase` and `_process_complete_phase` catch `ValueError` because the engine raises it for "Feature not found", invalid phases, etc.
 
