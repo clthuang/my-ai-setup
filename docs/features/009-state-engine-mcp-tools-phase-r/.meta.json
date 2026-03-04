@@ -1,0 +1,24 @@
+{
+  "id": "009",
+  "slug": "state-engine-mcp-tools-phase-r",
+  "status": "active",
+  "created": "2026-03-01T16:27:59+08:00",
+  "mode": "standard",
+  "branch": "feature/009-state-engine-mcp-tools-phase-r",
+  "project_id": "P001",
+  "module": "State Engine",
+  "depends_on_features": [
+    "008-workflowstateengine-core"
+  ],
+  "lastCompletedPhase": "specify",
+  "phases": {
+    "specify": {
+      "started": "2026-03-04T15:00:00+08:00",
+      "completed": "2026-03-04T15:30:00+08:00",
+      "phaseReview": {
+        "iterations": 2,
+        "approved": true
+      }
+    }
+  }
+}
