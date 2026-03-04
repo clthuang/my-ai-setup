@@ -67,25 +67,30 @@ class FeatureWorkflowState:
 
 1. Read current state (FR-1)
 2. Resolve existing artifacts via `_get_existing_artifacts()` (FR-7)
-3. Validate transition via gate functions (in order):
-   - `check_backward_transition(target_phase, last_completed_phase)` — warn on backward, don't block
+3. Validate transition via gate functions (in order, skipping inapplicable gates):
+   - `check_backward_transition(target_phase, last_completed_phase)` — warn on backward, don't block. **Skip if `last_completed_phase` is None** (new feature, no completed phases — backward check is inapplicable)
    - `check_hard_prerequisites(target_phase, existing_artifacts)` — block if missing required artifacts
-   - `check_soft_prerequisites(target_phase, existing_artifacts)` — warn on missing optional artifacts
-   - `validate_transition(current_phase, target_phase, completed_phases)` — validate phase ordering
+   - `check_soft_prerequisites(target_phase, completed_phases)` — warn on skipped optional phases between last completed and target
+   - `validate_transition(current_phase, target_phase, completed_phases)` — validate phase ordering. **Skip if `current_phase` is None** (new feature entering first phase — ordering check is inapplicable)
    - For each gate: if `yolo_active=True`, prepend `check_yolo_override(guard_id, True)` — if override returns non-None, use that result instead of the gate result
 4. If all gates pass (no `allowed=False` results): update `workflow_phases` table via `update_workflow_phase(type_id, workflow_phase=target_phase, last_completed_phase=current last_completed_phase)`
 5. If any gate returns `allowed=False`: skip the DB update
 6. Return list of all `TransitionResult` objects from gate checks (identical return type for both success and failure paths — caller inspects results to determine outcome)
 
-**Engine-consumed gate functions:** The engine directly invokes these 6 gate functions from `transition_gate`:
-- `check_backward_transition` — backward transition detection
+**Engine-consumed gate functions:** The engine directly invokes these 5 gate functions from `transition_gate`:
+- `check_backward_transition` — backward transition detection (skipped when `last_completed_phase` is None)
 - `check_hard_prerequisites` — hard prerequisite blocking
-- `check_soft_prerequisites` — soft prerequisite warnings
-- `validate_transition` — phase ordering validation
+- `check_soft_prerequisites` — skipped optional phase warnings
+- `validate_transition` — phase ordering validation (skipped when `current_phase` is None)
 - `check_yolo_override` — YOLO mode bypass wrapper
-- `get_next_phase` — next phase derivation (used internally by `complete_phase`)
 
-The remaining 19 gate functions (brainstorm gates, merge gates, branch checks, review gates, circuit breakers, etc.) are command-level concerns consumed directly by skill/command callers. They are out of scope for the engine.
+The remaining 20 gate functions (including `get_next_phase`, brainstorm gates, merge gates, branch checks, review gates, circuit breakers, etc.) are command-level concerns consumed directly by skill/command callers. They are out of scope for the engine.
+
+**Usage pattern — `transition_phase()` vs `complete_phase()`:**
+- `transition_phase(id, target)` validates and moves a feature INTO a phase (e.g., entering "design"). It checks prerequisites and updates `workflow_phase`.
+- `complete_phase(id, phase)` records a phase as completed and advances `workflow_phase` to the next phase. It updates `last_completed_phase`.
+- Typical caller sequence: `transition_phase(id, "design")` → (work happens) → `complete_phase(id, "design")` → `transition_phase(id, "create-plan")` → ...
+- `transition_phase` is the entry gate; `complete_phase` is the exit gate. Both are needed for full lifecycle tracking.
 
 ### FR-3: Phase Completion
 
@@ -118,10 +123,10 @@ On first access per feature (when `get_workflow_phase()` returns None):
 
 1. Check if `.meta.json` exists at `{artifacts_root}/features/{feature_slug}/`
 2. If exists: parse `lastCompletedPhase`, `status`, `mode`, `phases` dict
-3. Derive `workflow_phase` based on status:
+3. Derive `workflow_phase` based on status (status field takes precedence over `lastCompletedPhase`):
    - If status is `"active"`: derive next phase from `PHASE_SEQUENCE` indexing — find `lastCompletedPhase` index, set `workflow_phase = PHASE_SEQUENCE[idx + 1].value` (or `PHASE_SEQUENCE[0].value` if `lastCompletedPhase` is null)
-   - If status is `"completed"`: set `workflow_phase = None` (workflow is done)
-   - If status is `"planned"`: set `workflow_phase = None` (not started)
+   - If status is `"completed"`: set `workflow_phase = None` (workflow is done), regardless of `lastCompletedPhase` value
+   - If status is `"planned"`: set `workflow_phase = None`, `last_completed_phase = None` (not started — any non-null `lastCompletedPhase` in .meta.json is treated as stale data)
 4. Verify entity exists via `get_entity(type_id)`. If not found, return None
 5. Call `create_workflow_phase()` to backfill the row
 6. Return the hydrated state
@@ -133,7 +138,7 @@ If `.meta.json` also missing: return None (feature doesn't exist).
 Gate functions like `check_hard_prerequisites` need to know which artifacts exist. The engine resolves this by checking the filesystem:
 
 ```python
-from transition_gate import HARD_PREREQUISITES
+from transition_gate.constants import HARD_PREREQUISITES
 
 def _get_existing_artifacts(self, feature_slug: str) -> list[str]:
     """Return list of artifact filenames that exist for this feature."""
@@ -180,7 +185,7 @@ Performance measured as wall-clock time using `time.perf_counter()`, warm (secon
 
 | ID | Criterion | Verification |
 |----|-----------|-------------|
-| SC-1 | `transition_phase()` correctly validates and executes forward transitions through all 7 phases | Test: create feature, transition specify→design→...→finish, verify each step |
+| SC-1 | `transition_phase()` and `complete_phase()` correctly validate and execute forward transitions through all 7 phases | Test: create feature, for each phase call `transition_phase(id, phase)` then `complete_phase(id, phase)`, verify workflow_phase advances correctly through specify→design→create-plan→create-tasks→implement→finish |
 | SC-2 | `transition_phase()` blocks transitions when hard prerequisites are missing | Test: attempt design without spec.md, verify `allowed=False` with correct guard_id |
 | SC-3 | `transition_phase()` warns (but allows) backward transitions | Test: complete design, transition back to specify, verify warn severity |
 | SC-4 | Lazy hydration correctly backfills workflow_phases from .meta.json | Test: create .meta.json with lastCompletedPhase="design", call get_state, verify DB row created |
@@ -189,7 +194,7 @@ Performance measured as wall-clock time using `time.perf_counter()`, warm (secon
 | SC-7 | `list_by_phase()` and `list_by_status()` return correct results | Test: create 3 features in different phases, verify queries return correct subsets |
 | SC-8 | YOLO mode passes through to gate functions correctly | Test: transition with yolo_active=True, verify YOLO-skippable gates return skip results |
 | SC-9 | Engine returns "meta_json" source indicator when DB row missing and .meta.json used | Test: delete workflow_phases row, call get_state, verify source="meta_json" |
-| SC-10 | All 6 engine-consumed gate functions (check_backward_transition, check_hard_prerequisites, check_soft_prerequisites, validate_transition, check_yolo_override, get_next_phase) are exercised through engine operations | Test: for each of the 6 consumed gates, at least one integration test exercises a code path that invokes it |
+| SC-10 | All 5 engine-consumed gate functions (check_backward_transition, check_hard_prerequisites, check_soft_prerequisites, validate_transition, check_yolo_override) are exercised through engine operations | Test: for each of the 5 consumed gates, at least one integration test exercises a code path that invokes it |
 
 ## Acceptance Criteria
 
@@ -264,11 +269,11 @@ def _next_phase_value(current_phase: str) -> str | None:
     return phase_values[idx + 1]
 ```
 
-`get_next_phase()` is still invoked as a gate function for validation during transitions, but its `TransitionResult` return value is used for pass/fail signaling, not for extracting the phase name.
+`get_next_phase()` is NOT consumed by the engine. Phase derivation uses `PHASE_SEQUENCE` indexing exclusively (see `_next_phase_value` above). `get_next_phase()` returns a `TransitionResult` which is useful for command-level callers but not needed by the engine's internal logic.
 
 ### Artifact List Source
 
-The artifact existence check (FR-7) derives its artifact list from `transition_gate.HARD_PREREQUISITES` keys to maintain a single source of truth, rather than hardcoding filenames. This ensures the engine stays in sync if artifact requirements change in the gate definitions.
+The artifact existence check (FR-7) derives its artifact list from `transition_gate.constants.HARD_PREREQUISITES` (internal import, not part of transition_gate's public API) to maintain a single source of truth, rather than hardcoding filenames. This ensures the engine stays in sync if artifact requirements change in the gate definitions. This internal import is acceptable because workflow_engine and transition_gate are co-located in the same project and share the same release cycle.
 
 ### Traceability Note
 
