@@ -199,7 +199,7 @@ class WorkflowStateEngine:
         self, last_completed: str | None
     ) -> tuple[str, ...]:
         """Derive completed phases tuple from last_completed_phase."""
-        if not last_completed:
+        if last_completed is None:
             return ()
         if last_completed not in _PHASE_VALUES:
             raise ValueError(f"Unknown phase: {last_completed}")
@@ -284,12 +284,11 @@ class WorkflowStateEngine:
                 last_completed_phase=last_completed,
                 mode=mode,
             )
-        except ValueError as e:
-            if "already exists" in str(e):
-                # Race condition: another caller created the row first
-                row = self.db.get_workflow_phase(feature_type_id)
-                if row is not None:
-                    return self._row_to_state(row, source="meta_json")
+        except ValueError:
+            # Race condition: another caller may have created the row first
+            row = self.db.get_workflow_phase(feature_type_id)
+            if row is not None:
+                return self._row_to_state(row, source="meta_json")
             raise
 
         return FeatureWorkflowState(
