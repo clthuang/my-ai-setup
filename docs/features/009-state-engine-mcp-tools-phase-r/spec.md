@@ -109,7 +109,7 @@ All features currently in a given workflow phase.
 
 - **Input:** `phase: str`
 - **Output:** JSON string array of state objects. Empty array `[]` for phases with no features (no validation against canonical phase values).
-- **Error:** Returns error string on database exceptions.
+- **Error:** Unexpected exceptions (e.g., `sqlite3.OperationalError`) follow R3 format: `"Internal error: {type.__name__}: {message}"`.
 - **Maps to:** `WorkflowStateEngine.list_by_phase()`
 
 #### R2.6: `list_features_by_status`
@@ -118,7 +118,7 @@ All features with a given entity status.
 
 - **Input:** `status: str`
 - **Output:** JSON string array of state objects. Empty array `[]` for statuses with no features (no validation against canonical status values).
-- **Error:** Returns error string on database exceptions.
+- **Error:** Unexpected exceptions follow R3 format: `"Internal error: {type.__name__}: {message}"`.
 - **Maps to:** `WorkflowStateEngine.list_by_status()`
 
 ### R3: Processing Functions
