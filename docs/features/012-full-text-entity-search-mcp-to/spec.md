@@ -42,7 +42,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
 **AC-2:** All 5 indexed fields are searchable via FTS5 MATCH syntax.
 **AC-3:** Existing entities are backfilled into the FTS index on migration.
 
-### R2: Automatic FTS Sync via Triggers
+### R2: Application-Level FTS Sync
 
 Keep the FTS index synchronized with the entities table.
 
@@ -72,11 +72,13 @@ Keep the FTS index synchronized with the entities table.
 
 Example: `{"module": "State Engine", "depends_on": ["001"]}` → `"State Engine 001"`.
 
+**Implementation note:** Existing `register_entity` and `update_entity` commit eagerly after the main table write. The implementation must defer commit until after FTS writes to maintain transactional consistency.
+
 **Edge cases:** Scalar values are converted via `str(value)`. `None`/`null` values are skipped. Booleans become `"True"`/`"False"`. Numeric values become their string form (e.g., `42` → `"42"`). Empty dicts/lists contribute nothing.
 
 **AC-4:** Inserting an entity via `register_entity` makes it immediately searchable.
 **AC-5:** Updating an entity via `update_entity` reflects changes in search results.
-**AC-6:** Deleting an entity removes it from search results.
+**AC-6:** The DELETE FTS sync pattern is specified for future use. When a `delete_entity` method is added, it must remove the entity from search results per the documented pattern. (Not testable in current scope — no `delete_entity` method exists.)
 
 ### R3: Database search_entities Method
 
