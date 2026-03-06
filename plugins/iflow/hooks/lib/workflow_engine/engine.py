@@ -246,28 +246,17 @@ class WorkflowStateEngine:
             if os.path.exists(os.path.join(feature_dir, name))
         )
 
-    def _hydrate_from_meta_json(
-        self, feature_type_id: str
+    def _derive_state_from_meta(
+        self,
+        meta: dict,
+        feature_type_id: str,
+        source: str = "meta_json",
     ) -> FeatureWorkflowState | None:
-        """Lazy hydration: parse .meta.json, derive state, backfill DB row."""
-        # Precondition: entity must exist
-        entity = self.db.get_entity(feature_type_id)
-        if entity is None:
-            return None
+        """Shared phase derivation from .meta.json dict.
 
-        slug = self._extract_slug(feature_type_id)
-        meta_path = os.path.join(
-            self.artifacts_root, "features", slug, ".meta.json"
-        )
-        if not os.path.exists(meta_path):
-            return None
-
-        try:
-            with open(meta_path) as f:
-                meta = json.load(f)
-        except json.JSONDecodeError:
-            return None
-
+        Used by both _hydrate_from_meta_json (DB-backed hydration) and
+        _read_state_from_meta_json (pure-filesystem fallback).
+        """
         status = meta.get("status")
         mode = meta.get("mode")
         last_completed = meta.get("lastCompletedPhase")
@@ -298,13 +287,49 @@ class WorkflowStateEngine:
             last_completed = None
             completed_phases = ()
 
+        return FeatureWorkflowState(
+            feature_type_id=feature_type_id,
+            current_phase=workflow_phase,
+            last_completed_phase=last_completed,
+            completed_phases=completed_phases,
+            mode=mode,
+            source=source,
+        )
+
+    def _hydrate_from_meta_json(
+        self, feature_type_id: str
+    ) -> FeatureWorkflowState | None:
+        """Lazy hydration: parse .meta.json, derive state, backfill DB row."""
+        # Precondition: entity must exist
+        entity = self.db.get_entity(feature_type_id)
+        if entity is None:
+            return None
+
+        slug = self._extract_slug(feature_type_id)
+        meta_path = os.path.join(
+            self.artifacts_root, "features", slug, ".meta.json"
+        )
+        if not os.path.exists(meta_path):
+            return None
+
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+        except json.JSONDecodeError:
+            return None
+
+        # Delegate phase derivation to shared helper (was inline before)
+        state = self._derive_state_from_meta(meta, feature_type_id, source="meta_json")
+        if state is None:
+            return None
+
         # Backfill DB row
         try:
             self.db.create_workflow_phase(
                 feature_type_id,
-                workflow_phase=workflow_phase,
-                last_completed_phase=last_completed,
-                mode=mode,
+                workflow_phase=state.current_phase,
+                last_completed_phase=state.last_completed_phase,
+                mode=state.mode,
             )
         except ValueError:
             # All inputs (workflow_phase, last_completed, mode) are pre-validated
@@ -316,14 +341,7 @@ class WorkflowStateEngine:
                 return self._row_to_state(row, source="meta_json")
             raise
 
-        return FeatureWorkflowState(
-            feature_type_id=feature_type_id,
-            current_phase=workflow_phase,
-            last_completed_phase=last_completed,
-            completed_phases=completed_phases,
-            mode=mode,
-            source="meta_json",
-        )
+        return state
 
     @staticmethod
     def _run_gate(

@@ -1851,3 +1851,129 @@ class TestCheckDbHealth:
 
         monkeypatch.setattr(engine.db, "_conn", MockConn())
         assert engine._check_db_health() is False
+
+
+class TestDeriveStateFromMeta:
+    """Task 1.3: _derive_state_from_meta extraction tests."""
+
+    def test_active_status_with_last_completed(self, tmp_path) -> None:
+        """Active status with lastCompletedPhase derives next phase."""
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        meta = {"status": "active", "mode": "standard", "lastCompletedPhase": "design"}
+
+        state = engine._derive_state_from_meta(meta, "feature:008-test")
+
+        assert state is not None
+        assert state.current_phase == "create-plan"  # next after design
+        assert state.last_completed_phase == "design"
+        assert state.completed_phases == ("brainstorm", "specify", "design")
+        assert state.mode == "standard"
+        assert state.feature_type_id == "feature:008-test"
+
+    def test_active_status_no_completed_phase(self, tmp_path) -> None:
+        """Active status with no lastCompletedPhase uses first phase."""
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        meta = {"status": "active", "mode": "full"}
+
+        state = engine._derive_state_from_meta(meta, "feature:008-new")
+
+        assert state is not None
+        assert state.current_phase == PHASE_SEQUENCE[0].value  # brainstorm
+        assert state.last_completed_phase is None
+        assert state.completed_phases == ()
+
+    def test_active_finished_edge(self, tmp_path) -> None:
+        """Active + lastCompletedPhase='finish' -> workflow_phase='finish'."""
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        meta = {"status": "active", "lastCompletedPhase": "finish"}
+
+        state = engine._derive_state_from_meta(meta, "feature:008-edge")
+
+        assert state is not None
+        # _next_phase_value("finish") returns None, so workflow_phase = last_completed
+        assert state.current_phase == "finish"
+
+    def test_completed_status(self, tmp_path) -> None:
+        """Completed status derives workflow_phase='finish'."""
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        meta = {"status": "completed", "mode": "standard", "lastCompletedPhase": "implement"}
+
+        state = engine._derive_state_from_meta(meta, "feature:008-done")
+
+        assert state is not None
+        assert state.current_phase == "finish"
+        assert state.last_completed_phase == "implement"
+
+    def test_completed_status_no_last_completed_defaults_to_finish(self, tmp_path) -> None:
+        """Completed status with no lastCompletedPhase defaults to 'finish'."""
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        meta = {"status": "completed"}
+
+        state = engine._derive_state_from_meta(meta, "feature:008-comp-null")
+
+        assert state is not None
+        assert state.last_completed_phase == "finish"
+        assert state.current_phase == "finish"
+        assert len(state.completed_phases) == 7  # all phases
+
+    def test_unknown_status(self, tmp_path) -> None:
+        """Unknown status (planned, abandoned, etc.) -> workflow_phase=None."""
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        meta = {"status": "planned", "lastCompletedPhase": "specify"}
+
+        state = engine._derive_state_from_meta(meta, "feature:008-planned")
+
+        assert state is not None
+        assert state.current_phase is None
+        assert state.last_completed_phase is None
+        assert state.completed_phases == ()
+
+    def test_default_source_is_meta_json(self, tmp_path) -> None:
+        """Omitting source arg defaults to 'meta_json'."""
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        meta = {"status": "active", "mode": "standard"}
+
+        state = engine._derive_state_from_meta(meta, "feature:008-default")
+
+        assert state is not None
+        assert state.source == "meta_json"
+
+    def test_custom_source(self, tmp_path) -> None:
+        """Explicit source parameter is passed through."""
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        meta = {"status": "active", "mode": "standard"}
+
+        state = engine._derive_state_from_meta(
+            meta, "feature:008-custom", source="meta_json_fallback"
+        )
+
+        assert state is not None
+        assert state.source == "meta_json_fallback"
+
+    def test_invalid_last_completed_returns_none(self, tmp_path) -> None:
+        """ValueError from _next_phase_value (invalid phase) returns None."""
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        meta = {"status": "active", "lastCompletedPhase": "invalid-phase"}
+
+        state = engine._derive_state_from_meta(meta, "feature:008-bad")
+
+        assert state is None
+
+    def test_completed_with_invalid_last_completed_returns_none(self, tmp_path) -> None:
+        """Completed status with invalid lastCompletedPhase returns None."""
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        meta = {"status": "completed", "lastCompletedPhase": "invalid-phase"}
+
+        state = engine._derive_state_from_meta(meta, "feature:008-bad-comp")
+
+        assert state is None
