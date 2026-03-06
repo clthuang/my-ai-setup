@@ -20,7 +20,7 @@ from entity_registry.database import EntityDatabase
 from semantic_memory.config import read_config
 from transition_gate.models import Severity, TransitionResult
 from workflow_engine.engine import WorkflowStateEngine
-from workflow_engine.models import FeatureWorkflowState
+from workflow_engine.models import FeatureWorkflowState, TransitionResponse
 
 from mcp.server.fastmcp import FastMCP
 
@@ -102,6 +102,16 @@ def _serialize_result(result: TransitionResult) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _make_error(error_type: str, message: str, recovery_hint: str) -> str:
+    """Create structured JSON error response for MCP tools."""
+    return json.dumps({
+        "error": True,
+        "error_type": error_type,
+        "message": message,
+        "recovery_hint": recovery_hint,
+    })
+
+
 def _process_get_phase(engine: WorkflowStateEngine, feature_type_id: str) -> str:
     try:
         state = engine.get_state(feature_type_id)
@@ -119,13 +129,11 @@ def _process_transition_phase(
     yolo_active: bool,
 ) -> str:
     try:
-        results = engine.transition_phase(feature_type_id, target_phase, yolo_active)
-        # allowed and transitioned are always equal; both keys exist for
-        # MCP consumer clarity.  Mirrors engine.py — updates DB iff all pass.
-        transitioned = all(r.allowed for r in results)
+        response = engine.transition_phase(feature_type_id, target_phase, yolo_active)
+        transitioned = all(r.allowed for r in response.results)
         return json.dumps({
             "allowed": transitioned,
-            "results": [_serialize_result(r) for r in results],
+            "results": [_serialize_result(r) for r in response.results],
             "transitioned": transitioned,
         })
     except ValueError as exc:

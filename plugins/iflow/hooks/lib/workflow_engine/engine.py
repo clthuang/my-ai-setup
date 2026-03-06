@@ -22,7 +22,7 @@ from transition_gate import (
 )
 from transition_gate.constants import HARD_PREREQUISITES
 
-from .models import FeatureWorkflowState
+from .models import FeatureWorkflowState, TransitionResponse
 
 # Precomputed constants from immutable sources
 _PHASE_VALUES: tuple[str, ...] = tuple(p.value for p in PHASE_SEQUENCE)
@@ -79,7 +79,7 @@ class WorkflowStateEngine:
         feature_type_id: str,
         target_phase: str,
         yolo_active: bool = False,
-    ) -> list[TransitionResult]:
+    ) -> TransitionResponse:
         """Validate and enter a target phase."""
         state = self.get_state(feature_type_id)
         if state is None:
@@ -94,7 +94,7 @@ class WorkflowStateEngine:
                 feature_type_id, workflow_phase=target_phase
             )
 
-        return results
+        return TransitionResponse(results=tuple(results), degraded=False)
 
     def complete_phase(
         self, feature_type_id: str, phase: str

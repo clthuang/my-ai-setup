@@ -16,9 +16,10 @@ if _hooks_lib not in sys.path:
 from entity_registry.database import EntityDatabase
 from transition_gate.models import Severity, TransitionResult
 from workflow_engine.engine import WorkflowStateEngine
-from workflow_engine.models import FeatureWorkflowState
+from workflow_engine.models import FeatureWorkflowState, TransitionResponse
 
 from workflow_state_server import (
+    _make_error,
     _process_complete_phase,
     _process_get_phase,
     _process_list_features_by_phase,
@@ -126,6 +127,103 @@ class TestSerializeResult:
         assert set(result.keys()) == {"allowed", "reason", "severity", "guard_id"}
         assert result["allowed"] is False
         assert result["guard_id"] == "G-08"
+
+
+# ---------------------------------------------------------------------------
+# _make_error tests (Task 1.5)
+# ---------------------------------------------------------------------------
+
+
+class TestMakeError:
+    """Tests for the _make_error structured error helper."""
+
+    def test_returns_valid_json_string(self):
+        """_make_error returns a parseable JSON string."""
+        result = _make_error("internal", "Something broke", "Report this error")
+        data = json.loads(result)
+        assert isinstance(data, dict)
+
+    def test_json_has_required_keys(self):
+        """JSON structure has exactly error, error_type, message, recovery_hint."""
+        result = _make_error("internal", "Something broke", "Report this error")
+        data = json.loads(result)
+        assert set(data.keys()) == {"error", "error_type", "message", "recovery_hint"}
+
+    def test_error_field_is_true(self):
+        """The error field is always boolean True."""
+        result = _make_error("internal", "Something broke", "Report this error")
+        data = json.loads(result)
+        assert data["error"] is True
+
+    def test_fields_match_arguments(self):
+        """error_type, message, recovery_hint match the arguments passed."""
+        result = _make_error("db_unavailable", "DB is down", "Check DB file")
+        data = json.loads(result)
+        assert data["error_type"] == "db_unavailable"
+        assert data["message"] == "DB is down"
+        assert data["recovery_hint"] == "Check DB file"
+
+    def test_error_type_db_unavailable(self):
+        """db_unavailable error_type produces valid JSON."""
+        result = _make_error("db_unavailable", "DB locked", "Check DB file at /path")
+        data = json.loads(result)
+        assert data["error_type"] == "db_unavailable"
+        assert data["error"] is True
+
+    def test_error_type_feature_not_found(self):
+        """feature_not_found error_type produces valid JSON."""
+        result = _make_error(
+            "feature_not_found",
+            "Feature not found: feature:099-missing",
+            "Verify feature_type_id format: 'feature:{id}-{slug}'",
+        )
+        data = json.loads(result)
+        assert data["error_type"] == "feature_not_found"
+        assert data["error"] is True
+
+    def test_error_type_invalid_transition(self):
+        """invalid_transition error_type produces valid JSON."""
+        result = _make_error(
+            "invalid_transition",
+            "Cannot transition to design",
+            "Check phase name and current state",
+        )
+        data = json.loads(result)
+        assert data["error_type"] == "invalid_transition"
+        assert data["error"] is True
+
+    def test_error_type_internal(self):
+        """internal error_type produces valid JSON."""
+        result = _make_error("internal", "Unexpected error", "Report this error")
+        data = json.loads(result)
+        assert data["error_type"] == "internal"
+        assert data["error"] is True
+
+    def test_error_type_not_initialized(self):
+        """not_initialized error_type produces valid JSON."""
+        result = _make_error(
+            "not_initialized", "Engine not initialized", "Restart MCP server"
+        )
+        data = json.loads(result)
+        assert data["error_type"] == "not_initialized"
+        assert data["error"] is True
+
+    def test_all_error_types_produce_valid_json(self):
+        """All documented error_type values produce parseable JSON with correct structure."""
+        error_types = [
+            "db_unavailable",
+            "feature_not_found",
+            "invalid_transition",
+            "internal",
+            "not_initialized",
+        ]
+        for error_type in error_types:
+            result = _make_error(error_type, f"msg for {error_type}", "hint")
+            data = json.loads(result)
+            assert data["error"] is True, f"error field wrong for {error_type}"
+            assert data["error_type"] == error_type
+            assert data["message"] == f"msg for {error_type}"
+            assert data["recovery_hint"] == "hint"
 
 
 # ---------------------------------------------------------------------------
@@ -728,7 +826,7 @@ class TestMutationMindset:
         ]
         monkeypatch.setattr(
             seeded_engine, "transition_phase",
-            lambda *a, **kw: mixed_results,
+            lambda *a, **kw: TransitionResponse(results=tuple(mixed_results), degraded=False),
         )
         # When transitioning
         result = _process_transition_phase(

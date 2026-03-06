@@ -606,7 +606,7 @@ class TestTransitionPhase:
         feature_dir.mkdir(parents=True, exist_ok=True)
         (feature_dir / "spec.md").write_text("# Spec")
 
-        results = engine.transition_phase(type_id, "design")
+        results = engine.transition_phase(type_id, "design").results
 
         assert all(r.allowed for r in results)
         # Verify DB was updated
@@ -623,7 +623,7 @@ class TestTransitionPhase:
         )
         # No spec.md created -- design requires it
 
-        results = engine.transition_phase(type_id, "design")
+        results = engine.transition_phase(type_id, "design").results
 
         blocked = [r for r in results if not r.allowed]
         assert len(blocked) > 0
@@ -641,7 +641,7 @@ class TestTransitionPhase:
             last_completed_phase="design",
         )
 
-        results = engine.transition_phase(type_id, "specify")
+        results = engine.transition_phase(type_id, "specify").results
 
         # Should have a G-18 warning but all allowed
         g18 = [r for r in results if r.guard_id == "G-18"]
@@ -660,7 +660,7 @@ class TestTransitionPhase:
         feature_dir.mkdir(parents=True, exist_ok=True)
         (feature_dir / "spec.md").write_text("# Spec")
 
-        results = engine.transition_phase(type_id, "design", yolo_active=True)
+        results = engine.transition_phase(type_id, "design", yolo_active=True).results
 
         # With YOLO, soft gates should be overridden
         yolo_results = [r for r in results if "YOLO" in r.reason]
@@ -778,7 +778,8 @@ class TestValidatePrerequisites:
         (feature_dir / "spec.md").write_text("# Spec")
 
         validate_results = engine.validate_prerequisites(type_id, "design")
-        transition_results = engine.transition_phase(type_id, "design")
+        response = engine.transition_phase(type_id, "design")
+        transition_results = response.results
 
         # Same gate evaluation logic -- same results
         assert len(validate_results) == len(transition_results)
@@ -955,7 +956,7 @@ class TestIntegration:
         command_phase_values = [p.value for p in COMMAND_PHASES]
         for phase_value in command_phase_values:
             # Transition into the phase
-            results = engine.transition_phase(type_id, phase_value)
+            results = engine.transition_phase(type_id, phase_value).results
             assert all(r.allowed for r in results), (
                 f"Transition to {phase_value} blocked: "
                 + str([r for r in results if not r.allowed])
@@ -1051,7 +1052,7 @@ class TestIntegration:
             # First transition with yolo_active=True to exercise check_yolo_override
             results = engine.transition_phase(
                 type_id, "specify", yolo_active=True
-            )
+            ).results
             assert all(r.allowed for r in results)
 
             # Complete specify, create artifact
@@ -1060,7 +1061,7 @@ class TestIntegration:
 
             # Transition to design (normal, not YOLO) to exercise
             # backward + hard + soft + validate gates
-            results = engine.transition_phase(type_id, "design")
+            results = engine.transition_phase(type_id, "design").results
             assert all(r.allowed for r in results)
 
             # Assert all 5 gates were called at least once
@@ -1126,7 +1127,7 @@ class TestIntegration:
         assert state.last_completed_phase == "design"
 
         # Transition should succeed using the hydrated state
-        results = engine.transition_phase(type_id, "create-plan")
+        results = engine.transition_phase(type_id, "create-plan").results
         assert all(r.allowed for r in results)
 
         # Verify the DB was updated
@@ -1290,7 +1291,8 @@ class TestDeepenedAdversarial:
             last_completed_phase="brainstorm",
         )
         # When transitioning to an invalid phase
-        results = engine.transition_phase(type_id, "nonexistent-phase")
+        response = engine.transition_phase(type_id, "nonexistent-phase")
+        results = response.results
         # Then at least one gate blocks with INVALID guard_id
         blocked = [r for r in results if not r.allowed]
         assert len(blocked) > 0
@@ -1367,7 +1369,8 @@ class TestDeepenedAdversarial:
         (feature_dir / "spec.md").write_text("# Spec")
 
         # When transitioning to the same phase (design)
-        results = engine.transition_phase(type_id, "design")
+        response = engine.transition_phase(type_id, "design")
+        results = response.results
         # Then G-22 should warn about target not ahead
         g22 = [r for r in results if r.guard_id == "G-22"]
         assert len(g22) == 1
@@ -1453,7 +1456,7 @@ class TestDeepenedErrorPropagation:
             last_completed_phase="brainstorm",
         )
         # When transition is blocked (no spec.md for design)
-        results = engine.transition_phase(type_id, "design")
+        results = engine.transition_phase(type_id, "design").results
         assert any(not r.allowed for r in results)
         # Then DB still shows "specify"
         row = db.get_workflow_phase(type_id)
@@ -1512,7 +1515,7 @@ class TestDeepenedMutationMindset:
         (feature_dir / "spec.md").write_text("# Spec")
 
         # When transitioning to design
-        results = engine.transition_phase(type_id, "design")
+        results = engine.transition_phase(type_id, "design").results
         assert all(r.allowed for r in results)
         # Then workflow_phase changed but last_completed_phase did NOT change
         row = db.get_workflow_phase(type_id)
@@ -1533,7 +1536,8 @@ class TestDeepenedMutationMindset:
             last_completed_phase="brainstorm",
         )
         # No spec.md -> G-08 will block, but G-23 might pass
-        results = engine.transition_phase(type_id, "design")
+        response = engine.transition_phase(type_id, "design")
+        results = response.results
 
         # Verify at least one gate blocks
         blocked = [r for r in results if not r.allowed]
@@ -2895,3 +2899,87 @@ class TestGetStateFallback:
         assert "DB error in get_state" in captured.err
         assert "database is locked" in captured.err
         assert type_id in captured.err
+
+
+# ---------------------------------------------------------------------------
+# TransitionPhase Fallback (Task 4.2a -- RED tests)
+# ---------------------------------------------------------------------------
+
+
+class TestTransitionPhaseFallback:
+    """Task 4.2a: transition_phase() degrades when DB is unavailable.
+
+    These tests are intentionally RED -- transition_phase() currently returns
+    list[TransitionResult], not TransitionResponse. They will turn GREEN once
+    Task 4.2c implements the degraded-path logic.
+    """
+
+    @pytest.mark.xfail(
+        reason="RED: transition_phase returns list, not TransitionResponse yet"
+    )
+    def test_probe_fail_returns_degraded_response(self, tmp_path) -> None:
+        """When _check_db_health returns False, transition_phase returns
+        TransitionResponse with degraded=True."""
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="specify",
+            last_completed_phase="brainstorm",
+        )
+        # Create .meta.json so the fallback get_state can read it
+        _create_meta_json(
+            tmp_path,
+            "008-test-feature",
+            status="active",
+            last_completed_phase="brainstorm",
+        )
+        # Force health probe to fail -- get_state will use .meta.json fallback
+        engine._check_db_health = lambda: False  # type: ignore[assignment]
+
+        response = engine.transition_phase(type_id, "specify")
+
+        assert isinstance(response, TransitionResponse)
+        assert response.degraded is True
+        assert isinstance(response.results, tuple)
+        assert len(response.results) > 0
+
+    @pytest.mark.xfail(
+        reason="RED: transition_phase returns list, not TransitionResponse yet"
+    )
+    def test_db_write_fail_returns_degraded_response(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """When probe passes but db.update_workflow_phase raises sqlite3.Error,
+        transition_phase returns TransitionResponse with degraded=True."""
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="specify",
+            last_completed_phase="brainstorm",
+        )
+        # Create .meta.json (needed as secondary fallback data source)
+        _create_meta_json(
+            tmp_path,
+            "008-test-feature",
+            status="active",
+            last_completed_phase="brainstorm",
+        )
+        # Create spec.md so the hard prerequisite for "design" is satisfied
+        feature_dir = tmp_path / "features" / "008-test-feature"
+        feature_dir.mkdir(parents=True, exist_ok=True)
+        (feature_dir / "spec.md").write_text("# Spec")
+
+        # Probe passes (DB is healthy for reads) but write raises
+        monkeypatch.setattr(
+            db,
+            "update_workflow_phase",
+            lambda *a, **kw: (_ for _ in ()).throw(
+                sqlite3.OperationalError("database is locked")
+            ),
+        )
+
+        response = engine.transition_phase(type_id, "design")
+
+        assert isinstance(response, TransitionResponse)
+        assert response.degraded is True
+        assert isinstance(response.results, tuple)
+        # The transition should still be "allowed" from gate evaluation
+        assert all(r.allowed for r in response.results)
