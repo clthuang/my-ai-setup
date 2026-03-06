@@ -4,7 +4,7 @@
 
 ### Task 1.1.1a: Write TDD tests — envelope, filters, and validation (RED)
 
-- [ ] Write `TestExportEntitiesJson` envelope and filter tests in `test_database.py`
+- [x] Write `TestExportEntitiesJson` envelope and filter tests in `test_database.py`
 
 **File:** `plugins/iflow/hooks/lib/entity_registry/test_database.py`
 **Depends on:** None
@@ -24,7 +24,7 @@ Tests to write:
 
 ### Task 1.1.1b: Write TDD tests — lineage, metadata, ordering, and performance (RED)
 
-- [ ] Write `TestExportEntitiesJson` lineage, metadata, ordering, and performance tests in `test_database.py`
+- [x] Write `TestExportEntitiesJson` lineage, metadata, ordering, and performance tests in `test_database.py`
 
 **File:** `plugins/iflow/hooks/lib/entity_registry/test_database.py`
 **Depends on:** None (can run in parallel with 1.1.1a)
@@ -43,7 +43,7 @@ Tests to write:
 
 ### Task 1.1.2: Implement `EXPORT_SCHEMA_VERSION` and `export_entities_json()` (GREEN)
 
-- [ ] Add `EXPORT_SCHEMA_VERSION = 1` constant and `export_entities_json()` method to `database.py`
+- [x] Add `EXPORT_SCHEMA_VERSION = 1` constant and `export_entities_json()` method to `database.py`
 
 **File:** `plugins/iflow/hooks/lib/entity_registry/database.py`
 **Depends on:** 1.1.1a, 1.1.1b
@@ -63,7 +63,7 @@ Implementation steps:
 
 ### Task 2.1.1: Write TDD tests for `_process_export_entities()` (RED)
 
-- [ ] Write all `TestProcessExportEntities` tests in `test_server_helpers.py`
+- [x] Write all `TestProcessExportEntities` tests in `test_server_helpers.py`
 
 **File:** `plugins/iflow/hooks/lib/entity_registry/test_server_helpers.py`
 **Depends on:** 1.1.2
@@ -85,7 +85,7 @@ Error message format: Tests MUST assert the full error string including `"Error:
 
 ### Task 2.1.2: Implement `_process_export_entities()` (GREEN)
 
-- [ ] Add `_process_export_entities()` function to `server_helpers.py`
+- [x] Add `_process_export_entities()` function to `server_helpers.py`
 
 **File:** `plugins/iflow/hooks/lib/entity_registry/server_helpers.py`
 **Depends on:** 2.1.1
@@ -103,7 +103,7 @@ Implementation steps:
 
 ### Task 3.1.1: Write TDD tests for `export_entities` MCP tool (RED)
 
-- [ ] Create `test_export_entities.py` with all `TestExportEntitiesTool` tests
+- [x] Create `test_export_entities.py` with all `TestExportEntitiesTool` tests
 
 **File:** `plugins/iflow/mcp/test_export_entities.py` (**Created** — new Python pytest file. Intentionally renamed from design's `test_entity_server.py` to avoid confusion with the bash wrapper and to follow `test_search_mcp.py` per-feature naming convention.)
 **Depends on:** 2.1.2
@@ -121,7 +121,7 @@ Tests to write:
 
 ### Task 3.1.2: Implement `export_entities` MCP tool and update imports (GREEN)
 
-- [ ] Add `export_entities` tool to `entity_server.py` and update import statement
+- [x] Add `export_entities` tool to `entity_server.py` and update import statement
 
 **File:** `plugins/iflow/mcp/entity_server.py`
 **Depends on:** 3.1.1
@@ -139,7 +139,7 @@ Implementation steps:
 
 ### Task 4.1.1: Run full regression test suite
 
-- [ ] Run all existing and new test suites, verify zero failures
+- [x] Run all existing and new test suites, verify zero failures
 
 **Depends on:** 3.1.2
 **Done when:** All tests in steps 1-3 below pass with zero failures (AC-5).
