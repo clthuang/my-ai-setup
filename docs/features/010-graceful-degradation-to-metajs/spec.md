@@ -13,7 +13,8 @@ The engine already has a `.meta.json` hydration path (`_hydrate_from_meta_json`)
 - `engine.py:238` — `_hydrate_from_meta_json()` calls `self.db.get_entity()` as precondition; fails when DB is unavailable
 - `workflow_state_server.py:105-134` — MCP tool handlers catch generic `Exception` but return opaque "Internal error" strings with no degradation signal
 - PRD FR-15: "State engine gracefully degrades to reading `.meta.json` directly if MCP server is unreachable; agents are not blocked (degradation notice returned with result)"
-- NFR-2: "Zero-downtime migration with graceful degradation fallback to .meta.json"
+- PRD NFR-4: "Graceful degradation: all operations work when UI server is not running"
+- PRD NFR-6: "Zero data loss during migration: .meta.json data preserved until explicitly deleted after full migration verification"
 
 ### FR-15 Scope Clarification
 
@@ -45,7 +46,7 @@ PRD FR-15 mentions "MCP server unreachable" — this feature addresses the **DB 
 ### Key Dependency: `_hydrate_from_meta_json()` DB Precondition
 
 The existing `_hydrate_from_meta_json()` (engine.py:233-310) calls `self.db.get_entity()` at line 238 as its first operation. This means the current hydration path CANNOT serve as a fallback when the DB is unavailable. The implementation must create a **new pure-filesystem fallback method** (`_read_state_from_meta_json`) that:
-- Derives `feature_type_id` from the `.meta.json` `id` and `slug` fields instead of querying the entity table
+- Takes `feature_type_id` as parameter (already known from caller) and derives slug via `_extract_slug()` to locate `.meta.json` on the filesystem — no entity table lookup needed
 - Reuses the same phase derivation logic (lines 255-283) from `_hydrate_from_meta_json`
 - Skips the DB backfill step entirely (lines 286-301)
 
@@ -83,7 +84,7 @@ When `transition_phase()` encounters a `sqlite3.Error` during `db.update_workflo
 1. Catch the error and log a warning to stderr
 2. The transition is semantically "entering a phase" — there is no `.meta.json` field to update (`.meta.json` has no `workflow_phase` field, and the constraint prohibits schema changes)
 3. Gate evaluation results are still valid (computed from in-memory `FeatureWorkflowState` and filesystem artifacts, not from DB state)
-4. Return the gate results with `source="meta_json_fallback"` on the state to signal degradation
+4. Return the gate results via `TransitionResponse(results=results, degraded=True)` to signal degradation (see R3 for `TransitionResponse` definition)
 5. Note: The DB update is a recording step; the phase transition is logically valid based on the gate results. Feature 011 reconciliation will sync state when DB recovers.
 
 When `complete_phase()` encounters a `sqlite3.Error` during `db.update_workflow_phase()`:
@@ -94,15 +95,19 @@ When `complete_phase()` encounters a `sqlite3.Error` during `db.update_workflow_
    - Update `status` to `"completed"` if completing the `finish` phase
 3. Return `FeatureWorkflowState` with `source="meta_json_fallback"` to signal degradation
 
+**Write safety:** The `.meta.json` write uses atomic replacement (write to `{path}.tmp`, then `os.replace()` — atomic on POSIX). The MCP server operates as a single-process stdio transport (one instance per agent session), so concurrent writes don't occur in practice. If multiple instances somehow exist, last-write-wins is acceptable because feature 011 reconciliation resolves divergence when the DB recovers.
+
 ### R3: MCP Degradation Signal
 
 All MCP tool responses include a `degraded` boolean field:
 - `false` when operating normally (DB as primary)
 - `true` when any fallback was used during the request
 
-Detection: `degraded = (state.source == "meta_json_fallback")` where state is the `FeatureWorkflowState` returned by the engine method.
+Detection per return type:
+- **`FeatureWorkflowState` responses** (`get_state`, `complete_phase`, `list_by_phase`, `list_by_status`): `degraded = (state.source == "meta_json_fallback")`
+- **`list[TransitionResult]` responses** (`transition_phase`, `validate_prerequisites`): these methods don't return a state object. To propagate the signal, the engine wraps results in a new `TransitionResponse` dataclass: `TransitionResponse(results: list[TransitionResult], degraded: bool)`. The `degraded` flag is set to `True` when the underlying `get_state()` returned a fallback state OR when the DB write was skipped/failed. This is a new internal dataclass (not a schema change to existing models).
 
-Serialization helpers (`_serialize_state`, `_serialize_result`) include this field. For `_serialize_state`, derive from `state.source`. For composite responses (e.g., `transition_phase` returning a list of `TransitionResult`), include a top-level `degraded` field.
+Serialization helpers (`_serialize_state`, `_serialize_result`) include this field. For `_serialize_state`, derive from `state.source`. For `TransitionResponse`, read `response.degraded` directly and include it as a top-level key in the JSON output.
 
 ### R4: Structured Error Responses
 
@@ -122,6 +127,8 @@ Error type mapping:
 - `ValueError` (other) → `"invalid_transition"` with hint from error message
 - Other `Exception` → `"internal"` with hint `"Report this error"`
 
+**Breaking change note:** This replaces plain-string error messages (e.g., `"Error: Feature not found: ..."`, `"Internal error: ..."`) with structured JSON. Current consumers (workflow-transitions skill, phase commands) use pattern matching on these strings. All consumers are in-tree (same plugin), so this is a coordinated change within this feature scope.
+
 ### R5: DB Health Probe
 
 Add a `_check_db_health()` method to `WorkflowStateEngine`:
@@ -130,6 +137,10 @@ Add a `_check_db_health()` method to `WorkflowStateEngine`:
 - Called once at the start of each public method to set a `_db_available` flag for the duration of that call
 - The flag is a local variable passed through the call chain, NOT an instance attribute (preserves stateless design per NFR-4)
 - When `_db_available` is `False`, methods skip DB calls entirely and go straight to filesystem fallback
+
+**Probe limitation:** `SELECT 1` detects connection-level failures (locked, closed, permission denied) but may not detect file-level corruption until a real table query is attempted. File corruption is caught by the secondary defense in R1/R2 error handlers.
+
+**Defense-in-depth interaction with R1/R2:** R5 is the **primary path**: when the health probe detects DB unavailable, all DB calls (reads AND writes) are skipped proactively. R1/R2's catch-on-error paths are the **secondary defense**: if the health probe succeeds but the DB becomes unavailable during the method execution (e.g., lock acquired between probe and write, or file corruption not detected by `SELECT 1`), the `sqlite3.Error` is caught and the fallback applies. Both paths must be implemented.
 
 ### R6: List Operation Fallback
 
@@ -146,7 +157,7 @@ When `list_by_status()` encounters DB failure:
 4. For matching features, derive `FeatureWorkflowState` using the same pure-filesystem logic as R1
 5. Return results with `source="meta_json_fallback"`
 
-Note: In normal operation, `list_by_status()` queries the entity table for status. In fallback mode, `.meta.json`'s `status` field is the authoritative source — it is the same field that the entity registry reads during backfill. The fallback may miss features that have entity records but no `.meta.json` files, which is acceptable since `.meta.json` is the primary data source.
+Note: In normal operation, `list_by_status()` queries the entity table for status filtered by `entity_type='feature'`. In fallback mode, the filesystem scan of `{artifacts_root}/features/*/` inherently filters to feature entities (only feature directories live under `features/`). The `.meta.json` `status` field is the authoritative source — it is the same field that the entity registry reads during backfill. The fallback may miss features that have entity records but no `.meta.json` files, which is acceptable since `.meta.json` is the primary data source.
 
 ### R7: Transitive Degradation for validate_prerequisites
 
@@ -170,7 +181,7 @@ When the DB is available and working:
 - [ ] SC-6: MCP tool responses include `degraded: true/false` boolean field
 - [ ] SC-7: MCP error responses are structured JSON (not plain strings)
 - [ ] SC-8: All existing tests pass without modification (happy path unchanged)
-- [ ] SC-9: New tests cover each degradation path with mocked DB failures
+- [ ] SC-9: New tests cover each degradation path with mocked DB failures: (a) `get_state()` read fallback, (b) `transition_phase()` write skip, (c) `complete_phase()` .meta.json write, (d) `list_by_phase()` filesystem scan, (e) `list_by_status()` filesystem scan, (f) health probe failure triggering proactive skip
 - [ ] SC-10: `_check_db_health()` correctly detects DB unavailability
 - [ ] SC-11: `validate_prerequisites()` returns valid results when DB is unavailable (transitive via R1)
 
@@ -181,9 +192,16 @@ When the DB is available and working:
 - [ ] AC-3: MCP server tests: verify `degraded` field present in all tool responses (both normal and fallback paths)
 - [ ] AC-4: MCP server tests: verify structured JSON error format for all error paths (db_unavailable, feature_not_found, invalid_transition, internal)
 - [ ] AC-5: Engine unit tests: mock `sqlite3.Error` on health probe, verify all public methods (`get_state`, `transition_phase`, `complete_phase`, `validate_prerequisites`, `list_by_phase`, `list_by_status`) fall back correctly
-- [ ] AC-6: No performance regression: healthy-path operations complete within existing benchmarks (health probe adds negligible overhead)
-- [ ] AC-7: Backward compatible: `FeatureWorkflowState.source` field already exists; new value `"meta_json_fallback"` added alongside existing `"db"` and `"meta_json"`
+- [ ] AC-6: No performance regression: healthy-path `get_state()` completes within 100ms (current sub-100ms NFR); the health probe (`SELECT 1`) adds <1ms measured overhead
+- [ ] AC-7: Backward compatible: `FeatureWorkflowState.source` field already exists; new value `"meta_json_fallback"` added alongside existing `"db"` and `"meta_json"` (see glossary below)
 - [ ] AC-8: All existing test suites pass without modification: `pytest plugins/iflow/hooks/lib/workflow_engine/ -v` and `pytest plugins/iflow/mcp/test_workflow_state_server.py -v` (if exists)
+
+## Source Values Glossary
+
+`FeatureWorkflowState.source` provenance values:
+- `"db"` — state read from the `workflow_phases` DB table (normal operation)
+- `"meta_json"` — state hydrated from `.meta.json` and backfilled to DB (existing hydration path, DB was accessible but row was missing)
+- `"meta_json_fallback"` — state read from `.meta.json` because DB was unavailable (new, this feature); no DB write attempted
 
 ## Non-Functional Requirements
 
