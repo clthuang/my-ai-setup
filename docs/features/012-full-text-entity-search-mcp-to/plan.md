@@ -56,9 +56,9 @@ Phase 4: Final Regression
 **Depends on:** 1.1 (uses `flatten_metadata` for backfill)
 
 **Implementation:**
-1. Add `_create_fts_index(conn)` function. Uses BEGIN IMMEDIATE / COMMIT / ROLLBACK for atomicity of CREATE + backfill. The migration runner handles schema_version after the function returns (separate COMMIT). **Crash-window mitigation:** If a crash occurs between the migration's COMMIT and the runner's schema_version COMMIT, migration 4 re-runs on next startup. Step 3 below ensures re-run safety via `DELETE FROM entities_fts` before backfill.
-2. The CREATE VIRTUAL TABLE statement itself is the FTS5 availability check — wrap in try/except, check for "no such module: fts5" in OperationalError message.
-3. Backfill: **first `DELETE FROM entities_fts`** (idempotent — clears any partial backfill from a previous crash). Then iterate all rows from `entities`, call `flatten_metadata` on each row's metadata, insert into `entities_fts`.
+1. Add `_create_fts_index(conn)` function. Uses BEGIN IMMEDIATE / COMMIT / ROLLBACK for atomicity. The migration runner handles schema_version after the function returns (separate COMMIT). **Crash-window mitigation:** If a crash occurs between the migration's COMMIT and the runner's schema_version COMMIT, migration 4 re-runs on next startup. Step 2 below ensures re-run safety via DROP + CREATE.
+2. `DROP TABLE IF EXISTS entities_fts` then `CREATE VIRTUAL TABLE entities_fts ...` (no `IF NOT EXISTS`). This guarantees a clean slate on re-run — avoids FTS5 external content table DML restrictions where plain `DELETE FROM` may not reliably clear an external content FTS table. The DROP+CREATE is also the FTS5 availability check — wrap the CREATE in try/except, check for "no such module: fts5" in OperationalError message.
+3. Backfill: iterate all rows from `entities`, call `flatten_metadata` on each row's metadata, insert into `entities_fts`. Clean slate from step 2 guarantees no duplicates on re-run.
 4. Add to `MIGRATIONS` dict: `4: _create_fts_index`.
 5. **Immediately update** all 5 `test_database.py` schema version assertions to keep existing tests green (found via `grep -n 'schema_version.*"3"' test_database.py`):
    - Line 322 — `TestMigration2` (old schema migration path): assert `'4'`
@@ -74,6 +74,8 @@ Phase 4: Final Regression
 - `TestMigration4::test_null_metadata_backfill` — entity with NULL metadata → empty string in FTS (AC-18)
 - `TestMigration4::test_idempotent_create` — IF NOT EXISTS prevents error on re-run (AC-16)
 - `TestMigration4::test_preserves_existing_data` — existing entities table data unchanged (AC-17)
+
+**Known limitation:** The FTS5 `rebuild` command cannot be used with this schema because `metadata_text` is a computed column not present in the `entities` table. Recovery from FTS index drift requires re-running the backfill logic (e.g., via a helper function that calls `_create_fts_index`).
 
 **Done when:** All `TestMigration4` tests pass. FTS table exists with backfilled data. All 545+ existing tests pass (schema version assertions updated).
 
@@ -112,7 +114,7 @@ Phase 4: Final Regression
 **Implementation:**
 1. Before the existing UPDATE, SELECT old values (rowid, name, entity_id, entity_type, status, metadata). Compute `old_metadata_text` via `flatten_metadata`.
 2. Execute the existing UPDATE logic (unchanged).
-3. After UPDATE, SELECT the row again to get the **actual new values** from the database. This avoids duplicating the metadata merge logic (None/keep, `{}`/clear, dict/merge) in Python — the database is the single source of truth for new values. Compute `new_metadata_text` via `flatten_metadata(new_row["metadata"])`.
+3. After UPDATE, SELECT the row again to get the **actual new values** from the database. This avoids duplicating the metadata merge logic (None/keep, `{}`/clear, dict/merge) in Python — the database is the single source of truth for new values. Compute `new_metadata_text` via `flatten_metadata(json.loads(new_row["metadata"]) if new_row["metadata"] else None)` — `json.loads` is needed because the metadata column stores JSON text, but `flatten_metadata` expects `dict | None`.
 4. Issue FTS delete with old values, then FTS insert with new values from step 3.
 5. Move `self._conn.commit()` to after FTS writes.
 6. Add maintenance comment near FTS sync block: `# FTS sync reads post-UPDATE values from DB. If new FTS-indexed fields are added, update both the old-value SELECT and the FTS insert columns.`
@@ -165,7 +167,7 @@ Phase 4: Final Regression
 **Design ref:** C6, I6
 **Spec ref:** R4
 **File:** `plugins/iflow/mcp/entity_server.py`
-**Test file:** `plugins/iflow/mcp/test_entity_server.py` (**Created** — new Python pytest file; existing `test_entity_server.sh` is a bash bootstrap test)
+**Test file:** `plugins/iflow/mcp/test_search_mcp.py` (**Created** — new Python pytest file). Note: `test_entity_server.py` already exists at `hooks/lib/entity_registry/test_entity_server.py` (tests MCP handler dual-identity messages) and `mcp/test_entity_server.sh` (bash bootstrap test). Using `test_search_mcp.py` avoids naming confusion across directories.
 **Depends on:** 3.1 (calls database method)
 
 **Implementation:**
@@ -194,7 +196,7 @@ Phase 4: Final Regression
 1. Run full existing test suite: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/ -v`
 2. Verify 545+ existing tests pass (AC-20). Schema version assertions were already updated in Phase 1.2.
 3. Run new search test suite: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/entity_registry/test_search.py -v`
-4. Run MCP tool tests: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/mcp/test_entity_server.py -v`
+4. Run MCP tool tests: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/mcp/test_search_mcp.py -v`
 
 **Done when:** All existing and new tests pass. Zero test failures.
 
@@ -220,7 +222,7 @@ Phase 4: Final Regression
 | `plugins/iflow/hooks/lib/entity_registry/test_search.py` | **Created** | 1.1, 1.2, 2.1, 2.2, 3.1 |
 | `plugins/iflow/hooks/lib/entity_registry/test_database.py` | Modified | 1.2 |
 | `plugins/iflow/mcp/entity_server.py` | Modified | 3.2 |
-| `plugins/iflow/mcp/test_entity_server.py` | **Created** | 3.2 |
+| `plugins/iflow/mcp/test_search_mcp.py` | **Created** | 3.2 |
 
 ## AC Coverage Matrix
 
