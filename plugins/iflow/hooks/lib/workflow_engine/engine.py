@@ -229,31 +229,47 @@ class WorkflowStateEngine:
 
     def list_by_status(self, status: str) -> list[FeatureWorkflowState]:
         """All features with the given entity status."""
-        entities = self.db.list_entities(entity_type="feature")
-        matching = [e for e in entities if e.get("status") == status]
+        if not self._check_db_health():
+            print(
+                f"workflow-engine: DB unhealthy, falling back to filesystem "
+                f"scan for list_by_status(status={status!r})",
+                file=sys.stderr,
+            )
+            return self._scan_features_by_status(status)
 
-        # 2-query pattern: fetch all workflow rows once, join in Python
-        wp_rows = self.db.list_workflow_phases()
-        wp_map = {r["type_id"]: r for r in wp_rows}
+        try:
+            entities = self.db.list_entities(entity_type="feature")
+            matching = [e for e in entities if e.get("status") == status]
 
-        results: list[FeatureWorkflowState] = []
-        for entity in matching:
-            type_id = entity["type_id"]
-            wp_row = wp_map.get(type_id)
-            if wp_row is not None:
-                results.append(self._row_to_state(wp_row))
-            else:
-                results.append(
-                    FeatureWorkflowState(
-                        feature_type_id=type_id,
-                        current_phase=None,
-                        last_completed_phase=None,
-                        completed_phases=(),
-                        mode=None,
-                        source="db",
+            # 2-query pattern: fetch all workflow rows once, join in Python
+            wp_rows = self.db.list_workflow_phases()
+            wp_map = {r["type_id"]: r for r in wp_rows}
+
+            results: list[FeatureWorkflowState] = []
+            for entity in matching:
+                type_id = entity["type_id"]
+                wp_row = wp_map.get(type_id)
+                if wp_row is not None:
+                    results.append(self._row_to_state(wp_row))
+                else:
+                    results.append(
+                        FeatureWorkflowState(
+                            feature_type_id=type_id,
+                            current_phase=None,
+                            last_completed_phase=None,
+                            completed_phases=(),
+                            mode=None,
+                            source="db",
+                        )
                     )
-                )
-        return results
+            return results
+        except sqlite3.Error as exc:
+            print(
+                f"workflow-engine: DB error in list_by_status, falling back to "
+                f"filesystem scan for status={status!r}: {exc}",
+                file=sys.stderr,
+            )
+            return self._scan_features_by_status(status)
 
     # ------------------------------------------------------------------
     # Private helpers

@@ -3103,6 +3103,57 @@ class TestCompletePhaseFallback:
 # ===========================================================================
 
 
+class TestListByStatusFallback:
+    """list_by_status() degrades gracefully when DB is unavailable."""
+
+    def test_probe_fail_returns_filesystem_results(self, tmp_path) -> None:
+        """When _check_db_health returns False, list_by_status scans .meta.json
+        files filtered by status, returning source='meta_json_fallback'."""
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+
+        # Create .meta.json files: two active, one planned
+        _create_meta_json(
+            tmp_path, "001-alpha", status="active", last_completed_phase="brainstorm"
+        )
+        _create_meta_json(
+            tmp_path, "002-beta", status="active", last_completed_phase=None
+        )
+        _create_meta_json(
+            tmp_path, "003-gamma", status="planned"
+        )
+
+        # Force probe failure
+        engine._check_db_health = lambda: False  # type: ignore[assignment]
+
+        results = engine.list_by_status("active")
+
+        assert len(results) == 2
+        assert all(r.source == "meta_json_fallback" for r in results)
+        type_ids = {r.feature_type_id for r in results}
+        assert "feature:001-alpha" in type_ids
+        assert "feature:002-beta" in type_ids
+        assert "feature:003-gamma" not in type_ids
+
+    def test_happy_path_unchanged(self, tmp_path) -> None:
+        """Normal list_by_status still returns source='db' results."""
+        db = _make_db()
+        tid1 = _register_feature(db, "001-active", status="active")
+        db.create_workflow_phase(tid1, workflow_phase="design")
+        tid2 = _register_feature(db, "002-active", status="active")
+        db.create_workflow_phase(tid2, workflow_phase="specify")
+        _register_feature(db, "003-completed", status="completed")
+
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        results = engine.list_by_status("active")
+
+        assert len(results) == 2
+        assert all(r.source == "db" for r in results)
+        type_ids = {r.feature_type_id for r in results}
+        assert tid1 in type_ids
+        assert tid2 in type_ids
+
+
 class TestListByPhaseFallback:
     """list_by_phase() degrades gracefully when DB is unavailable."""
 
