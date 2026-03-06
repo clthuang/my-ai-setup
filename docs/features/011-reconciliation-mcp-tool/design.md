@@ -156,7 +156,12 @@ class WorkflowDriftResult:
 
 @dataclass(frozen=True)
 class ReconcileAction:
-    """Outcome of reconciling a single feature."""
+    """Outcome of reconciling a single feature.
+
+    Design extends spec R2 action enum with "created" to differentiate
+    update (existing DB row) vs create (new row for meta_json_only).
+    This provides better caller diagnostics without breaking spec semantics.
+    """
     feature_type_id: str
     action: str  # "reconciled"|"skipped"|"created"|"error"
     direction: str  # "meta_json_to_db"
@@ -165,7 +170,10 @@ class ReconcileAction:
 
 @dataclass(frozen=True)
 class ReconciliationResult:
-    """Aggregate result from apply_workflow_reconciliation()."""
+    """Aggregate result from apply_workflow_reconciliation().
+
+    Summary extends spec R2 with "created" count (design enhancement).
+    """
     actions: tuple[ReconcileAction, ...]
     summary: dict  # {reconciled, created, skipped, error, dry_run}
 ```
@@ -305,7 +313,13 @@ def _reconcile_single_feature(
     """Execute reconciliation for one feature based on its drift report.
 
     Status-based branching (mutually exclusive):
-    - "meta_json_ahead" or "meta_json_only" → reconcile (update or create DB row)
+    - "meta_json_ahead" → update existing DB row via db.update_workflow_phase()
+      with _UNSET sentinel for kanban_column; action="reconciled"
+    - "meta_json_only" → entity-existence check first:
+      - db.get_entity(feature_type_id) found → db.create_workflow_phase();
+        action="created"
+      - db.get_entity(feature_type_id) not found → action="error",
+        message="Entity not found in DB — cannot create workflow_phases row"
     - "db_only" → action="skipped", message="No .meta.json to reconcile from"
     - "error" → action="error", propagate original error message
     - "in_sync" or "db_ahead" → action="skipped"
@@ -372,7 +386,13 @@ def _process_reconcile_status(
     Delegates directly to check_workflow_drift() and scan_all() (no
     _process_reconcile_check/_process_reconcile_frontmatter wrappers)
     to avoid double-serialization. Combines both results into a single
-    JSON response with workflow_drift and frontmatter_drift sections.
+    JSON response with these fields (per spec R4):
+    - workflow_drift: serialized WorkflowDriftResult
+    - frontmatter_drift: serialized list of DriftReports
+    - total_features_checked: len(workflow_drift_result.features)
+    - total_files_checked: len(frontmatter_reports)
+    - healthy: all workflow summary counts except in_sync are 0 AND
+      all frontmatter statuses are "in_sync"
 
     No _catch_value_error needed — reconcile_status accepts no
     feature_type_id parameter (always scans all).
@@ -435,9 +455,18 @@ if direction not in _SUPPORTED_DIRECTIONS:
 ### I7: Path-Traversal Validation (`_process_reconcile_frontmatter`)
 
 ```python
-def _validate_slug(slug: str) -> bool:
-    """Reject slugs containing path-traversal sequences."""
-    return ".." not in slug and "/" not in slug and "\x00" not in slug
+def _validate_feature_type_id(feature_type_id: str, artifacts_root: str) -> str:
+    """Validate feature_type_id and extract slug with realpath defense.
+
+    1. Split on ':', raise ValueError if no colon present
+    2. Extract slug from second part
+    3. Resolve realpath of {artifacts_root}/features/{slug}/
+    4. Verify resolved path starts with realpath(artifacts_root)
+    5. Return validated slug
+
+    Matches engine._extract_slug defense-in-depth (realpath resolution).
+    Raises ValueError on invalid input (caught by _catch_value_error).
+    """
 ```
 
 ### I8: Frontmatter DriftReport Serialization
