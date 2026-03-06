@@ -30,8 +30,12 @@
       "stages": {
         "research": { "started": "2026-03-07T03:45:00+08:00", "completed": "2026-03-07T03:50:00+08:00", "skipped": false },
         "architecture": { "started": "2026-03-07T03:50:00+08:00", "completed": "2026-03-07T03:55:00+08:00" },
-        "interface": { "started": "2026-03-07T03:55:00+08:00", "completed": "2026-03-07T04:00:00+08:00" }
-      }
+        "interface": { "started": "2026-03-07T03:55:00+08:00", "completed": "2026-03-07T04:00:00+08:00" },
+        "designReview": { "started": "2026-03-07T04:00:00+08:00", "completed": "2026-03-07T04:15:00+08:00", "iterations": 3, "reviewerNotes": [] },
+        "handoffReview": { "started": "2026-03-07T04:15:00+08:00", "completed": "2026-03-07T04:40:00+08:00", "iterations": 5, "approved": true, "reviewerNotes": ["test_entity_server.py not clarified as new or existing file in File Change Summary"] }
+      },
+      "completed": "2026-03-07T04:40:00+08:00"
     }
-  }
+  },
+  "lastCompletedPhase": "design"
 }
