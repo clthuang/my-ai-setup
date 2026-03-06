@@ -54,8 +54,9 @@ Keep the FTS index synchronized with the entities table.
   ```sql
   -- Step 1: Read old values
   SELECT rowid, name, entity_id, entity_type, status, metadata FROM entities WHERE uuid = :uuid;
+  -- Step 1b: Compute old_metadata_text = flatten_metadata(old_metadata) using the Python helper
   -- Step 2: UPDATE entities (existing logic)
-  -- Step 3: FTS delete with old values
+  -- Step 3: FTS delete with old values (using old_metadata_text from Step 1b)
   INSERT INTO entities_fts(entities_fts, rowid, name, entity_id, entity_type, status, metadata_text)
   VALUES('delete', :old_rowid, :old_name, :old_entity_id, :old_entity_type, :old_status, :old_metadata_text);
   -- Step 4: FTS insert with new values
@@ -105,7 +106,7 @@ def search_entities(
    e. **Prefix match:** Append `*` to each token for prefix matching. Example: query `"recon"` becomes `"recon*"` to match "reconciliation". Multi-token: `"state eng"` becomes `"state* eng*"`.
 4. If `entity_type` provided, filter results to that type.
 5. Order results by FTS5 `rank` (relevance score, lower is better).
-6. Apply `limit` (default 20, max 100).
+6. Clamp `limit` to range [1, 100] — if `limit > 100`, set `limit = 100`. Apply clamped limit to query.
 7. Return list of entity dicts with same shape as `get_entity` output plus a `rank` field.
 
 **JOIN strategy:** Query joins `entities_fts` with `entities` using rowid: `SELECT e.*, entities_fts.rank FROM entities_fts JOIN entities e ON entities_fts.rowid = e.rowid WHERE entities_fts MATCH :query ORDER BY entities_fts.rank`. The `entity_type` filter and `limit` are applied as additional WHERE/LIMIT clauses.
@@ -142,17 +143,19 @@ Parameters:
 Returns: Formatted text listing matching entities with type_id, name, status, and relevance rank.
 ```
 
-**Output format:**
+**Output format:** Each result shows `type_id`, `name` (display name), and `status`.
 ```
 Found {n} entities matching "{query}":
 
-1. feature:011-reconciliation-mcp-tool — "reconciliation-mcp-tool" (completed)
-2. feature:009-state-engine-mcp-tools — "state-engine-mcp-tools-phase-r" (completed)
+1. feature:011-reconciliation-mcp-tool — "Reconciliation MCP Tool" (completed)
+2. feature:009-state-engine-mcp-tools — "State Engine MCP Tools" (completed)
 
 {n} results shown (limit: {limit}).
 ```
 
 If no results: `No entities found matching "{query}".`
+
+**Error handling:** If `search_entities` raises `ValueError`, catch it in the MCP handler and return a formatted error string (e.g., `"Search error: {error message}"`) as the tool result. Do not propagate as an unhandled exception.
 
 **AC-12:** MCP tool `search_entities` is registered and callable.
 **AC-13:** Tool returns human-readable formatted results.
