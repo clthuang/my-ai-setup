@@ -195,7 +195,7 @@ When the DB is available and working:
 - [ ] AC-5: Engine unit tests: mock `sqlite3.Error` on health probe, verify all public methods (`get_state`, `transition_phase`, `complete_phase`, `validate_prerequisites`, `list_by_phase`, `list_by_status`) fall back correctly
 - [ ] AC-6: No performance regression: healthy-path `get_state()` completes within 100ms (current sub-100ms NFR). Health probe overhead verified by: unit test measures 1000 iterations of `_check_db_health()` against an in-memory SQLite DB, asserts mean <1ms per call
 - [ ] AC-7: Backward compatible: `FeatureWorkflowState.source` field already exists; new value `"meta_json_fallback"` added alongside existing `"db"` and `"meta_json"` (see glossary below)
-- [ ] AC-8: All existing test suites pass without modification: `pytest plugins/iflow/hooks/lib/workflow_engine/ -v` and `pytest plugins/iflow/mcp/test_workflow_state_server.py -v` (if exists)
+- [ ] AC-8: All existing happy-path test suites pass without modification: `pytest plugins/iflow/hooks/lib/workflow_engine/ -v` and `pytest plugins/iflow/mcp/test_workflow_state_server.py -v` (if exists). Error-path assertions in `test_workflow_state_server.py` updated per R4 structured JSON format.
 
 ## Source Values Glossary
 
