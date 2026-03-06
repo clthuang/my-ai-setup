@@ -34,7 +34,7 @@ These items have zero interdependencies and can be implemented in any order with
 
 **1.3 — `_derive_state_from_meta()` extraction (TD-3)**
 - File: `workflow_engine/engine.py`
-- Extract phase derivation logic from `_hydrate_from_meta_json` (lines 255-283) into new `_derive_state_from_meta(meta, feature_type_id, source)` method
+- Extract phase derivation logic from `_hydrate_from_meta_json` (lines 255-283) into new `_derive_state_from_meta(meta, feature_type_id, source)` method. The extraction covers phase derivation logic ONLY. The file-reading and exception handling in `_hydrate_from_meta_json` (lines 249-253, catching only `json.JSONDecodeError`) must NOT be modified. `_read_state_from_meta_json` (item 2.1) has its own file-reading logic that additionally catches `OSError`.
 - Refactor `_hydrate_from_meta_json` to delegate to `_derive_state_from_meta` (per design I3b)
 - Add `source` parameter to `_derive_state_from_meta` (default `"meta_json"`)
 - Tests: existing `_hydrate_from_meta_json` tests MUST still pass (regression). Add direct `_derive_state_from_meta` tests for active/completed/unknown status paths. Add explicit test for default `source="meta_json"` parameter value.
@@ -63,7 +63,7 @@ These items have zero interdependencies and can be implemented in any order with
 - File: `workflow_engine/engine.py`
 - Depends on: 1.4 (`_iso_now`)
 - Read current .meta.json, update `lastCompletedPhase`, `phases.{phase}` timestamps, `status` if finishing
-- Atomic write: `NamedTemporaryFile(delete=False)` + `os.replace()`. Use try/finally to ensure temp file fd is closed AND unlinked on any failure (including `json.dump` raising mid-write)
+- Atomic write: `NamedTemporaryFile(delete=False)` → `json.dump()` → `fd.flush()` → `os.fsync(fd.fileno())` → `fd.close()` → `os.replace()`. Use try/finally to ensure temp file fd is closed AND unlinked on any failure (including `json.dump` raising mid-write). The `flush()`+`fsync()` matches the design's Prior Art atomic write pattern.
 - Raise `ValueError` on unreadable .meta.json
 - Add `import tempfile` at top of engine.py
 - Tests: normal write; atomic replacement (verify tmp cleanup); missing .meta.json → ValueError; corrupt .meta.json → ValueError; terminal phase sets `status="completed"`; partial write cleanup (mock `json.dump` to raise → verify temp file is removed)
@@ -80,7 +80,7 @@ These items have zero interdependencies and can be implemented in any order with
 **3.2 — `_scan_features_by_status()` (C8 / I17)**
 - File: `workflow_engine/engine.py`
 - Depends on: 1.3 (`_derive_state_from_meta`) — note: does NOT depend on 2.1; could execute in Phase 2, but grouped here for logical coherence with 3.1
-- Glob, read raw JSON, filter by `meta["status"]`, then derive state
+- Glob, read raw JSON, filter by `meta["status"]`, then derive state. This method intentionally reads .meta.json directly rather than calling `_read_state_from_meta_json` because it must filter by `meta["status"]` BEFORE building FeatureWorkflowState (which has no status field). Do not refactor to use `_read_state_from_meta_json` + post-filter.
 - Tests: filter active; filter completed; corrupt files skipped; empty results
 
 ### Phase 4: Public Method Wrapping (Depends on Phases 1-3)
@@ -102,12 +102,14 @@ Wire fallback paths into existing public methods. Each method gets:
 - Change return type from `list[TransitionResult]` to `TransitionResponse`
 - Add probe → `degraded` tracking → catch DB write failure → `TransitionResponse(degraded=True)`
 - Gate evaluation unchanged (pure logic, no DB dependency)
-- **Existing test migration (ATOMIC with return type change):**
-  - Engine tests (~14 call sites in `test_engine.py`): all tests calling `transition_phase()` must unwrap `TransitionResponse.results` instead of receiving bare `list[TransitionResult]`. Grep for `transition_phase(` in test_engine.py to enumerate.
-  - MCP handler `_process_transition_phase` in `workflow_state_server.py`: must unwrap `TransitionResponse` and serialize `degraded` field.
-  - MCP tests (~3 call sites in `test_workflow_state_server.py`): assertions on transition response shape must account for new `degraded` field.
-  - Run grep: `grep -n 'transition_phase\|\.allowed' test_engine.py test_workflow_state_server.py` before committing to catch all sites.
-- Tests: normal → `TransitionResponse(degraded=False)`; DB write fail → `degraded=True`; probe fail → skip DB write, results still valid; all existing transition tests pass with unwrapped results
+- **Existing ENGINE test migration (ATOMIC with return type change — ~17 call sites in test_engine.py):**
+  - 14 call sites assign results (e.g., `results = engine.transition_phase(...)`) → unwrap via `.results`
+  - 1 call site at line ~777 (`test_returns_same_results_as_transition`): does `transition_results = engine.transition_phase(...)` then `len(transition_results)` and `zip(validate_results, transition_results)`. After migration: unwrap `.results`, note `len()` works on tuples. `validate_prerequisites()` returns `list[TransitionResult]` while `TransitionResponse.results` is `tuple[TransitionResult, ...]` — `zip()` works across both types. Do NOT add type equality assertions.
+  - 2 call sites inside `pytest.raises` — no unwrapping needed (exception raised before return)
+  - 1 fire-and-forget perf test at line ~1704 — no unwrapping needed (return value unused)
+  - Run grep: `grep -n 'transition_phase\|\.allowed' test_engine.py` before committing.
+  - **MCP test migration deferred to 5.2** — MCP handler still receives `TransitionResponse` but isn't updated until 5.2. Do NOT run MCP tests as part of 4.2 GREEN verification.
+- Tests: normal → `TransitionResponse(degraded=False)`; DB write fail → `degraded=True`; probe fail → skip DB write, results still valid; all existing engine tests pass with unwrapped results
 
 **4.3 — `complete_phase()` fallback (I13)**
 - File: `workflow_engine/engine.py`
@@ -137,7 +139,7 @@ Wire fallback paths into existing public methods. Each method gets:
 - Update all 6 `_engine is None` guards to use `_make_error("not_initialized", ...)`
 - Update non-exception error paths (e.g., `_process_get_phase` None-state check)
 - Add `import sqlite3` for type-specific catches
-- Tests: update existing error-path assertions to check JSON structure; verify all error types
+- Tests: update existing error-path assertions to check JSON structure; verify all error types. Specific migrations: `test_not_found` (line ~144) and `test_get_phase_none_state_returns_not_found` (line ~765-779) must update from plain string assertions to structured JSON with `error_type: "feature_not_found"`.
 
 **5.2 — MCP degradation signal (C7 / I10)**
 - File: `mcp/workflow_state_server.py`
@@ -146,10 +148,13 @@ Wire fallback paths into existing public methods. Each method gets:
 - Update `_serialize_state` to include `degraded = (state.source == "meta_json_fallback")`
 - Update `_process_transition_phase` to unwrap `TransitionResponse` — per design I14, response drops `allowed` key (uses `results` from `TransitionResponse`)
 - Update `_process_complete_phase`, `_process_list_*` for degradation field
-- **Existing test migration (ATOMIC with serialization changes):**
+- **Existing MCP test migration (ATOMIC with serialization changes):**
   - `TestSerializeState` and `TestAdversarial` exact key-set assertions must add `degraded` to expected keys
   - Transition response shape tests (assertions on `data['allowed']`) must be updated per I14 — replace `allowed` with new response shape
-  - Grep: `grep -n "allowed\|key.*set\|keys()" test_workflow_state_server.py` to enumerate all affected assertions
+  - `test_transitioned_uses_all_not_any` (line ~716-740): monkeypatches `seeded_engine.transition_phase` to return bare `list[TransitionResult]`. Must update monkeypatch to return `TransitionResponse(results=tuple(mixed_results), degraded=False)` instead. Add `from workflow_engine.models import TransitionResponse` import to test file.
+  - `test_not_found` (line ~144): asserts `result == 'Feature not found: feature:nonexistent'` — update to assert structured JSON with `error_type: "feature_not_found"`
+  - `test_get_phase_none_state_returns_not_found` (line ~765-779): asserts `result == "Feature not found: feature:009-test"` and `not result.startswith("Internal error")` — both must be updated for structured JSON
+  - Grep: `grep -n "allowed\|key.*set\|keys()\|Feature not found" test_workflow_state_server.py` to enumerate all affected assertions
 - Tests: normal responses have `degraded: false`; fallback responses have `degraded: true`; transition responses include degraded field
 
 ### Phase 6: Integration Tests (Depends on Phase 5)
@@ -219,12 +224,12 @@ Each item is implemented RED → GREEN → REFACTOR.
 8. Write `_scan_features_filesystem` tests → implement scanner (3.1)
 9. Write `_scan_features_by_status` tests → implement scanner (3.2)
 10. Write `get_state()` fallback tests → wrap with probe + catch (4.1)
-11. Write `transition_phase()` tests → change return type + add fallback + **migrate ~14 existing engine tests and ~3 MCP tests atomically** (4.2)
+11. Write `transition_phase()` tests → change return type + add fallback + **migrate ~17 existing engine test call sites** (4.2). MCP test migration deferred to step 16.
 12. Write `complete_phase()` tests → add wrote_to_db pattern + fallback (4.3)
 13. Write `list_by_phase()` fallback tests → add probe + scanner (4.4)
 14. Write `list_by_status()` fallback tests → add probe + scanner (4.5)
 15. Write structured error tests → update `_process_*` functions (5.1)
-16. Write degradation signal tests → update serialization + handlers + **migrate existing key-set and response shape assertions** (5.2)
+16. Write degradation signal tests → update serialization + handlers + **migrate existing key-set, response shape, and monkeypatch assertions + transition_phase MCP test migration from step 11** (5.2)
 17. Write integration tests → end-to-end scenarios (6.1, 6.2)
 
 ## Files Modified
@@ -245,4 +250,4 @@ Each item is implemented RED → GREEN → REFACTOR.
 
 3. **Error format breaking change (5.1):** Error-path tests in `test_workflow_state_server.py` must be updated before/with the implementation. Existing assertions like `assert "Error:" in result` will break. Update tests first (RED), then implementation (GREEN).
 
-4. **Import ordering (1.2, 2.2, 3.1, 4.1-4.5):** Four new imports added to `engine.py`: `sqlite3`, `sys`, `tempfile`, `glob`. All must be top-level (per design — no deferred imports inside function bodies). `sys` is needed for `print(..., file=sys.stderr)` logging in Phase 4 fallback paths.
+4. **Import ordering (1.2, 1.4, 2.2, 3.1, 4.1-4.5):** Five new imports added to `engine.py`: `sqlite3`, `sys`, `tempfile`, `glob`, `from datetime import datetime, timezone`. All must be top-level (per design — no deferred imports inside function bodies). `sys` is needed for `print(..., file=sys.stderr)` logging in Phase 4 fallback paths. `datetime` is needed by `_iso_now()` (1.4).
