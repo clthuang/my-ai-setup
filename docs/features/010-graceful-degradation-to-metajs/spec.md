@@ -99,15 +99,16 @@ When `complete_phase()` operates in degraded mode, the full validation logic (ph
 
 ### R3: MCP Degradation Signal
 
-All MCP tool responses include a `degraded` boolean field:
+MCP tool responses include a `degraded` boolean field where applicable:
 - `false` when operating normally (DB as primary)
 - `true` when any fallback was used during the request
 
 Detection per return type:
 - **`FeatureWorkflowState` responses** (`get_state`, `complete_phase`, `list_by_phase`, `list_by_status`): `degraded = (state.source == "meta_json_fallback")`
-- **`list[TransitionResult]` responses** (`transition_phase`, `validate_prerequisites`): these methods don't return a state object. To propagate the signal, the engine wraps results in a new `TransitionResponse` dataclass: `TransitionResponse(results: list[TransitionResult], degraded: bool)`. The `degraded` flag is set to `True` when the underlying `get_state()` returned a fallback state OR when the DB write was skipped/failed. This is a new internal dataclass defined in `workflow_engine/models.py` alongside `FeatureWorkflowState` (not a schema change to existing models).
+- **`TransitionResponse` responses** (`transition_phase`): this method wraps results in a new `TransitionResponse` dataclass: `TransitionResponse(results: list[TransitionResult], degraded: bool)`. The `degraded` flag is set to `True` when the underlying `get_state()` returned a fallback state OR when the DB write was skipped/failed. This is a new internal dataclass defined in `workflow_engine/models.py` alongside `FeatureWorkflowState` (not a schema change to existing models).
+- **`validate_prerequisites`**: exempt from `degraded` signaling. It returns `list[TransitionResult]` (not `TransitionResponse`) — degradation is handled transitively via R1's `get_state()` fallback and does not surface at the MCP response level (see R7).
 
-Serialization helpers (`_serialize_state`, `_serialize_result`) include this field. For `_serialize_state`, derive from `state.source`. For `TransitionResponse`, read `response.degraded` directly and include it as a top-level key in the JSON output.
+Serialization helpers (`_serialize_state`, `_serialize_result`) include the `degraded` field where applicable. For `_serialize_state`, derive from `state.source`. For `TransitionResponse`, read `response.degraded` directly and include it as a top-level key in the JSON output.
 
 ### R4: Structured Error Responses
 
@@ -127,9 +128,10 @@ Error type mapping:
 - `ValueError` (other) → `"invalid_transition"` with hint from error message
 - Other `Exception` → `"internal"` with hint `"Report this error"`
 
-**Breaking change note:** This replaces plain-string error messages (e.g., `"Error: Feature not found: ..."`, `"Internal error: ..."`) with structured JSON. Current consumers (workflow-transitions skill, phase commands) use pattern matching on these strings. All consumers are in-tree (same plugin), so this is a coordinated change within this feature scope. Specific consumer patterns to audit:
+**Breaking change note:** This replaces plain-string error messages (e.g., `"Error: Feature not found: ..."`, `"Internal error: ..."`) with structured JSON. All consumers are in-tree (same plugin). Consumer audit:
 - `workflow_state_server.py`: `_process_*` functions currently return `f"Error: {exc}"` and `f"Internal error: ..."` — must return structured JSON instead
 - `test_workflow_state_server.py`: assertions matching `"Error: "` and `"Internal error: "` prefixes — error-path tests updated per AC-8
+- Workflow-transitions skill and phase commands: audited — these invoke MCP tools via the `get_phase`/`transition_phase`/`complete_phase` tool interface and parse JSON responses, not raw error strings. No changes needed in skill/command files.
 
 ### R5: DB Health Probe
 
