@@ -1,9 +1,14 @@
 """WorkflowStateEngine -- stateless orchestrator for workflow phase transitions."""
 from __future__ import annotations
 
+import glob
 import json
 import os
+import sqlite3
+import sys
+import tempfile
 from collections.abc import Callable
+from datetime import datetime, timezone
 
 from entity_registry.database import EntityDatabase
 from transition_gate import (
@@ -17,13 +22,21 @@ from transition_gate import (
 )
 from transition_gate.constants import HARD_PREREQUISITES
 
-from .models import FeatureWorkflowState
+from .models import FeatureWorkflowState, TransitionResponse
 
 # Precomputed constants from immutable sources
 _PHASE_VALUES: tuple[str, ...] = tuple(p.value for p in PHASE_SEQUENCE)
 _ALL_HARD_ARTIFACTS: frozenset[str] = frozenset(
     name for names in HARD_PREREQUISITES.values() for name in names
 )
+
+
+def _iso_now() -> str:
+    """Return current time as ISO 8601 string with local timezone offset.
+
+    Matches existing .meta.json convention (e.g., '2026-03-06T18:30:00+08:00').
+    """
+    return datetime.now(timezone.utc).astimezone().isoformat()
 
 
 class WorkflowStateEngine:
@@ -39,18 +52,34 @@ class WorkflowStateEngine:
     # ------------------------------------------------------------------
 
     def get_state(self, feature_type_id: str) -> FeatureWorkflowState | None:
-        """Read feature workflow state from DB, falling back to .meta.json hydration."""
-        row = self.db.get_workflow_phase(feature_type_id)
-        if row is not None:
-            return self._row_to_state(row)
-        return self._hydrate_from_meta_json(feature_type_id)
+        """Read feature workflow state, falling back to .meta.json if DB unavailable."""
+        if not self._check_db_health():
+            print(
+                f"workflow-engine: DB unhealthy, falling back to .meta.json "
+                f"for {feature_type_id}",
+                file=sys.stderr,
+            )
+            return self._read_state_from_meta_json(feature_type_id)
+
+        try:
+            row = self.db.get_workflow_phase(feature_type_id)
+            if row is not None:
+                return self._row_to_state(row)
+            return self._hydrate_from_meta_json(feature_type_id)
+        except sqlite3.Error as exc:
+            print(
+                f"workflow-engine: DB error in get_state, falling back to "
+                f".meta.json for {feature_type_id}: {exc}",
+                file=sys.stderr,
+            )
+            return self._read_state_from_meta_json(feature_type_id)
 
     def transition_phase(
         self,
         feature_type_id: str,
         target_phase: str,
         yolo_active: bool = False,
-    ) -> list[TransitionResult]:
+    ) -> TransitionResponse:
         """Validate and enter a target phase."""
         state = self.get_state(feature_type_id)
         if state is None:
@@ -60,12 +89,27 @@ class WorkflowStateEngine:
         existing_artifacts = self._get_existing_artifacts(slug)
         results = self._evaluate_gates(state, target_phase, existing_artifacts, yolo_active)
 
-        if all(r.allowed for r in results):
-            self.db.update_workflow_phase(
-                feature_type_id, workflow_phase=target_phase
-            )
+        # Primary defense: health probe already failed during get_state
+        if state.source == "meta_json_fallback":
+            return TransitionResponse(results=tuple(results), degraded=True)
 
-        return results
+        if all(r.allowed for r in results):
+            # Secondary defense: catch DB write failures
+            try:
+                self.db.update_workflow_phase(
+                    feature_type_id, workflow_phase=target_phase
+                )
+            except sqlite3.Error as exc:
+                print(
+                    f"workflow-engine: DB write failed in transition_phase "
+                    f"for {feature_type_id}: {exc}",
+                    file=sys.stderr,
+                )
+                return TransitionResponse(
+                    results=tuple(results), degraded=True
+                )
+
+        return TransitionResponse(results=tuple(results), degraded=False)
 
     def complete_phase(
         self, feature_type_id: str, phase: str
@@ -105,11 +149,33 @@ class WorkflowStateEngine:
         if next_phase is None:
             next_phase = phase  # Terminal phase (finish) stays as-is
 
-        self.db.update_workflow_phase(
-            feature_type_id,
-            last_completed_phase=phase,
-            workflow_phase=next_phase,
-        )
+        # Primary defense: DB was already unhealthy during get_state
+        if state.source == "meta_json_fallback":
+            print(
+                f"workflow-engine: DB already degraded, writing "
+                f"complete_phase to .meta.json for {feature_type_id}",
+                file=sys.stderr,
+            )
+            return self._write_meta_json_fallback(
+                feature_type_id, phase, state
+            )
+
+        # Secondary defense: catch DB write failures
+        try:
+            self.db.update_workflow_phase(
+                feature_type_id,
+                last_completed_phase=phase,
+                workflow_phase=next_phase,
+            )
+        except sqlite3.Error as exc:
+            print(
+                f"workflow-engine: DB write failed in complete_phase "
+                f"for {feature_type_id}: {exc}",
+                file=sys.stderr,
+            )
+            return self._write_meta_json_fallback(
+                feature_type_id, phase, state
+            )
 
         return FeatureWorkflowState(
             feature_type_id=feature_type_id,
@@ -136,40 +202,93 @@ class WorkflowStateEngine:
 
     def list_by_phase(self, phase: str) -> list[FeatureWorkflowState]:
         """All features currently in the given phase."""
-        rows = self.db.list_workflow_phases(workflow_phase=phase)
-        return [self._row_to_state(row) for row in rows]
+        if not self._check_db_health():
+            print(
+                f"workflow-engine: DB unhealthy, falling back to filesystem "
+                f"scan for list_by_phase(phase={phase!r})",
+                file=sys.stderr,
+            )
+            return [
+                s for s in self._scan_features_filesystem()
+                if s.current_phase == phase
+            ]
+
+        try:
+            rows = self.db.list_workflow_phases(workflow_phase=phase)
+            return [self._row_to_state(row) for row in rows]
+        except sqlite3.Error as exc:
+            print(
+                f"workflow-engine: DB error in list_by_phase, falling back to "
+                f"filesystem scan for phase={phase!r}: {exc}",
+                file=sys.stderr,
+            )
+            return [
+                s for s in self._scan_features_filesystem()
+                if s.current_phase == phase
+            ]
 
     def list_by_status(self, status: str) -> list[FeatureWorkflowState]:
         """All features with the given entity status."""
-        entities = self.db.list_entities(entity_type="feature")
-        matching = [e for e in entities if e.get("status") == status]
+        if not self._check_db_health():
+            print(
+                f"workflow-engine: DB unhealthy, falling back to filesystem "
+                f"scan for list_by_status(status={status!r})",
+                file=sys.stderr,
+            )
+            return self._scan_features_by_status(status)
 
-        # 2-query pattern: fetch all workflow rows once, join in Python
-        wp_rows = self.db.list_workflow_phases()
-        wp_map = {r["type_id"]: r for r in wp_rows}
+        try:
+            entities = self.db.list_entities(entity_type="feature")
+            matching = [e for e in entities if e.get("status") == status]
 
-        results: list[FeatureWorkflowState] = []
-        for entity in matching:
-            type_id = entity["type_id"]
-            wp_row = wp_map.get(type_id)
-            if wp_row is not None:
-                results.append(self._row_to_state(wp_row))
-            else:
-                results.append(
-                    FeatureWorkflowState(
-                        feature_type_id=type_id,
-                        current_phase=None,
-                        last_completed_phase=None,
-                        completed_phases=(),
-                        mode=None,
-                        source="db",
+            # 2-query pattern: fetch all workflow rows once, join in Python
+            wp_rows = self.db.list_workflow_phases()
+            wp_map = {r["type_id"]: r for r in wp_rows}
+
+            results: list[FeatureWorkflowState] = []
+            for entity in matching:
+                type_id = entity["type_id"]
+                wp_row = wp_map.get(type_id)
+                if wp_row is not None:
+                    results.append(self._row_to_state(wp_row))
+                else:
+                    results.append(
+                        FeatureWorkflowState(
+                            feature_type_id=type_id,
+                            current_phase=None,
+                            last_completed_phase=None,
+                            completed_phases=(),
+                            mode=None,
+                            source="db",
+                        )
                     )
-                )
-        return results
+            return results
+        except sqlite3.Error as exc:
+            print(
+                f"workflow-engine: DB error in list_by_status, falling back to "
+                f"filesystem scan for status={status!r}: {exc}",
+                file=sys.stderr,
+            )
+            return self._scan_features_by_status(status)
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _check_db_health(self) -> bool:
+        """Fast health probe -- SELECT 1 on the existing connection.
+
+        Returns True if DB is usable, False otherwise.
+        """
+        # NOTE: busy_timeout is inherited from EntityDatabase (5s).
+        # Accepted product decision -- see design C1 NFR-1 interaction.
+        if self.db._conn is None:
+            return False
+        try:
+            self.db._conn.execute("SELECT 1")
+            return True
+        except sqlite3.Error:
+            return False
 
     def _row_to_state(
         self, row: dict, source: str = "db"
@@ -187,17 +306,31 @@ class WorkflowStateEngine:
         )
 
     def _extract_slug(self, feature_type_id: str) -> str:
-        """Extract slug from type_id. 'feature:008-foo' -> '008-foo'."""
+        """Extract slug from type_id. 'feature:008-foo' -> '008-foo'.
+
+        Validates that the resolved path stays within artifacts_root
+        as defense-in-depth against path traversal.
+        """
         if ":" not in feature_type_id:
             raise ValueError(
                 f"Invalid feature_type_id (missing ':'): {feature_type_id}"
             )
         parts = feature_type_id.split(":", 1)
-        if not parts[1]:
+        slug = parts[1]
+        if not slug:
             raise ValueError(
                 f"Invalid feature_type_id (empty slug): {feature_type_id}"
             )
-        return parts[1]
+        # Defense-in-depth: ensure resolved path stays within artifacts_root
+        resolved = os.path.realpath(
+            os.path.join(self.artifacts_root, "features", slug)
+        )
+        root = os.path.realpath(self.artifacts_root)
+        if not resolved.startswith(root + os.sep):
+            raise ValueError(
+                f"Invalid feature_type_id (path traversal): {feature_type_id}"
+            )
+        return slug
 
     def _derive_completed_phases(
         self, last_completed: str | None
@@ -230,28 +363,17 @@ class WorkflowStateEngine:
             if os.path.exists(os.path.join(feature_dir, name))
         )
 
-    def _hydrate_from_meta_json(
-        self, feature_type_id: str
+    def _derive_state_from_meta(
+        self,
+        meta: dict,
+        feature_type_id: str,
+        source: str = "meta_json",
     ) -> FeatureWorkflowState | None:
-        """Lazy hydration: parse .meta.json, derive state, backfill DB row."""
-        # Precondition: entity must exist
-        entity = self.db.get_entity(feature_type_id)
-        if entity is None:
-            return None
+        """Shared phase derivation from .meta.json dict.
 
-        slug = self._extract_slug(feature_type_id)
-        meta_path = os.path.join(
-            self.artifacts_root, "features", slug, ".meta.json"
-        )
-        if not os.path.exists(meta_path):
-            return None
-
-        try:
-            with open(meta_path) as f:
-                meta = json.load(f)
-        except json.JSONDecodeError:
-            return None
-
+        Used by both _hydrate_from_meta_json (DB-backed hydration) and
+        _read_state_from_meta_json (pure-filesystem fallback).
+        """
         status = meta.get("status")
         mode = meta.get("mode")
         last_completed = meta.get("lastCompletedPhase")
@@ -282,13 +404,191 @@ class WorkflowStateEngine:
             last_completed = None
             completed_phases = ()
 
+        return FeatureWorkflowState(
+            feature_type_id=feature_type_id,
+            current_phase=workflow_phase,
+            last_completed_phase=last_completed,
+            completed_phases=completed_phases,
+            mode=mode,
+            source=source,
+        )
+
+    def _read_state_from_meta_json(
+        self, feature_type_id: str
+    ) -> FeatureWorkflowState | None:
+        """Standalone .meta.json reader for degraded-mode fallback.
+
+        Unlike _hydrate_from_meta_json, this method:
+        - Does NOT check entity existence in the DB
+        - Does NOT backfill the DB row
+        - Catches OSError in addition to json.JSONDecodeError (must never raise)
+        """
+        slug = self._extract_slug(feature_type_id)
+        meta_path = os.path.join(
+            self.artifacts_root, "features", slug, ".meta.json"
+        )
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return None
+        return self._derive_state_from_meta(
+            meta, feature_type_id, source="meta_json_fallback"
+        )
+
+    def _write_meta_json_fallback(
+        self,
+        feature_type_id: str,
+        phase: str,
+        state: FeatureWorkflowState,
+    ) -> FeatureWorkflowState:
+        """Atomic .meta.json update when DB is unavailable.
+
+        Reads current .meta.json, updates lastCompletedPhase and phase
+        timestamps, writes atomically via NamedTemporaryFile + os.replace().
+
+        Only state.mode is read from the state parameter -- all other data
+        comes from the .meta.json file and the phase argument.
+        """
+        slug = self._extract_slug(feature_type_id)
+        meta_path = os.path.join(
+            self.artifacts_root, "features", slug, ".meta.json"
+        )
+
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Cannot update .meta.json: {exc}") from exc
+
+        now = _iso_now()
+        meta["lastCompletedPhase"] = phase
+        meta.setdefault("phases", {})
+        meta["phases"].setdefault(phase, {})
+        if "started" not in meta["phases"][phase]:
+            meta["phases"][phase]["started"] = now
+        meta["phases"][phase]["completed"] = now
+
+        next_phase = self._next_phase_value(phase)
+        workflow_phase = next_phase if next_phase is not None else phase
+
+        if next_phase is None:
+            meta["status"] = "completed"
+            meta["completed"] = now
+
+        # Atomic write: NamedTemporaryFile + os.replace().
+        # Catches BaseException (not just Exception) to clean up temp file
+        # on KeyboardInterrupt or SystemExit, preventing stale .tmp files.
+        tmp_name = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                dir=os.path.dirname(meta_path),
+                suffix=".tmp",
+                delete=False,
+                encoding="utf-8",
+            ) as fd:
+                tmp_name = fd.name
+                json.dump(meta, fd, indent=2)
+            os.replace(tmp_name, meta_path)
+        except BaseException:
+            if tmp_name is not None:
+                try:
+                    os.unlink(tmp_name)
+                except OSError:
+                    pass
+            raise
+
+        return FeatureWorkflowState(
+            feature_type_id=feature_type_id,
+            current_phase=workflow_phase,
+            last_completed_phase=phase,
+            completed_phases=self._derive_completed_phases(phase),
+            mode=state.mode,
+            source="meta_json_fallback",
+        )
+
+    def _iter_meta_jsons(self):
+        """Yield (feature_type_id, meta_dict) for each parseable .meta.json."""
+        pattern = os.path.join(
+            self.artifacts_root, "features", "*", ".meta.json"
+        )
+        for meta_path in glob.glob(pattern):
+            try:
+                with open(meta_path) as f:
+                    meta = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                continue
+            feature_dir = os.path.basename(os.path.dirname(meta_path))
+            yield f"feature:{feature_dir}", meta
+
+    def _scan_features_filesystem(self) -> list[FeatureWorkflowState]:
+        """Scan features directory for .meta.json files.
+
+        Used when DB is unavailable for list operations.
+        """
+        results: list[FeatureWorkflowState] = []
+        for feature_type_id, meta in self._iter_meta_jsons():
+            state = self._derive_state_from_meta(
+                meta, feature_type_id, source="meta_json_fallback"
+            )
+            if state is not None:
+                results.append(state)
+        return results
+
+    def _scan_features_by_status(
+        self, status: str
+    ) -> list[FeatureWorkflowState]:
+        """Scan features directory, filtering by .meta.json status field.
+
+        Only matching features get state derivation, avoiding wasted computation.
+        Used by list_by_status() fallback when DB is unavailable.
+        """
+        results: list[FeatureWorkflowState] = []
+        for feature_type_id, meta in self._iter_meta_jsons():
+            if meta.get("status") != status:
+                continue
+            state = self._derive_state_from_meta(
+                meta, feature_type_id, source="meta_json_fallback"
+            )
+            if state is not None:
+                results.append(state)
+        return results
+
+    def _hydrate_from_meta_json(
+        self, feature_type_id: str
+    ) -> FeatureWorkflowState | None:
+        """Lazy hydration: parse .meta.json, derive state, backfill DB row."""
+        # Precondition: entity must exist
+        entity = self.db.get_entity(feature_type_id)
+        if entity is None:
+            return None
+
+        slug = self._extract_slug(feature_type_id)
+        meta_path = os.path.join(
+            self.artifacts_root, "features", slug, ".meta.json"
+        )
+        if not os.path.exists(meta_path):
+            return None
+
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+        except json.JSONDecodeError:
+            return None
+
+        # Delegate phase derivation to shared helper (was inline before)
+        state = self._derive_state_from_meta(meta, feature_type_id, source="meta_json")
+        if state is None:
+            return None
+
         # Backfill DB row
         try:
             self.db.create_workflow_phase(
                 feature_type_id,
-                workflow_phase=workflow_phase,
-                last_completed_phase=last_completed,
-                mode=mode,
+                workflow_phase=state.current_phase,
+                last_completed_phase=state.last_completed_phase,
+                mode=state.mode,
             )
         except ValueError:
             # All inputs (workflow_phase, last_completed, mode) are pre-validated
@@ -300,14 +600,7 @@ class WorkflowStateEngine:
                 return self._row_to_state(row, source="meta_json")
             raise
 
-        return FeatureWorkflowState(
-            feature_type_id=feature_type_id,
-            current_phase=workflow_phase,
-            last_completed_phase=last_completed,
-            completed_phases=completed_phases,
-            mode=mode,
-            source="meta_json",
-        )
+        return state
 
     @staticmethod
     def _run_gate(

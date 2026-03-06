@@ -354,10 +354,11 @@ The phase-reviewer (gatekeeper) catches cross-artifact consistency failures that
 ### Pattern: Zero-Deviation Implementation After Phase-Reviewer Cap Iterations
 When phase-reviewer caps are hit during create-plan or create-tasks phases, the additional iterations represent front-loaded investment that produces clean implementations. Feature 007 hit caps in both create-plan and create-tasks yet produced 0 deviations across 29 tasks and 180 passing tests. Phase-reviewer caps are not quality failures — they are the pre-implementation investment that eliminates implementation rework.
 - Observed in: Feature 007, implement phase — 0 deviations across 29 tasks, 180 tests passing; preceded by phase-reviewer caps at create-plan iter 5 and create-tasks iter 5
+- Also observed in: Feature 010, implement phase — 0 deviations across 22 tasks, 269 tests passing; preceded by create-plan planReview cap (5 iters, 6 reviewer notes) and chainReview cap (5 iters, 1 reviewer note). All reviewer notes served as implementation guidance.
 - Confidence: high
 - Keywords: ["phase-reviewer-cap", "zero-deviation", "pre-implementation-investment", "implementation-quality", "front-loading"]
-- Last observed: Feature 007
-- Observation count: 1
+- Last observed: Feature 010
+- Observation count: 2
 
 ### Pattern: Dependency API Pre-Read Before Spec Authoring
 For features with `depends_on_features`, read each dependency's public interface before authoring any FR. Annotate each consumed API reference with `verified against: <file>:<line>`. All 4 iter-1 blockers in feature 008 specify phase were resolvable by reading feature 007 and feature 005 source before spec authoring — non-existent DB method, wrong function signature, wrong return type, missing entity-existence precondition.
