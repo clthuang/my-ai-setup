@@ -117,7 +117,7 @@
 ### Task 2.2.2: Implement FTS sync in `update_entity`
 - [ ] Before existing UPDATE: SELECT old values (rowid, name, entity_id, entity_type, status, metadata), compute `old_metadata_text = flatten_metadata(json.loads(old_row["metadata"]) if old_row["metadata"] else None)`
 - [ ] Execute existing UPDATE logic (unchanged)
-- [ ] After UPDATE: `SELECT name, entity_id, entity_type, status, metadata FROM entities WHERE uuid = :uuid` for actual new values from DB (single source of truth — same columns as old-value SELECT minus rowid; reuse old_rowid for FTS insert), compute `new_metadata_text = flatten_metadata(json.loads(new_row["metadata"]) if new_row["metadata"] else None)`
+- [ ] After UPDATE: `SELECT name, entity_id, entity_type, status, metadata FROM entities WHERE uuid = :uuid` for actual new values from DB (plan-level deviation from design I4 — reads post-UPDATE DB values instead of Python-derived values; see plan.md §2.2 for rationale), compute `new_metadata_text = flatten_metadata(json.loads(new_row["metadata"]) if new_row["metadata"] else None)`
 - [ ] FTS delete with old values, FTS insert with new values
 - [ ] Move `self._conn.commit()` to after FTS writes
 - [ ] Add maintenance comment: `# FTS sync reads post-UPDATE values from DB. If new FTS-indexed fields are added, update both the old-value SELECT and the FTS insert columns.`
@@ -150,7 +150,7 @@
 
 **File:** `plugins/iflow/hooks/lib/entity_registry/test_search.py` (Modified)
 **Depends on:** 2.1.2
-**Done when:** 13 failing tests exist in `TestSearchEntities` and `TestSearchSanitization`
+**Done when:** 12-13 failing tests exist (test_fts_not_available may pass at RED since FTS table is created by migration; remaining 12 tests confirm search method not yet implemented)
 
 ### Task 3.1.2: Implement `_build_fts_query` and `search_entities`
 - [ ] Add `_build_fts_query(self, query: str) -> str | None` private method:
