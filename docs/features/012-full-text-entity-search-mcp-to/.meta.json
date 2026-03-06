@@ -10,10 +10,20 @@
   "depends_on_features": [
     "001-entity-uuid-primary-key-migrat"
   ],
-  "lastCompletedPhase": null,
+  "lastCompletedPhase": "specify",
   "phases": {
     "specify": {
-      "started": "2026-03-07T19:00:00+08:00"
+      "started": "2026-03-07T19:00:00+08:00",
+      "completed": "2026-03-07T19:45:00+08:00",
+      "phaseReview": {
+        "iterations": 2,
+        "approved": true,
+        "reviewerNotes": []
+      },
+      "handoffReview": {
+        "iterations": 2,
+        "approved": true
+      }
     }
   }
 }
