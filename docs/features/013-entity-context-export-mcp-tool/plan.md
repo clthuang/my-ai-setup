@@ -107,7 +107,7 @@ Phase 4: Final Regression
 **Design ref:** Component 3, MCP Tool Interface, Import Changes
 **Spec ref:** FR-1
 **File:** `plugins/iflow/mcp/entity_server.py`
-**Test file:** `plugins/iflow/mcp/test_export_entities.py` (**Created** — new Python pytest file. Note: `test_entity_server.sh` exists as a bash bootstrap wrapper test; this new file tests tool-level Python behavior.)
+**Test file:** `plugins/iflow/mcp/test_export_entities.py` (**Created** — new Python pytest file. Note: `test_entity_server.sh` exists as a bash bootstrap wrapper test; this new file tests tool-level Python behavior. Intentionally renamed from design's `test_entity_server.py` to avoid confusion with the bash wrapper and to follow `test_search_mcp.py` per-feature naming convention.)
 **Depends on:** 2.1 (delegates to `_process_export_entities`)
 
 **Implementation:**
@@ -129,11 +129,13 @@ Phase 4: Final Regression
 
 **Test mechanism:** Tests import `entity_server` module, patch module-level globals (`_db`, `_artifacts_root`), and call the `export_entities` async function directly via `asyncio.run()` or pytest-asyncio. This follows the same pattern used in `test_search_mcp.py` for feature 012.
 
+**Test independence note:** Each test independently sets `entity_server._db` (to None or a mock), so test execution order does not matter. No shared fixture cleanup needed.
+
 **Tests (TDD — write first):**
 - `TestExportEntitiesTool::test_db_not_initialized` — set `entity_server._db = None`, call `export_entities()` → returns `"Error: database not initialized (server not started)"` (null guard)
-- `TestExportEntitiesTool::test_delegates_to_helper` — patch `_process_export_entities` via `unittest.mock.patch`, set `entity_server._db` to a mock, call `export_entities(entity_type="feature", status="active", include_lineage=False)`, assert patch called with `(mock_db, "feature", "active", None, False, mock_artifacts_root)`
-- `TestExportEntitiesTool::test_include_lineage_default_true` — call `export_entities()` with no args, assert `_process_export_entities` called with `include_lineage=True`
-- `TestExportEntitiesTool::test_returns_helper_result` — patch `_process_export_entities` to return a string, verify `export_entities()` returns that exact string
+- `TestExportEntitiesTool::test_delegates_to_helper` — `unittest.mock.patch("entity_server._process_export_entities")` (patch at usage site, not definition site), set `entity_server._db` to a mock, call `export_entities(entity_type="feature", status="active", include_lineage=False)`, assert patch called with `(mock_db, "feature", "active", None, False, mock_artifacts_root)`
+- `TestExportEntitiesTool::test_include_lineage_default_true` — patch `entity_server._process_export_entities`, call `export_entities()` with no args, assert called with `include_lineage=True`
+- `TestExportEntitiesTool::test_returns_helper_result` — patch `entity_server._process_export_entities` to return a string, verify `export_entities()` returns that exact string
 
 **Done when:** All `TestExportEntitiesTool` tests pass. Tool delegates correctly with proper argument forwarding.
 
