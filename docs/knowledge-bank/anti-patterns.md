@@ -102,6 +102,15 @@ When a numeric mismatch between spec and design (counts, caps, limits) is flagge
 - Last observed: Feature #028
 - Observation count: 1
 
+### Anti-Pattern: Approximate Call-Site Counts in Migration Plans
+Plans that reference specific line numbers or approximate call-site counts (e.g., "14 assigning sites at lines 605, 622, 640...") become stale by implementation time as prior task commits shift line numbers. Implementers either waste time reconciling stale references or risk missing call sites.
+- Observed in: Feature 010, create-plan phase — plan listed 14 call sites by line number; chainReview iter 5 flagged "line numbers are static approximations — engineer should run pre-commit grep at START of 4.2 to get current line numbers"
+- Cost: create-plan hit cap (5+5 iterations) partly due to line number precision debates; chainReview note became required implementation guidance
+- Instead: Plans should specify grep patterns or AST queries to locate call sites dynamically at implementation time, not static line numbers
+- Confidence: medium
+- Last observed: Feature 010
+- Observation count: 1
+
 <!-- Example format:
 ### Anti-Pattern: Premature Optimization
 Optimizing before measuring actual performance.

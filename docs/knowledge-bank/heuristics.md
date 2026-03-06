@@ -326,3 +326,11 @@ State-machine orchestrators require combinatorial path coverage. A 4-5:1 test-to
 - Keywords: ["test-ratio", "state-machine", "orchestrator", "combinatorial-coverage", "transition-engine"]
 - Last observed: Feature 008
 - Observation count: 1
+
+### Live Line Numbers Expire Before Implementation — Pre-Step Grep Required
+When plans reference specific source line numbers for modification targets (e.g., "modify lines 605, 622, 640"), those numbers become stale as prior implementation tasks commit changes that shift line offsets. At the START of each implementation step, run a grep/search to resolve current locations rather than relying on plan-time line numbers.
+- Source: Feature 010, create-plan chainReview note — "4.2 line numbers are static approximations — engineer should run pre-commit grep at START of 4.2 to get current line numbers"
+- Confidence: high
+- Keywords: ["line-numbers", "implementation", "grep", "dynamic-resolution", "stale-references"]
+- Last observed: Feature 010
+- Observation count: 1
