@@ -77,10 +77,10 @@ Per-feature drift report structure:
 | `db.mode` | `workflow_phases.mode` column | Yes (field mismatch, not phase ordering) |
 | `db.kanban_column` | `workflow_phases.kanban_column` column | Informational only — included for context |
 
-**Drift status determination:** The overall `status` field is determined by the phase comparison logic (R8). If phases match but `mode` differs, `status` is still `"in_sync"` but `mismatches` will include the mode difference. This allows callers to detect mode drift without it affecting the phase ordering heuristic.
+**Drift status determination:** The overall `status` field is determined solely by phase comparison logic (R8) — only `last_completed_phase` and `workflow_phase` indices affect status. The `mode` field is compared separately: if phases match but `mode` differs, `status` is `"in_sync"` and `mismatches` includes `{field: "mode", ...}`. This allows callers to detect mode drift without it affecting the phase ordering heuristic.
 
 Drift status logic:
-- `"in_sync"`: Both sources exist and all comparable fields match
+- `"in_sync"`: Both sources exist and phase positions match (both `last_completed_phase` and `workflow_phase` have equal indices in `PHASE_SEQUENCE`). Note: `mode` may still differ — mode mismatches appear in `mismatches` but do not affect `status`
 - `"meta_json_ahead"`: `.meta.json` has a later phase than DB (post-degradation scenario — `.meta.json` was updated during fallback, DB was not)
 - `"db_ahead"`: DB has a later phase than `.meta.json` (unexpected but possible if DB was updated directly)
 - `"meta_json_only"`: `.meta.json` exists but no `workflow_phases` row in DB
@@ -95,6 +95,7 @@ Phase comparison logic for determining "ahead":
 5. If indices equal, compare `workflow_phase` (current phase) using same logic
 6. If both match → `in_sync`
 7. If either has a `None` last_completed_phase and the other doesn't → the non-None source is ahead
+8. If both have `None` last_completed_phase → indices are equal (-1); proceed to workflow_phase comparison (step 5). If both workflow_phase are also `None` → `in_sync`
 
 ### R2: Workflow State Reconciliation
 
@@ -124,9 +125,10 @@ Per-feature action structure:
 
 Reconciliation logic for `meta_json_to_db`:
 1. Run `reconcile_check` internally to detect drift
+2-5 below are mutually exclusive branches — each feature's `status` from step 1 maps to exactly one branch:
 2. For each feature with `status == "meta_json_ahead"`:
    a. Read `.meta.json` to derive target state via `engine._derive_state_from_meta()` (instance method on the passed WorkflowStateEngine)
-   b. If `workflow_phases` row exists: call `db.update_workflow_phase()` with `workflow_phase`, `last_completed_phase`, and `mode` derived from `.meta.json`. **`kanban_column` is left unchanged** — it is not derivable from `.meta.json` and its mapping to phases is not defined. This is a known limitation; callers should verify kanban state separately.
+   b. If `workflow_phases` row exists: call `db.update_workflow_phase()` with `workflow_phase`, `last_completed_phase`, and `mode` derived from `.meta.json`. **`kanban_column` is left unchanged** — the `_UNSET` sentinel pattern in `update_workflow_phase()` means omitted keyword arguments are not written to the DB; passing only `workflow_phase`, `last_completed_phase`, and `mode` leaves `kanban_column` at its existing value. This is a known limitation; callers should verify kanban state separately.
    c. If no `workflow_phases` row: call `db.create_workflow_phase()` to create the row. `kanban_column` uses the DB default (`"backlog"`).
    d. Record the changes made
 3. For features with `status == "in_sync"`: skip (action `"skipped"`, message "Already in sync")
@@ -147,7 +149,7 @@ Reconciliation logic for `meta_json_to_db`:
   - `summary: dict` — aggregate counts by status (`in_sync`, `file_only`, `db_only`, `diverged`, `no_header`, `error`)
 
 Implementation:
-- If `feature_type_id` provided: derive feature slug, check each artifact file (`spec.md`, `design.md`, `plan.md`, `tasks.md`, `retro.md`, `prd.md`) using `detect_drift()`. Note: all artifact files under a feature share the same entity record. `detect_drift()` compares each file's frontmatter against that single entity record. A feature with 6 artifact files produces up to 6 `DriftReport` entries, all referencing the same `type_id`.
+- If `feature_type_id` provided: extract feature directory name via `feature_type_id.split(":", 1)[1]` (e.g., `"feature:010-graceful-degradation"` → `"010-graceful-degradation"`), then check each artifact file listed in `ARTIFACT_BASENAME_MAP` from `entity_registry.frontmatter_sync` (currently: `spec.md`, `design.md`, `plan.md`, `tasks.md`, `retro.md`, `prd.md`) using `detect_drift()`. Note: all artifact files under a feature share the same entity record. `detect_drift()` compares each file's frontmatter against that single entity record. A feature with 6 artifact files produces up to 6 `DriftReport` entries, all referencing the same `type_id`.
 - If omitted: call `scan_all()` from `frontmatter_sync`
 - Serialize `DriftReport` dataclass fields to JSON dict (filepath, type_id, status, file_fields, db_fields, mismatches)
 - Serialize `FieldMismatch` as `{field, file_value, db_value}`
@@ -171,7 +173,7 @@ Each tool delegates to a `_process_*()` function that accepts explicit parameter
 New processing functions (use existing `_with_error_handling` and `_catch_value_error` decorators from `workflow_state_server.py` for consistent error handling):
 - `_process_reconcile_check(engine, db, artifacts_root, feature_type_id)` — delegates to `check_workflow_drift()`
 - `_process_reconcile_apply(engine, db, artifacts_root, feature_type_id, direction, dry_run)` — validates `direction == "meta_json_to_db"` (returns `_make_error("invalid_transition", ...)` for unsupported directions), then delegates to `apply_workflow_reconciliation()` (which has no `direction` param since only one direction is supported)
-- `_process_reconcile_frontmatter(db, artifacts_root, feature_type_id)` — delegates to `frontmatter_sync.scan_all()` or per-feature `detect_drift()`
+- `_process_reconcile_frontmatter(db, artifacts_root, feature_type_id)` — extracts feature directory name from `feature_type_id` via string split (no engine needed), then delegates to per-feature `detect_drift()` or `frontmatter_sync.scan_all()` when no `feature_type_id`
 - `_process_reconcile_status(engine, db, artifacts_root)` — calls both check and frontmatter internally
 
 ### R6: Reconciliation Engine Module
@@ -252,7 +254,7 @@ Edge case: if `.meta.json` has `status: "completed"` and DB has `workflow_phase:
 ### Workflow Drift Detection
 
 - AC-1: `reconcile_check` on a feature with matching `.meta.json` and DB state returns `status: "in_sync"` with empty `mismatches`
-- AC-2: Given `.meta.json` has `lastCompletedPhase: "implement"` and `status: "active"`, and DB has `last_completed_phase: "design"` and `workflow_phase: "create-plan"`, when `reconcile_check` runs, then `status` is `"meta_json_ahead"` and `mismatches` contains `{field: "last_completed_phase", meta_json_value: "implement", db_value: "design"}` and `{field: "workflow_phase", meta_json_value: "finish", db_value: "create-plan"}`
+- AC-2: Given `.meta.json` has `lastCompletedPhase: "implement"`, `status: "active"`, and `mode: "standard"`, and DB has `last_completed_phase: "design"`, `workflow_phase: "create-plan"`, and `mode: "standard"`, when `reconcile_check` runs, then `status` is `"meta_json_ahead"` and `mismatches` contains `{field: "last_completed_phase", meta_json_value: "implement", db_value: "design"}` and `{field: "workflow_phase", meta_json_value: "finish", db_value: "create-plan"}`
 - AC-3: `reconcile_check` on a feature with `.meta.json` but no DB `workflow_phases` row returns `status: "meta_json_only"`
 - AC-4: `reconcile_check` on a feature with DB `workflow_phases` row but no `.meta.json` returns `status: "db_only"`
 - AC-5: `reconcile_check` with no argument scans all features and returns aggregate summary counts
