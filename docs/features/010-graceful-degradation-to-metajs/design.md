@@ -513,10 +513,9 @@ def _write_meta_json_fallback(
 ```python
 def _scan_features_filesystem(self) -> list[FeatureWorkflowState]:
     """Scan features directory for .meta.json files. Used when DB is unavailable for list ops."""
-    import glob as glob_mod
     pattern = os.path.join(self.artifacts_root, "features", "*", ".meta.json")
     results: list[FeatureWorkflowState] = []
-    for meta_path in glob_mod.glob(pattern):
+    for meta_path in glob.glob(pattern):
         feature_dir = os.path.basename(os.path.dirname(meta_path))
         feature_type_id = f"feature:{feature_dir}"
         state = self._read_state_from_meta_json(feature_type_id)
@@ -846,10 +845,9 @@ def list_by_status(self, status: str) -> list[FeatureWorkflowState]:
 ```python
 def _scan_features_by_status(self, status: str) -> list[FeatureWorkflowState]:
     """Scan features directory, filtering by .meta.json status field."""
-    import glob as glob_mod
     pattern = os.path.join(self.artifacts_root, "features", "*", ".meta.json")
     results: list[FeatureWorkflowState] = []
-    for meta_path in glob_mod.glob(pattern):
+    for meta_path in glob.glob(pattern):
         try:
             with open(meta_path) as f:
                 meta = json.load(f)
@@ -873,7 +871,7 @@ def _scan_features_by_status(self, status: str) -> list[FeatureWorkflowState]:
 
 These design decisions are intentionally deferred to the plan phase for task-level resolution:
 
-1. **Probe busy_timeout evaluation (from C1):** Evaluate whether a reduced probe-specific `PRAGMA busy_timeout` (e.g., 100ms) before `SELECT 1`, restored after, is worth the complexity vs. accepting the inherited 5s bound. Document the decision and close this open item.
+1. **Probe busy_timeout decision (from C1):** Implement a 100ms probe-specific timeout: save current `busy_timeout`, issue `PRAGMA busy_timeout=100`, run `SELECT 1`, restore original value. If this exceeds 10 lines of code or introduces error-handling complexity, accept the inherited 5s bound and add a code comment in C1 documenting the accepted bound. Binary outcome — no open-ended evaluation.
 
 ---
 
@@ -918,7 +916,7 @@ _derive_state_from_meta (shared helper, extracted per TD-3)
 | File | Change Type | Scope |
 |------|------------|-------|
 | `workflow_engine/models.py` | Add `TransitionResponse` dataclass, update `source` comment | Small |
-| `workflow_engine/engine.py` | Add C1-C4, C8 methods; extract `_derive_state_from_meta` helper; refactor `_hydrate_from_meta_json` to delegate phase derivation to `_derive_state_from_meta`; wrap public methods with fallback; add imports (`sqlite3`, `tempfile`, `glob`) | Large (primary change) |
+| `workflow_engine/engine.py` | Add C1-C4, C8 methods; extract `_derive_state_from_meta` helper; refactor `_hydrate_from_meta_json` to delegate phase derivation to `_derive_state_from_meta`; wrap public methods with fallback; add top-level imports (`sqlite3`, `tempfile`, `glob`) — `glob` must be top-level (not deferred inside function bodies) to match module import style | Large (primary change) |
 | `mcp/workflow_state_server.py` | Add C6, C7; update `_process_*` for structured errors and degradation; update `_engine is None` guards; update non-exception error paths (e.g., `_process_get_phase` None-state check); add `import sqlite3` | Medium |
 | `workflow_engine/test_engine.py` | New tests for all degradation paths | Medium |
 | `mcp/test_workflow_state_server.py` | Update error-path assertions, add degradation tests | Medium |
