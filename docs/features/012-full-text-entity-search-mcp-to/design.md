@@ -137,6 +137,7 @@ plugins/iflow/mcp/
 **Impact:** Medium — if VACUUM reassigns implicit rowids, FTS index becomes stale.
 **Likelihood:** Low — implicit rowids are NOT guaranteed stable across VACUUM (contrary to the spec's original claim). However, VACUUM is never called in the codebase, and the entity DB uses WAL mode which does not auto-vacuum by default.
 **Mitigation:** The `rebuild` command can reconstruct the index. If needed, a future enhancement could add an explicit integer rowid column. Not needed now given VACUUM is never invoked.
+**Note:** The spec R1 (line 39) claims implicit rowids are stable across VACUUM — this is incorrect per SQLite docs. The design treats rowids as NOT guaranteed stable. This discrepancy is acknowledged and the design's position is authoritative.
 
 ### Risk 2: FTS Index Drift from Direct DB Writes
 **Impact:** Medium — searches return stale results.
@@ -178,7 +179,7 @@ def _create_fts_index(conn: sqlite3.Connection):
 ```
 
 **Operations:**
-1. **FTS5 availability check:** Execute `SELECT fts5()` in a try/except. If `OperationalError` mentions "no such function", raise `RuntimeError("FTS5 extension not available")`.
+1. **FTS5 availability check via CREATE:** The `CREATE VIRTUAL TABLE ... USING fts5(...)` itself is the check. Wrap it in try/except — if `OperationalError` message contains "no such module: fts5", raise `RuntimeError("FTS5 extension not available")`. Note: `SELECT fts5()` is NOT valid — FTS5 is a virtual table module, not a standalone function.
 2. `CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(name, entity_id, entity_type, status, metadata_text, content='entities', content_rowid='rowid')`
 3. For each row in `SELECT rowid, name, entity_id, entity_type, status, metadata FROM entities`:
    - `metadata_text = flatten_metadata(json.loads(metadata) if metadata else None)`
@@ -195,7 +196,7 @@ cursor = self._conn.execute(
 if cursor.rowcount == 1:
     # Row was actually inserted (not duplicate skip)
     rowid = self._conn.execute(
-        "SELECT rowid FROM entities WHERE uuid = ?", (uuid_val,)
+        "SELECT rowid FROM entities WHERE uuid = ?", (entity_uuid,)
     ).fetchone()[0]
     metadata_text = flatten_metadata(metadata)
     self._conn.execute(
@@ -208,12 +209,14 @@ self._conn.commit()  # Moved to after FTS write
 
 ### I4: FTS Sync in `update_entity`
 
+**Execution order:** The existing `_resolve_identifier` call (which raises `ValueError` for missing entities) precedes the FTS sync code, so `old_row` is guaranteed non-None.
+
 **Before existing UPDATE, within same transaction:**
 ```python
-# Step 1: Read old values
+# Step 1: Read old values (entity_uuid is from existing _resolve_identifier call)
 old_row = self._conn.execute(
     "SELECT rowid, name, entity_id, entity_type, status, metadata FROM entities WHERE uuid = ?",
-    (uuid_val,)
+    (entity_uuid,)
 ).fetchone()
 old_rowid, old_name, old_entity_id, old_entity_type, old_status, old_metadata_raw = old_row
 old_metadata_text = flatten_metadata(json.loads(old_metadata_raw) if old_metadata_raw else None)
@@ -229,15 +232,26 @@ self._conn.execute(
 )
 
 # Step 4: FTS insert with new values (computed from Python, no re-read needed)
-# new_name, new_status, new_metadata are known from update_entity's parameters
+# Derive final_metadata from the three metadata code paths:
+#   (a) metadata is None (not provided) => final_metadata = old metadata (unchanged)
+#   (b) metadata == {} (clear) => final_metadata = None (will produce "")
+#   (c) metadata has keys => final_metadata = shallow-merged result
+if metadata is None:
+    final_metadata = json.loads(old_metadata_raw) if old_metadata_raw else None
+elif metadata == {}:
+    final_metadata = None
+else:
+    existing = json.loads(old_metadata_raw) if old_metadata_raw else {}
+    existing.update(metadata)
+    final_metadata = existing
+
+new_metadata_text = flatten_metadata(final_metadata)
 # entity_id and entity_type never change; rowid is stable within transaction
-new_metadata_text = flatten_metadata(new_metadata if new_metadata is not None else
-    (json.loads(old_metadata_raw) if old_metadata_raw else None))
 self._conn.execute(
     "INSERT INTO entities_fts(rowid, name, entity_id, entity_type, status, metadata_text) "
     "VALUES(?, ?, ?, ?, ?, ?)",
-    (old_rowid, new_name or old_name, old_entity_id, old_entity_type,
-     (new_status or old_status) or "", new_metadata_text),
+    (old_rowid, name or old_name, old_entity_id, old_entity_type,
+     (status or old_status) or "", new_metadata_text),
 )
 
 self._conn.commit()  # Moved to after FTS writes
