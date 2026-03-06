@@ -24,6 +24,14 @@
         "iterations": 2,
         "approved": true
       }
+    },
+    "design": {
+      "started": "2026-03-07T03:45:00+08:00",
+      "stages": {
+        "research": { "started": "2026-03-07T03:45:00+08:00", "completed": "2026-03-07T03:50:00+08:00", "skipped": false },
+        "architecture": { "started": "2026-03-07T03:50:00+08:00", "completed": "2026-03-07T03:55:00+08:00" },
+        "interface": { "started": "2026-03-07T03:55:00+08:00", "completed": "2026-03-07T04:00:00+08:00" }
+      }
     }
   }
 }
