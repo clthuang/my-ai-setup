@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Workflow state MCP server: 6 tools (get_phase, transition_phase, complete_phase, validate_prerequisites, list_features_by_phase, list_features_by_status) exposing WorkflowStateEngine operations via stdio transport
+- 50 tests (30 TDD + 20 deepened) covering all processing functions, serialization, performance, and edge cases
+
 ## [4.9.0] - 2026-03-04
 
 ### Added
