@@ -111,12 +111,14 @@ Responsibilities:
 - File write: output_path creates file with valid JSON, parent directories created
 - Path escape: `../../etc/passwd` returns error
 - OSError handling: permission denied returns error string
-- ValueError propagation: invalid entity_type returns error with database message
+- ValueError propagation: invalid entity_type returns error with database message (use database repr-quoted tuple format, not spec FR-4 plain format — see Technical Decisions "Accepted delta")
 - No output_path: returns JSON string directly
 
 **MCP tool (`entity_server.py`):**
 - Null `_db` guard returns error
 - Delegation to helper (integration-level)
+
+**Error message format note:** All tests asserting error messages MUST use the database layer's canonical format: `Invalid entity_type 'xyz'. Must be one of ('backlog', ...)` (repr-quoted, tuple parens). Do NOT test against spec FR-4's plain format.
 
 ## Interfaces
 
@@ -320,3 +322,4 @@ from entity_registry.server_helpers import (
 | `plugins/iflow/mcp/entity_server.py` | Add `export_entities` MCP tool, update import |
 | `plugins/iflow/hooks/lib/entity_registry/test_database.py` | Tests for `export_entities_json()` |
 | `plugins/iflow/hooks/lib/entity_registry/test_server_helpers.py` | Tests for `_process_export_entities()` |
+| `plugins/iflow/mcp/test_entity_server.py` | Tests for `export_entities` MCP tool (null guard, delegation) |
