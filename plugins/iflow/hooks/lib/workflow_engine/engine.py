@@ -89,10 +89,25 @@ class WorkflowStateEngine:
         existing_artifacts = self._get_existing_artifacts(slug)
         results = self._evaluate_gates(state, target_phase, existing_artifacts, yolo_active)
 
+        # Primary defense: health probe already failed during get_state
+        if state.source == "meta_json_fallback":
+            return TransitionResponse(results=tuple(results), degraded=True)
+
         if all(r.allowed for r in results):
-            self.db.update_workflow_phase(
-                feature_type_id, workflow_phase=target_phase
-            )
+            # Secondary defense: catch DB write failures
+            try:
+                self.db.update_workflow_phase(
+                    feature_type_id, workflow_phase=target_phase
+                )
+            except sqlite3.Error as exc:
+                print(
+                    f"workflow-engine: DB write failed in transition_phase "
+                    f"for {feature_type_id}: {exc}",
+                    file=sys.stderr,
+                )
+                return TransitionResponse(
+                    results=tuple(results), degraded=True
+                )
 
         return TransitionResponse(results=tuple(results), degraded=False)
 

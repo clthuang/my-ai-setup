@@ -2902,21 +2902,13 @@ class TestGetStateFallback:
 
 
 # ---------------------------------------------------------------------------
-# TransitionPhase Fallback (Task 4.2a -- RED tests)
+# TransitionPhase Fallback
 # ---------------------------------------------------------------------------
 
 
 class TestTransitionPhaseFallback:
-    """Task 4.2a: transition_phase() degrades when DB is unavailable.
+    """transition_phase() degrades gracefully when DB is unavailable."""
 
-    These tests are intentionally RED -- transition_phase() currently returns
-    list[TransitionResult], not TransitionResponse. They will turn GREEN once
-    Task 4.2c implements the degraded-path logic.
-    """
-
-    @pytest.mark.xfail(
-        reason="RED: transition_phase returns list, not TransitionResponse yet"
-    )
     def test_probe_fail_returns_degraded_response(self, tmp_path) -> None:
         """When _check_db_health returns False, transition_phase returns
         TransitionResponse with degraded=True."""
@@ -2942,9 +2934,6 @@ class TestTransitionPhaseFallback:
         assert isinstance(response.results, tuple)
         assert len(response.results) > 0
 
-    @pytest.mark.xfail(
-        reason="RED: transition_phase returns list, not TransitionResponse yet"
-    )
     def test_db_write_fail_returns_degraded_response(
         self, tmp_path, monkeypatch
     ) -> None:
