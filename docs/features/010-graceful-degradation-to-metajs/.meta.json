@@ -10,7 +10,7 @@
   "depends_on_features": [
     "008-workflowstateengine-core"
   ],
-  "lastCompletedPhase": "create-plan",
+  "lastCompletedPhase": "create-tasks",
   "phases": {
     "specify": {
       "started": "2026-03-06T17:00:00+08:00",
@@ -29,6 +29,18 @@
         "interface": { "started": "2026-03-06T18:55:00+08:00", "completed": "2026-03-06T19:05:00+08:00" },
         "designReview": { "started": "2026-03-06T19:05:00+08:00", "completed": "2026-03-06T19:15:00+08:00", "iterations": 3, "reviewerNotes": [] },
         "handoffReview": { "started": "2026-03-06T19:15:00+08:00", "completed": "2026-03-06T19:45:00+08:00", "iterations": 5, "approved": true, "reviewerNotes": ["PRAGMA restore try/finally complexity — plan task should pre-decide accept 5s bound", "I13 source='db' provenance on read-back failure — code comment concern"] }
+      }
+    },
+    "create-tasks": {
+      "started": "2026-03-06T22:35:00+08:00",
+      "completed": "2026-03-07T00:15:00+08:00",
+      "taskReview": {
+        "iterations": 3,
+        "approved": true
+      },
+      "chainReview": {
+        "iterations": 2,
+        "approved": true
       }
     },
     "create-plan": {
