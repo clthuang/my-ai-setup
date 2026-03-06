@@ -11,7 +11,10 @@ from entity_registry.database import EntityDatabase
 from transition_gate import PHASE_SEQUENCE
 from transition_gate.constants import COMMAND_PHASES, HARD_PREREQUISITES
 
+from transition_gate.models import Severity, TransitionResult
+
 from workflow_engine import FeatureWorkflowState, WorkflowStateEngine
+from workflow_engine.models import TransitionResponse
 
 
 # ---------------------------------------------------------------------------
@@ -1737,3 +1740,72 @@ class TestDeepenedPerformance:
         assert elapsed_ms < 200, (
             f"Batch query time {elapsed_ms:.1f}ms exceeds 200ms SLA"
         )
+
+
+# ---------------------------------------------------------------------------
+# TransitionResponse dataclass (Task 1.1)
+# ---------------------------------------------------------------------------
+
+
+class TestTransitionResponse:
+    """Tests for the TransitionResponse frozen dataclass."""
+
+    def test_transition_response_construction(self) -> None:
+        """TransitionResponse can be constructed with results tuple and degraded bool."""
+        r1 = TransitionResult(
+            allowed=True, reason="ok", severity=Severity.info, guard_id="g1"
+        )
+        r2 = TransitionResult(
+            allowed=False, reason="blocked", severity=Severity.block, guard_id="g2"
+        )
+        response = TransitionResponse(results=(r1, r2), degraded=False)
+        assert response is not None
+
+    def test_transition_response_frozen(self) -> None:
+        """TransitionResponse is frozen -- attributes cannot be reassigned."""
+        r1 = TransitionResult(
+            allowed=True, reason="ok", severity=Severity.info, guard_id="g1"
+        )
+        response = TransitionResponse(results=(r1,), degraded=False)
+        with pytest.raises(FrozenInstanceError):
+            response.degraded = True  # type: ignore[misc]
+        with pytest.raises(FrozenInstanceError):
+            response.results = ()  # type: ignore[misc]
+
+    def test_transition_response_field_access(self) -> None:
+        """TransitionResponse fields are accessible and correct."""
+        r1 = TransitionResult(
+            allowed=True, reason="ok", severity=Severity.info, guard_id="g1"
+        )
+        r2 = TransitionResult(
+            allowed=False, reason="no", severity=Severity.block, guard_id="g2"
+        )
+        response = TransitionResponse(results=(r1, r2), degraded=True)
+        assert response.results == (r1, r2)
+        assert response.degraded is True
+
+    def test_transition_response_results_is_tuple(self) -> None:
+        """TransitionResponse.results is a tuple, not a list."""
+        r1 = TransitionResult(
+            allowed=True, reason="ok", severity=Severity.info, guard_id="g1"
+        )
+        response = TransitionResponse(results=(r1,), degraded=False)
+        assert isinstance(response.results, tuple)
+
+    def test_transition_response_degraded_is_bool(self) -> None:
+        """TransitionResponse.degraded is a bool."""
+        r1 = TransitionResult(
+            allowed=True, reason="ok", severity=Severity.info, guard_id="g1"
+        )
+        response_normal = TransitionResponse(results=(r1,), degraded=False)
+        response_degraded = TransitionResponse(results=(r1,), degraded=True)
+        assert isinstance(response_normal.degraded, bool)
+        assert isinstance(response_degraded.degraded, bool)
+        assert response_normal.degraded is False
+        assert response_degraded.degraded is True
+
+    def test_transition_response_empty_results(self) -> None:
+        """TransitionResponse can have empty results tuple."""
+        response = TransitionResponse(results=(), degraded=False)
+        assert response.results == ()
+        assert len(response.results) == 0
