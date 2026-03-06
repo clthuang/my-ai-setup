@@ -83,7 +83,7 @@ The degradation layer wraps the existing engine with try/except guards at each p
 
 **Normal path** (DB available):
 ```
-get_state() → db.get_workflow_phase() → _row_to_state() → FeatureWorkflowState(source="db")
+get_state() → db.get_workflow_phase(type_id) → _row_to_state() → FeatureWorkflowState(source="db")
 ```
 
 **Degraded path** (DB unavailable):
@@ -200,8 +200,13 @@ def _make_error(error_type: str, message: str, recovery_hint: str) -> str:
 - `sqlite3.Error` → `"db_unavailable"`
 - `ValueError("Feature not found")` → `"feature_not_found"`
 - `ValueError` (other) → `"invalid_transition"`
-- `RuntimeError("Engine not initialized")` or similar init errors → `"not_initialized"`
+- `_engine is None` guard → `"not_initialized"` (currently 6 guards returning plain strings; all updated to use `_make_error`)
 - `Exception` (other) → `"internal"`
+
+**`_engine is None` guard update:** All 6 tool handler functions currently return `"Error: engine not initialized (server not started)"` as a plain string. These MUST be updated to:
+```python
+return _make_error("not_initialized", "Engine not initialized", "Restart MCP server")
+```
 
 ### C7: MCP Degradation Signal
 
@@ -411,12 +416,13 @@ def _write_meta_json_fallback(
         ) from exc
 
     # Update fields (only those that already exist in .meta.json schema)
+    now = _iso_now()  # capture once for timestamp consistency
     meta["lastCompletedPhase"] = phase
     phases = meta.setdefault("phases", {})
     phase_obj = phases.setdefault(phase, {})
     if "started" not in phase_obj:
-        phase_obj["started"] = _iso_now()
-    phase_obj["completed"] = _iso_now()
+        phase_obj["started"] = now
+    phase_obj["completed"] = now
 
     next_phase = self._next_phase_value(phase)
     if next_phase is None:
@@ -570,15 +576,17 @@ def transition_phase(
     # Step 2: Evaluate gates (pure logic — no DB dependency)
     # Gate evaluation works identically on both DB and meta_json_fallback state.
     # It reads FeatureWorkflowState fields + filesystem artifacts only.
-    results = self._evaluate_gates(state, target_phase, yolo_active)
+    slug = self._extract_slug(feature_type_id)
+    existing_artifacts = self._get_existing_artifacts(slug)
+    results = self._evaluate_gates(state, target_phase, existing_artifacts, yolo_active)
 
     # Step 3: Determine if transition is allowed
-    all_passed = all(r.passed for r in results)
+    all_allowed = all(r.allowed for r in results)
 
     # Step 4: If allowed AND DB available, write transition to DB
-    if all_passed and db_available:
+    if all_allowed and db_available:
         try:
-            self.db.set_workflow_phase(feature_type_id, target_phase)
+            self.db.update_workflow_phase(feature_type_id, workflow_phase=target_phase)
         except sqlite3.Error as exc:
             # Secondary defense: DB write failed after probe passed
             print(f"[degraded] transition_phase: DB write failed: {exc}",
@@ -615,12 +623,39 @@ def complete_phase(
     # Step 2: Validate phase completion is allowed (pure logic)
     # Full validation executes normally on both DB and meta_json_fallback state.
     # Only the final write triggers fallback behavior.
-    self._validate_complete_phase(state, phase)
+    # Inline validation (matches engine.py lines 78-101):
+    if state.current_phase is None:
+        raise ValueError(
+            f"Cannot complete phase '{phase}': no active phase for {feature_type_id}"
+        )
+    if phase not in _PHASE_VALUES:
+        raise ValueError(f"Unknown phase: {phase}")
+    if phase != state.current_phase:
+        if state.last_completed_phase is None:
+            raise ValueError(
+                f"Phase mismatch: cannot complete '{phase}' when current "
+                f"phase is '{state.current_phase}' and no phases completed yet"
+            )
+        phase_idx = _PHASE_VALUES.index(phase)
+        last_idx = _PHASE_VALUES.index(state.last_completed_phase)
+        if phase_idx > last_idx:
+            raise ValueError(
+                f"Phase mismatch: cannot complete '{phase}' when current "
+                f"phase is '{state.current_phase}'"
+            )
+
+    next_phase = self._next_phase_value(phase)
+    if next_phase is None:
+        next_phase = phase  # Terminal phase (finish) stays as-is
 
     # Step 3: Attempt DB write
     if db_available:
         try:
-            self.db.complete_workflow_phase(feature_type_id, phase)
+            self.db.update_workflow_phase(
+                feature_type_id,
+                last_completed_phase=phase,
+                workflow_phase=next_phase,
+            )
             # Read back updated state from DB
             row = self.db.get_workflow_phase(feature_type_id)
             if row is not None:
@@ -659,7 +694,7 @@ async def _process_transition_phase(
         return _make_error("internal", str(exc), "Check server logs")
 
     # TransitionResponse always has .results and .degraded
-    transitioned = all(r.passed for r in response.results)
+    transitioned = all(r.allowed for r in response.results)
     result = {
         "transitioned": transitioned,
         "results": [_serialize_result(r) for r in response.results],
@@ -671,15 +706,18 @@ async def _process_transition_phase(
 ### I15: Full `list_by_phase()` with Degraded Path
 
 ```python
-def list_by_phase(
-    self, phase: str, entity_type: str = "feature"
-) -> list[FeatureWorkflowState]:
-    """List features in a given workflow phase. Falls back to filesystem scan."""
+def list_by_phase(self, phase: str) -> list[FeatureWorkflowState]:
+    """List features in a given workflow phase. Falls back to filesystem scan.
+
+    Note: Degraded results may be a subset of DB results. The filesystem scan
+    only finds features with .meta.json files in the artifacts directory.
+    Features tracked solely in the DB (without .meta.json) will be missing.
+    """
     db_available = self._check_db_health()
 
     if db_available:
         try:
-            rows = self.db.list_by_workflow_phase(phase, entity_type)
+            rows = self.db.list_workflow_phases(workflow_phase=phase)
             return [self._row_to_state(r) for r in rows]
         except sqlite3.Error as exc:
             print(f"[degraded] list_by_phase: {exc}", file=sys.stderr)
@@ -692,16 +730,37 @@ def list_by_phase(
 ### I16: Full `list_by_status()` with Degraded Path
 
 ```python
-def list_by_status(
-    self, status: str, entity_type: str = "feature"
-) -> list[FeatureWorkflowState]:
-    """List features by status. Falls back to filesystem scan filtered by .meta.json status."""
+def list_by_status(self, status: str) -> list[FeatureWorkflowState]:
+    """List features by status. Falls back to filesystem scan filtered by .meta.json status.
+
+    Note: Degraded results may be a subset of DB results. The filesystem scan
+    only finds features with .meta.json files in the artifacts directory.
+    Features tracked solely in the DB (without .meta.json) will be missing.
+    """
     db_available = self._check_db_health()
 
     if db_available:
         try:
-            rows = self.db.list_by_status(status, entity_type)
-            return [self._row_to_state(r) for r in rows]
+            # 2-query pattern matching existing engine.py implementation:
+            # 1. list_entities(entity_type='feature') filtered by status
+            # 2. list_workflow_phases() joined in Python
+            entities = self.db.list_entities(entity_type="feature")
+            matching = [e for e in entities if e.get("status") == status]
+            wp_rows = self.db.list_workflow_phases()
+            wp_map = {r["type_id"]: r for r in wp_rows}
+            results: list[FeatureWorkflowState] = []
+            for entity in matching:
+                type_id = entity["type_id"]
+                wp_row = wp_map.get(type_id)
+                if wp_row is not None:
+                    results.append(self._row_to_state(wp_row))
+                else:
+                    results.append(FeatureWorkflowState(
+                        feature_type_id=type_id, current_phase=None,
+                        last_completed_phase=None, completed_phases=(),
+                        mode=None, source="db",
+                    ))
+            return results
         except sqlite3.Error as exc:
             print(f"[degraded] list_by_status: {exc}", file=sys.stderr)
 
@@ -747,31 +806,31 @@ C1: _check_db_health
       validate_prerequisites, list_by_phase, list_by_status)
 
 C2: _read_state_from_meta_json
-  ├── depends on: C3 (_derive_state_from_meta via TD-3)
+  ├── depends on: _derive_state_from_meta (shared helper via TD-3)
   └── used by: get_state fallback, C4 scanner
 
-C3: _derive_state_from_meta (extracted from _hydrate_from_meta_json)
-  └── used by: C2, C8, _hydrate_from_meta_json (refactored)
-
-C4: _write_meta_json_fallback
+C3: _write_meta_json_fallback
   └── used by: complete_phase write fallback
+
+C4: _scan_features_filesystem
+  ├── depends on: C2 (_read_state_from_meta_json)
+  └── used by: list_by_phase fallback
 
 C5: TransitionResponse
   └── used by: transition_phase (always returned, normal + degraded)
 
-C6: _scan_features_filesystem
-  ├── depends on: C2 (_read_state_from_meta_json)
-  └── used by: list_by_phase fallback
+C6: _make_error + structured errors
+  └── used by: all _process_* functions and _engine is None guards in MCP server
 
-C7: _make_error
-  └── used by: all _process_* functions in MCP server
+C7: MCP degradation signal (_serialize_state update)
+  └── used by: all MCP responses involving FeatureWorkflowState
 
 C8: _scan_features_by_status
-  ├── depends on: C3 (_derive_state_from_meta)
+  ├── depends on: _derive_state_from_meta (shared helper via TD-3)
   └── used by: list_by_status fallback
 
-C9: _serialize_state update (degraded field)
-  └── used by: all MCP responses involving FeatureWorkflowState
+_derive_state_from_meta (shared helper, extracted per TD-3)
+  └── used by: C2, C8, _hydrate_from_meta_json (refactored)
 ```
 
 ## Change Impact Summary
