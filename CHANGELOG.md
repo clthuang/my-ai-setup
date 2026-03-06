@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.11.2] - 2026-03-07
+
 ### Added
 - Entity context export: `export_entities` MCP tool for exporting entity data as structured JSON with column selection, type/status filtering, and lineage depth control
 - `export_entities_json()` database helper with EXPORT_SCHEMA_VERSION tracking
