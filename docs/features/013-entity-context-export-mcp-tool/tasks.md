@@ -2,13 +2,13 @@
 
 ## Phase 1: Database Layer
 
-### Task 1.1.1: Write TDD tests for `export_entities_json()` (RED)
+### Task 1.1.1a: Write TDD tests — envelope, filters, and validation (RED)
 
-- [ ] Write all `TestExportEntitiesJson` tests in `test_database.py`
+- [ ] Write `TestExportEntitiesJson` envelope and filter tests in `test_database.py`
 
 **File:** `plugins/iflow/hooks/lib/entity_registry/test_database.py`
 **Depends on:** None
-**Done when:** All 19 tests exist and fail (RED) because `export_entities_json()` and `EXPORT_SCHEMA_VERSION` do not exist yet.
+**Done when:** All 10 tests exist and fail (RED) because `export_entities_json()` and `EXPORT_SCHEMA_VERSION` do not exist yet.
 
 Tests to write:
 1. `test_no_filters_returns_all` — no args → all entities with correct envelope (AC-1)
@@ -21,22 +21,32 @@ Tests to write:
 8. `test_schema_version` — returns schema_version: 1 (FR-6)
 9. `test_exported_at_format` — ISO 8601 with timezone offset
 10. `test_filters_applied_in_envelope` — filters_applied contains entity_type and status; include_lineage NOT in filters_applied
-11. `test_uuid_in_entity` — each entity has uuid field (AC-10)
-12. `test_include_lineage_true` — parent_type_id present
-13. `test_include_lineage_false` — parent_type_id absent (AC-7)
-14. `test_metadata_null_normalized` — NULL metadata → {} (AC-8)
-15. `test_metadata_valid_json` — valid JSON → parsed dict
-16. `test_metadata_malformed_json` — malformed JSON → {} fallback
-17. `test_entity_ordering` — ordered by created_at ASC, type_id ASC
-18. `test_all_entity_fields_present` — each entity has all expected keys
-19. `test_performance_1000_entities` — 1000 entities < 5 seconds (AC-11)
+
+### Task 1.1.1b: Write TDD tests — lineage, metadata, ordering, and performance (RED)
+
+- [ ] Write `TestExportEntitiesJson` lineage, metadata, ordering, and performance tests in `test_database.py`
+
+**File:** `plugins/iflow/hooks/lib/entity_registry/test_database.py`
+**Depends on:** None (can run in parallel with 1.1.1a)
+**Done when:** All 9 tests exist and fail (RED) because `export_entities_json()` does not exist yet.
+
+Tests to write:
+1. `test_uuid_in_entity` — each entity has uuid field (AC-10)
+2. `test_include_lineage_true` — parent_type_id present
+3. `test_include_lineage_false` — parent_type_id absent (AC-7)
+4. `test_metadata_null_normalized` — NULL metadata → {} (AC-8)
+5. `test_metadata_valid_json` — valid JSON → parsed dict
+6. `test_metadata_malformed_json` — malformed JSON → {} fallback
+7. `test_entity_ordering` — ordered by created_at ASC, type_id ASC
+8. `test_all_entity_fields_present` — each entity has all expected keys
+9. `test_performance_1000_entities` — 1000 entities < 5 seconds (AC-11). Use `db._conn.executemany()` for bulk insert during setup; time only `export_entities_json()` via `time.perf_counter()`
 
 ### Task 1.1.2: Implement `EXPORT_SCHEMA_VERSION` and `export_entities_json()` (GREEN)
 
 - [ ] Add `EXPORT_SCHEMA_VERSION = 1` constant and `export_entities_json()` method to `database.py`
 
 **File:** `plugins/iflow/hooks/lib/entity_registry/database.py`
-**Depends on:** 1.1.1
+**Depends on:** 1.1.1a, 1.1.1b
 **Done when:** All 19 `TestExportEntitiesJson` tests pass (GREEN).
 
 Implementation steps:
@@ -143,22 +153,23 @@ Steps:
 ## Dependency Graph
 
 ```
-1.1.1 (tests RED) → 1.1.2 (implement GREEN)
-                       ↓
-                     2.1.1 (tests RED) → 2.1.2 (implement GREEN)
-                                            ↓
-                                          3.1.1 (tests RED) → 3.1.2 (implement GREEN)
-                                                                 ↓
-                                                               4.1.1 (regression)
+1.1.1a (tests RED) ──┐
+                      ├──→ 1.1.2 (implement GREEN)
+1.1.1b (tests RED) ──┘       ↓
+                            2.1.1 (tests RED) → 2.1.2 (implement GREEN)
+                                                   ↓
+                                                 3.1.1 (tests RED) → 3.1.2 (implement GREEN)
+                                                                        ↓
+                                                                      4.1.1 (regression)
 ```
 
-**Parallelism:** All tasks are sequential — each depends on the previous. No parallel groups.
+**Parallelism:** Tasks 1.1.1a and 1.1.1b can run in parallel. All other tasks are sequential.
 
 ## Files Changed Summary
 
 | File | Action | Task |
 |------|--------|------|
-| `plugins/iflow/hooks/lib/entity_registry/test_database.py` | Modified — add 19 export tests | 1.1.1 |
+| `plugins/iflow/hooks/lib/entity_registry/test_database.py` | Modified — add 19 export tests | 1.1.1a, 1.1.1b |
 | `plugins/iflow/hooks/lib/entity_registry/database.py` | Modified — add constant + method | 1.1.2 |
 | `plugins/iflow/hooks/lib/entity_registry/test_server_helpers.py` | Modified — add 10 helper tests | 2.1.1 |
 | `plugins/iflow/hooks/lib/entity_registry/server_helpers.py` | Modified — add function | 2.1.2 |
@@ -169,14 +180,14 @@ Steps:
 
 | AC | Task | Test |
 |----|------|------|
-| AC-1 | 1.1.1 | test_no_filters_returns_all |
-| AC-2 | 1.1.1 | test_entity_type_filter |
-| AC-3 | 1.1.1 | test_combined_filters |
+| AC-1 | 1.1.1a | test_no_filters_returns_all |
+| AC-2 | 1.1.1a | test_entity_type_filter |
+| AC-3 | 1.1.1a | test_combined_filters |
 | AC-4 | 2.1.1 | test_output_path_writes_file |
 | AC-5 | 4.1.1 | Full regression run |
 | AC-6 | 2.1.1 | test_path_escape_returns_error |
-| AC-7 | 1.1.1 | test_include_lineage_false |
-| AC-8 | 1.1.1 | test_metadata_null_normalized |
-| AC-9 | 1.1.1 | test_empty_database |
-| AC-10 | 1.1.1 | test_uuid_in_entity |
-| AC-11 | 1.1.1 | test_performance_1000_entities |
+| AC-7 | 1.1.1b | test_include_lineage_false |
+| AC-8 | 1.1.1b | test_metadata_null_normalized |
+| AC-9 | 1.1.1a | test_empty_database |
+| AC-10 | 1.1.1b | test_uuid_in_entity |
+| AC-11 | 1.1.1b | test_performance_1000_entities |
