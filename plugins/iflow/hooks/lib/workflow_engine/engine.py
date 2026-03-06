@@ -5,6 +5,7 @@ import json
 import os
 import sqlite3
 from collections.abc import Callable
+from datetime import datetime, timezone
 
 from entity_registry.database import EntityDatabase
 from transition_gate import (
@@ -25,6 +26,14 @@ _PHASE_VALUES: tuple[str, ...] = tuple(p.value for p in PHASE_SEQUENCE)
 _ALL_HARD_ARTIFACTS: frozenset[str] = frozenset(
     name for names in HARD_PREREQUISITES.values() for name in names
 )
+
+
+def _iso_now() -> str:
+    """Return current time as ISO 8601 string with local timezone offset.
+
+    Matches existing .meta.json convention (e.g., '2026-03-06T18:30:00+08:00').
+    """
+    return datetime.now(timezone.utc).astimezone().isoformat()
 
 
 class WorkflowStateEngine:
@@ -294,6 +303,29 @@ class WorkflowStateEngine:
             completed_phases=completed_phases,
             mode=mode,
             source=source,
+        )
+
+    def _read_state_from_meta_json(
+        self, feature_type_id: str
+    ) -> FeatureWorkflowState | None:
+        """Standalone .meta.json reader for degraded-mode fallback.
+
+        Unlike _hydrate_from_meta_json, this method:
+        - Does NOT check entity existence in the DB
+        - Does NOT backfill the DB row
+        - Catches OSError in addition to json.JSONDecodeError (must never raise)
+        """
+        slug = self._extract_slug(feature_type_id)
+        meta_path = os.path.join(
+            self.artifacts_root, "features", slug, ".meta.json"
+        )
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return None
+        return self._derive_state_from_meta(
+            meta, feature_type_id, source="meta_json_fallback"
         )
 
     def _hydrate_from_meta_json(

@@ -1977,3 +1977,199 @@ class TestDeriveStateFromMeta:
         state = engine._derive_state_from_meta(meta, "feature:008-bad-comp")
 
         assert state is None
+
+
+class TestIsoNow:
+    """Task 1.4: _iso_now() module-level helper tests."""
+
+    def test_returns_string(self) -> None:
+        """_iso_now() must return a string."""
+        from workflow_engine.engine import _iso_now
+
+        result = _iso_now()
+        assert isinstance(result, str)
+
+    def test_contains_timezone_offset(self) -> None:
+        """Output must contain a timezone offset ('+HH:MM', '-HH:MM', or 'Z')."""
+        import re
+
+        from workflow_engine.engine import _iso_now
+
+        result = _iso_now()
+        # ISO 8601 timezone patterns: +HH:MM, -HH:MM, or Z
+        tz_pattern = r"([+-]\d{2}:\d{2}|Z)$"
+        assert re.search(tz_pattern, result), (
+            f"Expected timezone offset in ISO 8601 output, got: {result}"
+        )
+
+    def test_parseable_as_iso_8601(self) -> None:
+        """Output must be parseable back as a valid ISO 8601 datetime."""
+        from datetime import datetime
+
+        from workflow_engine.engine import _iso_now
+
+        result = _iso_now()
+        # datetime.fromisoformat handles ISO 8601 strings (Python 3.11+)
+        parsed = datetime.fromisoformat(result)
+        assert parsed is not None
+
+    def test_matches_meta_json_convention(self) -> None:
+        """Output format matches .meta.json convention: ISO 8601 with timezone.
+
+        Example: '2026-03-06T18:30:00+08:00' or '2026-03-06T10:30:00+00:00'
+        """
+        import re
+
+        from workflow_engine.engine import _iso_now
+
+        result = _iso_now()
+        # Full ISO 8601 with timezone: YYYY-MM-DDTHH:MM:SS[.ffffff]+HH:MM
+        iso_with_tz = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?[+-]\d{2}:\d{2}$"
+        assert re.match(iso_with_tz, result), (
+            f"Expected ISO 8601 with timezone offset, got: {result}"
+        )
+
+    def test_timezone_aware(self) -> None:
+        """Returned datetime must be timezone-aware (not naive)."""
+        from datetime import datetime
+
+        from workflow_engine.engine import _iso_now
+
+        result = _iso_now()
+        parsed = datetime.fromisoformat(result)
+        assert parsed.tzinfo is not None, (
+            f"Expected timezone-aware datetime, got naive: {result}"
+        )
+
+
+class TestReadStateFromMetaJson:
+    """Task 2.1: _read_state_from_meta_json() pure-filesystem reader tests."""
+
+    def test_valid_meta_json_returns_state(self, tmp_path) -> None:
+        """Valid .meta.json returns FeatureWorkflowState with source='meta_json_fallback'."""
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        slug = "008-test-feature"
+        _create_meta_json(tmp_path, slug, status="active", mode="standard", last_completed_phase="design")
+
+        state = engine._read_state_from_meta_json(f"feature:{slug}")
+
+        assert state is not None
+        assert state.source == "meta_json_fallback"
+        assert state.feature_type_id == f"feature:{slug}"
+        assert state.current_phase == "create-plan"  # next after design
+        assert state.last_completed_phase == "design"
+        assert state.completed_phases == ("brainstorm", "specify", "design")
+        assert state.mode == "standard"
+
+    def test_missing_file_returns_none(self, tmp_path) -> None:
+        """Missing .meta.json returns None (no exception raised)."""
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+
+        result = engine._read_state_from_meta_json("feature:999-nonexistent")
+
+        assert result is None
+
+    def test_corrupt_json_returns_none(self, tmp_path) -> None:
+        """Corrupt (unparseable) .meta.json returns None."""
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        slug = "008-corrupt"
+        feature_dir = tmp_path / "features" / slug
+        feature_dir.mkdir(parents=True)
+        (feature_dir / ".meta.json").write_text("{invalid json!!!")
+
+        result = engine._read_state_from_meta_json(f"feature:{slug}")
+
+        assert result is None
+
+    def test_oserror_returns_none(self, tmp_path) -> None:
+        """OSError (e.g., permission denied) returns None."""
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        slug = "008-oserror"
+        # Create a directory where .meta.json is expected -- trying to open
+        # a directory as a file raises IsADirectoryError (subclass of OSError)
+        feature_dir = tmp_path / "features" / slug
+        feature_dir.mkdir(parents=True)
+        meta_dir = feature_dir / ".meta.json"
+        meta_dir.mkdir()  # .meta.json is a directory, not a file
+
+        result = engine._read_state_from_meta_json(f"feature:{slug}")
+
+        assert result is None
+
+    def test_active_status_no_completed_phase(self, tmp_path) -> None:
+        """Active status with no lastCompletedPhase returns first phase."""
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        slug = "008-active-new"
+        _create_meta_json(tmp_path, slug, status="active", mode="full")
+
+        state = engine._read_state_from_meta_json(f"feature:{slug}")
+
+        assert state is not None
+        assert state.current_phase == PHASE_SEQUENCE[0].value  # brainstorm
+        assert state.last_completed_phase is None
+        assert state.completed_phases == ()
+        assert state.mode == "full"
+        assert state.source == "meta_json_fallback"
+
+    def test_completed_status(self, tmp_path) -> None:
+        """Completed status returns workflow_phase='finish'."""
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        slug = "008-completed"
+        _create_meta_json(tmp_path, slug, status="completed", last_completed_phase="implement")
+
+        state = engine._read_state_from_meta_json(f"feature:{slug}")
+
+        assert state is not None
+        assert state.current_phase == "finish"
+        assert state.last_completed_phase == "implement"
+        assert state.source == "meta_json_fallback"
+
+    def test_unknown_status(self, tmp_path) -> None:
+        """Unknown status (planned, abandoned, etc.) returns workflow_phase=None."""
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        slug = "008-planned"
+        _create_meta_json(tmp_path, slug, status="planned")
+
+        state = engine._read_state_from_meta_json(f"feature:{slug}")
+
+        assert state is not None
+        assert state.current_phase is None
+        assert state.last_completed_phase is None
+        assert state.completed_phases == ()
+        assert state.source == "meta_json_fallback"
+
+    def test_does_not_require_db_entity(self, tmp_path) -> None:
+        """_read_state_from_meta_json works without any entity in the DB.
+
+        This is a key difference from _hydrate_from_meta_json which requires
+        self.db.get_entity() to succeed first.
+        """
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        slug = "008-no-entity"
+        # Create .meta.json but do NOT register entity in DB
+        _create_meta_json(tmp_path, slug, status="active", mode="standard", last_completed_phase="specify")
+
+        state = engine._read_state_from_meta_json(f"feature:{slug}")
+
+        assert state is not None
+        assert state.feature_type_id == f"feature:{slug}"
+        assert state.source == "meta_json_fallback"
+
+    def test_invalid_last_completed_phase_returns_none(self, tmp_path) -> None:
+        """Invalid lastCompletedPhase value causes _derive_state_from_meta to return None."""
+        db = _make_db()
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        slug = "008-bad-phase"
+        _create_meta_json(tmp_path, slug, status="active", last_completed_phase="invalid-phase")
+
+        result = engine._read_state_from_meta_json(f"feature:{slug}")
+
+        assert result is None
