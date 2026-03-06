@@ -11,10 +11,11 @@
     "009-state-engine-mcp-tools-phase-r",
     "003-bidirectional-uuid-sync-betwee"
   ],
-  "lastCompletedPhase": null,
+  "lastCompletedPhase": "specify",
   "phases": {
     "specify": {
       "started": "2026-03-07T01:40:00+08:00",
+      "completed": "2026-03-07T04:25:00+08:00",
       "phaseReview": {
         "iterations": 5,
         "approved": false,
@@ -23,6 +24,10 @@
           "AC-2: status='active' present but easy to miss (suggest Given/When/Then restructure)",
           "R3/R5: Two validation approaches (char-level vs realpath) not explicitly justified by engine availability"
         ]
+      },
+      "handoffReview": {
+        "iterations": 2,
+        "approved": true
       }
     }
   }
