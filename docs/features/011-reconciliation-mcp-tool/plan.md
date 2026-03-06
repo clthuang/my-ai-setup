@@ -86,7 +86,7 @@ Items in this phase have zero interdependencies and can be implemented in parall
 - Depends on: 2.2 (single feature check)
 - Implement `_reconcile_single_feature(engine, db, report, dry_run)` → `ReconcileAction`
 - **Design Deviation:** Design I3 defines `_reconcile_single_feature(engine, db, report, meta, dry_run)` with an explicit `meta: dict` parameter. This plan removes `meta` because `report` (a `WorkflowDriftReport`) already contains all needed data — `report.meta_json` dict has the derived field values (workflow_phase, last_completed_phase, mode), and `report.feature_type_id` identifies the entity. The `meta` parameter would be redundant since `_reconcile_single_feature` never calls `_derive_state_from_meta()` — derivation already happened in the drift detection phase (2.2). Keeping `meta` would create ambiguity about whether to use `report.meta_json` or re-derive from `meta`.
-- **Defensive guard:** If `report.status == "meta_json_only"` and `report.meta_json is None`, return `action="error"`, message "meta_json_only status but no meta_json data available" (should not happen if drift detection is correct, but prevents KeyError on corrupt report)
+- **Defensive guard:** If `report.status == "meta_json_only"` and `report.meta_json is None`, return `action="error"`, message "meta_json_only status but no meta_json data available". Reachability: normal drift detection always populates `meta_json` for `meta_json_only` status, so this guard protects against manually-constructed `WorkflowDriftReport` objects in tests or future code paths that might produce inconsistent reports. Not dead code — it's an invariant assertion.
 - Status-based branching (mutually exclusive):
   - `meta_json_ahead` → `db.update_workflow_phase()` with `workflow_phase`, `last_completed_phase`, `mode`; `kanban_column` left unchanged via `_UNSET` sentinel; `action="reconciled"`. **Race condition:** catch ALL `ValueError` from `db.update_workflow_phase()` uniformly (covers row-deleted, constraint violation, or any other DB-level ValueError) → `action="error"`, message includes original ValueError text
   - `meta_json_only` → call `db.create_workflow_phase()` directly using fields from `report.meta_json` dict: `workflow_phase=report.meta_json["workflow_phase"]`, `last_completed_phase=report.meta_json["last_completed_phase"]`, `mode=report.meta_json["mode"]`; `kanban_column` uses DB default; `action="created"` (design enhancement, AC-8 mapping). No pre-check with `db.get_entity()` — `create_workflow_phase()` already validates entity existence internally (database.py line 866-871: `SELECT type_id FROM entities WHERE type_id = ?`). Catch ALL `ValueError` from `db.create_workflow_phase()` uniformly (covers entity-not-found, duplicate row, constraint violation) → `action="error"`, message includes original ValueError text. This eliminates the TOCTOU race that a separate pre-check would introduce.
@@ -214,10 +214,10 @@ Note: Unit tests for `test_reconciliation.py` are created incrementally starting
 Phase 1 (parallel):
   1.1 Dataclasses ─────────────────────────────┐
   1.2 Phase comparison helpers ───────────────┐│
-  1.3 _validate_feature_type_id ────────────┐││
-                                            │││
-Phase 2 (depends on 1.1, 1.2):             │││
-  2.1 _read_single_meta_json ◄─────────────┘││
+  1.3 _validate_feature_type_id              ││  (no downstream deps in Phase 2-3)
+                                             ││
+Phase 2 (depends on 1.1, 1.2):              ││
+  2.1 _read_single_meta_json (no plan deps)  ││
   2.2 _check_single_feature ◄────────────────┘│
   2.3 check_workflow_drift (public)            │
                                                │
@@ -228,6 +228,8 @@ Phase 3 (depends on 2):                       │
 Phase 4 (depends on 1.1 only — parallel w/ 2-3):
   4.1 Workflow serializers ◄───────────────────┘
   4.2 Frontmatter serializer
+
+Note: 1.3 is consumed by Phase 5 (processing functions), not Phase 2-3.
 
 Phase 5 (depends on 2-4):
   5.1 _process_reconcile_check
