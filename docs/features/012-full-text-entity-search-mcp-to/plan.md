@@ -17,8 +17,8 @@ Phase 3: Search (database method + MCP tool)
   ├── 3.1 _build_fts_query + search_entities method + tests
   └── 3.2 search_entities MCP tool + tests
         ↓
-Phase 4: Regression & Cleanup
-  └── 4.1 Update schema_version assertions + full regression run
+Phase 4: Final Regression
+  └── 4.1 Full regression run
 ```
 
 ## Phase 1: Foundation
@@ -56,13 +56,16 @@ Phase 4: Regression & Cleanup
 **Depends on:** 1.1 (uses `flatten_metadata` for backfill)
 
 **Implementation:**
-1. Add `_create_fts_index(conn)` function. Uses BEGIN IMMEDIATE / COMMIT / ROLLBACK for atomicity of CREATE + backfill, but does NOT set schema_version internally (unlike migrations 2-3 which do). The migration runner handles schema_version after the function returns. This is simpler — no FK manipulation needed, so no reason to duplicate schema_version logic.
+1. Add `_create_fts_index(conn)` function. Uses BEGIN IMMEDIATE / COMMIT / ROLLBACK for atomicity of CREATE + backfill. The migration runner handles schema_version after the function returns (separate COMMIT). **Crash-window mitigation:** If a crash occurs between the migration's COMMIT and the runner's schema_version COMMIT, migration 4 re-runs on next startup. Step 3 below ensures re-run safety via `DELETE FROM entities_fts` before backfill.
 2. The CREATE VIRTUAL TABLE statement itself is the FTS5 availability check — wrap in try/except, check for "no such module: fts5" in OperationalError message.
-3. Backfill: iterate all rows from `entities`, call `flatten_metadata` on each row's metadata, insert into `entities_fts`.
+3. Backfill: **first `DELETE FROM entities_fts`** (idempotent — clears any partial backfill from a previous crash). Then iterate all rows from `entities`, call `flatten_metadata` on each row's metadata, insert into `entities_fts`.
 4. Add to `MIGRATIONS` dict: `4: _create_fts_index`.
-5. **Immediately update** `test_database.py` schema version assertions to keep existing tests green:
-   - `TestMetadata::test_schema_version_is_3` → assert `'4'` (grep: `grep -n 'test_schema_version_is_3' test_database.py`)
-   - `TestMigration3::test_schema_version_is_3` → assert `'4'`
+5. **Immediately update** all 5 `test_database.py` schema version assertions to keep existing tests green (found via `grep -n 'schema_version.*"3"' test_database.py`):
+   - Line 322 — `TestMigration2` (old schema migration path): assert `'4'`
+   - Line 536 — `TestMetadata::test_schema_version_is_3`: assert `'4'`
+   - Line 2302 — `TestMigrationIdempotency` (close/reopen persistence): assert `'4'`
+   - Line 2500 — `TestMigration3::test_schema_version_is_3`: assert `'4'`
+   - Line 2688 — `TestMigration3::test_fresh_db_has_all_migrations`: assert `'4'`
 
 **Tests (TDD — write first):**
 - `TestMigration4::test_fts_table_exists` — verify `entities_fts` in `sqlite_master` after migration (AC-1)
@@ -85,10 +88,10 @@ Phase 4: Regression & Cleanup
 **Depends on:** 1.2 (FTS table must exist)
 
 **Implementation:**
-1. In `register_entity`, change `self._conn.execute(...)` to `cursor = self._conn.execute(...)` to capture the cursor return value.
+1. In `register_entity`, change `self._conn.execute(...)` (line 456) to `cursor = self._conn.execute(...)` to capture the cursor return value.
 2. Check `cursor.rowcount == 1` — only sync if row was actually inserted. (Python sqlite3 sets rowcount=1 for inserted rows, rowcount=0 for INSERT OR IGNORE that skips a duplicate.)
 3. If inserted: SELECT rowid, call `flatten_metadata`, INSERT into `entities_fts`.
-4. Move `self._conn.commit()` to after FTS write (transaction boundary change).
+4. Move `self._conn.commit()` (currently line 466) to after FTS write. The existing SELECT uuid at line 467 reads from the same connection and sees uncommitted data, so it works before or after commit. Final sequence: INSERT OR IGNORE → rowcount check → FTS sync → commit → SELECT uuid → return.
 
 **Tests (TDD — write first):**
 - `TestFTSSync::test_register_makes_searchable` — register entity, verify FTS SELECT returns it (AC-4)
@@ -107,13 +110,12 @@ Phase 4: Regression & Cleanup
 **Depends on:** 2.1 (register sync provides initial FTS rows to update against)
 
 **Implementation:**
-1. Before the existing UPDATE, SELECT old values (rowid, name, entity_id, entity_type, status, metadata).
-2. Compute `old_metadata_text` via `flatten_metadata`.
-3. After UPDATE, issue FTS delete with old values, then FTS insert with new values.
-4. Use identity checks (`name if name is not None else old_name`) not truthiness (`name or old_name`).
-5. Handle three metadata code paths: None (keep old), `{}` (clear via `len(metadata) == 0`), dict (shallow merge) — matching existing code's check pattern.
-6. Move `self._conn.commit()` to after FTS writes.
-7. Add maintenance comment near FTS sync block: `# FTS sync must mirror the field-application logic above. If new FTS-indexed fields are added, update both the SQL SET clauses and the FTS insert values.`
+1. Before the existing UPDATE, SELECT old values (rowid, name, entity_id, entity_type, status, metadata). Compute `old_metadata_text` via `flatten_metadata`.
+2. Execute the existing UPDATE logic (unchanged).
+3. After UPDATE, SELECT the row again to get the **actual new values** from the database. This avoids duplicating the metadata merge logic (None/keep, `{}`/clear, dict/merge) in Python — the database is the single source of truth for new values. Compute `new_metadata_text` via `flatten_metadata(new_row["metadata"])`.
+4. Issue FTS delete with old values, then FTS insert with new values from step 3.
+5. Move `self._conn.commit()` to after FTS writes.
+6. Add maintenance comment near FTS sync block: `# FTS sync reads post-UPDATE values from DB. If new FTS-indexed fields are added, update both the old-value SELECT and the FTS insert columns.`
 
 **Tests (TDD — write first):**
 - `TestFTSSync::test_update_name_reflected` — update name, search by new name finds it, old name doesn't (AC-5)
@@ -131,10 +133,10 @@ Phase 4: Regression & Cleanup
 **Spec ref:** R3
 **File:** `plugins/iflow/hooks/lib/entity_registry/database.py`
 **Test file:** `plugins/iflow/hooks/lib/entity_registry/test_search.py`
-**Depends on:** 2.1 (needs FTS-synced entities to search)
+**Depends on:** 2.1 (needs FTS-synced entities to search). Does NOT depend on 2.2 — all test fixtures use `register_entity` for data setup (not `update_entity`), ensuring Phase 3.1 can be tested independently of update sync.
 
 **Implementation:**
-1. Add `_build_fts_query(self, query: str) -> str | None` private method per I5 pseudocode, with additional step: after tokenizing on whitespace, filter out FTS5 keyword operators (`OR`, `AND`, `NOT`, `NEAR` — case-sensitive uppercase only, so normal lowercase usage is preserved).
+1. Add `_build_fts_query(self, query: str) -> str | None` private method per I5 pseudocode, with one plan-level addition not in I5: after tokenizing on whitespace, filter out FTS5 keyword operators (`OR`, `AND`, `NOT`, `NEAR` — case-sensitive uppercase only, so normal lowercase usage is preserved). **Rationale:** I5 sanitizes character-level operators (`*"()+^:-`) but FTS5 also treats uppercase `OR`, `AND`, `NOT`, `NEAR` as syntax. Without filtering these, a user query like `"NOT working"` would produce an FTS5 syntax error. This is a gap in the design pseudocode discovered during planning.
 2. Add `search_entities(self, query, entity_type, limit)` method per I5.
 3. FTS availability guard: check `entities_fts` in `sqlite_master`, raise `ValueError("fts_not_available: ...")`.
 4. Limit clamping: `limit = max(1, min(limit, 100))`.
