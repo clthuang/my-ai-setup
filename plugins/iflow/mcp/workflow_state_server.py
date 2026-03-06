@@ -151,12 +151,12 @@ def _catch_value_error(func):
             if "not found" in msg.lower():
                 return _make_error(
                     "feature_not_found",
-                    f"Error: {exc}",
+                    msg,
                     "Verify feature_type_id format: 'feature:{id}-{slug}'",
                 )
             return _make_error(
                 "invalid_transition",
-                f"Error: {exc}",
+                msg,
                 "Check current phase with get_phase before transitioning",
             )
     return wrapper
