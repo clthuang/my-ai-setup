@@ -65,7 +65,7 @@
 
 **Files:** `reconciliation.py`, `test_reconciliation.py`
 
-**Depends on:** 1.1 (dataclasses — for type references)
+**Depends on:** None from this plan (uses only pre-existing `engine._extract_slug()`). Soft dependency on 1.1 for file locality if implementing in same session.
 
 ---
 
@@ -130,7 +130,7 @@
 - [ ] **GREEN:** In `reconciliation.py`, implement `_reconcile_single_feature()`. Note: design deviation — no `meta` parameter (removed per plan 3.1 rationale; `report.meta_json` contains all needed data). Status-based branching: `meta_json_ahead` → `db.update_workflow_phase()`, `meta_json_only` → defensive `None` guard then `db.create_workflow_phase()`, `in_sync`/`db_ahead` → skip, `db_only` → skip, `error` → propagate. Catch ALL `ValueError` uniformly from DB calls.
 - [ ] **REFACTOR:** Verify tests pass.
 
-**Acceptance:** AC-6 through AC-10 tests pass. Design deviation (no `meta` param) documented. Defensive guard for `meta_json is None` covered.
+**Acceptance:** `pytest test_reconciliation.py -k "reconcile_single_feature or meta_json_ahead or meta_json_only or dry_run or idempotent or ValueError"` — all pass. Design deviation (no `meta` param) documented. Defensive guard for `meta_json is None` covered.
 
 **Files:** `reconciliation.py`, `test_reconciliation.py`
 
@@ -245,7 +245,7 @@
   - Non-existent directory → empty reports
   - Validation error: non-existent slug → structured error with `feature_not_found` type (AC-18 case 1)
   - Validation error: malformed input (no colon) → structured error with `invalid_transition` type (AC-18 case 2)
-- [ ] **GREEN:** In `workflow_state_server.py`, implement `_process_reconcile_frontmatter()`. Decorated with `@_with_error_handling` and `@_catch_value_error`. If `feature_type_id` provided: `slug = _validate_feature_type_id()`, construct dir path, iterate `ARTIFACT_BASENAME_MAP` files, call `detect_drift()` per existing file. If omitted: call `scan_all(db, artifacts_root)` from `entity_registry.frontmatter_sync`. Non-existent dir → empty reports.
+- [ ] **GREEN:** In `workflow_state_server.py`, implement `_process_reconcile_frontmatter()`. Decorated with `@_with_error_handling` and `@_catch_value_error`. If `feature_type_id` provided: `slug = _validate_feature_type_id(feature_type_id, artifacts_root)`, construct dir path, iterate `ARTIFACT_BASENAME_MAP` files, call `detect_drift()` per existing file. If omitted: call `scan_all(db, artifacts_root)` from `entity_registry.frontmatter_sync`. Non-existent dir → empty reports.
 - [ ] **REFACTOR:** Verify tests pass.
 
 **Acceptance:** `pytest test_workflow_state_server.py -k "_process_reconcile_frontmatter"` — all pass, including AC-11 through AC-13 and both AC-18 error type assertions.
