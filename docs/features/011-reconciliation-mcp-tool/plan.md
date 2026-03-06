@@ -38,11 +38,11 @@ Items in this phase have zero interdependencies and can be implemented in parall
 **1.3 — Path-traversal validation (`workflow_state_server.py` — I7)**
 - File: `plugins/iflow/mcp/workflow_state_server.py`
 - Add module-level helper `_validate_feature_type_id(feature_type_id, artifacts_root) -> str`
-- Logic: split on ':', ValueError if no colon; extract slug; realpath resolve; verify resolved path starts with `realpath(artifacts_root)`; return slug
+- Logic: split on ':', ValueError if no colon; extract slug; realpath resolve; verify resolved path starts with `realpath(artifacts_root) + os.sep` (matches engine's `root + os.sep` pattern to prevent prefix collisions like `/docs/features` matching `/docs/features-extra`); return slug
 - Used by all three `_process_reconcile_*` that accept `feature_type_id` (module-level helper)
 - Note: This deliberately duplicates validation that the engine layer also performs. The MCP boundary validation is intentional defense-in-depth — untrusted input from MCP callers is validated before reaching engine internals. Both layers use realpath-based defense.
 - Why this order: Parallel with 1.1/1.2 — no cross-dependency; needed by Phase 5 processing functions
-- Tests (in `test_workflow_state_server.py`): valid `"feature:010-slug"` → returns slug; no colon → ValueError; `".."` in slug → ValueError; null bytes → ValueError; symlink traversal → ValueError
+- Tests (in `test_workflow_state_server.py`): valid `"feature:010-slug"` → returns slug; no colon → ValueError; `".."` in slug → ValueError; null bytes → ValueError; symlink traversal → ValueError; prefix collision (slug that is a prefix of another directory) → ValueError
 
 ### Phase 2: Drift Detection (Depends on Phase 1)
 
@@ -66,29 +66,31 @@ Items in this phase have zero interdependencies and can be implemented in parall
 - Builds `meta_json` and `db` dicts for output, detects mismatches including mode
 - Mode mismatch: reported in `mismatches` but does NOT affect `status` (status determined solely by phase comparison)
 - Why this order: Builds on 2.1 meta reader; required by 2.3 public API
-- Tests (in `test_reconciliation.py`): in_sync (all fields match); meta_json_ahead; db_ahead; db_only (no meta); mode mismatch with phase sync → status still "in_sync" but mismatch present; `_derive_state_from_meta` returns None → status="error"
+- Tests (in `test_reconciliation.py`): in_sync (all fields match); meta_json_ahead; db_ahead; db_only (no meta); mode mismatch with phase sync → status still "in_sync" but mismatch present; `_derive_state_from_meta` returns None → status="error"; explicitly verify output dict key is `workflow_phase` (not `current_phase`) from field name mapping
 
 **2.3 — Public drift detection (`reconciliation.py` — I2)**
 - File: `plugins/iflow/hooks/lib/workflow_engine/reconciliation.py`
 - Depends on: 2.1, 2.2
 - Implement `check_workflow_drift(engine, db, artifacts_root, feature_type_id=None)` → `WorkflowDriftResult`
 - Single-feature path: `_read_single_meta_json()` → if None, check DB for row via `db.get_workflow_phase(feature_type_id)` → row exists: `db_only`, no row: `error` (feature_not_found)
-- Bulk path: `engine._iter_meta_jsons()` → `_check_single_feature()` per feature; detect `db_only` features by comparing `db.list_workflow_phases()` result set against meta-derived type_ids (features with DB rows but no .meta.json)
+- Bulk path: `engine._iter_meta_jsons()` → `_check_single_feature()` per feature; detect `db_only` features by: (1) call `db.list_workflow_phases()`, (2) extract `type_id` field from each returned dict, (3) filter to entries where `type_id.startswith("feature:")` (exclude non-feature rows), (4) set-difference against meta-derived type_ids → remaining are `db_only` features
 - Summary aggregation: count features by status
 - Never raises — all exceptions caught → `status="error"` per feature
 - Why this order: Public API entry point for drift detection; required by Phase 3 reconciliation
-- Tests (in `test_reconciliation.py`): single feature all statuses (AC-1 through AC-4); bulk scan multiple features (AC-5); exception handling → error status; summary counts correct; db_only detection via list_workflow_phases set difference
+- Tests (in `test_reconciliation.py`): single feature all statuses (AC-1 through AC-4); bulk scan multiple features (AC-5); exception handling → error status; summary counts correct; db_only detection via list_workflow_phases set difference (filtered to `feature:` type_ids only); non-feature type_ids in DB excluded from db_only detection
 
 ### Phase 3: Reconciliation Apply (Depends on Phase 2)
 
 **3.1 — Single-feature reconcile (`reconciliation.py` — I3)**
 - File: `plugins/iflow/hooks/lib/workflow_engine/reconciliation.py`
 - Depends on: 2.2 (single feature check)
-- Implement `_reconcile_single_feature(engine, db, report, meta, dry_run)` → `ReconcileAction`
+- Implement `_reconcile_single_feature(engine, db, report, dry_run)` → `ReconcileAction`
+- Note: `report` (a `WorkflowDriftReport`) contains all needed data — `report.meta_json` dict has the derived field values, `report.feature_type_id` identifies the entity. No separate `meta` parameter needed.
+- **Defensive guard:** If `report.status == "meta_json_only"` and `report.meta_json is None`, return `action="error"`, message "meta_json_only status but no meta_json data available" (should not happen if drift detection is correct, but prevents KeyError on corrupt report)
 - Status-based branching (mutually exclusive):
-  - `meta_json_ahead` → `db.update_workflow_phase()` with `workflow_phase`, `last_completed_phase`, `mode`; `kanban_column` left unchanged via `_UNSET` sentinel; `action="reconciled"`. **Race condition:** catch `ValueError` from `db.update_workflow_phase()` (row deleted between check and update) → `action="error"`, message includes original ValueError
+  - `meta_json_ahead` → `db.update_workflow_phase()` with `workflow_phase`, `last_completed_phase`, `mode`; `kanban_column` left unchanged via `_UNSET` sentinel; `action="reconciled"`. **Race condition:** catch ALL `ValueError` from `db.update_workflow_phase()` uniformly (covers row-deleted, constraint violation, or any other DB-level ValueError) → `action="error"`, message includes original ValueError text
   - `meta_json_only` → entity-existence check via `db.get_entity(report.feature_type_id)`:
-    - Entity found → `db.create_workflow_phase()` using fields from `report.meta_json` dict: `workflow_phase=report.meta_json["workflow_phase"]`, `last_completed_phase=report.meta_json["last_completed_phase"]`, `mode=report.meta_json["mode"]`; `kanban_column` uses DB default; `action="created"` (design enhancement, AC-8 mapping). **Race condition:** catch `ValueError` from `db.create_workflow_phase()` (duplicate row inserted between check and create) → `action="error"`, message includes original ValueError
+    - Entity found → `db.create_workflow_phase()` using fields from `report.meta_json` dict: `workflow_phase=report.meta_json["workflow_phase"]`, `last_completed_phase=report.meta_json["last_completed_phase"]`, `mode=report.meta_json["mode"]`; `kanban_column` uses DB default; `action="created"` (design enhancement, AC-8 mapping). **Race condition:** catch ALL `ValueError` from `db.create_workflow_phase()` uniformly (covers duplicate row, entity-deleted-between-get-and-create, constraint violation) → `action="error"`, message includes original ValueError text
     - Entity not found → `action="error"`, message "Entity not found in DB"
   - `in_sync`, `db_ahead` → `action="skipped"`
   - `db_only` → `action="skipped"`, message "No .meta.json to reconcile from"
@@ -96,13 +98,13 @@ Items in this phase have zero interdependencies and can be implemented in parall
 - `dry_run=True` → compute changes but skip DB writes
 - Direction hardcoded as `"meta_json_to_db"` in output
 - Why this order: Core reconciliation logic; requires drift reports from Phase 2
-- Tests (in `test_reconciliation.py`): meta_json_ahead → update (AC-6); in_sync → skip (AC-7); meta_json_only + entity exists → create (AC-8); meta_json_only + no entity → error; db_ahead → skip; dry_run → no DB writes (AC-9); idempotency (AC-10); ValueError from update_workflow_phase → action="error"; ValueError from create_workflow_phase → action="error"
+- Tests (in `test_reconciliation.py`): meta_json_ahead → update (AC-6); in_sync → skip (AC-7); meta_json_only + entity exists → create (AC-8); meta_json_only + no entity → error; meta_json_only + meta_json is None → error; db_ahead → skip; dry_run → no DB writes (AC-9); idempotency (AC-10); ValueError from update_workflow_phase → action="error"; ValueError from create_workflow_phase → action="error" (covers duplicate row AND entity-deleted races)
 
 **3.2 — Public reconciliation (`reconciliation.py` — I2)**
 - File: `plugins/iflow/hooks/lib/workflow_engine/reconciliation.py`
 - Depends on: 2.3 (drift check), 3.1 (single reconcile)
 - Implement `apply_workflow_reconciliation(engine, db, artifacts_root, feature_type_id=None, dry_run=False)` → `ReconciliationResult`
-- Calls `check_workflow_drift()` internally, then `_reconcile_single_feature()` per feature
+- Calls `check_workflow_drift()` internally, then `_reconcile_single_feature(engine, db, report, dry_run)` per feature
 - Summary aggregation: count by action type (reconciled, created, skipped, error); `dry_run` count
 - Never raises
 - Why this order: Public API combining drift check + reconciliation; last piece of pure logic before MCP adapter
@@ -168,9 +170,9 @@ Can be implemented in parallel with Phases 2-3 since they only depend on datacla
 - Delegates directly to `check_workflow_drift()` and `scan_all()` (not via `_process_*` wrappers to avoid double-serialization)
 - Computes `healthy` flag: True when BOTH dimensions have all counts except `in_sync` equal to 0
 - `total_features_checked` = len(workflow features), `total_files_checked` = len(frontmatter reports)
-- **Partial failure behavior:** All-or-nothing within `@_with_error_handling`. If either `check_workflow_drift()` or `scan_all()` raises an unexpected exception (should never happen since both are designed never-raise), the decorator catches it and returns a structured error. No per-dimension try/except — both functions guarantee error-free execution by design.
+- **Partial failure behavior:** All-or-nothing within `@_with_error_handling`. If either `check_workflow_drift()` or `scan_all()` raises an unexpected exception, the decorator catches it and returns a structured error. `check_workflow_drift()` is designed never-raise. `scan_all()` delegates to `db.list_entities()` which could raise `sqlite3.Error` on DB corruption — this is an accepted trade-off: DB corruption is a system-level failure that should surface as an error, not be silently swallowed. No per-dimension try/except — partial results (one dimension succeeds, the other fails) would be misleading since `healthy` requires both dimensions.
 - Why this order: Final processing function; depends on both serializer sets + drift detection
-- Tests (in `test_workflow_state_server.py`): all in sync → healthy=true (AC-14); any drift → healthy=false (AC-15); error status in either dimension → healthy=false
+- Tests (in `test_workflow_state_server.py`): all in sync → healthy=true (AC-14); any drift → healthy=false (AC-15); error status in either dimension → healthy=false; scan_all raises sqlite3.Error → decorator returns structured error (accepted trade-off test)
 
 ### Phase 6: MCP Tool Handlers (Depends on Phase 5)
 
@@ -261,7 +263,7 @@ Each item is implemented RED → GREEN → REFACTOR.
 7. Write `_reconcile_single_feature` tests → implement reconciler (3.1) — covers AC-6 through AC-10
 8. Write `apply_workflow_reconciliation` tests → implement public function (3.2)
 
-**Phase 4 can run in parallel with 4-8:**
+**Phase 4 (TDD steps 9-10) can run in parallel with TDD steps 4-8 (Phases 2-3):**
 9. Write serializer tests → implement `_serialize_workflow_drift_report` and `_serialize_reconcile_action` (4.1)
 10. Write frontmatter serializer tests → implement `_serialize_drift_report` (4.2)
 
