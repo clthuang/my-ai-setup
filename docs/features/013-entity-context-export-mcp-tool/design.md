@@ -82,7 +82,7 @@ Responsibilities:
 | `exported_at` timestamp | `datetime.now().astimezone().isoformat()` (local timezone) | Spec FR-2 requires local timezone; differs from `_now_iso()` which uses UTC |
 | `include_lineage` in `filters_applied` | Excluded | Controls output shape (column presence), not row selection; consumers detect via `parent_type_id` key presence |
 | SQL query building | Python-conditional (like `list_entities`) | Matches existing codebase pattern; avoids unusual parameterized-NULL approach |
-| Error message propagation | Use `str(exc)` from ValueError | Avoids duplicating valid types list; stays consistent with database layer's canonical message. Note: database format is `Invalid entity_type 'xyz'. Must be one of ('backlog', ...)` (repr-quoted, tuple parens) — differs slightly from spec FR-4's plain format but carries identical information. Database format is authoritative. |
+| Error message propagation | Use `str(exc)` from ValueError | Avoids duplicating valid types list; stays consistent with database layer's canonical message. Note: database format is `Invalid entity_type 'xyz'. Must be one of ('backlog', ...)` (repr-quoted, tuple parens) — differs slightly from spec FR-4's plain format but carries identical information. **Accepted delta:** database format is authoritative; tests MUST assert against the database format, not the spec wording. |
 | Metadata normalization | Database layer | Spec FR-2: NULL→`{}` in `export_entities_json`, not helper |
 | Export schema version | Module constant `EXPORT_SCHEMA_VERSION = 1` | Separate from DB schema version per spec FR-6 |
 | Entity ordering | SQL `ORDER BY created_at ASC, type_id ASC` | Spec FR-2: deterministic output |
