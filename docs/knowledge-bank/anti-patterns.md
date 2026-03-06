@@ -357,6 +357,24 @@ When design describes a race condition handler without specifying catch scope, i
 - Last observed: Feature 008
 - Observation count: 1
 
+### Anti-Pattern: Assuming FTS5 Availability via SQL Function Call
+Testing FTS5 availability by calling `SELECT fts5()` — FTS5 is a loadable module, not a callable SQL function. The correct approach is to attempt CREATE VIRTUAL TABLE with FTS5 and catch the error, or check `PRAGMA compile_options` for ENABLE_FTS5.
+- Observed in: Feature 012, design iter 2 — FTS5 availability check via `SELECT fts5()` flagged as invalid; resolved by CREATE error catching
+- Cost: 1 design review iteration on a factual SQLite error
+- Instead: Test FTS5 availability by attempting to create a temporary FTS5 table and catching OperationalError
+- Confidence: high
+- Last observed: Feature 012
+- Observation count: 1
+
+### Anti-Pattern: Truthy Check for Optional String Fields in FTS Sync
+Using `name or old_name` (truthiness) instead of `name if name is not None else old_name` (identity check) for optional string fields in FTS sync logic. Empty strings are valid values that should be synced to FTS; truthiness check treats them as absent, causing FTS drift.
+- Observed in: Feature 012, design iter 3 — I4 Step 4 used `name or old_name` which would skip empty-string values; resolved by switching to identity check pattern
+- Cost: 1 design review iteration; would have caused silent FTS drift for empty-string fields
+- Instead: Use `field if field is not None else old_field` for all optional parameters in FTS sync
+- Confidence: high
+- Last observed: Feature 012
+- Observation count: 1
+
 ### Anti-Pattern: Type Annotation Branch Cascade
 Adding type annotations to individual branches of an if/else statement instead of at the variable declaration site. Each fix triggers the next reviewer iteration: add annotation to if-branch → reviewer flags missing else-branch → add to both → reviewer flags redundant double annotation → remove else-branch. Three iterations with zero logic changes.
 - Observed in: Feature 011, implement phase — iters 2-4 consumed by type annotation formatting with zero logic changes
