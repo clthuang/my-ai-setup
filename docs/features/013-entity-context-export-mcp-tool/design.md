@@ -111,14 +111,15 @@ Responsibilities:
 - File write: output_path creates file with valid JSON, parent directories created
 - Path escape: `../../etc/passwd` returns error
 - OSError handling: permission denied returns error string
-- ValueError propagation: invalid entity_type returns error with database message (use database repr-quoted tuple format, not spec FR-4 plain format — see Technical Decisions "Accepted delta")
+- ValueError propagation: invalid entity_type returns `"Error: Invalid entity_type 'xyz'. Must be one of ('backlog', ...)"` (helper prepends `"Error: "` to database message)
 - No output_path: returns JSON string directly
 
 **MCP tool (`entity_server.py`):**
 - Null `_db` guard returns error
 - Delegation to helper (integration-level)
+- Parameter forwarding: `include_lineage=False` correctly omits `parent_type_id`
 
-**Error message format note:** All tests asserting error messages MUST use the database layer's canonical format: `Invalid entity_type 'xyz'. Must be one of ('backlog', ...)` (repr-quoted, tuple parens). Do NOT test against spec FR-4's plain format.
+**Error message format note:** Database layer produces repr-quoted tuple format: `Invalid entity_type 'xyz'. Must be one of ('backlog', ...)`. Helper prepends `"Error: "` prefix. Tests at helper/MCP level MUST assert the full string including prefix: `"Error: Invalid entity_type ..."`. Do NOT test against spec FR-4's plain format.
 
 ## Interfaces
 
