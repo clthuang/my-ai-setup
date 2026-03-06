@@ -137,12 +137,23 @@ def _with_error_handling(func):
 
 
 def _catch_value_error(func):
-    """Wrap functions that raise ValueError for invalid user input."""
+    """Wrap functions that raise ValueError for invalid user input.
+
+    Maps 'Feature not found' errors to 'feature_not_found' error type
+    and all other ValueErrors to 'invalid_transition' (spec R4).
+    """
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
         except ValueError as exc:
+            msg = str(exc)
+            if "not found" in msg.lower():
+                return _make_error(
+                    "feature_not_found",
+                    f"Error: {exc}",
+                    "Verify feature_type_id format: 'feature:{id}-{slug}'",
+                )
             return _make_error(
                 "invalid_transition",
                 f"Error: {exc}",

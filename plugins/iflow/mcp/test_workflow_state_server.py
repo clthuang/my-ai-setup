@@ -786,8 +786,8 @@ class TestAdversarial:
         assert "mismatch" in data["message"].lower() or "cannot complete" in data["message"].lower()
 
     def test_complete_phase_nonexistent_feature_returns_error(self, engine):
-        """Completing a phase for a nonexistent feature returns ValueError error.
-        derived_from: spec:AC-5 (complete_phase validates feature existence)
+        """Completing a phase for a nonexistent feature returns feature_not_found.
+        derived_from: spec:AC-5, R4 (complete_phase validates feature existence)
 
         Anticipate: If feature existence check is missing before phase completion,
         it could cause NoneType errors or corrupt DB.
@@ -797,10 +797,10 @@ class TestAdversarial:
         result = _process_complete_phase(
             engine, "feature:nonexistent", "specify"
         )
-        # Then the server returns a structured error
+        # Then the server returns a structured error with feature_not_found type
         data = json.loads(result)
         assert data["error"] is True
-        assert data["error_type"] == "invalid_transition"
+        assert data["error_type"] == "feature_not_found"
         assert "not found" in data["message"].lower()
 
     def test_transition_result_json_has_exact_key_set(self, seeded_engine):
