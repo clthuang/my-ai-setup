@@ -5,6 +5,7 @@ import json
 import os
 import sqlite3
 import sys
+import tempfile
 import time
 
 import pytest
@@ -1587,8 +1588,6 @@ class TestValidateFeatureTypeId:
 
     def test_symlink_traversal_raises_value_error(self, tmp_path):
         """Symlink pointing outside artifacts_root raises ValueError."""
-        import tempfile
-
         # Create artifacts_root with features/ subdir
         arts_root = os.path.join(str(tmp_path), "artifacts")
         features_dir = os.path.join(arts_root, "features")
@@ -1602,26 +1601,7 @@ class TestValidateFeatureTypeId:
                 _validate_feature_type_id("feature:evil-link", arts_root)
 
     def test_prefix_collision_raises_value_error(self, tmp_path):
-        """Slug that is prefix of sibling dir but not the dir itself raises ValueError.
-
-        Creates artifacts_root/features/010-slug-extra/ but no features/010-slug/.
-        realpath('features/010-slug') won't start with root + os.sep because the dir
-        doesn't exist and resolves outside the expected tree.
-        """
-        features_dir = os.path.join(str(tmp_path), "features")
-        os.makedirs(features_dir, exist_ok=True)
-        # Create sibling dir (prefix collision)
-        os.makedirs(os.path.join(features_dir, "010-slug-extra"), exist_ok=True)
-        # 010-slug itself does NOT exist as a dir, but the path resolves OK
-        # Still, the real test is: the path must be under root + os.sep
-        # Since features/010-slug doesn't exist, realpath still resolves to
-        # a path under artifacts_root -- so this should actually pass!
-        # The prefix collision test per the task is about creating a SIBLING dir
-        # whose name starts with the same prefix. We need the resolved path of
-        # "010-slug" to NOT start with root + os.sep. That requires the dir
-        # features/ itself to be a symlink outside. Let me use a different approach.
-
-        # Create a separate root where features/010-slug is a symlink to sibling
+        """Symlink to external dir raises ValueError even with valid prefix."""
         evil_root = os.path.join(str(tmp_path), "evilroot")
         os.makedirs(os.path.join(evil_root, "features"), exist_ok=True)
         real_target = os.path.join(str(tmp_path), "external-data")

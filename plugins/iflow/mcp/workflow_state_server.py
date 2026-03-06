@@ -355,7 +355,13 @@ def _process_reconcile_check(
     artifacts_root: str,
     feature_type_id: str | None,
 ) -> str:
-    """Workflow drift detection. Returns JSON string."""
+    """Workflow drift detection. Returns JSON string.
+
+    Note: Single-feature db_only is unreachable via MCP — _validate_feature_type_id
+    requires the directory to exist (spec I7), so a feature with a DB row but no
+    filesystem directory returns feature_not_found. db_only is only observable
+    through the bulk scan path (feature_type_id=None).
+    """
     if feature_type_id is not None:
         _validate_feature_type_id(feature_type_id, artifacts_root)
     result = check_workflow_drift(engine, db, artifacts_root, feature_type_id)
