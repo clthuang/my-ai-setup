@@ -201,6 +201,7 @@ def _make_error(error_type: str, message: str, recovery_hint: str) -> str:
 - `ValueError("Feature not found")` → `"feature_not_found"`
 - `ValueError` (other) → `"invalid_transition"`
 - `_engine is None` guard → `"not_initialized"` (currently 6 guards returning plain strings; all updated to use `_make_error`)
+- `ValueError` from `_write_meta_json_fallback` (`.meta.json` unreadable during complete_phase write fallback) → `"internal"` with hint `"Check .meta.json file at {path}"`
 - `Exception` (other) → `"internal"`
 
 **`_engine is None` guard update:** All 6 tool handler functions currently return `"Error: engine not initialized (server not started)"` as a plain string. These MUST be updated to:
@@ -658,6 +659,7 @@ def complete_phase(
     # result: _next_phase_value returns None, current_phase is set to phase.
     # This is intentional — I4 is self-contained and does not receive next_phase
     # as a parameter, keeping its interface simple.
+    wrote_to_db = False
     if db_available:
         try:
             self.db.update_workflow_phase(
@@ -665,17 +667,33 @@ def complete_phase(
                 last_completed_phase=phase,
                 workflow_phase=next_phase,
             )
-            # Read back updated state from DB
-            row = self.db.get_workflow_phase(feature_type_id)
-            if row is not None:
-                return self._row_to_state(row)
-            # DB write succeeded but read-back failed — fall through to meta.json
+            wrote_to_db = True
         except sqlite3.Error as exc:
             # Secondary defense: DB write failed after probe passed
             print(f"[degraded] complete_phase: DB write failed: {exc}",
                   file=sys.stderr)
 
-    # Step 4: Fallback — write to .meta.json
+    # Step 4a: DB write succeeded — read back from DB or derive from params
+    if wrote_to_db:
+        try:
+            row = self.db.get_workflow_phase(feature_type_id)
+            if row is not None:
+                return self._row_to_state(row)
+        except sqlite3.Error:
+            pass
+        # Read-back failed but DB write succeeded — derive state from
+        # known write parameters. Do NOT fall through to .meta.json write
+        # (would double-write over correct DB state).
+        return FeatureWorkflowState(
+            feature_type_id=feature_type_id,
+            current_phase=next_phase,
+            last_completed_phase=phase,
+            completed_phases=self._derive_completed_phases(phase),
+            mode=state.mode,
+            source="db",
+        )
+
+    # Step 4b: Fallback — write to .meta.json (only when DB write was NOT attempted/failed)
     print(f"[degraded] complete_phase({feature_type_id}, {phase}): "
           "writing to .meta.json", file=sys.stderr)
     return self._write_meta_json_fallback(feature_type_id, phase, state)
@@ -811,8 +829,9 @@ def _scan_features_by_status(self, status: str) -> list[FeatureWorkflowState]:
 
 ```
 C1: _check_db_health
-  └── used by: all public methods (get_state, transition_phase, complete_phase,
-      validate_prerequisites, list_by_phase, list_by_status)
+  └── used by: get_state, transition_phase, complete_phase, list_by_phase,
+      list_by_status (validate_prerequisites degrades transitively via
+      get_state — no direct probe call needed, per R7)
 
 C2: _read_state_from_meta_json
   ├── depends on: _derive_state_from_meta (shared helper via TD-3)
