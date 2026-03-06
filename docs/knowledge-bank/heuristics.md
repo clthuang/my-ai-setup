@@ -60,8 +60,8 @@ Reviewer iteration counts suggest complexity: 2 = straightforward, 3 = moderate,
 - Feature #021 plan had 6 iterations (highest), mostly from dependency graph contradictions
 - If plan iterations exceed 3, check for structural issues (dual representations, missing test cases)
 - Source: Feature #021
-- Last observed: Feature #031
-- Observation count: 8
+- Last observed: Feature 012
+- Observation count: 9
 
 ### Circuit Breaker Hits as Assumption Signals
 Circuit breaker hits in design review indicate a fundamental assumption mismatch, not incremental quality issues. When design review hits 5 iterations, the root cause is typically a wrong foundational assumption (e.g., wrong file format) rather than accumulated small issues.
@@ -341,6 +341,27 @@ Force-approve is correct when: (1) all domain reviewers have individually approv
 - Confidence: high
 - Keywords: ["force-approve", "circuit-breaker", "review-criteria", "formatting-only", "convergence"]
 - Last observed: Feature 011
+- Observation count: 1
+
+### FTS5 Database Feature Pre-Spec Checklist
+Before specifying any SQLite FTS5 feature, verify: (1) sync mechanism — triggers are infeasible for external content tables, use application-level sync; (2) availability detection — cannot use `SELECT fts5()`, must use CREATE attempt; (3) DELETE/rebuild behavior — DELETE FROM unreliable on external content tables, use DROP+CREATE; (4) keyword operator handling — FTS5 operators (OR, AND, NOT, NEAR) must be stripped from user queries. Each of these surfaced as a separate blocker in Feature 012 across 3 phases.
+- Source: Feature 012 — spec iter 1 (trigger infeasibility), design iter 2 (availability detection), plan iter 3 (DELETE unreliability), plan iter 1 (keyword operators)
+- Confidence: high
+- Last observed: Feature 012
+- Observation count: 1
+
+### Schema Version Assertion Census Before Plan Submission
+When a migration changes the schema version number, enumerate ALL existing version assertions in tests (via `grep -n 'schema_version.*"N"'`) and include the count in the plan. Feature 012 had 5 such assertions but the plan initially identified only 2, consuming 2 plan-review iterations to discover the remaining 3.
+- Source: Feature 012, create-plan phase — plan iter 2 blocker: only 2 of 5 schema_version assertions identified; resolved by grep census
+- Confidence: high
+- Last observed: Feature 012
+- Observation count: 1
+
+### 4.5:1 Test-to-Code Ratio for FTS5 Search Features
+FTS5 search features produce a ~4.5:1 test-to-code line ratio due to the combinatorial surface of sync operations (register, update, search) × input categories (normal, adversarial, edge-case) × FTS-specific scenarios (availability, rebuild, operator sanitization). Feature 012 produced 1112 test lines for ~250 implementation lines.
+- Source: Feature 012 — test_search.py (864 lines) + test_search_mcp.py (248 lines) for ~250 lines of implementation
+- Confidence: high
+- Last observed: Feature 012
 - Observation count: 1
 
 ### TOCTOU Race Uniform Catch Specification

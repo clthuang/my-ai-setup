@@ -155,8 +155,8 @@ When a workflow has nested iteration loops, make budgets independent.
 Heavy upfront review investment (15-30+ pre-implementation review iterations) correlates with clean implementation (0-1 actionable issues across all reviewers). Front-loading review effort shifts risk discovery to phases where changes are cheap (text edits) rather than expensive (code changes).
 - Observed in: Feature #022, implementation phase
 - Confidence: high
-- Last observed: Feature 011
-- Observation count: 8
+- Last observed: Feature 012
+- Observation count: 9
 
 ### Pattern: Template Indentation Matching
 When inserting blocks into existing prompt templates, read the target file first and match its specific indentation level (which may differ per file). Prevents downstream formatting issues.
@@ -382,6 +382,20 @@ Establish a ValueError prefix convention (e.g., "feature_not_found:", "invalid_t
 - Confidence: medium
 - Keywords: ["valueerror", "prefix-convention", "error-routing", "design-td", "catch-scope"]
 - Last observed: Feature 011
+- Observation count: 1
+
+### Pattern: Application-Level FTS5 Sync Over Triggers
+For SQLite FTS5 external content tables, application-level sync (explicit INSERT/DELETE in Python after each entity mutation) is the correct default over database triggers. FTS5 external content tables do not support trigger-based INSERT, and trigger-based DELETE is unreliable. Application-level sync is explicit, testable, and avoids SQLite trigger limitations.
+- Observed in: Feature 012, specify phase — spec iter 1 blocker: trigger-based FTS sync infeasible; resolved by switching to application-level sync
+- Confidence: high
+- Last observed: Feature 012
+- Observation count: 1
+
+### Pattern: Migration Idempotency via DROP+CREATE for FTS5 Tables
+For FTS5 virtual tables, use DROP TABLE IF EXISTS + CREATE VIRTUAL TABLE (without IF NOT EXISTS) to ensure migration idempotency. DELETE FROM is unreliable on FTS5 external content tables, and IF NOT EXISTS silently skips re-creation of corrupted tables. DROP+CREATE guarantees a clean state on re-run.
+- Observed in: Feature 012, create-plan phase — plan iter 3 blocker: DELETE FROM entities_fts unreliable; resolved by DROP+CREATE pattern
+- Confidence: high
+- Last observed: Feature 012
 - Observation count: 1
 
 ### Pattern: Design Enhancement Three-Step Atomic Trace
