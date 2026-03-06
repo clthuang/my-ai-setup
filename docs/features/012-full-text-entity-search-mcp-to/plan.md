@@ -70,6 +70,7 @@ Phase 4: Final Regression
 **Tests (TDD — write first):**
 - `TestMigration4::test_fts_table_exists` — verify `entities_fts` in `sqlite_master` after migration (AC-1)
 - `TestMigration4::test_backfill_populates_index` — insert entities before migration, verify searchable after (AC-3)
+- `TestMigration4::test_all_five_fields_indexed` — insert entity with unique value in each FTS column (name, entity_id, entity_type, status, metadata_text), verify MATCH returns it for each field individually (AC-2)
 - `TestMigration4::test_schema_version_is_4` — verify schema_version = '4' (AC-19)
 - `TestMigration4::test_null_metadata_backfill` — entity with NULL metadata → empty string in FTS (AC-18)
 - `TestMigration4::test_idempotent_create` — DROP+CREATE guarantees clean slate on re-run; migration runner skips when schema_version >= 4 (AC-16). **Spec deviation note:** AC-16 says "CREATE VIRTUAL TABLE IF NOT EXISTS for additional safety" but plan uses DROP+CREATE instead because IF NOT EXISTS leaves stale FTS data on crash re-run. The spec's intent (idempotent migration) is preserved via DROP+CREATE + migration runner skip.
@@ -112,6 +113,8 @@ Phase 4: Final Regression
 **Depends on:** 2.1 (register sync provides initial FTS rows to update against)
 
 **Implementation:**
+**Plan deviation from design I4:** New values after UPDATE are read from the DB rather than derived in Python. The plan approach is authoritative — it avoids duplicating the metadata merge logic (None/keep, `{}`/clear, dict/merge) and uses the database as single source of truth.
+
 1. Before the existing UPDATE, SELECT old values (rowid, name, entity_id, entity_type, status, metadata). Compute `old_metadata_text` via `flatten_metadata`.
 2. Execute the existing UPDATE logic (unchanged).
 3. After UPDATE, SELECT the row again to get the **actual new values** from the database. This avoids duplicating the metadata merge logic (None/keep, `{}`/clear, dict/merge) in Python — the database is the single source of truth for new values. Compute `new_metadata_text` via `flatten_metadata(json.loads(new_row["metadata"]) if new_row["metadata"] else None)` — `json.loads` is needed because the metadata column stores JSON text, but `flatten_metadata` expects `dict | None`.
@@ -229,7 +232,7 @@ Phase 4: Final Regression
 | AC | Phase | Test |
 |----|-------|------|
 | AC-1 | 1.2 | TestMigration4::test_fts_table_exists |
-| AC-2 | 3.1 | TestSearchEntities::test_prefix_match (exercises MATCH on all fields) |
+| AC-2 | 1.2 | TestMigration4::test_all_five_fields_indexed |
 | AC-3 | 1.2 | TestMigration4::test_backfill_populates_index |
 | AC-4 | 2.1 | TestFTSSync::test_register_makes_searchable |
 | AC-5 | 2.2 | TestFTSSync::test_update_name_reflected |
