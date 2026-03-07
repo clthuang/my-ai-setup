@@ -26,7 +26,7 @@
 ### Task 0.3.1: Write PoC thread safety script
 - **File:** `agent_sandbox/018-poc/test_thread_safety.py`
 - **Action:** Create ~20-line script with FastAPI app, sync route using `sqlite3.connect(path, check_same_thread=False)`, PRAGMAs (`journal_mode=WAL`, `busy_timeout=5000`, `foreign_keys=ON`, `cache_size=-8000`), seed 10 rows, fire 10 concurrent GETs via `asyncio.gather` + `httpx.AsyncClient`
-- **Done when:** script file exists AND `cd plugins/iflow && uv run python -m py_compile ../../agent_sandbox/018-poc/test_thread_safety.py` succeeds (syntax + import resolution)
+- **Done when:** script file exists AND `cd plugins/iflow && uv run python -m py_compile ../../agent_sandbox/018-poc/test_thread_safety.py` succeeds AND `grep -c asyncio.gather agent_sandbox/018-poc/test_thread_safety.py` returns 1 AND `grep -c check_same_thread agent_sandbox/018-poc/test_thread_safety.py` returns at least 1
 - **Depends on:** 0.2.1, 0.2.2, 0.2.3
 
 ### Task 0.3.2: Run PoC and evaluate result
@@ -54,7 +54,7 @@
 
 ### Task 1.2.2: Create __init__.py files and board router stub
 - **Action:** Create empty `__init__.py` files: `plugins/iflow/ui/__init__.py`, `plugins/iflow/ui/routes/__init__.py`, `plugins/iflow/ui/tests/__init__.py`. Also create `plugins/iflow/ui/routes/board.py` with stub: `from fastapi import APIRouter` and `router = APIRouter()` — this allows create_app() (2.2.1) to import and register the router before the full board route implementation (2.3.x) fills in the handler.
-- **Done when:** `test -f plugins/iflow/ui/__init__.py && test -f plugins/iflow/ui/routes/__init__.py && test -f plugins/iflow/ui/tests/__init__.py && python -c "import importlib.util; spec=importlib.util.spec_from_file_location('board','plugins/iflow/ui/routes/board.py'); print('OK')"` succeeds
+- **Done when:** `test -f plugins/iflow/ui/__init__.py && test -f plugins/iflow/ui/routes/__init__.py && test -f plugins/iflow/ui/tests/__init__.py && plugins/iflow/.venv/bin/python -c "import importlib.util; spec=importlib.util.spec_from_file_location('board','plugins/iflow/ui/routes/board.py'); print('OK')"` succeeds
 - **Depends on:** 1.2.1
 
 ## Phase 2: Core Application — TDD
@@ -92,7 +92,7 @@
 ### Task 2.2.1: Implement create_app() factory (GREEN)
 - **File:** `plugins/iflow/ui/__init__.py`
 - **Action:** Implement `create_app(db_path: str | None = None) -> FastAPI`. Resolve DB path from param → `ENTITY_DB_PATH` env → `~/.claude/iflow/entities/entities.db`. Set `app.state.db = EntityDatabase(path, check_same_thread=False)` if file exists else `None`. Set `app.state.db_path` and `app.state.templates = Jinja2Templates(directory=templates_dir)`. Register board router.
-- **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/ui/tests/test_app.py::test_create_app_returns_fastapi_with_state_attrs plugins/iflow/ui/tests/test_app.py::test_create_app_missing_db_sets_none -v` passes
+- **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/ui/tests/test_app.py::test_create_app_returns_fastapi_with_state_attrs plugins/iflow/ui/tests/test_app.py::test_create_app_missing_db_sets_none -v` passes. Note: tests test_group_by_column_* remain RED (expected — they are satisfied in 2.3.1)
 - **Depends on:** 2.1.1, 2.1.2
 
 ### Task 2.3.1: Implement COLUMN_ORDER and _group_by_column() (GREEN)
@@ -185,7 +185,7 @@
 ### Task 4.2.1: Implement CLI entry point
 - **File:** `plugins/iflow/ui/__main__.py`
 - **Action:** Implement in this order: (1) parse args via argparse with `--port` (int, default 8718), (2) check port availability via `socket.socket()` bind attempt — exit with error if occupied, (3) call `create_app()` to build the FastAPI app, (4) print startup URL `http://127.0.0.1:{port}/` to stdout, (5) call `uvicorn.run(app, host="127.0.0.1", port=port)`. Use absolute imports resolved via PYTHONPATH: `from ui import create_app` (PYTHONPATH includes `$PLUGIN_DIR`). NOT relative imports, because `__main__.py` is invoked directly by the shell wrapper, not via `-m`
-- **Done when:** file exists with argparse, port check before create_app, URL print, and uvicorn.run call
+- **Done when:** file exists with argparse, port check before create_app, URL print, and uvicorn.run call AND `cd plugins/iflow && PYTHONPATH=.:hooks/lib .venv/bin/python -c "from ui import create_app; print(create_app())"` succeeds
 - **Depends on:** 2.3.2
 
 ### Task 4.2.2: Write CLI port-conflict unit test (AC-2)
@@ -207,7 +207,7 @@
 - **Depends on:** 4.2.1
 
 ### Task 4.3.2: Verify shell wrapper starts server
-- **Action:** Run `bash plugins/iflow/mcp/run-ui-server.sh &` to start server in background, capture PID. Run `sleep 2 && curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8718/` to verify 200 response. Then `kill $PID` to stop.
+- **Action:** Run `bash plugins/iflow/mcp/run-ui-server.sh > /tmp/018-ui-server.log 2>&1 & PID=$!; sleep 3; curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8718/; kill $PID`. Redirect server output to log to keep curl result unambiguous. 3-second sleep allows uvicorn startup margin.
 - **Done when:** curl returns HTTP 200 and kill succeeds
 - **Depends on:** 4.3.1
 
