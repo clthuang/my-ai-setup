@@ -71,14 +71,23 @@ function resolve_phase(feature_folder_name, meta_json):
             mcp_available = false  # skip MCP for all remaining features
 
     # Step 3: Artifact-based fallback
-    return first_missing_artifact(spec.md, design.md, plan.md, tasks.md)
-           or "implement" if all exist
+    ARTIFACT_TO_PHASE = {
+        "spec.md": "specify",
+        "design.md": "design",
+        "plan.md": "create-plan",
+        "tasks.md": "create-tasks"
+    }
+    for artifact, phase in ARTIFACT_TO_PHASE.items():
+        if artifact missing in feature directory:
+            return phase
+    return "implement"
 ```
 
 **Key behaviors:**
 - `mcp_available` starts as `null` (unknown), becomes `true` on first success, `false` on first failure
 - Once `false`, all subsequent features in the same invocation use artifact-based fallback (AC-8, AC-9)
 - Non-active features bypass MCP entirely — their `.meta.json` status is the display value (AC-6, AC-7)
+- The Step 1 filter and Step 2 MCP call use the same in-memory `.meta.json` data read at invocation start, so no race condition exists between status check and MCP call
 
 #### C1.2: Section 1 (Current Context) Change
 
@@ -130,10 +139,11 @@ After updating .meta.json, sync workflow state to the database:
    feature directory name (e.g., "015-small-command-migration-finish").
 2. Call complete_phase(feature_type_id, "finish").
 3. If the call succeeds: no additional output needed.
-4. If the call fails (MCP unavailable, phase mismatch, feature not found):
-   output a warning line "Note: Workflow DB sync skipped — {error reason}.
-   State will reconcile on next reconcile_apply run." but do NOT stop or
-   block the completion flow. The .meta.json update already succeeded.
+4. If the call fails (MCP unavailable, phase mismatch, feature not found, or
+   no active phase in DB): output a warning line "Note: Workflow DB sync
+   skipped — {error reason}. State will reconcile on next reconcile_apply
+   run." but do NOT stop or block the completion flow. The .meta.json
+   update already succeeded. All error types are handled identically.
 ```
 
 **Placement rationale:** After `.meta.json` update, before Step 6b (delete temporary files). The `.meta.json` is the source of truth; the MCP call is best-effort synchronization.
