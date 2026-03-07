@@ -10,7 +10,7 @@
 ### Task 1.2: Insert transition_phase prose block into SKILL.md
 - [ ] Insert the "Sync to workflow DB (best-effort)" block from design.md Prose Template 1 into SKILL.md, immediately after the closing `}` of the Step 4 `.meta.json` update JSON code block (identified in Task 1.1), before the blank line preceding Step 5: Inject Project Context
 - [ ] The inserted block must:
-  - Construct `feature_type_id` as `"feature:{id}-{slug}"` from `.meta.json` `id` and `slug` fields (from validateAndSetup Step 1)
+  - Construct `feature_type_id` as `"feature:{id}-{slug}"` from `.meta.json` `id` and `slug` fields (available from the `.meta.json` read in validateAndSetup Step 1 — extract directly; unlike commitAndComplete Step 1, no `entity_type_id` variable is pre-constructed)
   - Call `transition_phase(feature_type_id, "{phaseName}")`
   - Include `yolo_active=true` when `[YOLO_MODE]` is active
   - On success (`transitioned: true` AND `degraded: false`): silent, proceed
