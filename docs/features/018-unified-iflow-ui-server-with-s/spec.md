@@ -7,7 +7,7 @@ iflow provides zero visual observability into the feature pipeline — developer
 - [ ] SC-1: Single FastAPI server process serves a Kanban board at `http://127.0.0.1:8718/`
 - [ ] SC-2: Board displays 8 columns matching `kanban_column` values: backlog, prioritised, wip, agent_review, human_review, blocked, documenting, completed
 - [ ] SC-3: Feature cards show type_id, slug, mode, workflow_phase, and last_completed_phase
-- [ ] SC-4: Server responds with complete HTML in <200ms for 100 features (time-to-first-byte measured at server); full page render including CDN assets completes in <2s on localhost
+- [ ] SC-4: Server responds with complete HTML in <200ms for 100 features (TTFB measured on warm server after at least one prior request, with 100 pre-seeded workflow_phases rows, via server middleware timing); full page render including CDN assets completes in <2s on localhost
 - [ ] SC-5: HTMX partial refresh (manual button click) updates board content without full page reload
 - [ ] SC-6: Server starts with `python -m plugins.iflow.ui` from the project root, with zero configuration
 - [ ] SC-7: CLI workflow (MCP servers, hooks, skills) is completely unaffected when UI server is not running
@@ -23,7 +23,9 @@ iflow provides zero visual observability into the feature pipeline — developer
 - HTMX-powered board refresh via manual refresh button (no auto-polling)
 - CDN assets: `https://cdn.jsdelivr.net/npm/daisyui@5/daisyui.css` + `https://cdn.tailwindcss.com` for styling, `https://unpkg.com/htmx.org` for HTMX (3 CDN tags)
 - Jinja2 HTML templates at `plugins/iflow/ui/templates/`: base.html (layout + CDN links), board.html (full board page extending base), _board_content.html (HTMX partial for refresh), _card.html (single card fragment), error.html (error display)
+- Database path resolved via `ENTITY_DB_PATH` env var, falling back to `~/.claude/iflow/entities/entities.db` (matching existing MCP server pattern in workflow_state_server.py)
 - CLI startup: `python -m plugins.iflow.ui` with defaults (host=127.0.0.1, port=8718, --port flag for override)
+- FastAPI app uses APIRouter-based structure to support future route modules for features 020 and 021
 - Error pages for missing database and port conflicts
 - Empty board state with guidance message
 - `FastAPI>=0.128.3` added to `plugins/iflow/pyproject.toml` via `uv add`. If version resolution fails due to Starlette conflict, escalate before proceeding
@@ -37,6 +39,7 @@ iflow provides zero visual observability into the feature pipeline — developer
 - Authentication or authorization
 - Mobile-responsive layout
 - Project-level grouping on board
+- iflow CLI command wrapper (e.g., /iflow:ui) for server startup — future enhancement; this release uses direct Python module invocation
 
 ## Acceptance Criteria
 
@@ -63,7 +66,7 @@ iflow provides zero visual observability into the feature pipeline — developer
 ### AC-5: Feature Card Content
 - Given features exist in the `workflow_phases` table
 - When a card is rendered
-- Then it displays workflow_phases columns only: type_id (e.g., "feature:018-slug"), workflow_phase (current phase or null), mode (standard/full or null), and last_completed_phase. No JOIN to entities table — type_id is the primary identifier shown. The slug is extracted from type_id by splitting on ":".
+- Then it displays workflow_phases columns only: type_id (e.g., "feature:018-slug"), workflow_phase (current phase or null), mode (standard/full or null), and last_completed_phase. No JOIN to entities table — type_id is the primary identifier shown. The slug is extracted from type_id by splitting on ":". Columns backward_transition_reason and updated_at are returned by the query but not displayed on cards in this release.
 
 ### AC-6: Empty Board State
 - Given no features exist in the `workflow_phases` table
@@ -97,7 +100,7 @@ iflow provides zero visual observability into the feature pipeline — developer
 - **Evidence:** Starlette 0.52.1 and Uvicorn 0.41.0 already exist in `uv.lock` as transitive MCP dependencies. FastAPI >=0.128.3 accepts Starlette <1.0.0, so `uv add fastapi>=0.128.3` will resolve without conflict.
 - **Evidence:** `EntityDatabase` already uses WAL mode (`PRAGMA journal_mode=WAL`) and `busy_timeout=5000`, supporting concurrent readers. Adding `check_same_thread=False` to the UI server's own connection is a one-line change in connection construction.
 - **Evidence:** DaisyUI v5 + Tailwind CSS v4 CDN delivery requires 3 HTML tags (daisyui.css, tailwindcss CDN, htmx.org), verified from DaisyUI and HTMX documentation.
-- **Assumption:** Uvicorn's default thread pool for sync endpoint handlers will work correctly with `check_same_thread=False` — the Pre-Mortem recommends a 20-line PoC to validate this before full implementation. PoC success criteria: 10 concurrent requests all return HTTP 200 without ProgrammingError.
+- **Assumption:** Uvicorn's default thread pool for sync endpoint handlers will work correctly with `check_same_thread=False` — the Pre-Mortem recommends a 20-line PoC to validate this before full implementation. PoC success criteria: 10 concurrent requests all return HTTP 200 without ProgrammingError. **PoC is a prerequisite gate — if it fails, escalate before proceeding with full implementation.**
 - **Risk:** FastAPI version constraint may conflict with other packages in the venv. Mitigation: `uv add` will fail fast if there's a conflict. If Starlette version conflict occurs with MCP's pinned 0.52.1, escalate before proceeding.
 
 ## Dependencies
