@@ -10,7 +10,7 @@
   "depends_on_features": [
     "009-state-engine-mcp-tools-phase-r"
   ],
-  "lastCompletedPhase": "design",
+  "lastCompletedPhase": "create-plan",
   "phases": {
     "specify": {
       "started": "2026-03-07T07:45:00+08:00",
@@ -38,6 +38,20 @@
         "handoffReview": { "started": "2026-03-07T11:05:00+08:00", "completed": "2026-03-07T11:10:00+08:00", "iterations": 2, "approved": true, "reviewerNotes": [] }
       },
       "completed": "2026-03-07T11:10:00+08:00"
+    },
+    "create-plan": {
+      "started": "2026-03-07T11:15:00+08:00",
+      "completed": "2026-03-07T11:45:00+08:00",
+      "phaseReview": {
+        "iterations": 3,
+        "approved": true,
+        "reviewerNotes": []
+      },
+      "handoffReview": {
+        "iterations": 3,
+        "approved": true,
+        "reviewerNotes": []
+      }
     }
   }
 }
