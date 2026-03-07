@@ -94,21 +94,40 @@ Remove the "### Phase Progression Table" section (lines 28-41) from `secretary.m
    ```
    Construct `feature_type_id` as `"feature:{id}-{slug}"` from the `id` and `slug` fields
    already extracted from `.meta.json`.
-   Call `get_phase(feature_type_id)`. The response `current_phase` is the active phase.
-   Route to the command for that phase.
-   If MCP unavailable, determine next phase from `lastCompletedPhase` using the canonical
-   sequence: brainstorm → specify → design → create-plan → create-tasks → implement → finish.
+   Call `get_phase(feature_type_id)`. Parse the JSON response object.
+   - If `current_phase` is non-null: the feature is mid-phase. Route to `iflow:{current_phase}`
+     (or `iflow:finish-feature` when `current_phase` is `finish`).
+   - If `current_phase` is null: the feature is between phases. Use `last_completed_phase`
+     to determine the next phase from the canonical sequence:
+     brainstorm → specify → design → create-plan → create-tasks → implement → finish.
+     Route to the command for that next phase.
+   If MCP unavailable, fall back to `.meta.json` `lastCompletedPhase` (camelCase)
+   and apply the same canonical-sequence logic.
    ```
 
-2. **"Workflow Guardian" (line 520):** Replace `"Determine next phase using the Phase Progression Table above."` with the same MCP-based resolution pattern.
+2. **"Workflow Guardian" (line 520):** Replace `"Determine next phase using the Phase Progression Table above."` with the same MCP-based resolution pattern as item 1 above.
 
-**Edge cases for `get_phase` / fallback resolution:**
-- `lastCompletedPhase` is `null` (feature exists, no phases completed) → next phase is `specify`
-- `lastCompletedPhase` is `"finish"` → feature already complete, no next command
+**`get_phase` response shape** (from `workflow_state_server.py`):
+```json
+{
+  "feature_type_id": "feature:{id}-{slug}",
+  "current_phase": "<phase-name> | null",
+  "last_completed_phase": "<phase-name> | null",
+  "completed_phases": ["<phase-name>", ...],
+  "mode": "standard | full",
+  "source": "db | meta_json_fallback",
+  "degraded": true/false
+}
+```
+Note: MCP uses snake_case (`last_completed_phase`), while `.meta.json` uses camelCase (`lastCompletedPhase`). The replacement text uses the correct casing for each context.
+
+**Edge cases for phase resolution (applies to both MCP and fallback paths):**
+- `current_phase` is null AND `last_completed_phase` is null → next phase is `specify`
+- `last_completed_phase` is `"finish"` → feature already complete, no next command
 - No active feature found → route to `iflow:brainstorm` or `iflow:create-feature`
-- `get_phase` MCP unavailable → fall back to `lastCompletedPhase` from `.meta.json`
+- `get_phase` MCP unavailable or `degraded: true` → fall back to `.meta.json` `lastCompletedPhase`
 
-**Phase-to-command mapping** (inline, not a table):
+**Phase-name-to-command-name mapping** (inline, replaces the removed table). This is purely a naming convention — progression logic comes from `get_phase` or the canonical sequence:
 ```
 Phase names map 1:1 to commands: iflow:{phase-name}, except:
 - finish → iflow:finish-feature
@@ -118,11 +137,12 @@ Phase names map 1:1 to commands: iflow:{phase-name}, except:
 
 Remove from `create-specialist-team.md`:
 
-1. **Inline phase sequence in Step 3** (line 112 only): Remove the arrow-delimited sequence line `brainstorm → specify → design → create-plan → create-tasks → implement → finish`. Update line 111's instruction from `using the canonical phase sequence (matches .meta.json values):` to use MCP-based resolution:
+1. **Inline phase sequence in Step 3** (line 112 only): Remove the arrow-delimited sequence line `brainstorm → specify → design → create-plan → create-tasks → implement → finish`. Update line 111's instruction from `using the canonical phase sequence (matches .meta.json values):` to use MCP-based resolution. Note: Step 3 already discovers the active feature via glob + `.meta.json` parsing (extracting `id`, `slug`, `lastCompletedPhase`). The replacement adds a `get_phase` call AFTER feature identity is known:
    ```
-   by calling `get_phase(feature_type_id)` where `feature_type_id` is `"feature:{id}-{slug}"`.
-   If MCP unavailable, determine next phase from `lastCompletedPhase` using the canonical
-   sequence in workflow-state SKILL.md.
+   by calling `get_phase("feature:{id}-{slug}")` (using `id` and `slug` extracted above).
+   Parse the JSON response: if `current_phase` is non-null, use it; if null, determine next
+   phase from `last_completed_phase` using the canonical sequence in workflow-state SKILL.md.
+   If MCP unavailable, fall back to `lastCompletedPhase` from `.meta.json` (already extracted).
    ```
 
 2. **Phase-to-command mapping table** (lines 180-191): Remove the table mapping `.meta.json` phase names to skill dispatch commands. Replace with inline mapping:
@@ -163,7 +183,7 @@ Check transition validity:
 
 The backward and skip handling prose (lines 39-68) remains unchanged — those are the concrete AskUserQuestion blocks that implement the behavior.
 
-**Verified:** All three commands with hard prerequisites (implement.md line 27, create-tasks.md line 14, create-plan.md line 14) perform their hard prerequisite checks BEFORE calling `validateAndSetup`. The replacement text accurately describes the current architecture.
+**Verified:** All three commands with hard prerequisites (implement.md line 27, create-tasks.md line 14, create-plan.md line 14) perform their hard prerequisite checks BEFORE calling `validateAndSetup`. The replacement text accurately describes the current architecture. Note: only these 3 commands have hard prerequisites — the remaining phase commands (specify, design, finish) have no `validateArtifact` checks.
 
 ### FR-10: Update command hard prerequisite references
 
@@ -268,16 +288,17 @@ All changes are removals or text edits to existing markdown files. No new tools,
 - AC-9: GIVEN `test_gate.py` SC-5 test is run, THEN it passes (SKILL.md still contains the one-line phase sequence)
 - AC-10: GIVEN any command file (implement.md, create-tasks.md, create-plan.md), WHEN searching for `validateArtifact(`, THEN zero matches found
 - AC-11: GIVEN workflow-transitions/SKILL.md Step 1, WHEN examining the text, THEN it references no removed pseudocode functions
-- AC-12: GIVEN secretary.md after cleanup, WHEN searching for `get_phase`, THEN at least one match found in both the "Determine Next Command" and "Workflow Guardian" sections. WHEN searching for `Phase Progression Table`, THEN zero matches found
+- AC-12: GIVEN secretary.md after cleanup, WHEN searching for `get_phase`, THEN at least one match found in both the "Determine Next Command" and "Workflow Guardian" sections. WHEN searching for `Phase Progression Table`, THEN zero matches found. WHEN searching for `lastCompletedPhase`, THEN at least one match found (fallback path preserved)
 - AC-13: GIVEN line counts before and after, WHEN comparing totals, THEN aggregate reduction is documented with estimated token savings
 - AC-14: GIVEN `yolo-stop.sh`, WHEN examining the primary path, THEN it uses `PHASE_SEQUENCE` from `transition_gate.constants` (not a hardcoded `phase_map` dict as primary logic)
+- AC-15: GIVEN project documentation files (CLAUDE.md, README.md, README_FOR_DEV.md), WHEN searching for `validateTransition`, `validateArtifact`, `Phase Progression Table`, or `Workflow Map`, THEN zero matches found (documentation cleaned up per FR-14)
 
 ## Out of Scope
 
 - **`.meta.json` phase state write removal (PRD Phase 4 item 1):** The dual-write pattern (`.meta.json` primary + MCP secondary) established by feature 016 remains. Cutting over to MCP-only writes requires graceful degradation (feature 010) to handle MCP unavailability. Deferred to a future feature.
 - **`.meta.json` read migration:** Commands and skills that read `.meta.json` for feature metadata (id, slug, status, branch, brainstorm_source) continue doing so. Phase state reads are progressively migrating to `get_phase` MCP (features 015, this feature) but full migration is out of scope.
 - **State Schema documentation removal:** The "## State Schema" section (lines 240-364) in workflow-state/SKILL.md documents the `.meta.json` structure. This remains useful as reference documentation and is not "text-LLM state control."
-- **Planned→Active Transition section removal:** This section (lines 94-121) describes the unique flow for activating planned features. It is not pseudocode — it's behavioral instructions consumed by workflow-transitions. Retained.
+- **Planned→Active Transition section removal:** This section (lines 94-121) describes the unique flow for activating planned features. It is not pseudocode — it's behavioral instructions consumed by workflow-transitions. Retained. Note: FR-11 modifies a single cross-reference within this retained section (line 119: `validateTransition` → `workflow-transitions Step 1`) but does not remove the section itself.
 - **Python engine or MCP tool modifications:** No changes to `transition_gate`, `WorkflowStateEngine`, or MCP server code.
 - **Domain-specific `.meta.json` metadata:** Reviewer notes, design stage tracking, task concerns — these remain as inline `.meta.json` operations in commands.
 - **`yolo-stop.sh` fallback `phase_map`:** The hardcoded `phase_map` dict in the `except` block of `yolo-stop.sh` is an embedded Python fallback, not text-LLM state control. It stays for graceful degradation.
@@ -293,6 +314,7 @@ Verification is manual — skill and command files are markdown instructions:
    grep -n "Phase Progression Table" plugins/iflow/commands/secretary.md
    grep -n "canonical phase sequence\|Phase-to-command mapping" plugins/iflow/commands/create-specialist-team.md
    grep -n "validateArtifact(" plugins/iflow/commands/implement.md plugins/iflow/commands/create-tasks.md plugins/iflow/commands/create-plan.md
+   grep -rn "validateTransition\|validateArtifact\|Phase Progression Table\|Workflow Map" CLAUDE.md README.md README_FOR_DEV.md
    ```
 
 2. **Positive validation:** Confirm the one-line phase sequence is preserved:
