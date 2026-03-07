@@ -55,6 +55,8 @@ Phase 1: Core removal (workflow-state/SKILL.md)
 Phase 2: Table replacements (secretary.md, create-specialist-team.md)
   - Remove phase progression/mapping tables
   - Insert get_phase MCP-based resolution with .meta.json fallback
+  - secretary.md site 1 (Orchestrate/line 336): feature id/slug already extracted via glob+parse before this line
+  - secretary.md site 2 (Workflow Guardian/line 520): verify id/slug extraction context in surrounding lines before applying replacement
   - File-independent from Phase 1 (different files); ordering is for implementer clarity
 
 Phase 3: Reference updates (workflow-transitions/SKILL.md, implement.md, create-tasks.md, create-plan.md)
@@ -65,7 +67,7 @@ Phase 4: Documentation and verification
   - Update CLAUDE.md reference (prerequisites note removed — Python test suite covers prerequisite correctness)
   - Update .claude/hookify.docs-sync.local.md: 'Workflow Map' → 'Phase Sequence one-liner'
   - Update docs/dev_guides/templates/command-template.md: 'Apply validateTransition logic' → describe check directly or reference workflow-transitions Step 1
-  - Verify docs/knowledge-bank/patterns.md: 'validateTransition' reference is historical context (no change needed)
+  - Verify docs/knowledge-bank/patterns.md: 'validateTransition' reference is historical context (no change needed — expected hit in broad grep)
   - Measure line counts
   - Run grep validation and test suite
   - Run broad codebase grep across entire repo (excluding feature/project docs):
