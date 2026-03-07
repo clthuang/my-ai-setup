@@ -99,6 +99,7 @@ Shell script that sets up the environment and starts the UI server.
 
 **Design decisions:**
 - Adapts the existing `run-workflow-server.sh` pattern — no new conventions.
+- Placed at `plugins/iflow/mcp/` alongside sibling `run-*-server.sh` scripts so all server bootstrap wrappers are co-located.
 
 #### C3: Board Route (`routes/board.py`)
 Single route handler serving the Kanban board.
@@ -165,7 +166,9 @@ HTML templates rendering the Kanban board.
 | CDN unavailability breaks board rendering | Low | Low (local dev tool) | Acceptable risk for a localhost tool; CDN outages are rare and temporary |
 | Uvicorn thread pool exhaustion under heavy load | Very Low | Low | Single-user local tool; default thread pool (40 threads) is sufficient |
 
-**PoC Failure Contingency:** If the `check_same_thread=False` PoC fails (concurrent requests produce `ProgrammingError`), the fallback is wrapping all `EntityDatabase` calls with `asyncio.to_thread()` and converting the board route to `async def`. This eliminates thread-safety concerns at the cost of slightly more complex route code. The plan should encode this as a conditional task: "If PoC fails → apply async fallback."
+**PoC Validation Gate:** A 20-line script in `agent_sandbox/` creates a FastAPI app with `check_same_thread=False`, seeds 10 rows, fires 10 concurrent GET requests via `asyncio.gather` + `httpx.AsyncClient`. Pass criteria: all 10 return HTTP 200, zero `ProgrammingError` in stderr. Must pass before any other implementation task.
+
+**PoC Failure Contingency:** If the PoC fails, the fallback is wrapping all `EntityDatabase` calls with `asyncio.to_thread()` and converting the board route to `async def`. This eliminates thread-safety concerns at the cost of slightly more complex route code. The plan should encode this as a conditional task: "If PoC fails → apply async fallback."
 
 ## Interfaces
 
@@ -393,3 +396,4 @@ Displays: error title, message, and optional DB path with setup instructions
 | `plugins/iflow/mcp/run-ui-server.sh` | NEW — Shell bootstrap wrapper (venv resolution, PYTHONPATH, forwarding args) — placed alongside sibling `run-*-server.sh` scripts |
 | `plugins/iflow/hooks/lib/entity_registry/database.py` | MODIFY — Add `check_same_thread` parameter to `__init__` |
 | `plugins/iflow/pyproject.toml` | MODIFY — Add `fastapi>=0.128.3` and `jinja2` dependencies |
+| `docs/features/018-unified-iflow-ui-server-with-s/spec.md` | MODIFY — Correct SC-8 and AC-9 CDN URLs from `cdn.tailwindcss.com` to `cdn.jsdelivr.net/npm/@tailwindcss/browser@4`; fix Jinja2 dependency note |
