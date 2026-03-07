@@ -36,7 +36,7 @@ Phase 4: Integration Tests
 
 **Key implementation details:**
 - `ENTITY_TYPES = ["backlog", "brainstorm", "project", "feature"]` — constant at module level, matching DB CHECK constraint.
-- `entity_list`: Follow 5-code-path pattern per design. Code paths: (1) missing DB → error.html, (2) DB query error → error.html with stderr logging, (3) search with FTS unavailable (ValueError) → fallback to list_entities with search disabled, (4) HX-Request header → _entities_content.html partial, (5) normal request → entities.html full page. Validate type param against ENTITY_TYPES constant. Post-filter by status. Sort by updated_at DESC. Build workflow lookup dict via `_build_workflow_lookup(db)` — call `list_workflow_phases()` with no arguments.
+- `entity_list`: Follow 5-code-path pattern per design. Code paths: (1) missing DB → error.html, (2) DB query error → error.html with stderr logging, (3) search with FTS unavailable (ValueError) → fallback to list_entities with search disabled, (4) HX-Request header → _entities_content.html partial, (5) normal request → entities.html full page. Validate type param against ENTITY_TYPES constant. Post-filter by status. Sort by updated_at DESC. Build workflow lookup dict via `_build_workflow_lookup(db)` — call `list_workflow_phases()` with no arguments. Annotate each entity dict with kanban_column from workflow lookup: `for e in entities: e["kanban_column"] = workflow_lookup.get(e["type_id"], {}).get("kanban_column")` (design Route Contract step 7). A failure in any DB call (list_entities, search_entities, list_workflow_phases) within the try/except causes full error page — no partial degradation.
 - `entity_detail`: Check DB not None. Call `get_entity(identifier)` — None → 404.html with status_code=404. Extract type_id from entity dict. Call get_lineage up/down with self-stripping via `_strip_self_from_lineage()`. Call `get_workflow_phase(type_id)`. Format metadata JSON via `_format_metadata()`. Return full page only.
 - Both routes pass `active_page: "entities"` in template context.
 
@@ -66,7 +66,9 @@ Phase 4: Integration Tests
 - `_strip_self_from_lineage`: empty list, self present, self absent
 - `_format_metadata`: None input, valid JSON, invalid JSON, empty string
 
-**Dependencies:** 1a+1b (helpers must exist to import).
+**TDD approach:** 1a, 1b, and 1c form a single atomic TDD cycle — write helper stubs, write tests, implement helpers until tests pass. The dependency arrow (1a+1b → 1c) reflects import requirement, not temporal ordering; within this cycle the implementer writes tests and implementation together.
+
+**Dependencies:** 1a+1b (helpers must exist to import — same TDD cycle).
 
 **Acceptance:** All helper unit tests pass. Tests import helpers directly from entities module.
 
@@ -187,7 +189,7 @@ Phase 4: Integration Tests
 8. **HTMX partial (FR-9):** HX-Request header returns content partial only
 9. **Missing DB:** When db is None, returns error.html
 
-Test infrastructure: reuse existing conftest.py fixtures for DB setup. Seed test data using direct DB calls (register_entity, set_parent) matching test_app.py patterns.
+Test infrastructure: create inline DB setup matching test_app.py patterns — instantiate `EntityDatabase(tmp_path / "test.db")`, call `register_entity()` and `set_parent()` directly to seed test data. No conftest.py fixtures assumed; each test or fixture creates its own DB instance.
 
 **Dependencies:** Phases 1-3 (all code must exist for integration tests).
 
@@ -196,7 +198,7 @@ Test infrastructure: reuse existing conftest.py fixtures for DB setup. Seed test
 ## Dependency Graph
 
 ```
-1a+1b ──→ 1c (helper tests)
+1a+1b+1c (TDD cycle — atomic unit)
   │
   └──→ 1d (registration)
 2a (independent)
@@ -211,6 +213,8 @@ Test infrastructure: reuse existing conftest.py fixtures for DB setup. Seed test
 ```
 
 **Parallel groups:**
-- Group A (no dependencies): 1a+1b, 2a, 2b, 2d, 3a, 3b — all can be built independently
-- Group B (after Group A): 1c, 1d, 2c, 3c
+- Group A (no dependencies): 1a+1b+1c (TDD cycle), 2a, 2b, 2d, 3a, 3b — all can be built independently
+- Group B (after Group A): 1d, 2c, 3c
 - Group C (after Group B): 4a
+
+**Parallel development note:** Templates (Phase 2) render correctly without navbar links — base.html only gains Board/Entities nav when 3a is applied. Until then, pages extend base.html normally with no navigation. This is cosmetic, not functional.
