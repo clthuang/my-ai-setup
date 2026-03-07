@@ -1,0 +1,32 @@
+{
+  "id": "018",
+  "slug": "unified-iflow-ui-server-with-s",
+  "status": "active",
+  "created": "2026-03-01T16:27:59+08:00",
+  "mode": "full",
+  "branch": "feature/018-unified-iflow-ui-server-with-s",
+  "project_id": "P001",
+  "module": "iflow-ui Web Application",
+  "depends_on_features": [
+    "009-state-engine-mcp-tools-phase-r",
+    "001-entity-uuid-primary-key-migrat"
+  ],
+  "absorbed_features": [
+    "019-kanban-board-view"
+  ],
+  "brainstorm_source": "docs/brainstorms/20260308-002418-unified-iflow-ui-server.prd.md",
+  "lastCompletedPhase": "specify",
+  "phases": {
+    "specify": {
+      "started": "2026-03-08T16:30:00+08:00",
+      "completed": "2026-03-08T17:00:00+08:00",
+      "phaseReview": {
+        "iterations": 5,
+        "reviewerNotes": [
+          "SC-6 PRD reconciliation note is inline rather than in Out of Scope — reviewer acknowledged 'No change required' but flagged as warning",
+          "Column rendering order unspecified (suggestion) — deferred to design phase"
+        ]
+      }
+    }
+  }
+}
