@@ -1,0 +1,20 @@
+{
+  "id": "017",
+  "slug": "command-cleanup-and-pseudocode",
+  "status": "active",
+  "created": "2026-03-01T16:27:59+08:00",
+  "mode": "standard",
+  "branch": "feature/017-command-cleanup-and-pseudocode",
+  "project_id": "P001",
+  "module": "Command and Hook Migration",
+  "depends_on_features": [
+    "016-large-command-migration-specif",
+    "014-hook-migration-yolo-stopsh-and"
+  ],
+  "lastCompletedPhase": "brainstorm",
+  "phases": {
+    "specify": {
+      "started": "2026-03-07T22:20:00+08:00"
+    }
+  }
+}
