@@ -137,6 +137,9 @@ def entity_detail(request: Request, identifier: str) -> HTMLResponse:
 **Input:** Query params `type`, `status`, `q` (all optional).
 
 **Processing:**
+
+All DB calls (steps 2–6) are wrapped in a single try/except that routes to error.html on any Exception, matching the board route pattern.
+
 1. Validate `type` — if not in `ENTITY_TYPES`, treat as None (show all)
 2. If `q` is provided:
    - Call `search_entities(q, entity_type=type, limit=100)`
@@ -165,13 +168,16 @@ def entity_detail(request: Request, identifier: str) -> HTMLResponse:
 **Input:** Path param `identifier` (type_id or UUID).
 
 **Processing:**
-1. Call `get_entity(identifier)` → None means 404
+
+All DB calls (steps 1, 3–5) are wrapped in a single try/except that routes to error.html on any Exception, matching the board route pattern.
+
+1. Call `get_entity(identifier)` → None means 404 (return 404.html with status_code=404)
 2. Extract `type_id = entity["type_id"]` (handles UUID-to-type_id resolution when `identifier` is a UUID)
 3. Call `get_lineage(type_id, "up", 10)`, then `_strip_self_from_lineage(result, type_id)` → ancestors
 4. Call `get_lineage(type_id, "down", 1)`, then `_strip_self_from_lineage(result, type_id)` → children
 5. Call `get_workflow_phase(type_id)` → workflow data dict or None
 6. Format metadata as pretty-printed JSON string
-7. Return `entity_detail.html` with `status_code=404` if entity not found, otherwise `status_code=200`
+7. Return `entity_detail.html` with status_code=200
 
 **Template context:**
 ```python
@@ -212,6 +218,7 @@ def entity_detail(request: Request, identifier: str) -> HTMLResponse:
 **`entity_detail.html`:**
 - Extends `base.html`
 - Sections: Entity Info (all fields), Workflow State (if workflow data), Lineage (ancestors + children), Metadata (formatted JSON)
+- Workflow State section displays: kanban_column, workflow_phase, last_completed_phase, mode, backward_transition_reason (from workflow_phases row); only rendered when `workflow` context is not None
 - Back link to entity list
 - Lineage entries as clickable links to their detail pages
 - Metadata in `<pre class="...">` block
@@ -222,11 +229,11 @@ def entity_detail(request: Request, identifier: str) -> HTMLResponse:
 - Centered card layout (similar to error.html but with different messaging)
 
 **`_card.html` (modified):**
-- Wrap entire card `<div>` in `<a href="/entities/{{ item.type_id }}" class="block no-underline text-inherit">`
+- Wrap entire card `<div>` in `<a href="/entities/{{ item.type_id }}" class="block no-underline [color:inherit]">`
 - Preserves all existing card styling
 - `block` class ensures the link fills the card area
 - `no-underline` prevents text decoration on hover
-- `text-inherit` prevents link color override on card text
+- `[color:inherit]` prevents link color override on card text
 
 ### Helper Functions
 
