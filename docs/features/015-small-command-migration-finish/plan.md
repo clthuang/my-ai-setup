@@ -40,15 +40,17 @@ Confirm the three phase detection lines to be replaced:
 **Why:** The algorithm block must exist before Sections 1, 1.5, and 2 can reference it.
 **Why this order:** Subsequent steps (1.3-1.5) reference "the Phase Resolution algorithm above" — the block must be inserted first.
 
-Insert the Phase Resolution algorithm block (design section "C1.1: Phase Resolution Algorithm Block") between the identified anchors. The block includes:
-- `<!-- SYNC: phase-resolution-algorithm -->` marker at the start of the block (single marker, following existing codebase convention — not paired start/end markers)
+Insert the Phase Resolution algorithm block (design section "C1.1: Phase Resolution Algorithm Block") between the identified anchors. The block starts with a `## Phase Resolution Algorithm` heading, followed by:
+- `<!-- SYNC: phase-resolution-algorithm -->` marker (single marker, following existing codebase convention — not paired start/end markers)
 - `mcp_available` tri-state tracking
 - `resolve_phase(feature_folder_name, meta_json)` function pseudocode
 - Key behaviors list
 
+**Design deviation:** Design C1.1 says markers "at start and end" but codebase convention (confirmed in finish-feature.md, wrap-up.md) is a single marker per block. Use single marker only.
+
 Use the exact pseudocode from design.md section "C1.1: Phase Resolution Algorithm Block" (the `Algorithm (pseudocode)` code block plus the `Key behaviors` list).
 
-**Done when:** Algorithm block inserted between correct anchors with single SYNC marker at the top.
+**Done when:** Algorithm block inserted with `## Phase Resolution Algorithm` heading, single SYNC marker, between correct anchors.
 
 ### 1.3: Update Section 1 phase detection reference
 
@@ -66,11 +68,11 @@ Replace the artifact-based detection text in Section 1 (design C1.2):
 **Why:** Section 1.5 lists all project features including non-active ones. The phase annotation format must change to use the algorithm for active features and display status directly for non-active.
 **Why this order:** Algorithm block (1.2) must exist before this step can reference it.
 
-Modify Section 1.5 feature listing (design C1.3):
-- Non-active features (planned, completed, abandoned): format `- {id}-{slug} ({status})` — status displayed directly, no phase annotation
-- Active features: format `- {id}-{slug} (active, phase: {resolved_phase})` — phase resolved via Phase Resolution algorithm
+Modify Section 1.5 feature listing (design C1.3). Preserve the existing template structure `- {id}-{slug} ({status}[, phase: {phase}])`:
+- Non-active features (planned, completed, abandoned): `- {id}-{slug} ({status})` — status from `.meta.json` directly, no phase annotation
+- Active features: `- {id}-{slug} ({status}, phase: {resolved_phase})` where `{status}` = the `.meta.json` status value (i.e., `active`) and `{resolved_phase}` comes from the Phase Resolution algorithm
 
-**Done when:** Section 1.5 phase annotation uses the algorithm for active features and `.meta.json` status directly for non-active.
+**Done when:** Section 1.5 phase annotation uses the algorithm for active features and `.meta.json` status directly for non-active. Existing template structure preserved.
 
 ### 1.5: Update Section 2 phase detection
 
@@ -119,9 +121,11 @@ Confirm the phase determination line to be replaced (~line 23).
 **Why:** list-features.md needs its own copy of the algorithm for self-containment (design D1).
 **Why this order:** Must be inserted before step 2.3 can reference it.
 
-Insert the identical algorithm block from Phase 1 (same text, same single SYNC marker at start) between the identified anchors (design C2.1).
+Insert the identical algorithm block from Phase 1 — same `## Phase Resolution Algorithm` heading, same single SYNC marker, same pseudocode and key behaviors — between the identified anchors (design C2.1).
 
-**Done when:** Algorithm block inserted. Text is character-identical to C1's block.
+**Design deviation:** Same as step 1.2 — design C2.1 says markers "at start and end" but codebase convention is a single marker per block. Use single marker only.
+
+**Done when:** Algorithm block inserted. Text from `## Phase Resolution Algorithm` heading through end of Key behaviors list is character-identical to C1's block.
 
 ### 2.3: Update phase determination reference
 
@@ -145,7 +149,7 @@ Read the modified file. Confirm:
 - Table format, column headers, "No active features" message preserved (FR-4)
 - Feature discovery unchanged (FR-5)
 
-**Algorithm consistency check:** Read both algorithm blocks (from SYNC marker to next `##` heading) in show-status.md and list-features.md. Compare text — must be character-identical.
+**Algorithm consistency check:** Extract both algorithm blocks using `sed -n '/^## Phase Resolution Algorithm$/,/^## /p' {file} | sed '$d'` on both show-status.md and list-features.md. Diff the outputs — must be character-identical (no diff output).
 
 If verification fails: `git checkout -- plugins/iflow/commands/list-features.md` and re-attempt from step 2.1.
 
@@ -167,19 +171,24 @@ Read `plugins/iflow/commands/finish-feature.md` and locate Step 6a `.meta.json` 
 **Why:** This is the core FR-3 change — adding the dual-write MCP call.
 **Why this order:** Insertion point must be identified (3.1) before editing.
 
-After the existing `.meta.json` update JSON block in Step 6a, add the MCP call block (design section "C3.1: Add MCP Call Block"):
+After the existing `.meta.json` update JSON block in Step 6a, add the MCP call block (design section "C3.1: Add MCP Call Block") as a continuation within Step 6a (no new sub-heading), separated by a blank line from the JSON update block:
 
 ```
 After updating .meta.json, sync workflow state to the database:
-1. Construct feature_type_id as "feature:{folder_name}"...
+1. Construct feature_type_id as "feature:{folder_name}" where {folder_name} is the
+   feature directory name (e.g., "015-small-command-migration-finish").
 2. Call complete_phase(feature_type_id, "finish").
 3. If the call succeeds: no additional output needed.
-4. If the call fails (...): output warning "Note: Workflow DB sync skipped — {error reason}..."
+4. If the call fails (MCP unavailable, phase mismatch, feature not found, or
+   no active phase in DB): output a warning line "Note: Workflow DB sync
+   skipped — {error reason}. State will reconcile on next reconcile_apply
+   run." but do NOT stop or block the completion flow. The .meta.json
+   update already succeeded. All error types are handled identically.
 ```
 
 Place before Step 6b (delete temporary files).
 
-**Done when:** MCP call block added after `.meta.json` update, before Step 6b.
+**Done when:** MCP call block added after `.meta.json` update within Step 6a (not a new sub-section), before Step 6b.
 
 ### 3.3: Verify finish-feature.md integrity
 
@@ -204,9 +213,11 @@ If verification fails: `git checkout -- plugins/iflow/commands/finish-feature.md
 **Why:** Design D1 requires identical algorithm text in both files. Must verify no drift.
 **Why this order:** Runs after all implementation phases.
 
-Read the algorithm block from each file (from `<!-- SYNC: phase-resolution-algorithm -->` marker to the next `##` heading). Compare text — must be character-identical.
+Extract the algorithm block from each file: from the `## Phase Resolution Algorithm` heading (inclusive) through to the next `##` heading (exclusive). Compare the extracted text — must be character-identical.
 
-**Done when:** Comparison confirms identical algorithm text.
+**Concrete method:** Use `sed -n '/^## Phase Resolution Algorithm$/,/^## /p' {file} | sed '$d'` on both files, then `diff` the outputs.
+
+**Done when:** Diff produces no output, confirming identical algorithm text.
 
 ### 4.2: Acceptance criteria trace
 
