@@ -31,6 +31,7 @@ This artifact-based detection appears in three sections:
 4. If MCP returns a valid response (no `error` field): use the `current_phase` value from the response. Handle special values:
    - If `current_phase` is `null` (no phase started): display `"specify"` — this is the first actionable phase. The brainstorm phase is pre-feature-creation and is not displayed in status views (brainstorm mode runs before `/iflow:create-feature`, so active features never have `current_phase: "brainstorm"`).
    - If `current_phase` is `"brainstorm"`: display `"specify"` — brainstorm is the initial hydration state for active features with no completed phases (engine returns `PHASE_SEQUENCE[0].value = "brainstorm"`) but is not a user-actionable phase in status views.
+   - **Note:** In practice, active features typically return `current_phase="brainstorm"` (hydrated from `.meta.json` with no completed phases). The `null` case is a defensive fallback for DB rows with `NULL` workflow_phase. Both display identically as `"specify"`.
    - If `current_phase` is `"finish"`: display `"finish"` — this is a deliberate improvement over artifact-based detection, which could not distinguish "all artifacts present" from "finish phase active". Artifact-based detection would show `"implement"` in this case.
    - All other values (`"specify"`, `"design"`, `"create-plan"`, `"create-tasks"`, `"implement"`): display as-is.
 5. If MCP returns an error or the tool is unavailable: fall back to the current artifact-based detection (first missing artifact from spec.md, design.md, plan.md, tasks.md — or "implement" if all exist).
@@ -119,7 +120,20 @@ Commands must detect MCP failures consistently. The pattern for all MCP tool cal
 
 This pattern applies to both read operations (FR-1, FR-2) and write operations (FR-3).
 
-### NFR-3: Output behavior
+### NFR-3: Phase resolution summary
+
+For clarity, the phase resolution logic across all commands:
+
+| Feature Status | Command | Phase Source | Display Value |
+|---|---|---|---|
+| `"active"` | show-status, list-features | `get_phase` MCP (fallback: artifact-based) | `current_phase` from MCP response (with special value handling) |
+| `"planned"` | show-status, list-features | `.meta.json` status directly | `"planned"` |
+| `"completed"` | show-status Section 1.5 | `.meta.json` status directly | `"completed"` |
+| `"abandoned"` | show-status Section 1.5, Section 2 | `.meta.json` status directly | `"abandoned"` |
+
+**Note:** Section 2 ("Open Features") currently includes abandoned features (status != "completed" and no project_id). The skip-MCP rule ensures abandoned features display their status from `.meta.json` rather than calling `get_phase`. This preserves existing behavior.
+
+### NFR-4: Output behavior
 
 When MCP is available, commands use MCP state (authoritative). When MCP is unavailable, commands fall back to artifact-based detection (best-effort approximation). In most cases these agree; if they diverge, the MCP-available behavior is considered correct. Users may observe phase differences if the DB and filesystem are out of sync — this is intentional (MCP shows the engine's authoritative view). The only deliberate difference is the `"finish"` phase: MCP can distinguish it, while artifact-based detection shows `"implement"` when all artifacts exist.
 
@@ -155,6 +169,6 @@ To confirm MCP usage, check the tool call history in the Claude session — `get
 ## Technical Notes
 
 - `get_phase` returns `FeatureWorkflowState` serialized as: `{feature_type_id, current_phase, last_completed_phase, completed_phases, mode, source, degraded}`. The `current_phase` field is the replacement for artifact-based detection. The `source` field indicates the state origin: `"db"` (from database), `"meta_json"` (hydrated from `.meta.json` into DB), or `"meta_json_fallback"` (DB unavailable, read directly from `.meta.json`).
-- `complete_phase` returns the updated `FeatureWorkflowState` after marking the phase as completed. It writes to the DB. It does NOT write to `.meta.json` — hence the dual-write pattern in FR-3.
+- `complete_phase` returns the updated `FeatureWorkflowState` after marking the phase as completed. In the normal (DB-available) path, it writes to the DB only and does NOT write to `.meta.json` — hence the dual-write pattern in FR-3. In degraded mode (DB unavailable), it falls back to `.meta.json` writes, but this is irrelevant for FR-3 since the command updates `.meta.json` first.
 - The `degraded` field in `get_phase` response is `true` when `source == "meta_json_fallback"`. This is informational and does not affect command behavior.
 - MCP tool calls from commands use the standard Claude MCP tool invocation syntax. No PYTHONPATH or subprocess management is needed (unlike hook migration in feature 014).
