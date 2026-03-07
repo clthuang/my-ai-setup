@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Hook migration: `yolo-stop.sh` migrated from hardcoded phase map to workflow engine MCP with graceful degradation fallback to `.meta.json`
+
 ## [4.11.2] - 2026-03-07
 
 ### Added
