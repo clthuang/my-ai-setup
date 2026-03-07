@@ -50,12 +50,16 @@ The `2>/dev/null` stderr suppression is preserved per NFR-4.
 
 **What stays after (pre-migration lines 185-200):** The `NEXT_PHASE` empty check, `FEATURE_REF` construction, `REASON` message, and JSON output block are untouched — they consume `$NEXT_PHASE` identically regardless of how it was derived. Post-migration, these lines shift down by ~25 lines due to the larger replacement block.
 
-### Task 1.2: Verify PYTHONPATH and variable interpolation
+### Task 1.2: Pre-flight check — PYTHONPATH and variable scope
 
-Verify:
-- `${SCRIPT_DIR}/lib` resolves to the hooks/lib directory containing `transition_gate/`, `workflow_engine/`, `entity_registry/`
-- Shell variables `${PROJECT_ROOT}`, `${ARTIFACTS_ROOT}`, `${FEATURE_ID}`, `${FEATURE_SLUG}`, `${LAST_COMPLETED_PHASE}` are all in scope at the replacement point — trace assignments: `FEATURE_ID` at line 126, `LAST_COMPLETED_PHASE` at line 126, `PROJECT_ROOT` at line 11, `ARTIFACTS_ROOT` at line 73
+**This is a read-only validation before committing the change, not a code modification step.** Confirm the following before proceeding. If any check fails, trace the assignment in the hook and resolve before replacing the block.
+
+Checks:
+- `${SCRIPT_DIR}/lib` resolves to the hooks/lib directory containing `transition_gate/`, `workflow_engine/`, `entity_registry/` — run `ls plugins/iflow/hooks/lib/` to confirm
+- Shell variables are in scope at the replacement point — trace assignments: `FEATURE_ID` at line 126, `LAST_COMPLETED_PHASE` at line 126, `PROJECT_ROOT` at line 11, `ARTIFACTS_ROOT` at line 73
 - The `NEXT_PHASE=$( ... )` capture pattern matches the existing assignment
+
+**Pass:** All three packages exist in `lib/`, all variables assigned before line 172. **Fail:** Stop and investigate.
 
 ## Phase 2: Test Verification
 
@@ -84,7 +88,7 @@ Confirms the engine modules (184 + 257 tests) that the hook now depends on are h
 
 **Steps:**
 1. Ensure `ENTITY_DB_PATH` points to a valid database
-2. Verify the feature entity exists in the DB: `sqlite3 $ENTITY_DB_PATH "SELECT type_id FROM entities WHERE type_id = 'feature:014-hook-migration-yolo-stopsh-and'"`. If missing, register it first — otherwise `get_state()` returns None and the verification silently tests the fallback-within-try path instead of the DB path
+2. Verify the feature entity exists in the DB: `sqlite3 $ENTITY_DB_PATH "SELECT type_id FROM entities WHERE type_id = 'feature:014-hook-migration-yolo-stopsh-and'"`. If missing, register it first — otherwise `get_state()` returns None and the verification silently tests the fallback-within-try path instead of the DB path. **Registration method if missing:** The entity registry MCP tool `register_entity` creates the entity during normal iflow workflow (create-feature command). If the entity is absent in a test scenario, register it via: `sqlite3 $ENTITY_DB_PATH "INSERT INTO entities (type_id, entity_type, entity_id, name, status) VALUES ('feature:014-hook-migration-yolo-stopsh-and', 'feature', '014-hook-migration-yolo-stopsh-and', 'hook-migration-yolo-stopsh-and', 'active')"`. Alternatively, the live DB from an active iflow session will already have the entity registered
 3. Run the hook against a feature with `lastCompletedPhase="specify"`
 4. Confirm the block message reads `"Invoke /iflow:design"` — proving the engine path produced the correct next phase
 
