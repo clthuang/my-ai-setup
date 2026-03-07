@@ -25,19 +25,17 @@ def main(args=None):
     port = parsed.port
 
     # Port conflict detection -- immediate, actionable error
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        sock.bind(("127.0.0.1", port))
-    except OSError:
-        print(
-            f"Error: Port {port} is already in use.\n"
-            f"Use --port to specify an alternative: "
-            f"python -m plugins.iflow.ui --port {port + 1}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    finally:
-        sock.close()
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            print(
+                f"Error: Port {port} is already in use.\n"
+                f"Use --port to specify an alternative: "
+                f"python -m plugins.iflow.ui --port {port + 1}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     from ui import create_app
 

@@ -7,12 +7,8 @@
     </div>
     <div class="flex flex-wrap gap-1 mt-2">
         {% if item.workflow_phase %}
-        <span class="badge badge-xs
-            {%- if item.workflow_phase == 'wip' %} badge-primary
-            {%- elif item.workflow_phase == 'blocked' %} badge-error
-            {%- elif item.workflow_phase == 'completed' %} badge-success
-            {%- else %} badge-ghost
-            {%- endif %}">
+        {% set phase_badges = {'wip': 'badge-primary', 'blocked': 'badge-error', 'completed': 'badge-success'} %}
+        <span class="badge badge-xs {{ phase_badges.get(item.workflow_phase, 'badge-ghost') }}">
             {{ item.workflow_phase }}
         </span>
         {% endif %}

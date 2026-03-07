@@ -1,9 +1,5 @@
 """Unit tests for create_app() and _group_by_column()."""
 
-import tempfile
-import os
-
-import pytest
 from fastapi import FastAPI
 from entity_registry.database import EntityDatabase
 
@@ -192,26 +188,22 @@ def test_integration_missing_db_shows_entity_db_path():
 # ---------------------------------------------------------------------------
 # Task 4.1.4: DB error — error page on query failure
 # ---------------------------------------------------------------------------
-def test_integration_db_error_shows_error_message():
+def test_integration_db_error_shows_error_message(tmp_path):
     """GET / renders error page when DB query raises an exception."""
-    tmp = tempfile.mktemp(suffix=".db")
-    try:
-        EntityDatabase(tmp)
+    db_file = str(tmp_path / "test.db")
+    EntityDatabase(db_file)
 
-        from ui import create_app
+    from ui import create_app
 
-        app = create_app(db_path=tmp)
-        app.state.db.list_workflow_phases = unittest.mock.MagicMock(
-            side_effect=Exception("DB error")
-        )
-        client = TestClient(app)
-        response = client.get("/")
+    app = create_app(db_path=db_file)
+    app.state.db.list_workflow_phases = unittest.mock.MagicMock(
+        side_effect=Exception("DB error")
+    )
+    client = TestClient(app)
+    response = client.get("/")
 
-        assert response.status_code == 200
-        assert "DB error" in response.text
-    finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
+    assert response.status_code == 200
+    assert "DB error" in response.text
 
 
 # ---------------------------------------------------------------------------

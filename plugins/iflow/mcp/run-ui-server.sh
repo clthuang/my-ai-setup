@@ -17,8 +17,8 @@ if [[ -x "$VENV_DIR/bin/python" ]]; then
     exec "$VENV_DIR/bin/python" "$PLUGIN_DIR/ui/__main__.py" "$@"
 fi
 
-# Step 2: System python3 with required deps already available
-if python3 -c "import fastapi, uvicorn" 2>/dev/null; then
+# Step 2: System python3 with all required deps available
+if python3 -c "import fastapi, uvicorn, entity_registry" 2>/dev/null; then
     exec python3 "$PLUGIN_DIR/ui/__main__.py" "$@"
 fi
 
