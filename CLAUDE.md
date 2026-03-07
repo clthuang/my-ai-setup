@@ -99,6 +99,9 @@ plugins/iflow/.venv/bin/python -m pytest plugins/iflow/mcp/test_workflow_state_s
 # Run workflow server bootstrap wrapper tests
 bash plugins/iflow/mcp/test_run_workflow_server.sh
 
+# Run UI server tests (app + CLI + deepened — 48 tests, requires PYTHONPATH for entity_registry + ui)
+PYTHONPATH="plugins/iflow/hooks/lib:plugins/iflow" plugins/iflow/.venv/bin/python -m pytest plugins/iflow/ui/tests/ -v
+
 # Run hook integration tests
 bash plugins/iflow/hooks/tests/test-hooks.sh
 
