@@ -215,7 +215,7 @@ Phase 4 depends on Phases 1-3 completion.
 - [ ] AC-4: `grep "## Workflow Map" plugins/iflow/skills/workflow-state/SKILL.md` → zero matches
 - [ ] AC-5: `grep "brainstorm → specify → design" plugins/iflow/skills/workflow-state/SKILL.md` → exactly 1 match
 - [ ] AC-6: `grep "Phase Progression Table" plugins/iflow/commands/secretary.md` → zero matches
-- [ ] AC-7: `grep "Phase-to-command mapping\|Phase name (.meta.json)" plugins/iflow/commands/create-specialist-team.md` → zero matches
+- [ ] AC-7: `grep "Phase-to-command mapping\|Phase name (.meta.json)" plugins/iflow/commands/create-specialist-team.md` → zero matches; `grep "brainstorm → specify → design" plugins/iflow/commands/create-specialist-team.md` → zero matches
 - [ ] AC-8: `./validate.sh` → passes
 - [ ] AC-9: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -k "SC_5"` → passes
 - [ ] AC-10: `grep "validateArtifact(" plugins/iflow/commands/implement.md plugins/iflow/commands/create-tasks.md plugins/iflow/commands/create-plan.md` → zero matches
@@ -231,7 +231,7 @@ Phase 4 depends on Phases 1-3 completion.
 - [ ] Run `grep -rn 'validateTransition\|validateArtifact\|Phase Progression Table\|Workflow Map' . --include='*.md' | grep -v docs/features/ | grep -v docs/projects/ | grep -v docs/brainstorms/` — expected hit only in `docs/knowledge-bank/patterns.md` (historical, acceptable)
 - [ ] Run `./validate.sh` — must pass
 - [ ] Run `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -k "SC_5 or sc_5 or skill_md"` — must pass
-- [ ] Smoke test (grep-based, no live invocation): Run `grep -rn "validateTransition\|validateArtifact" plugins/iflow/skills/ plugins/iflow/commands/ --include='*.md'` → confirm zero matches outside of test/historical files. This verifies no active instruction references the removed functions.
+- [ ] Smoke test (grep-based, no live invocation): Run `grep -rn "validateTransition\|validateArtifact" plugins/iflow/skills/ plugins/iflow/commands/ --include='*.md'` → confirm zero matches outside of test/historical files. This verifies no active instruction references the removed functions. (Rationale: all changes are text-only markdown edits with no Python runtime code paths — static grep is a sufficient proxy for removed-reference verification. The spec's live `/iflow:specify` test targets runtime errors from missing functions, but since no functions are being modified, only their documentation references removed, grep covers the same concern.)
 
 **Done when:** Broad grep shows only acceptable historical hits. Both test suites pass. Smoke test grep confirms zero active references to removed functions.
 
