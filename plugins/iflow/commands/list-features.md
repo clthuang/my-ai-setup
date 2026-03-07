@@ -79,7 +79,7 @@ ID   Name              Phase        Branch                          Project    L
 42   user-auth         design       feature/42-user-auth            P001       2 hours ago
 43   data-models       planned      —                               P001       1 day ago
 41   search-feature    implement    feature/41-search-feature       —          30 min ago
-40   fix-login         complete     feature/40-fix-login            —          1 day ago
+40   fix-login         completed    feature/40-fix-login            —          1 day ago
 
 Commands:
   /iflow:show-status {id}  View feature details
