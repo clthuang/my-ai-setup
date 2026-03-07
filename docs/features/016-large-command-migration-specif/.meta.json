@@ -11,6 +11,7 @@
     "015-small-command-migration-finish"
   ],
   "lastCompletedPhase": "create-tasks",
+  "currentPhase": "implement",
   "phases": {
     "design": {
       "started": "2026-03-07T18:36:00+08:00",
@@ -50,6 +51,9 @@
         "approved": true,
         "concerns": []
       }
+    },
+    "implement": {
+      "started": "2026-03-07T21:00:00+08:00"
     },
     "specify": {
       "started": "2026-03-07T20:00:00+08:00",
