@@ -257,3 +257,5 @@ No new files. No deleted files. No test changes needed (AC-6: existing tests pas
 ## Manual Verification Checkpoint (AC-8)
 
 Per spec AC-8: After implementation, with `ENTITY_DB_PATH` pointing to a valid DB containing the active feature entity, run the hook and confirm the block message reads `"Invoke /iflow:design"` for a feature with `lastCompletedPhase="specify"`.
+
+**This is a required gate task in the implementation plan** — not an optional afterthought. The plan must include an explicit task for this checkpoint, and it must pass before the feature can be marked complete. This compensates for the zero automated hook-level coverage of the primary engine path.
