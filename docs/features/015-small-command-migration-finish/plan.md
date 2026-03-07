@@ -50,29 +50,29 @@ Insert the Phase Resolution algorithm block (design section "C1.1: Phase Resolut
 
 Use the exact pseudocode from design.md section "C1.1: Phase Resolution Algorithm Block" (the `Algorithm (pseudocode)` code block plus the `Key behaviors` list).
 
-**Done when:** Algorithm block inserted with `## Phase Resolution Algorithm` heading, single SYNC marker, between correct anchors.
+**Done when:** Algorithm block inserted with `## Phase Resolution Algorithm` heading, single SYNC marker, between correct anchors. The heading creates clear structural separation from the command description above.
 
 ### 1.3: Update Section 1 phase detection reference
 
 **Why:** Section 1 currently has inline artifact-based detection that must be replaced with a reference to the new algorithm.
 **Why this order:** Algorithm block (1.2) must exist before sections can reference it.
 
-Replace the artifact-based detection text in Section 1 (design C1.2):
+Replace the artifact-based detection text in Section 1 (design C1.2). The replacement is within list item 2 of Section 1 — only the phrase starting from "determine current phase" through the closing parenthesis is replaced. The surrounding sentence structure ("read ... .meta.json to get feature name and ...") is preserved:
 - Old: `determine current phase (first missing artifact from: spec.md, design.md, plan.md, tasks.md — or 'implement' if all exist)`
 - New: `determine current phase using the Phase Resolution algorithm above`
 
-**Done when:** Section 1 references the algorithm. No artifact-based inline detection remains.
+**Done when:** Section 1 references the algorithm. No artifact-based inline detection remains. Surrounding sentence structure intact.
 
 ### 1.4: Update Section 1.5 phase annotation
 
 **Why:** Section 1.5 lists all project features including non-active ones. The phase annotation format must change to use the algorithm for active features and display status directly for non-active.
 **Why this order:** Algorithm block (1.2) must exist before this step can reference it.
 
-Modify Section 1.5 feature listing (design C1.3). Preserve the existing template structure `- {id}-{slug} ({status}[, phase: {phase}])`:
-- Non-active features (planned, completed, abandoned): `- {id}-{slug} ({status})` — status from `.meta.json` directly, no phase annotation
-- Active features: `- {id}-{slug} ({status}, phase: {resolved_phase})` where `{status}` = the `.meta.json` status value (i.e., `active`) and `{resolved_phase}` comes from the Phase Resolution algorithm
+Modify Section 1.5 feature listing (design C1.3). The existing template `- {id}-{slug} ({status}[, phase: {phase}])` is preserved structurally. The change is to the instructional prose around the template — add a rule that for non-active features the `[, phase: {phase}]` portion is omitted, and for active features `{phase}` comes from the Phase Resolution algorithm:
+- Old instruction: phase is implicitly artifact-based for all features
+- New instruction: Non-active features (planned, completed, abandoned) omit the `[, phase: {phase}]` portion — show `- {id}-{slug} ({status})` with status from `.meta.json` directly. Active features include it — show `- {id}-{slug} ({status}, phase: {resolved_phase})` where `{resolved_phase}` comes from the Phase Resolution algorithm.
 
-**Done when:** Section 1.5 phase annotation uses the algorithm for active features and `.meta.json` status directly for non-active. Existing template structure preserved.
+**Done when:** Section 1.5 instructions distinguish active vs non-active phase resolution. Template syntax preserved. Only the prose describing phase source is changed.
 
 ### 1.5: Update Section 2 phase detection
 
@@ -246,7 +246,7 @@ Trace each AC against the implementation:
 **Why:** Closes the loop with the spec Verification Strategy (spec lines 163-169).
 **Why this order:** Runs after all implementation and static verification.
 
-Per the spec Verification Strategy:
+Per the spec Verification Strategy (also verify Claude correctly treats the algorithm block as a referenceable section rather than part of the command description — the `## Phase Resolution Algorithm` heading provides structural separation):
 1. Run `/iflow:show-status` with the workflow-engine MCP server running — confirm phase output uses `get_phase` values
 2. Stop the workflow-engine MCP server and re-run `/iflow:show-status` — confirm artifact-based fallback produces equivalent output
 3. Run `/iflow:finish-feature` on a test feature — confirm `complete_phase` is called after `.meta.json` update
