@@ -32,7 +32,10 @@ if command -v uv >/dev/null 2>&1; then
     exec "$VENV_DIR/bin/python" "$PLUGIN_DIR/ui/__main__.py" "$@"
 fi
 
-# Step 4: Bootstrap with pip (fallback)
+# Step 4: Bootstrap with pip (last-resort fallback)
+# This only runs when uv is unavailable. The package list here may drift from
+# pyproject.toml — acceptable since this path is rarely hit and uv is the
+# recommended installer.
 echo "ui-server: bootstrapping venv with pip at $VENV_DIR..." >&2
 python3 -m venv "$VENV_DIR"
 "$VENV_DIR/bin/pip" install -q "fastapi>=0.128.3" "uvicorn" "jinja2" >&2
