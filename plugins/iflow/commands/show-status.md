@@ -13,7 +13,7 @@ Display a workspace dashboard with current context, open features, and brainstor
 
 ## Phase Resolution Algorithm
 
-<!-- SYNC: phase-resolution-algorithm -->
+<!-- SYNC: phase-resolution-algorithm — canonical copy also in list-features.md, update both identically -->
 
 ```
 mcp_available = null  # tri-state: null (untested), true, false

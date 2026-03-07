@@ -18,7 +18,7 @@ List all features.
 
 ## Phase Resolution Algorithm
 
-<!-- SYNC: phase-resolution-algorithm -->
+<!-- SYNC: phase-resolution-algorithm — canonical copy also in show-status.md, update both identically -->
 
 ```
 mcp_available = null  # tri-state: null (untested), true, false
