@@ -453,3 +453,19 @@ When implementation tasks target non-overlapping file sets, they can be dispatch
 - Keywords: ["parallel-implementation", "disjoint-files", "task-dispatch", "merge-conflict-avoidance"]
 - Last observed: Feature 017
 - Observation count: 1
+
+### Pattern: uv sync --no-dev Requires Complete Base Dependency Audit
+When upgrading a shell bootstrap wrapper from a hand-maintained `uv pip install <list>` to `uv sync --no-dev`, immediately audit `[project]` dependencies in pyproject.toml to confirm every package required at runtime is listed. The switch from explicit install to lockfile-driven sync exposes implicit deps that the hand-maintained list was masking.
+- Observed in: Feature 018, implement phase — quality reviewer improved Step 3 from uv pip install to uv sync --no-dev at iter 1; uvicorn was absent from [project] deps; caught only at iter 4 final validation when uv sync --no-dev was actually executed end-to-end
+- Confidence: high
+- Keywords: ["uv-sync", "pyproject-toml", "runtime-deps", "bootstrap-wrapper", "dependency-audit", "no-dev"]
+- Last observed: Feature 018
+- Observation count: 1
+
+### Pattern: Establish Python Import Root at Spec Time for New Packages
+When a feature introduces a new Python package under plugins/iflow/, annotate all FR import examples with the verified import root at spec time. Confirm which directory sits on PYTHONPATH (`plugins/iflow/` itself, not its parent) and use that as the import base. Add conftest.py with sys.path insertion as a mandatory task 1.x whenever a new package with tests is introduced.
+- Observed in: Feature 018, multi-phase — import path blocker recurred at design, plan iter 1, task iter 2, and task iter 5; same root cause crossed 4 phase boundaries before conftest.py solution was fully specified
+- Confidence: high
+- Keywords: ["python-imports", "pythonpath", "package-structure", "conftest", "sys-path", "new-package", "spec-annotation"]
+- Last observed: Feature 018
+- Observation count: 1

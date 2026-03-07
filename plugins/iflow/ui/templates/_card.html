@@ -1,0 +1,24 @@
+<div class="card bg-base-200 shadow-sm p-3">
+    <div class="font-semibold text-sm truncate">
+        {{ item.type_id.split(':')[1] if ':' in item.type_id else item.type_id }}
+    </div>
+    <div class="text-xs text-base-content/50 truncate mt-0.5">
+        {{ item.type_id }}
+    </div>
+    <div class="flex flex-wrap gap-1 mt-2">
+        {% if item.workflow_phase %}
+        {% set phase_badges = {'wip': 'badge-primary', 'blocked': 'badge-error', 'completed': 'badge-success'} %}
+        <span class="badge badge-xs {{ phase_badges.get(item.workflow_phase, 'badge-ghost') }}">
+            {{ item.workflow_phase }}
+        </span>
+        {% endif %}
+        {% if item.mode %}
+        <span class="badge badge-xs badge-ghost">{{ item.mode }}</span>
+        {% endif %}
+    </div>
+    {% if item.last_completed_phase %}
+    <div class="text-xs text-base-content/40 mt-1">
+        last: {{ item.last_completed_phase }}
+    </div>
+    {% endif %}
+</div>
