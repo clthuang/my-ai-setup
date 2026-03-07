@@ -26,11 +26,11 @@ This artifact-based detection appears in three sections:
 
 **Target behavior:** For each feature where phase is needed:
 1. Construct `feature_type_id` as `"feature:{folder_name}"` where `{folder_name}` is the feature directory name (e.g., `015-small-command-migration-finish`). This matches the convention used by entity registry registration.
-2. **Skip MCP for non-active features:** Features with `status` of `"completed"`, `"abandoned"`, or `"planned"` should NOT call `get_phase`. Display their status directly from `.meta.json` (e.g., `"completed"`, `"abandoned"`, `"planned"`). Only call `get_phase` for features with `status: "active"`.
+2. **Skip MCP for non-active features:** Features with `status` of `"completed"`, `"abandoned"`, or `"planned"` should NOT call `get_phase`. Display their status directly from `.meta.json` in the Phase column (e.g., `"completed"`, `"abandoned"`, `"planned"`). Only call `get_phase` for features with `status: "active"`. This applies across all sections: Section 1.5 (project features showing all statuses), Section 2 (open features which may include abandoned), and list-features output.
 3. Call `get_phase` MCP tool with that `feature_type_id`.
 4. If MCP returns a valid response (no `error` field): use the `current_phase` value from the response. Handle special values:
    - If `current_phase` is `null` (no phase started): display `"specify"` — this is the first actionable phase. The brainstorm phase is pre-feature-creation and is not displayed in status views (brainstorm mode runs before `/iflow:create-feature`, so active features never have `current_phase: "brainstorm"`).
-   - If `current_phase` is `"brainstorm"`: display `"specify"` — same rationale; this state is theoretically unreachable for active features but handled defensively.
+   - If `current_phase` is `"brainstorm"`: display `"specify"` — brainstorm is the initial hydration state for active features with no completed phases (engine returns `PHASE_SEQUENCE[0].value = "brainstorm"`) but is not a user-actionable phase in status views.
    - If `current_phase` is `"finish"`: display `"finish"` — this is a deliberate improvement over artifact-based detection, which could not distinguish "all artifacts present" from "finish phase active". Artifact-based detection would show `"implement"` in this case.
    - All other values (`"specify"`, `"design"`, `"create-plan"`, `"create-tasks"`, `"implement"`): display as-is.
 5. If MCP returns an error or the tool is unavailable: fall back to the current artifact-based detection (first missing artifact from spec.md, design.md, plan.md, tasks.md — or "implement" if all exist).
@@ -86,7 +86,7 @@ This artifact-based detection appears in three sections:
 
 **`complete_phase` failure modes:** The MCP call may fail with:
 - **MCP unavailable:** Server not running or connection error. Handled by fallback.
-- **Phase mismatch:** DB state is behind `.meta.json` (e.g., feature was not tracked through all prior phases, or is an older feature). The engine raises `ValueError` when `current_phase != "finish"`. This is expected for features where reconciliation hasn't run. Handled identically to MCP unavailability — warn, do not block.
+- **Phase mismatch:** DB state is behind `.meta.json` (e.g., `current_phase` in DB is not `"finish"`). The engine raises `ValueError` when the requested phase does not match `current_phase` and is not a valid backward re-run. This is expected for features where reconciliation has not run. Handled identically to MCP unavailability — warn, do not block.
 - **Feature not found:** Feature entity not registered in DB. Same handling — warn, do not block.
 
 **Rationale for dual-write:** `.meta.json` is the source of truth (confirmed by CLAUDE.md: "prefer updating .meta.json directly (source of truth)"). The `complete_phase` MCP call ensures the DB stays in sync. If MCP is unavailable, the reconciliation tools (`reconcile_apply`) can sync later.
@@ -149,6 +149,8 @@ Verification is manual — command files are markdown instructions, not executab
 2. Stop the workflow-engine MCP server and re-run `/iflow:show-status` to confirm artifact-based fallback produces identical output.
 3. Run `/iflow:finish-feature` on a test feature and confirm `complete_phase` is called after `.meta.json` update.
 4. Run `/iflow:finish-feature` with the MCP server stopped and confirm completion succeeds with a non-blocking warning.
+
+To confirm MCP usage, check the tool call history in the Claude session — `get_phase` calls will appear in the tool invocation log. Alternatively, test with a feature where the DB state differs from artifacts (e.g., DB shows `"finish"` but all artifacts exist — artifact-based would show `"implement"`, MCP would show `"finish"`).
 
 ## Technical Notes
 
