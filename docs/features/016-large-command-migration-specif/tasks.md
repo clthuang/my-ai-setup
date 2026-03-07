@@ -29,7 +29,8 @@
 
 ### Task 2.1: Identify commitAndComplete Step 2 insertion point
 - [ ] Read the modified SKILL.md and locate the commitAndComplete Step 2 `.meta.json` update code block (the `}` closing the JSON example, originally at line 201 but shifted by Phase 1 insertion)
-- **Done when:** Insertion point identified after Step 2's JSON closing brace
+- **Note:** The commitAndComplete Step 2 closing `}` is the last substantive line of the file (after Phase 1 shift). The complete_phase block will be appended as new content at end of file — no existing content follows the `}`
+- **Done when:** Insertion point identified after Step 2's JSON closing brace, confirmed no content follows it
 
 ### Task 2.2: Insert complete_phase prose block into SKILL.md
 - [ ] Insert the "Sync to workflow DB (best-effort)" block from design.md Prose Template 2 into SKILL.md, immediately after the commitAndComplete Step 2 `.meta.json` update code block
