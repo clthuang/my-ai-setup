@@ -26,13 +26,13 @@
 - **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/ui/tests/test_entities.py -k "format_metadata" -v` passes all 4 tests
 - **Depends on:** 1.1
 
-### Task 1.5: Implement entity_list route handler
+### Task 1.5: Implement entity_list route handler (~20-30 min — atomic multi-path handler)
 - **File:** `plugins/iflow/ui/routes/entities.py`
 - **Action:** Replace entity_list stub with full implementation following design Route Contract. 5 code paths: (1) `db is None` → error.html, (2) DB query exception → error.html with `print(..., file=sys.stderr)`, (3) search with `ValueError` → fallback to `list_entities` with `search_available=False`, (4) `HX-Request` header → `_entities_content.html` partial, (5) normal → `entities.html` full page. Validate type param against ENTITY_TYPES (invalid → None). Post-filter by status. Sort by `updated_at` DESC. Build workflow lookup. Annotate entities with `kanban_column`. Pass `active_page: "entities"` in context.
 - **Done when:** `cd plugins/iflow && PYTHONPATH=.:hooks/lib .venv/bin/python -c "from ui.routes.entities import entity_list; print('OK')"` prints OK AND function signature matches `(request: Request, type: str | None = None, status: str | None = None, q: str | None = None)` AND `grep -cE "db is None|search_available|HX-Request|ValueError" plugins/iflow/ui/routes/entities.py` returns at least 4 (one per code path pattern). Note: Import + grep gate only. The grep gate checks the entire shared entities.py file, so patterns from entity_detail may contribute to the count — this is a loose sanity check, not function-scoped validation. Full code-path verification is deferred to Phase 4 integration tests (4.1, 4.3).
 - **Depends on:** 1.2, 1.4
 
-### Task 1.6: Implement entity_detail route handler
+### Task 1.6: Implement entity_detail route handler (~20-30 min — atomic multi-path handler)
 - **File:** `plugins/iflow/ui/routes/entities.py`
 - **Action:** Replace entity_detail stub with full implementation following design Route Contract. 4 code paths: (1) `db is None` → error.html, (2) entity not found → 404.html with `status_code=404`, (3) DB query exception → error.html, (4) normal → entity_detail.html with `status_code=200`. Extract `type_id` from entity dict. Call `get_lineage` up/down with `_strip_self_from_lineage`. Call `get_workflow_phase(type_id)`. Format metadata. Pass `active_page: "entities"` in context. All DB calls wrapped in single try/except — no partial degradation.
 - **Done when:** `cd plugins/iflow && PYTHONPATH=.:hooks/lib .venv/bin/python -c "from ui.routes.entities import entity_detail; print('OK')"` prints OK AND function signature matches `(request: Request, identifier: str)` AND `grep -cE "db is None|status_code=404|error\.html" plugins/iflow/ui/routes/entities.py` returns at least 3 (one per code path pattern). Note: Import + grep gate only. The grep gate checks the entire shared entities.py file, so patterns from entity_list may contribute to the count — this is a loose sanity check, not function-scoped validation. Full code-path verification is deferred to Phase 4 integration tests (4.2, 4.3).
@@ -94,7 +94,7 @@
 ### Task 3.2: Add active_page context to board.py
 - **File:** `plugins/iflow/ui/routes/board.py` (MODIFIED)
 - **Action:** Add `"active_page": "board"` to all template context dicts in the board route handler. Minimal change — add one key-value to each existing context dict.
-- **Done when:** `grep -c "active_page" plugins/iflow/ui/routes/board.py` returns at least 2 (one per success-path context dict — the HTMX partial return and the full-page return; error-path returns do not need active_page) AND all existing board tests still pass
+- **Done when:** `grep -c "active_page" plugins/iflow/ui/routes/board.py` returns at least 2 (one per success-path context dict — the HTMX partial return and the full-page return; error-path returns do not need active_page) AND `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/ui/tests/test_app.py -v` passes all existing board tests
 - **Depends on:** none
 
 ### Task 3.3: Wrap _card.html in clickable link
