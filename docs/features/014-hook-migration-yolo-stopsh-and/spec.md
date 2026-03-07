@@ -171,7 +171,7 @@ except Exception:
 " 2>/dev/null)
 ```
 
-The single invocation captures `NEXT_PHASE` from stdout. Stderr is suppressed via `2>/dev/null`. The except block provides the fallback `phase_map` within the same subprocess. Shell variables (`${FEATURE_ID}`, `${FEATURE_SLUG}`, etc.) are interpolated by bash before Python executes.
+The single invocation captures `NEXT_PHASE` from stdout. Stderr is suppressed via `2>/dev/null`. The except block provides the fallback `phase_map` within the same subprocess. Shell variables (`${FEATURE_ID}`, `${FEATURE_SLUG}`, `${LAST_COMPLETED_PHASE}`, etc.) are interpolated by bash before Python executes. `LAST_COMPLETED_PHASE` is the shell variable set during the existing `.meta.json` parsing step (lines 110-130) and is already in scope at this point in the hook.
 
 ## Technical Notes
 
