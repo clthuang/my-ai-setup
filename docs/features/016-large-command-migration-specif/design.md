@@ -157,7 +157,7 @@ Claude interprets the skill instructions. Adding more prose increases the chance
 | `target_phase` | `{phaseName}` argument | `"specify"` |
 | `yolo_active` | `true` if `[YOLO_MODE]` in context, else omit | `true` |
 
-**Success response:** `{transitioned: true, results: [...], degraded: false}` — no output, continue.
+**Success response:** `{transitioned: true, results: [...], degraded: false}` — no output, continue. Success requires BOTH `transitioned: true` AND `degraded: false`. If `degraded: true` (DB write skipped despite gate approval), treat as failure and warn.
 
 **Error responses:**
 - Structured error: `{error: true, error_type: "...", message: "...", recovery_hint: "..."}` — warn with reason from `message`.
@@ -197,8 +197,8 @@ The five command files (`specify.md`, `design.md`, `create-plan.md`, `create-tas
 
 After the `.meta.json` update above, sync the phase transition to the workflow database:
 
-1. Construct `entity_type_id` as `"feature:{id}-{slug}"` from the `.meta.json` `id` and `slug` fields (available from the `.meta.json` read in Step 1).
-2. Call `transition_phase(entity_type_id, "{phaseName}")`.
+1. Construct `feature_type_id` as `"feature:{id}-{slug}"` from the `.meta.json` `id` and `slug` fields (available from the `.meta.json` read in Step 1). This is the same value as `entity_type_id` used elsewhere in this skill.
+2. Call `transition_phase(feature_type_id, "{phaseName}")`.
    - If `[YOLO_MODE]` is active in the current context: include `yolo_active=true`.
    - If `[YOLO_MODE]` is NOT active: omit `yolo_active` (defaults to `false`).
 3. If the call succeeds (response contains `transitioned: true` and `degraded: false`): no output, proceed to Step 5.
@@ -217,8 +217,8 @@ Note: On partial-phase resume (Step 3 → "Continue"), this call may target a ph
 
 After the `.meta.json` update above, sync the phase completion to the workflow database:
 
-1. Construct `entity_type_id` as `"feature:{id}-{slug}"` from `.meta.json` `id` and `slug` fields (same value used in `validateAndSetup` Step 4, and in Step 1 frontmatter injection).
-2. Call `complete_phase(entity_type_id, "{phaseName}")`.
+1. Construct `feature_type_id` as `"feature:{id}-{slug}"` from `.meta.json` `id` and `slug` fields (same value used in `validateAndSetup` Step 4, and as `entity_type_id` in Step 1 frontmatter injection).
+2. Call `complete_phase(feature_type_id, "{phaseName}")`.
 3. If the call succeeds: no output, proceed.
 4. If the call fails for any reason (MCP tool unavailable, response contains `error: true`, or response is not valid JSON):
    output `Note: Workflow DB sync skipped — {reason}. State will reconcile on next reconcile_apply run.`
