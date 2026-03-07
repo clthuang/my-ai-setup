@@ -18,15 +18,17 @@ if [[ -x "$VENV_DIR/bin/python" ]]; then
 fi
 
 # Step 2: System python3 with all required deps available
+# PYTHONPATH is already exported (line 12), so entity_registry is importable
+# from hooks/lib if that directory exists. This check verifies all three
+# runtime deps are available without needing a venv.
 if python3 -c "import fastapi, uvicorn, entity_registry" 2>/dev/null; then
     exec python3 "$PLUGIN_DIR/ui/__main__.py" "$@"
 fi
 
-# Step 3: Bootstrap with uv (preferred)
+# Step 3: Bootstrap with uv (preferred) — uses pyproject.toml for version parity
 if command -v uv >/dev/null 2>&1; then
     echo "ui-server: bootstrapping venv with uv at $VENV_DIR..." >&2
-    uv venv "$VENV_DIR" >&2
-    uv pip install --python "$VENV_DIR/bin/python" "fastapi>=0.128.3" "uvicorn" "jinja2" >&2
+    cd "$PLUGIN_DIR" && uv sync --no-dev >&2
     exec "$VENV_DIR/bin/python" "$PLUGIN_DIR/ui/__main__.py" "$@"
 fi
 

@@ -34,8 +34,7 @@ def test_port_override_via_flag(capsys):
 
     # And uvicorn.run is called with port 9000
     mock_uvicorn.run.assert_called_once()
-    call_kwargs = mock_uvicorn.run.call_args
-    assert call_kwargs[1]["port"] == 9000 or call_kwargs[0][1:] == () and call_kwargs[1].get("port") == 9000
+    assert mock_uvicorn.run.call_args.kwargs["port"] == 9000
 
 
 # ===========================================================================
