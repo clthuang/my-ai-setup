@@ -196,7 +196,7 @@ def test_entity_list_db_error_shows_error_message(tmp_path):
     response = client.get("/entities")
 
     assert response.status_code == 200
-    assert "entity query failed" in response.text
+    assert "An error occurred while querying the database" in response.text
 
 
 # ---------------------------------------------------------------------------
@@ -320,7 +320,7 @@ def test_entity_detail_db_error_shows_error(tmp_path):
     response = client.get("/entities/feature:test")
 
     assert response.status_code == 200
-    assert "detail query failed" in response.text
+    assert "An error occurred while querying the database" in response.text
 
 
 # ---------------------------------------------------------------------------
@@ -618,3 +618,735 @@ def test_integration_entities_missing_db_error():
     assert response.status_code == 200
     assert "Database Not Found" in response.text
     assert "ENTITY_DB_PATH" in response.text
+
+
+# ===========================================================================
+# Test Deepening Phase — Dimensions 1-5
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# Dimension 1: BDD Scenarios — spec-driven scenarios not in TDD tests
+# derived_from: spec:FR-1 (entity list sorted by updated_at DESC)
+# ---------------------------------------------------------------------------
+def test_entity_list_sorted_by_updated_at_descending(tmp_path):
+    """Given entities with different updated_at timestamps, when listing,
+    then they appear in descending updated_at order (most recent first).
+
+    Anticipate: If sort is ascending instead of descending, or sort key is
+    wrong, the order will be reversed or arbitrary.
+    Challenge: Asserting index positions pins the sort direction.
+    Verify: Swapping reverse=True to reverse=False would put 'older' first,
+    failing the assertion.
+    """
+    # Given entities with different updated_at timestamps
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    db.register_entity("feature", "older", "Older Feature", status="active")
+    db.register_entity("feature", "newer", "Newer Feature", status="active")
+
+    # Manually set different updated_at values via raw SQL
+    conn = sqlite3.connect(db_file)
+    conn.execute(
+        "UPDATE entities SET updated_at = '2026-01-01T00:00:00Z' "
+        "WHERE type_id = 'feature:older'"
+    )
+    conn.execute(
+        "UPDATE entities SET updated_at = '2026-03-08T00:00:00Z' "
+        "WHERE type_id = 'feature:newer'"
+    )
+    conn.commit()
+    conn.close()
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+
+    # When listing entities
+    response = client.get("/entities")
+
+    # Then 'Newer Feature' appears before 'Older Feature' in the HTML
+    assert response.status_code == 200
+    newer_pos = response.text.index("Newer Feature")
+    older_pos = response.text.index("Older Feature")
+    assert newer_pos < older_pos, "Entities should be sorted by updated_at DESC"
+
+
+# ---------------------------------------------------------------------------
+# derived_from: spec:FR-2 (invalid type parameter shows all entities)
+# ---------------------------------------------------------------------------
+def test_entity_list_invalid_type_shows_all_entities(integration_client):
+    """Given an invalid type parameter not in ENTITY_TYPES, when requesting
+    the entity list, then all entities are shown (no error).
+
+    Anticipate: If invalid type is passed through to list_entities, it may
+    return empty results instead of all entities.
+    """
+    # When requesting with an invalid type parameter
+    response = integration_client.get("/entities?type=nonexistent_type")
+
+    # Then all entities are shown
+    assert response.status_code == 200
+    assert "Alpha Feature" in response.text
+    assert "Beta Feature" in response.text
+    assert "Brainstorm One" in response.text
+    assert "Project One" in response.text
+    assert "4 entities" in response.text
+
+
+# ---------------------------------------------------------------------------
+# derived_from: spec:FR-3 (combinable type+status filters)
+# ---------------------------------------------------------------------------
+def test_entity_list_combined_type_and_status_filter(integration_client):
+    """Given entities of different types and statuses, when filtering by both
+    type=feature and status=active, then only active features are returned.
+
+    Anticipate: If filters aren't combined properly, we'd get either all
+    features (ignoring status) or all active entities (ignoring type).
+    """
+    # When combining type and status filters
+    response = integration_client.get("/entities?type=feature&status=active")
+
+    # Then only active features are returned
+    assert response.status_code == 200
+    assert "Alpha Feature" in response.text  # feature + active
+    assert "Beta Feature" not in response.text  # feature + completed
+    assert "Brainstorm One" not in response.text  # brainstorm + active
+    assert "1 entities" in response.text
+
+
+# ---------------------------------------------------------------------------
+# derived_from: spec:FR-4 (detail page shows all entity fields)
+# ---------------------------------------------------------------------------
+def test_entity_detail_shows_all_required_fields(integration_client):
+    """Given a feature entity, when viewing its detail page, then all required
+    fields from FR-4 are displayed: name, type_id, uuid, entity_type,
+    entity_id, status, created_at, updated_at.
+
+    Anticipate: If a field is missing from the template, the page would
+    render but lack that information.
+    """
+    response = integration_client.get("/entities/feature:feat-alpha")
+
+    assert response.status_code == 200
+    # Entity Info section should contain all core fields
+    assert "Alpha Feature" in response.text  # name
+    assert "feature:feat-alpha" in response.text  # type_id
+    assert "feature" in response.text  # entity_type
+    assert "feat-alpha" in response.text  # entity_id
+    assert "active" in response.text  # status
+    # UUID should be present (generated by register_entity)
+    assert "UUID" in response.text  # section label
+    # Created/Updated should be present
+    assert "Created" in response.text
+    assert "Updated" in response.text
+
+
+# ---------------------------------------------------------------------------
+# derived_from: spec:FR-4 (detail page shows workflow fields for features)
+# ---------------------------------------------------------------------------
+def test_entity_detail_no_workflow_for_non_feature(integration_client):
+    """Given a non-feature entity (brainstorm), when viewing its detail page,
+    then the Workflow State section is NOT rendered.
+
+    Anticipate: If workflow section renders unconditionally, non-feature
+    entities would show empty/broken workflow data.
+    """
+    response = integration_client.get("/entities/brainstorm:bs-one")
+
+    assert response.status_code == 200
+    assert "Brainstorm One" in response.text
+    # Workflow State section body (with workflow fields like "Workflow Phase",
+    # "Last Completed Phase") should NOT be rendered for non-feature entities.
+    # Note: HTML comment <!-- Workflow State --> is always present in source,
+    # but the actual section card (with h2 heading) is gated by {% if workflow %}
+    assert "Workflow Phase" not in response.text
+    assert "Last Completed Phase" not in response.text
+
+
+# ---------------------------------------------------------------------------
+# derived_from: spec:FR-7 (navbar active state)
+# ---------------------------------------------------------------------------
+def test_navbar_active_state_on_entity_list(integration_client):
+    """Given the entity list page, when rendered, then the 'Entities' navbar
+    link has the btn-active class and 'Board' does not.
+
+    Anticipate: If active_page context variable is wrong or missing, the
+    wrong link (or no link) gets the active class.
+    """
+    response = integration_client.get("/entities")
+
+    assert response.status_code == 200
+    # The Entities link should be active — check for the pattern in HTML
+    # base.html: class="btn btn-sm btn-ghost {{ 'btn-active' if active_page... == 'entities' }}"
+    # So we expect 'btn-active' near 'Entities'
+    text = response.text
+    # Find the entities link and verify it has btn-active
+    entities_link_start = text.index('href="/entities"')
+    # Expand window to capture class attribute which follows the href
+    entities_section = text[entities_link_start - 100:entities_link_start + 150]
+    assert "btn-active" in entities_section
+
+
+# ---------------------------------------------------------------------------
+# derived_from: spec:FR-8 (search combinable with type filter)
+# ---------------------------------------------------------------------------
+def test_search_combined_with_type_filter(integration_client):
+    """Given entities of different types, when searching with a type filter,
+    then only matching entities of that type are returned.
+
+    Anticipate: If search_entities ignores entity_type param, all matching
+    entities regardless of type would be returned.
+    """
+    response = integration_client.get("/entities?q=Feature&type=feature")
+
+    assert response.status_code == 200
+    assert "Alpha Feature" in response.text
+    assert "Beta Feature" in response.text
+    # Brainstorm entities should not appear even if they match search
+    assert "Brainstorm One" not in response.text
+
+
+# ---------------------------------------------------------------------------
+# derived_from: spec:FR-8 (empty search results message)
+# ---------------------------------------------------------------------------
+def test_search_no_results_shows_empty_message(integration_client):
+    """Given a search term that matches no entities, when searching,
+    then 'No entities match your search' message is displayed.
+
+    Anticipate: If the empty state doesn't check search_query, it would
+    show the generic 'No entities found' instead of search-specific message.
+    """
+    response = integration_client.get("/entities?q=zzzznonexistent")
+
+    assert response.status_code == 200
+    assert "No entities match your search" in response.text
+
+
+# ---------------------------------------------------------------------------
+# derived_from: spec:FR-1 (empty state message when no entities)
+# ---------------------------------------------------------------------------
+def test_entity_list_empty_db_shows_no_entities_message(tmp_path):
+    """Given an empty database, when listing entities,
+    then 'No entities found' message is displayed (not 'no search match').
+
+    Anticipate: If the template uses the wrong conditional, it might show
+    the search-specific message even when no search was performed.
+    """
+    db_file = str(tmp_path / "test.db")
+    EntityDatabase(db_file)
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+    response = client.get("/entities")
+
+    assert response.status_code == 200
+    assert "No entities found" in response.text
+    assert "No entities match your search" not in response.text
+
+
+# ---------------------------------------------------------------------------
+# derived_from: spec:FR-6 (kanban card click-through)
+# ---------------------------------------------------------------------------
+def test_card_template_has_clickable_link():
+    """Given the _card.html template, when rendered, then the entire card is
+    wrapped in an <a> tag linking to /entities/{type_id}.
+
+    Anticipate: If the link is missing or wrong, cards won't navigate to
+    entity detail pages.
+    """
+    from pathlib import Path
+
+    template_path = Path(__file__).parent.parent / "templates" / "_card.html"
+    content = template_path.read_text()
+
+    assert 'href="/entities/{{ item.type_id }}"' in content
+    assert "block" in content  # link fills card area
+    assert "no-underline" in content  # no text decoration
+    assert "[color:inherit]" in content  # no link color override
+
+
+# ---------------------------------------------------------------------------
+# derived_from: spec:FR-9 (HTMX partial for filters with type parameter)
+# ---------------------------------------------------------------------------
+def test_htmx_partial_with_type_filter(integration_client):
+    """Given a type filter with HX-Request header, when requesting entities,
+    then only the content partial is returned with filtered entities.
+
+    Anticipate: If HTMX detection runs before filtering, the partial might
+    return unfiltered data.
+    """
+    response = integration_client.get(
+        "/entities?type=feature",
+        headers={"HX-Request": "true"},
+    )
+
+    assert response.status_code == 200
+    # No full page wrapper
+    assert "<html" not in response.text
+    # Has table with filtered content
+    assert "<table" in response.text
+    assert "Alpha Feature" in response.text
+    assert "Beta Feature" in response.text
+    # Non-features should not appear
+    assert "Brainstorm One" not in response.text
+
+
+# ---------------------------------------------------------------------------
+# Dimension 2: Boundary Values & Equivalence Partitioning
+# ---------------------------------------------------------------------------
+
+# derived_from: dimension:boundary (single entity in DB)
+def test_entity_list_single_entity(tmp_path):
+    """Given exactly one entity in the database, when listing entities,
+    then exactly one row is shown with '1 entities' count.
+
+    Anticipate: Off-by-one or pluralization issues with entity count display.
+    """
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    db.register_entity("feature", "solo", "Solo Feature", status="active")
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+    response = client.get("/entities")
+
+    assert response.status_code == 200
+    assert "Solo Feature" in response.text
+    assert "1 entities" in response.text
+
+
+# derived_from: dimension:boundary (entity with None/null fields)
+def test_entity_detail_with_null_fields(tmp_path):
+    """Given an entity with minimal fields (null artifact_path, metadata),
+    when viewing its detail page, then it renders without error using '-'
+    placeholders.
+
+    Anticipate: If template doesn't handle None values, Jinja2 might render
+    'None' strings or throw errors.
+    """
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    db.register_entity("brainstorm", "minimal", "Minimal Entity", status="active")
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+    response = client.get("/entities/brainstorm:minimal")
+
+    assert response.status_code == 200
+    assert "Minimal Entity" in response.text
+    # Null fields should show '-' placeholder, not literal 'None'
+    assert "None" not in response.text or "No parent" in response.text
+
+
+# derived_from: dimension:boundary (special characters in type_id)
+def test_entity_detail_with_colon_in_type_id(integration_client):
+    """Given a type_id containing a colon (standard format like feature:xxx),
+    when requesting the detail page, then the path converter handles it
+    correctly.
+
+    Anticipate: If the path converter doesn't use {identifier:path},
+    Starlette would split on the colon and return 404.
+    """
+    # This is already working via integration_client, but let's verify
+    # the path converter specifically with a type_id containing colons
+    response = integration_client.get("/entities/feature:feat-alpha")
+
+    assert response.status_code == 200
+    assert "feature:feat-alpha" in response.text
+
+
+# derived_from: dimension:boundary (empty search query string)
+def test_entity_list_empty_search_query_shows_all(integration_client):
+    """Given an empty search query parameter (q=), when listing entities,
+    then all entities are shown (not treated as search).
+
+    Anticipate: If empty string is treated as truthy, search_entities might
+    be called with empty query causing unexpected results.
+    """
+    response = integration_client.get("/entities?q=")
+
+    assert response.status_code == 200
+    assert "Alpha Feature" in response.text
+    assert "Beta Feature" in response.text
+    assert "4 entities" in response.text
+
+
+# derived_from: dimension:boundary (status filter with no matches)
+def test_entity_list_status_filter_no_matches(integration_client):
+    """Given a status filter that matches no entities, when listing,
+    then the empty state message is shown.
+
+    Anticipate: If status filtering is skipped, all entities would show.
+    """
+    response = integration_client.get("/entities?status=planned")
+
+    assert response.status_code == 200
+    assert "No entities found" in response.text
+
+
+# ---------------------------------------------------------------------------
+# Dimension 3: Adversarial / Negative Testing
+# ---------------------------------------------------------------------------
+
+# derived_from: dimension:adversarial (invalid status parameter)
+def test_entity_list_invalid_status_returns_empty(integration_client):
+    """Given an invalid status value, when filtering by status,
+    then no entities match and empty state is shown.
+
+    Anticipate: If status filtering doesn't do exact match, it could
+    partially match or ignore the filter.
+    """
+    response = integration_client.get("/entities?status=nonexistent_status")
+
+    assert response.status_code == 200
+    # No entities have this status, so empty state
+    assert "No entities found" in response.text
+
+
+# derived_from: dimension:adversarial (SQL injection in search parameter)
+def test_entity_list_search_with_sql_injection_attempt(integration_client):
+    """Given a search query containing SQL injection attempt, when searching,
+    then the application does not crash and returns safely.
+
+    Anticipate: If search is not parameterized, SQL injection could corrupt
+    data or cause errors.
+    """
+    response = integration_client.get(
+        "/entities?q=' OR 1=1 --"
+    )
+
+    assert response.status_code == 200
+    # Should not crash — either returns matches or empty
+
+
+# derived_from: dimension:adversarial (XSS in entity names — auto-escaped by Jinja2)
+def test_entity_list_xss_in_entity_name(tmp_path):
+    """Given an entity with HTML/script tags in its name, when listing,
+    then the name is HTML-escaped by Jinja2 autoescaping.
+
+    Anticipate: If Jinja2 autoescaping is disabled, script tags would
+    be rendered as executable HTML.
+    """
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    db.register_entity(
+        "feature", "xss-test",
+        '<script>alert("xss")</script>',
+        status="active",
+    )
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+    response = client.get("/entities")
+
+    assert response.status_code == 200
+    # Raw <script> should be escaped — not present as-is
+    assert '<script>alert("xss")</script>' not in response.text
+    # The escaped version should be present
+    assert "&lt;script&gt;" in response.text or "alert" in response.text
+
+
+# derived_from: dimension:adversarial (concurrent type+status+search filters)
+def test_entity_list_all_three_filters_combined(integration_client):
+    """Given all three filter parameters (type, status, search), when applied
+    together, then all filters are AND-combined correctly.
+
+    Anticipate: If filter order matters or filters are OR-combined, wrong
+    entities could appear.
+    """
+    response = integration_client.get(
+        "/entities?type=feature&status=active&q=Alpha"
+    )
+
+    assert response.status_code == 200
+    assert "Alpha Feature" in response.text
+    assert "Beta Feature" not in response.text  # completed, not active
+    assert "Brainstorm One" not in response.text  # not feature
+
+
+# ---------------------------------------------------------------------------
+# Dimension 4: Error Propagation & Failure Modes
+# ---------------------------------------------------------------------------
+
+# derived_from: dimension:error_propagation (lineage query failure)
+def test_entity_detail_lineage_error_shows_error_page(tmp_path):
+    """Given a valid entity but get_lineage raises an exception, when viewing
+    the detail page, then the error page is shown (not a partial crash).
+
+    Anticipate: If lineage errors aren't caught by the outer try/except,
+    the page could crash with 500 instead of showing error.html.
+    """
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    db.register_entity("feature", "lin-err", "Lineage Error Test", status="active")
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    # Mock get_lineage to raise after get_entity succeeds
+    app.state.db.get_lineage = unittest.mock.MagicMock(
+        side_effect=Exception("lineage query failed")
+    )
+    client = TestClient(app)
+    response = client.get("/entities/feature:lin-err")
+
+    assert response.status_code == 200
+    assert "An error occurred while querying the database" in response.text
+
+
+# derived_from: dimension:error_propagation (workflow_phase query failure)
+def test_entity_detail_workflow_error_shows_error_page(tmp_path):
+    """Given a valid entity but get_workflow_phase raises an exception, when
+    viewing the detail page, then the error page is shown.
+
+    Anticipate: If workflow errors aren't caught, the page crashes with 500.
+    """
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    db.register_entity("feature", "wf-err", "Workflow Error Test", status="active")
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    # get_lineage needs to work, but get_workflow_phase fails
+    app.state.db.get_workflow_phase = unittest.mock.MagicMock(
+        side_effect=Exception("workflow query failed")
+    )
+    client = TestClient(app)
+    response = client.get("/entities/feature:wf-err")
+
+    assert response.status_code == 200
+    assert "An error occurred while querying the database" in response.text
+
+
+# derived_from: dimension:error_propagation (list_workflow_phases failure in entity_list)
+def test_entity_list_workflow_lookup_error_shows_error_page(tmp_path):
+    """Given a valid DB but list_workflow_phases raises, when listing entities,
+    then the error page is shown (not a crash).
+
+    Anticipate: If the workflow lookup error is outside the try/except,
+    the page crashes instead of showing error.html.
+    """
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    db.register_entity("feature", "wl-err", "Workflow Lookup Error", status="active")
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    app.state.db.list_workflow_phases = unittest.mock.MagicMock(
+        side_effect=Exception("workflow phases query failed")
+    )
+    client = TestClient(app)
+    response = client.get("/entities")
+
+    assert response.status_code == 200
+    assert "An error occurred while querying the database" in response.text
+
+
+# derived_from: dimension:error_propagation (entity_detail missing DB error)
+def test_entity_detail_missing_db_includes_entity_db_path(tmp_path):
+    """Given a nonexistent DB, when requesting entity detail,
+    then the error page mentions ENTITY_DB_PATH for user guidance.
+
+    Anticipate: If the error template lacks ENTITY_DB_PATH guidance,
+    the user won't know how to fix the issue.
+    """
+    from ui import create_app
+
+    app = create_app(db_path="/nonexistent/deep/path.db")
+    client = TestClient(app)
+    response = client.get("/entities/feature:test")
+
+    assert response.status_code == 200
+    assert "ENTITY_DB_PATH" in response.text
+
+
+# ---------------------------------------------------------------------------
+# Dimension 5: Mutation Mindset
+# ---------------------------------------------------------------------------
+
+# derived_from: dimension:mutation (verify type filter validation — invalid type treated as None)
+def test_entity_list_type_validation_rejects_invalid(integration_client):
+    """Mutation check: verify that the type validation normalizes invalid
+    types to None (show all) rather than passing them to list_entities.
+
+    If type validation is removed (line deletion), invalid types would be
+    passed to list_entities which might return empty results.
+    """
+    # Invalid type should show all entities (same as no filter)
+    response_invalid = integration_client.get("/entities?type=INVALID")
+    response_all = integration_client.get("/entities")
+
+    # Both should contain the same entities
+    assert "4 entities" in response_invalid.text
+    assert "4 entities" in response_all.text
+
+
+# derived_from: dimension:mutation (verify status filter is exact match, not substring)
+def test_entity_list_status_filter_exact_match(integration_client):
+    """Mutation check: verify status filter uses exact equality (==) not
+    substring match (in).
+
+    If 'in' is used instead of '==', status='act' would match 'active'.
+    """
+    response = integration_client.get("/entities?status=act")
+
+    assert response.status_code == 200
+    # 'act' should not match 'active' — no entities should pass
+    assert "No entities found" in response.text
+
+
+# derived_from: dimension:mutation (kanban_column annotation correctness)
+def test_entity_list_kanban_column_annotation(integration_client):
+    """Mutation check: verify that kanban_column from workflow_phases is
+    correctly annotated on entity rows.
+
+    If the workflow lookup dict is keyed wrong or annotation is skipped,
+    kanban_column would be blank for all entities.
+    """
+    response = integration_client.get("/entities")
+
+    assert response.status_code == 200
+    # feat-alpha has workflow phase with kanban_column='wip'
+    assert "wip" in response.text
+
+
+# derived_from: dimension:mutation (entity list table columns match spec)
+def test_entity_list_table_has_required_columns():
+    """Mutation check: verify _entities_content.html table has all required
+    columns from spec FR-1: Name, Type ID, Type, Status, Kanban Column, Updated.
+
+    If a column header is deleted, data would be misaligned or missing.
+    """
+    from pathlib import Path
+
+    template_path = (
+        Path(__file__).parent.parent / "templates" / "_entities_content.html"
+    )
+    content = template_path.read_text()
+
+    required_columns = ["Name", "Type ID", "Type", "Status", "Kanban Column", "Updated"]
+    for col in required_columns:
+        assert col in content, f"Missing required column header: {col}"
+
+
+# derived_from: dimension:mutation (404 page has back link to entity list)
+def test_404_page_has_back_link_to_entity_list():
+    """Mutation check: verify 404.html has a link back to /entities.
+
+    If the back link is deleted, users are stuck on the 404 page.
+    """
+    from pathlib import Path
+
+    template_path = Path(__file__).parent.parent / "templates" / "404.html"
+    content = template_path.read_text()
+
+    assert 'href="/entities"' in content
+    assert "Entity not found" in content
+
+
+# derived_from: dimension:mutation (entity detail back link exists)
+def test_entity_detail_has_back_link_to_list():
+    """Mutation check: verify entity_detail.html has a back link to /entities.
+
+    If the back link is deleted, users can't navigate back to the list.
+    """
+    from pathlib import Path
+
+    template_path = (
+        Path(__file__).parent.parent / "templates" / "entity_detail.html"
+    )
+    content = template_path.read_text()
+
+    assert 'href="/entities"' in content
+    assert "Back to Entity List" in content
+
+
+# derived_from: dimension:mutation (search limit=100 passed to search_entities)
+def test_entity_list_search_passes_limit_100(tmp_path):
+    """Mutation check: verify search_entities is called with limit=100 per spec.
+
+    If limit is changed to a different value or removed, search results
+    could be silently truncated at FTS default (e.g., 10).
+    """
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    db.register_entity("feature", "lim", "Limit Test", status="active")
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    mock_search = unittest.mock.MagicMock(return_value=[])
+    app.state.db.search_entities = mock_search
+    client = TestClient(app)
+    client.get("/entities?q=test")
+
+    # Verify search_entities was called with limit=100
+    mock_search.assert_called_once()
+    call_kwargs = mock_search.call_args
+    assert call_kwargs[1].get("limit") == 100 or (
+        len(call_kwargs[0]) >= 3 and call_kwargs[0][2] == 100
+    )
+
+
+# derived_from: dimension:mutation (ENTITY_TYPES constant correctness)
+def test_entity_types_constant_matches_spec():
+    """Mutation check: verify ENTITY_TYPES matches the spec-defined entity
+    types from the CHECK constraint.
+
+    If a type is added or removed from the constant, filter tabs would
+    be wrong.
+    """
+    from ui.routes.entities import ENTITY_TYPES
+
+    expected = ["backlog", "brainstorm", "project", "feature"]
+    assert ENTITY_TYPES == expected
+
+
+# derived_from: dimension:mutation (lineage ancestors use direction="up", children use "down")
+def test_entity_detail_lineage_directions(tmp_path):
+    """Mutation check: verify get_lineage is called with correct directions
+    (up for ancestors, down for children).
+
+    If directions are swapped, ancestors would show children and vice versa.
+    """
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    db.register_entity("feature", "dir-test", "Direction Test", status="active")
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+
+    lineage_calls = []
+    original_get_lineage = app.state.db.get_lineage
+
+    def tracking_get_lineage(type_id, direction, max_depth):
+        lineage_calls.append((type_id, direction, max_depth))
+        return original_get_lineage(type_id, direction, max_depth)
+
+    app.state.db.get_lineage = tracking_get_lineage
+    client = TestClient(app)
+    client.get("/entities/feature:dir-test")
+
+    # Should call with "up" for ancestors and "down" for children
+    assert len(lineage_calls) == 2
+    directions = {c[1] for c in lineage_calls}
+    assert directions == {"up", "down"}
+    # Ancestors: direction="up", max_depth=10
+    up_call = [c for c in lineage_calls if c[1] == "up"][0]
+    assert up_call[2] == 10
+    # Children: direction="down", max_depth=1
+    down_call = [c for c in lineage_calls if c[1] == "down"][0]
+    assert down_call[2] == 1

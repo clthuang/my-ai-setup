@@ -203,7 +203,7 @@ def test_integration_db_error_shows_error_message(tmp_path):
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "DB error" in response.text
+    assert "An error occurred while querying the database" in response.text
 
 
 # ---------------------------------------------------------------------------

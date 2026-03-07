@@ -5,6 +5,8 @@ import sys
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
+from ui.routes.helpers import DB_ERROR_USER_MESSAGE, missing_db_response
+
 router = APIRouter()
 
 COLUMN_ORDER = [
@@ -50,19 +52,7 @@ def board(request: Request) -> HTMLResponse:
 
     # Path 1: Missing DB
     if db is None:
-        return templates.TemplateResponse(
-            request=request,
-            name="error.html",
-            context={
-                "error_title": "Database Not Found",
-                "error_message": (
-                    "The entity database was not found. "
-                    "Run the entity registry MCP server to initialize it, "
-                    "or set ENTITY_DB_PATH to point to an existing database."
-                ),
-                "db_path": db_path,
-            },
-        )
+        return missing_db_response(templates, request, db_path)
 
     # Path 2: DB query error
     try:
@@ -74,28 +64,32 @@ def board(request: Request) -> HTMLResponse:
             name="error.html",
             context={
                 "error_title": "Database Error",
-                "error_message": str(exc),
+                "error_message": DB_ERROR_USER_MESSAGE,
                 "db_path": db_path,
             },
         )
 
     columns = _group_by_column(rows)
-    context = {
-        "columns": columns,
-        "column_order": COLUMN_ORDER,
-    }
 
     # Path 3: HTMX partial refresh
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(
             request=request,
             name="_board_content.html",
-            context=context,
+            context={
+                "columns": columns,
+                "column_order": COLUMN_ORDER,
+                "active_page": "board",
+            },
         )
 
     # Path 4: Full page load
     return templates.TemplateResponse(
         request=request,
         name="board.html",
-        context=context,
+        context={
+            "columns": columns,
+            "column_order": COLUMN_ORDER,
+            "active_page": "board",
+        },
     )
