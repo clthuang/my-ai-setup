@@ -143,6 +143,7 @@ Remove from `create-specialist-team.md`:
    Parse the JSON response: if `current_phase` is non-null, use it; if null, determine next
    phase from `last_completed_phase` using the canonical sequence in workflow-state SKILL.md.
    If MCP unavailable, fall back to `lastCompletedPhase` from `.meta.json` (already extracted).
+   Apply the same edge cases as FR-7 (null+null → specify, last=finish → complete, no active feature → brainstorm).
    ```
 
 2. **Phase-to-command mapping table** (lines 180-191): Remove the table mapping `.meta.json` phase names to skill dispatch commands. Replace with inline mapping:
@@ -226,7 +227,7 @@ Feature 014 migrated `yolo-stop.sh` from hardcoded `phase_map` dict to `PHASE_SE
 2. The fallback `phase_map` in the `except` block is acceptable — it's graceful degradation for when the Python import fails, not text-LLM state control
 3. Test file `test_yolo_stop_phase_logic.py` validates both paths
 
-**No changes needed** — verify only. The `phase_map` fallback in `yolo-stop.sh` is embedded Python inside a bash hook, not a text-LLM interpreted table.
+**No changes needed** — verify only. The `phase_map` fallback in `yolo-stop.sh` is embedded Python inside a bash hook, not a text-LLM interpreted table. This satisfies PRD Phase 4 item 4 — the `phase_map` fallback is graceful degradation, not text-LLM state control, so no removal is required.
 
 ### FR-13: Measure token savings
 
