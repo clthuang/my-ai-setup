@@ -37,6 +37,9 @@ implement.md                     ← LIGHT: Replace 2 function name references
 create-tasks.md                  ← LIGHT: Replace 1 function name reference
 create-plan.md                   ← LIGHT: Replace 1 function name reference
 CLAUDE.md                        ← LIGHT: Update 1 line in Documentation Sync table
+.claude/hookify.docs-sync.local.md ← LIGHT: Update 'Workflow Map' reference to 'Phase Sequence one-liner'
+docs/dev_guides/templates/command-template.md ← LIGHT: Update 'validateTransition' reference
+docs/knowledge-bank/patterns.md  ← VERIFY-ONLY: Historical context reference, no change needed
 ```
 
 ### Execution Order
@@ -60,9 +63,13 @@ Phase 3: Reference updates (workflow-transitions/SKILL.md, implement.md, create-
 
 Phase 4: Documentation and verification
   - Update CLAUDE.md reference (prerequisites note removed — Python test suite covers prerequisite correctness)
+  - Update .claude/hookify.docs-sync.local.md: 'Workflow Map' → 'Phase Sequence one-liner'
+  - Update docs/dev_guides/templates/command-template.md: 'Apply validateTransition logic' → describe check directly or reference workflow-transitions Step 1
+  - Verify docs/knowledge-bank/patterns.md: 'validateTransition' reference is historical context (no change needed)
   - Measure line counts
   - Run grep validation and test suite
-  - Run broad codebase grep: grep -rn 'validateTransition\|validateArtifact\|Phase Progression Table\|Workflow Map' plugins/iflow/ --include='*.md' to catch stale references in files outside the 7 targets
+  - Run broad codebase grep across entire repo (excluding feature/project docs):
+    grep -rn 'validateTransition\|validateArtifact\|Phase Progression Table\|Workflow Map' . --include='*.md' | grep -v docs/features/ | grep -v docs/projects/ | grep -v docs/brainstorms/
   - Verify yolo-stop.sh (FR-12, verify-only)
 ```
 
@@ -77,7 +84,7 @@ Phase 4: Documentation and verification
 
 ### Technical Decisions
 
-1. **Replace-then-remove vs. remove-then-replace:** Replace phase progression tables with `get_phase` calls in the same edit that removes the tables. This avoids any intermediate state where tables are gone but replacements aren't present.
+1. **Within-file atomic replace-then-remove:** Within secretary.md and create-specialist-team.md, perform the table removal and `get_phase` insertion in the same edit operation to avoid any intermediate state where routing logic is absent. The cross-file phasing (Phase 1 vs Phase 2) is for implementer clarity, not a technical dependency.
 
 2. **`get_phase` response parsing:** The replacement text in secretary.md and create-specialist-team.md specifies the full JSON response shape and field names, matching `workflow_state_server.py:_serialize_state()`. This is a read-only `get_phase` call (not a write), so no dual-write complexity.
 
@@ -86,6 +93,10 @@ Phase 4: Documentation and verification
 4. **Line number approach:** Match by content (quoted text), not line numbers. Spec notes line numbers are approximate. Use grep to locate target content before editing. If content grep returns zero matches, manually inspect the target file to locate the functionally equivalent section before proceeding.
 
 5. **`get_phase` source field:** The replacement text only reads `current_phase`, `last_completed_phase`, and `degraded` fields for routing decisions. The `source` field is documented for reference but not used in routing logic, so any future source values (e.g., test-internal `entity_db`) would not affect behavior.
+
+6. **Edge case: "no active feature" routing:** The spec's FR-7 edge case says "route to iflow:brainstorm or iflow:create-feature" — this ambiguity is intentional. The maturity-based routing decision (brainstorm vs create-feature) is handled by the secretary's Triage step (Step 3), not by phase resolution. The edge case in the replacement text should simply state "no phase routing applicable" and fall through to the triage logic.
+
+7. **Cross-reference precision for canonical sequence:** After cleanup, references to "the canonical sequence in workflow-state SKILL.md" point to the preserved one-liner (`brainstorm → specify → design → create-plan → create-tasks → implement → finish`), not the removed Phase Sequence table. The implementer should use the explicit one-liner text when clarity is needed.
 
 ## Interfaces
 
@@ -104,7 +115,7 @@ Each FR is independent at the implementation level (separate files or sections),
 
 1. **Phase sequence one-liner** (NFR-3): All FRs that reference phase sequence (FR-5, FR-7, FR-8) point to the same preserved one-liner in workflow-state/SKILL.md rather than duplicating it.
 
-2. **`get_phase` replacement text** (FR-7, FR-8): Both secretary.md and create-specialist-team.md use identical `get_phase` call structure with identical fallback logic. The replacement text is defined once in the spec (FR-7) and referenced by FR-8.
+2. **`get_phase` replacement text** (FR-7, FR-8): Both secretary.md and create-specialist-team.md use identical `get_phase` call structure with identical fallback logic. The replacement text is defined once in the spec (FR-7) and referenced by FR-8. Note: while the replacement text is identical, the two sites in secretary.md (Orchestrate subcommand line 336 vs Workflow Guardian line 520) differ in how feature identity is already established in preceding context — verify during implementation that the id/slug extraction assumptions hold for both sites.
 
 3. **`validateArtifact` removal** (FR-2, FR-6, FR-10): The central definition (FR-2, FR-6) is removed, and references in commands (FR-10) are updated to describe the checks directly. These are independent edits but semantically linked.
 
