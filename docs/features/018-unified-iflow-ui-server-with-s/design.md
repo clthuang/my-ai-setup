@@ -67,6 +67,7 @@ Creates and configures the FastAPI application instance.
 - No static file mounting — all assets served via CDN (SC-8).
 - No CORS middleware — localhost-only server, no cross-origin requests.
 - `create_app()` does NOT raise `FileNotFoundError` for missing DB. Instead, `app.state.db` is set to `None` and the board route renders `error.html` with setup instructions (AC-7). This allows the server to start and display a helpful error page rather than crashing at startup.
+- **Connection cleanup on shutdown:** No lifespan shutdown hook is needed. SQLite WAL mode journals survive unclean disconnects — a SIGTERM during an in-flight request will not corrupt data. The connection is closed by Python GC when the process exits. The plan should include a verification task: confirm Uvicorn's default signal handling (SIGINT→graceful, SIGTERM→graceful) waits for in-flight requests before exit.
 - The UI server expects a pre-existing, already-migrated database. `EntityDatabase.__init__` calls `_migrate()` but this is idempotent on an existing schema — no new tables or columns are created by the UI server. The MCP servers are responsible for initial schema creation.
 
 **Spec inaccuracies addressed by this design:**
@@ -168,7 +169,13 @@ HTML templates rendering the Kanban board.
 
 **PoC Validation Gate:** A 20-line script in `agent_sandbox/` creates a FastAPI app with `check_same_thread=False`, seeds 10 rows, fires 10 concurrent GET requests via `asyncio.gather` + `httpx.AsyncClient`. Pass criteria: all 10 return HTTP 200, zero `ProgrammingError` in stderr. Must pass before any other implementation task.
 
-**PoC Failure Contingency:** If the PoC fails, the fallback is wrapping all `EntityDatabase` calls with `asyncio.to_thread()` and converting the board route to `async def`. This eliminates thread-safety concerns at the cost of slightly more complex route code. The plan should encode this as a conditional task: "If PoC fails → apply async fallback."
+**PoC Failure Contingency:** If the PoC fails, the fallback is wrapping all `EntityDatabase` calls with `asyncio.to_thread()` and converting the board route to `async def`. This eliminates thread-safety concerns at the cost of slightly more complex route code.
+
+**PoC Task Sequencing (for planner):** The plan must encode the PoC as an explicit gate with conditional branches:
+1. **Task: Run PoC** — script in `agent_sandbox/`, pass/fail gate
+2. **If pass → Task: Implement sync route** as designed (C3 with `def board()`)
+3. **If fail → Task: Apply async fallback** — convert route to `async def board()`, wrap DB calls with `asyncio.to_thread(db.list_workflow_phases)`
+All subsequent tasks (templates, CLI, shell wrapper) are blocked on the PoC gate resolving.
 
 ## Interfaces
 
