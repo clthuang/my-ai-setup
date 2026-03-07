@@ -25,10 +25,10 @@
 **Depends on:** Task 0.1
 
 - [ ] Run `ls plugins/iflow/hooks/lib/` and confirm `transition_gate/`, `workflow_engine/`, `entity_registry/` directories exist
-- [ ] Read `plugins/iflow/hooks/yolo-stop.sh` and verify shell variables are assigned before line 172: `FEATURE_ID` (line 126), `LAST_COMPLETED_PHASE` (line 126), `PROJECT_ROOT` (line 11), `ARTIFACTS_ROOT` (line 73)
+- [ ] Read `plugins/iflow/hooks/yolo-stop.sh` and verify shell variables are assigned before line 172: `FEATURE_ID` (line 126), `FEATURE_SLUG` (line 126), `LAST_COMPLETED_PHASE` (line 126), `PROJECT_ROOT` (line 11), `ARTIFACTS_ROOT` (line 73)
 - [ ] Run `grep -n 'phase_map = {' plugins/iflow/hooks/yolo-stop.sh` and confirm exactly one match exists — this is the replacement target. Record the line number for use in Task 1.2
 
-**Done when:** All three packages exist in `lib/`, all four variables are assigned before the `phase_map` line, and `grep -n` confirms exactly one `phase_map = {` match. If any check fails, stop and investigate before proceeding.
+**Done when:** All three packages exist in `lib/`, all five variables (`FEATURE_ID`, `FEATURE_SLUG`, `LAST_COMPLETED_PHASE`, `PROJECT_ROOT`, `ARTIFACTS_ROOT`) are assigned before the `phase_map` line, and `grep -n` confirms exactly one `phase_map = {` match. If any check fails, stop and investigate before proceeding.
 
 **Files:** None (read-only)
 
@@ -41,7 +41,7 @@
 **Depends on:** Task 1.1
 
 - [ ] Open `plugins/iflow/hooks/yolo-stop.sh`
-- [ ] Locate the replacement target: run `grep -n 'phase_map = {' plugins/iflow/hooks/yolo-stop.sh` to find the unique `phase_map` line (should match Task 1.1 result). The block starts on the `NEXT_PHASE=$(python3 -c "` line immediately above. Run `grep -n '2>/dev/null' plugins/iflow/hooks/yolo-stop.sh` and select the `" 2>/dev/null)` line immediately after the `phase_map` match — that is the block end
+- [ ] Locate the replacement target: run `grep -n -A 20 'phase_map = {' plugins/iflow/hooks/yolo-stop.sh` to display the full block for visual inspection. The block starts on the `NEXT_PHASE=$(python3 -c "` line immediately above the `phase_map` match and ends on the `" 2>/dev/null)` line that follows the `print(phase_map.get(last, ''))` line. Confirm this matches the original 13-line block before replacing
 - [ ] Replace the entire block (from the `NEXT_PHASE=$(python3 -c "` opening through the `" 2>/dev/null)` closing) with the combined Python invocation from design.md C1:
 
 ```bash
@@ -87,9 +87,9 @@ except Exception:
 
 - [ ] Verify the `2>/dev/null` stderr suppression is preserved at the end
 - [ ] Run `bash -n plugins/iflow/hooks/yolo-stop.sh` and confirm exit code 0 (no syntax errors)
-- [ ] Run `git diff plugins/iflow/hooks/yolo-stop.sh` and confirm only the phase_map block (lines 172-184) was modified — lines before and after are untouched
+- [ ] Run `git diff plugins/iflow/hooks/yolo-stop.sh` and confirm the only removed lines are the original phase_map block (lines containing `phase_map = {` through `" 2>/dev/null)`) and the only added lines are the combined invocation from design C1. No lines outside this block should appear in the diff
 
-**Done when:** The phase_map block is replaced with the combined invocation. `bash -n` exits 0. `git diff` shows changes only in the phase_map block region.
+**Done when:** The phase_map block is replaced with the combined invocation. `bash -n` exits 0. `git diff` shows changes only in the phase_map block — no lines outside this region are modified.
 
 **Files:** `plugins/iflow/hooks/yolo-stop.sh`
 
@@ -145,8 +145,8 @@ except Exception:
 
 - [ ] Ensure `ENTITY_DB_PATH` points to a valid database (default: `~/.claude/iflow/entities/entities.db`)
 - [ ] Verify the feature entity exists: `sqlite3 $ENTITY_DB_PATH "SELECT type_id FROM entities WHERE type_id = 'feature:014-hook-migration-yolo-stopsh-and'"`. If missing, register via: `sqlite3 $ENTITY_DB_PATH "INSERT INTO entities (type_id, entity_type, entity_id, name, status) VALUES ('feature:014-hook-migration-yolo-stopsh-and', 'feature', '014-hook-migration-yolo-stopsh-and', 'hook-migration-yolo-stopsh-and', 'active')"`
-- [ ] Verify feature 014 is the only active feature: run `grep -r '"status": "active"' docs/features/*/.meta.json` and confirm exactly one match pointing to `014-hook-migration-yolo-stopsh-and`. If other features are active, temporarily set them to a different status so the hook's active feature scanning resolves feature 014
-- [ ] Set up the test state: ensure the feature's `.meta.json` at `docs/features/014-hook-migration-yolo-stopsh-and/.meta.json` has `"lastCompletedPhase": "specify"` (it should already — if not, temporarily set it)
+- [ ] Verify feature 014 is the only active feature: run `grep -r '"status": "active"' docs/features/*/.meta.json` and confirm exactly one match pointing to `014-hook-migration-yolo-stopsh-and`. If other features are active, temporarily deactivate them: `sed -i '' 's/"status": "active"/"status": "paused"/' docs/features/NNN-other-feature/.meta.json` (restore after the test)
+- [ ] Set up the test state: ensure the feature's `.meta.json` at `docs/features/014-hook-migration-yolo-stopsh-and/.meta.json` has `"lastCompletedPhase": "specify"`. If not, set it: `python3 -c "import json; f='docs/features/014-hook-migration-yolo-stopsh-and/.meta.json'; d=json.load(open(f)); d['lastCompletedPhase']='specify'; json.dump(d,open(f,'w'),indent=2)"` (restore original value after the test)
 - [ ] Run the hook from the project root with stdin pipe (the hook reads stdin via `INPUT=$(cat)` on line 17 — without stdin it hangs): `OUTPUT=$(echo '{"stop_hook_active":false}' | bash plugins/iflow/hooks/yolo-stop.sh); echo "$OUTPUT"`
 - [ ] Parse and inspect the JSON output: `echo "$OUTPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('reason','NO REASON FIELD'))"` — confirm the reason field contains `"Invoke /iflow:design"`
 
