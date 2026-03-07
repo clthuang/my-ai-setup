@@ -16,11 +16,55 @@ List all active features.
 2. **Read .meta.json** from each to get branch info
 3. **Determine status** from artifacts and metadata. Include features with `status: "planned"` in addition to active features.
 
+## Phase Resolution Algorithm
+
+<!-- SYNC: phase-resolution-algorithm -->
+
+```
+mcp_available = null  # tri-state: null (untested), true, false
+
+function resolve_phase(feature_folder_name, meta_json):
+    # Step 1: Skip non-active features
+    if meta_json.status in ("completed", "abandoned", "planned"):
+        return meta_json.status
+
+    # Step 2: Try MCP (with fail-fast)
+    if mcp_available != false:
+        result = call get_phase(feature_type_id="feature:{feature_folder_name}")
+        if result does not contain "error": true:
+            mcp_available = true
+            phase = result.current_phase
+            if phase is null or phase == "brainstorm":
+                return "specify"
+            # MCP path returns "finish" accurately; fallback cannot (shows "implement" instead)
+            return phase
+        else:
+            mcp_available = false  # skip MCP for all remaining features
+
+    # Step 3: Artifact-based fallback
+    ARTIFACT_TO_PHASE = {
+        "spec.md": "specify",
+        "design.md": "design",
+        "plan.md": "create-plan",
+        "tasks.md": "create-tasks"
+    }
+    for artifact, phase in ARTIFACT_TO_PHASE.items():
+        if artifact missing in feature directory:
+            return phase
+    return "implement"
+```
+
+**Key behaviors:**
+- `mcp_available` starts as `null` (unknown), becomes `true` on first success, `false` on first failure
+- Once `false`, all subsequent features in the same invocation use artifact-based fallback (AC-8, AC-9)
+- Non-active features bypass MCP entirely — their `.meta.json` status is the display value (AC-6, AC-7)
+- The Step 1 filter and Step 2 MCP call use the same in-memory `.meta.json` data read at invocation start, so no race condition exists between status check and MCP call
+
 ## For Each Feature
 
 Determine:
 - ID and name
-- Current phase (from artifacts, or `planned` if status is planned)
+- Current phase (using the Phase Resolution algorithm above)
 - Branch name (from .meta.json, or `—` if null)
 - Project (from .meta.json `project_id`, or `—` if absent/null)
 - Last activity (file modification time)
