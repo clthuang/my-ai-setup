@@ -29,13 +29,13 @@
 ### Task 1.5: Implement entity_list route handler
 - **File:** `plugins/iflow/ui/routes/entities.py`
 - **Action:** Replace entity_list stub with full implementation following design Route Contract. 5 code paths: (1) `db is None` → error.html, (2) DB query exception → error.html with `print(..., file=sys.stderr)`, (3) search with `ValueError` → fallback to `list_entities` with `search_available=False`, (4) `HX-Request` header → `_entities_content.html` partial, (5) normal → `entities.html` full page. Validate type param against ENTITY_TYPES (invalid → None). Post-filter by status. Sort by `updated_at` DESC. Build workflow lookup. Annotate entities with `kanban_column`. Pass `active_page: "entities"` in context.
-- **Done when:** `cd plugins/iflow && PYTHONPATH=.:hooks/lib .venv/bin/python -c "from ui.routes.entities import entity_list; print('OK')"` prints OK AND function signature matches `(request: Request, type: str | None = None, status: str | None = None, q: str | None = None)`. Note: This is import-level validation only. Full code-path verification is deferred to Phase 4 integration tests (4.1, 4.3).
+- **Done when:** `cd plugins/iflow && PYTHONPATH=.:hooks/lib .venv/bin/python -c "from ui.routes.entities import entity_list; print('OK')"` prints OK AND function signature matches `(request: Request, type: str | None = None, status: str | None = None, q: str | None = None)` AND `grep -cE "db is None|search_available|HX-Request|ValueError" plugins/iflow/ui/routes/entities.py` returns at least 4 (one per code path pattern). Note: Import + grep gate only. Full code-path verification is deferred to Phase 4 integration tests (4.1, 4.3).
 - **Depends on:** 1.2, 1.4
 
 ### Task 1.6: Implement entity_detail route handler
 - **File:** `plugins/iflow/ui/routes/entities.py`
 - **Action:** Replace entity_detail stub with full implementation following design Route Contract. 4 code paths: (1) `db is None` → error.html, (2) entity not found → 404.html with `status_code=404`, (3) DB query exception → error.html, (4) normal → entity_detail.html with `status_code=200`. Extract `type_id` from entity dict. Call `get_lineage` up/down with `_strip_self_from_lineage`. Call `get_workflow_phase(type_id)`. Format metadata. Pass `active_page: "entities"` in context. All DB calls wrapped in single try/except — no partial degradation.
-- **Done when:** `cd plugins/iflow && PYTHONPATH=.:hooks/lib .venv/bin/python -c "from ui.routes.entities import entity_detail; print('OK')"` prints OK AND function signature matches `(request: Request, identifier: str)`. Note: This is import-level validation only. Full code-path verification is deferred to Phase 4 integration tests (4.2, 4.3).
+- **Done when:** `cd plugins/iflow && PYTHONPATH=.:hooks/lib .venv/bin/python -c "from ui.routes.entities import entity_detail; print('OK')"` prints OK AND function signature matches `(request: Request, identifier: str)` AND `grep -cE "db is None|status_code=404|error\.html" plugins/iflow/ui/routes/entities.py` returns at least 3 (one per code path pattern). Note: Import + grep gate only. Full code-path verification is deferred to Phase 4 integration tests (4.2, 4.3).
 - **Depends on:** 1.3, 1.4
 
 ### Task 1.7: Register entities router in __init__.py
@@ -94,7 +94,7 @@
 ### Task 3.2: Add active_page context to board.py
 - **File:** `plugins/iflow/ui/routes/board.py` (MODIFIED)
 - **Action:** Add `"active_page": "board"` to all template context dicts in the board route handler. Minimal change — add one key-value to each existing context dict.
-- **Done when:** `grep -c "active_page" plugins/iflow/ui/routes/board.py` returns at least 2 (one per context dict — normal and HX-Request paths) AND all existing board tests still pass
+- **Done when:** `grep -c "active_page" plugins/iflow/ui/routes/board.py` returns at least 2 (one per success-path context dict — the HTMX partial return and the full-page return; error-path returns do not need active_page) AND all existing board tests still pass
 - **Depends on:** none
 
 ### Task 3.3: Wrap _card.html in clickable link
@@ -111,6 +111,7 @@
   - Instantiate `EntityDatabase(tmp_path / "test.db")` (import from `entity_registry.database`)
   - Seed entities: `db.register_entity("feature", "feat-alpha", "Alpha Feature", status="active")`, `db.register_entity("feature", "feat-beta", "Beta Feature", status="completed")`, `db.register_entity("brainstorm", "bs-one", "Brainstorm One", status="active")`, `db.register_entity("project", "proj-one", "Project One", status="active")`
   - Set parent: `db.set_parent("feature:feat-alpha", "project:proj-one")`
+  - Disable FK enforcement: `db.conn.execute("PRAGMA foreign_keys = OFF")`
   - Seed workflow phases via raw SQL: `db.conn.execute("INSERT INTO workflow_phases (type_id, kanban_column, workflow_phase) VALUES (?, ?, ?)", ("feature:feat-alpha", "In Progress", "implement"))`
   - Create app: `app = create_app(str(tmp_path / "test.db"))` and use `httpx.AsyncClient(transport=ASGITransport(app=app))` or `TestClient(app)`
   Write tests:
@@ -132,7 +133,7 @@
 ### Task 4.3: Write search, HTMX, and error handling integration tests
 - **File:** `plugins/iflow/ui/tests/test_entities.py`
 - **Action:** Write tests:
-  7. **Search (FR-8):** GET /entities?q=term returns FTS matches; for FTS fallback test, mock `db.search_entities` to raise `ValueError("FTS index not available")` using `monkeypatch.setattr(app.state.db, "search_entities", lambda *a, **kw: (_ for _ in ()).throw(ValueError("FTS")))` or `unittest.mock.patch.object(app.state.db, "search_entities", side_effect=ValueError("FTS"))`. Verify fallback returns all entities with search input disabled.
+  7. **Search (FR-8):** GET /entities?q=term returns FTS matches; for FTS fallback test, mock `db.search_entities` to raise `ValueError("FTS index not available")` using `app.state.db.search_entities = unittest.mock.MagicMock(side_effect=ValueError("FTS index not available"))`. Verify fallback returns all entities with search input disabled.
   8. **HTMX partial (FR-9):** GET /entities with `HX-Request: true` header returns content partial only (no `<html>` tag, has table)
   9. **Missing DB:** Create a separate app instance or set `app.state.db = None` before the request. Verify GET /entities returns error.html content (check for "error" or "Database" text).
 - **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/ui/tests/test_entities.py -k "test_search or test_htmx or test_missing_db" -v` passes all 3 tests
