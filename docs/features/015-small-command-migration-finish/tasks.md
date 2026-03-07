@@ -15,7 +15,7 @@
 ### Task 1.2: Insert Phase Resolution Algorithm block in show-status.md
 
 - [ ] Insert `## Phase Resolution Algorithm` heading between the confirmed anchors (after line 12, before `## Section 1`)
-- [ ] Add single `<!-- SYNC: phase-resolution-algorithm -->` marker (codebase convention — not paired start/end)
+- [ ] Add single `<!-- SYNC: phase-resolution-algorithm -->` marker on the line immediately following the `## Phase Resolution Algorithm` heading, before the `mcp_available = null` line (codebase convention — not paired start/end)
 - [ ] Insert exact pseudocode from design.md section C1.1 — the `resolve_phase(feature_folder_name, meta_json)` function with tri-state `mcp_available`, Step 1 (skip non-active), Step 2 (try MCP with fail-fast), Step 3 (artifact-based fallback with `ARTIFACT_TO_PHASE` map)
 - [ ] Insert Key behaviors list from design.md section C1.1 — `mcp_available` tri-state semantics, circuit breaker (AC-8/AC-9), non-active bypass (AC-6/AC-7), race condition note
 
@@ -58,7 +58,7 @@
 - [ ] Confirm anchor lines: after `## Gather Features` section (after step 3, ~line 17), before `## For Each Feature` (line 19)
 - [ ] Insert identical algorithm block from Task 1.1 — same `## Phase Resolution Algorithm` heading, same single SYNC marker, same pseudocode, same key behaviors
 - [ ] The `##` heading level matches peer headings (`## Gather Features`, `## For Each Feature`)
-- [ ] Verify inserted text is character-identical to show-status.md's algorithm block
+- [ ] Verify inserted text is character-identical to show-status.md's algorithm block — run the diff command from Task 2.2 step 7 immediately as a smoke check
 
 **Depends on:** Task 1.4
 **Plan ref:** Steps 2.1 + 2.2
@@ -132,7 +132,8 @@ After updating .meta.json, sync workflow state to the database:
 
 - [ ] Extract algorithm blocks from both files: `sed -n '/^## Phase Resolution Algorithm$/,/^## /p' plugins/iflow/commands/show-status.md | sed '$d'` and same for list-features.md
 - [ ] Diff outputs — must produce no output (character-identical)
-- [ ] Trace all 10 ACs to specific implementation locations:
+- [ ] Verify structural ACs via grep: `grep -c "Phase Resolution algorithm above" plugins/iflow/commands/show-status.md` must return 3 (AC-1); same on list-features.md must return 1 (AC-2); `grep -c "complete_phase" plugins/iflow/commands/finish-feature.md` must return >= 1 (AC-3)
+- [ ] Trace all 10 ACs to specific implementation locations (ACs 4-10 verified by reading algorithm block internals already confirmed in Tasks 1.2/2.1):
 
 | AC | Verification |
 |----|-------------|
@@ -155,8 +156,8 @@ After updating .meta.json, sync workflow state to the database:
 
 - [ ] Run `/iflow:show-status` with the workflow-engine MCP server running — confirm phase output uses `get_phase` values
 - [ ] Stop the workflow-engine MCP server (remove from active MCP session via `/mcp` or kill process: `pkill -f workflow_state_server`; confirm unavailable by checking tool list) and re-run `/iflow:show-status` — confirm artifact-based fallback produces equivalent output
-- [ ] Run `/iflow:finish-feature` on a test feature — confirm `complete_phase` is called after `.meta.json` update
-- [ ] Run `/iflow:finish-feature` with the MCP server stopped — confirm completion succeeds with a non-blocking warning
+- [ ] Run `/iflow:finish-feature` on a test feature (use any feature in active status via `/iflow:list-features`, or a scratch feature) — confirm `complete_phase` appears in the tool call history in the Claude session sidebar after `.meta.json` update
+- [ ] Run `/iflow:finish-feature` with the MCP server stopped — confirm completion succeeds with a non-blocking warning ("Note: Workflow DB sync skipped")
 - [ ] Confirm algorithm block is referenced by name in show-status.md: `grep -c "Phase Resolution algorithm above" plugins/iflow/commands/show-status.md` must return 3 (Sections 1, 1.5, 2). Same grep on list-features.md must return 1
 
 **Depends on:** Task 4.1
