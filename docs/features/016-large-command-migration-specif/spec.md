@@ -40,12 +40,12 @@ Feature 016 does NOT cover:
 **Target behavior — dual-write pattern:**
 1. **Keep the existing `.meta.json` update** — `.meta.json` remains the source of truth.
 2. **Add a `transition_phase` MCP call** after the `.meta.json` update:
-   - Construct `feature_type_id` as `"feature:{id}-{slug}"` from the feature's `.meta.json` `id` and `slug` fields. This matches the convention used by entity registry registration and feature 015's `feature_type_id` construction.
+   - Construct `feature_type_id` as `"feature:{id}-{slug}"` from the feature's `.meta.json` `id` and `slug` fields (e.g., `id: "016"` + `slug: "large-command-migration-specif"` → `"feature:016-large-command-migration-specif"`). This produces the same value as the feature directory name and matches the entity registry convention and feature 015's pattern.
    - Call `transition_phase(feature_type_id, "{phaseName}")`.
    - If MCP succeeds: no output — proceed to next step.
    - If MCP fails for any reason: warn using the standard format (see NFR-3) but do NOT block. The `.meta.json` update already succeeded, so the phase has started regardless. The DB will sync later via reconciliation.
 
-**Interaction with YOLO mode:** The `yolo_active` parameter of `transition_phase` should be set to `true` when `[YOLO_MODE]` is active in the execution context. When `[YOLO_MODE]` is NOT active, omit the `yolo_active` parameter (defaults to `false`) or explicitly pass `yolo_active=false`. This allows the engine to record YOLO mode for audit purposes.
+**Interaction with YOLO mode:** The `yolo_active` parameter of `transition_phase` should be set to `true` when `[YOLO_MODE]` is active in the execution context. The skill detects YOLO mode by checking whether the `[YOLO_MODE]` marker is present in the current conversation context, consistent with the YOLO Mode Overrides section at the top of SKILL.md. When `[YOLO_MODE]` is NOT active, omit the `yolo_active` parameter (defaults to `false`) or explicitly pass `yolo_active=false`. This allows the engine to record YOLO mode for audit purposes.
 
 **`transition_phase` failure modes:**
 - **MCP unavailable:** Server not running or connection error. Handled by fallback.
@@ -158,6 +158,7 @@ If the `.meta.json` write fails, skip the MCP call (the phase operation failed).
 - AC-8: GIVEN `feature_type_id` is constructed in `workflow-transitions`, WHEN it is used for MCP calls, THEN the format matches `"feature:{id}-{slug}"` consistent with entity registry convention
 - AC-9: GIVEN domain metadata writes (reviewer notes, stage tracking, task concerns) occur in commands, WHEN the migration is complete, THEN these writes remain as inline `.meta.json` operations with no MCP involvement
 - AC-10: GIVEN `validateAndSetup()` Step 1 already validates transitions via its own logic (reading `.meta.json`), WHEN `transition_phase` returns a rejection, THEN the rejection is logged as a warning but does NOT override the skill's own validation result
+- AC-11: GIVEN a successful phase run with the workflow-engine MCP server available, WHEN `get_phase` is queried with the same `feature_type_id`, THEN `current_phase` matches the phase just started or completed
 
 ## Out of Scope
 
