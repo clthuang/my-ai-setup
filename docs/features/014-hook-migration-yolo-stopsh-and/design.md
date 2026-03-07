@@ -38,7 +38,7 @@ The hook has 5 logical sections. Only section 3 (feature state reading) and sect
 |---------|-------|--------|
 | 1. YOLO checks (mode, paused, usage) | 20-69 | None |
 | 2. Active feature scanning | 75-107 | None |
-| 3. Feature state reading | 110-130 | **Replace** with engine `get_state()` call |
+| 3. Feature state reading | 110-130 | Retained (supplemented by engine call in section 4) |
 | 4. Next-phase derivation | 172-184 | **Replace** with `PHASE_SEQUENCE` lookup |
 | 5. Controls (completion, stuck, max blocks, message) | 132-200 | None (except input source changes) |
 
@@ -97,8 +97,11 @@ try:
     else:
         last = '${LAST_COMPLETED_PHASE}'
 
+    # Both null representations converge here:
+    # Engine path: None -> '' (via 'or' fallback above)
+    # Fallback path: string 'null' (from .meta.json parsing)
     if last in ('null', ''):
-        print(PHASE_SEQUENCE[1].value)
+        print(PHASE_SEQUENCE[1].value)  # specify — first command phase
     elif last in _PHASE_VALUES:
         idx = _PHASE_VALUES.index(last)
         print(_PHASE_VALUES[idx + 1] if idx < len(_PHASE_VALUES) - 1 else '')
@@ -168,8 +171,8 @@ If the invocation used `state.current_phase` directly, it would output `"brainst
 ### R-1: Import chain and EntityDatabase construction latency (Low)
 
 **Import chain analysis:** The combined invocation imports three packages:
-1. `transition_gate.constants` — imports `Phase` enum and `PHASE_SEQUENCE` tuple. Transitively loads `transition_gate.models` (enum definitions) and `transition_gate.gate_functions` (26 gate functions). The gate functions module is imported as a side effect of the `constants` module importing `GATE_REGISTRY` — however, the combined invocation only uses `PHASE_SEQUENCE` and never calls any gate functions. The import cost is module loading only (no I/O, no network).
-2. `workflow_engine.engine` — imports `WorkflowStateEngine`. Transitively imports `transition_gate` (already loaded) and `entity_registry.database`.
+1. `transition_gate.constants` — imports `Phase` enum and `PHASE_SEQUENCE` tuple. Only loads `transition_gate.models` (enum definitions). Does NOT load gate functions. This import is lightweight.
+2. `workflow_engine.engine` — imports `WorkflowStateEngine`. Triggers `transition_gate.__init__` which loads all 26 gate functions via the `.gate` module, plus `entity_registry.database`. The gate function loading is the dominant import cost, but consists only of bytecode loading (no I/O, no execution).
 3. `entity_registry.database` — imports `EntityDatabase`. Uses only stdlib (`sqlite3`, `os`, `json`).
 
 All three packages use only stdlib dependencies. No external packages, no network calls during import. The 26 gate functions are Python function definitions — their import cost is bytecode loading, not execution.
