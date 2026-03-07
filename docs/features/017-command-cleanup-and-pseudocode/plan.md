@@ -146,8 +146,8 @@ Light edits — update references to removed constructs.
 - Replace with `Phase Sequence one-liner`
 
 **Step 4.3: Update docs/dev_guides/templates/command-template.md**
-- Locate reference to `Apply validateTransition logic` or `validateTransition`
-- Replace with direct description or reference to workflow-transitions Step 1
+- Locate line 16: `- Apply validateTransition logic for target phase`
+- Replace with: `- Check transition validity by following workflow-transitions Step 1 for target phase`
 
 **Step 4.4: Verify docs/knowledge-bank/patterns.md (verify-only)**
 - Confirm `validateTransition` reference is historical context ("Avoided modifying core validateTransition logic")
@@ -191,7 +191,12 @@ Light edits — update references to removed constructs.
 - `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -k "SC_5 or sc_5 or skill_md"`
 - Both must pass
 
-**Step 4.10: Update CHANGELOG.md (FR-14)**
+**Step 4.10: Smoke test (per design Verification Contracts)**
+- Run `/iflow:specify` on a scratch/test feature
+- Verify: no reference to `validateTransition` in workflow output, phase starts successfully, no errors about missing functions
+- If fails: investigate and fix before proceeding
+
+**Step 4.11: Update CHANGELOG.md (FR-14)**
 - Add entry under `[Unreleased]` documenting pseudocode/table removal
 - Include aggregate line reduction and token savings estimate
 
@@ -206,9 +211,9 @@ Light edits — update references to removed constructs.
 | Phase 1 | 11 steps | Medium — many sections but single file, content-match removal + early test |
 | Phase 2 | 7 steps | Medium — atomic replace-then-remove, two files |
 | Phase 3 | 5 steps | Light — small text replacements, four files |
-| Phase 4 | 10 steps | Light-Medium — documentation updates + validation sweep |
+| Phase 4 | 11 steps | Light-Medium — documentation updates + validation sweep + smoke test |
 
-Total: ~33 steps across 4 phases. All text-only edits.
+Total: ~34 steps across 4 phases. All text-only edits.
 
 ## Risks and Mitigations
 
