@@ -105,6 +105,7 @@ After updating .meta.json, sync workflow state to the database:
 
 - [ ] Ensure block is placed before Step 6b (`### Step 6b: Delete temporary files`)
 
+**Depends on:** None (independent of Phases 1 and 2)
 **Plan ref:** Steps 3.1 + 3.2
 **Done when:** MCP call block added after `.meta.json` update within Step 6a, before Step 6b. All four failure modes enumerated.
 
@@ -156,7 +157,7 @@ After updating .meta.json, sync workflow state to the database:
 
 - [ ] Run `/iflow:show-status` with the workflow-engine MCP server running — confirm phase output uses `get_phase` values
 - [ ] Stop the workflow-engine MCP server (remove from active MCP session via `/mcp` or kill process: `pkill -f workflow_state_server`; confirm unavailable by checking tool list) and re-run `/iflow:show-status` — confirm artifact-based fallback produces equivalent output
-- [ ] Run `/iflow:finish-feature` on a test feature (use any feature in active status via `/iflow:list-features`, or a scratch feature) — confirm `complete_phase` appears in the tool call history in the Claude session sidebar after `.meta.json` update
+- [ ] Run `/iflow:finish-feature` on a test feature (use any feature in active status via `/iflow:list-features`, or create a scratch feature via `/iflow:create-feature test-scratch`, advance it to active, then clean up afterward) — confirm `complete_phase` appears in the tool call history in the Claude session sidebar after `.meta.json` update
 - [ ] Run `/iflow:finish-feature` with the MCP server stopped — confirm completion succeeds with a non-blocking warning ("Note: Workflow DB sync skipped")
 - [ ] Confirm algorithm block is referenced by name in show-status.md: `grep -c "Phase Resolution algorithm above" plugins/iflow/commands/show-status.md` must return 3 (Sections 1, 1.5, 2). Same grep on list-features.md must return 1
 
