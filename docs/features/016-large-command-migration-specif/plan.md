@@ -56,7 +56,7 @@ Single-file migration: insert two MCP dual-write blocks into `plugins/iflow/skil
    - NFR-5: Dual-write ordering is `.meta.json` FIRST, MCP SECOND ✓
    - AC-10: Verify transition_phase block contains no stop/block/halt language on rejection — only warn-and-continue ✓
 
-3. **No-modification check:** Confirm zero existing lines were changed — the diff shows only additions (insertions between existing lines).
+3. **No-modification check:** Run `git diff plugins/iflow/skills/workflow-transitions/SKILL.md` and confirm the diff shows only additions (lines prefixed with `+`) — zero existing lines changed (no `-` prefixed lines except the `---` header).
 
 **Dependencies:** Phases 1 and 2.
 
