@@ -105,7 +105,7 @@ Remove the "### Phase Progression Table" section (lines 28-41) from `secretary.m
    and apply the same canonical-sequence logic.
    ```
 
-2. **"Workflow Guardian" (line 520):** Replace `"Determine next phase using the Phase Progression Table above."` with the same MCP-based resolution pattern as item 1 above.
+2. **"Workflow Guardian" (line 520):** Replace `"Determine next phase using the Phase Progression Table above."` with identical replacement text as item 1 above (both sites use the same MCP-based resolution logic — no site-specific framing differences).
 
 **`get_phase` response shape** (from `workflow_state_server.py`):
 ```json
@@ -115,7 +115,7 @@ Remove the "### Phase Progression Table" section (lines 28-41) from `secretary.m
   "last_completed_phase": "<phase-name> | null",
   "completed_phases": ["<phase-name>", ...],
   "mode": "standard | full",
-  "source": "db | meta_json_fallback",
+  "source": "db | meta_json | meta_json_fallback",
   "degraded": true/false
 }
 ```
@@ -153,8 +153,9 @@ Remove from `create-specialist-team.md`:
 
 3. **Phase comparison logic** (lines 212-214): Remove the instructions about preferring next phase in sequence and minimizing phase-skipping. Replace with:
    ```
-   If the suggested phase differs from the MCP-reported current phase, recommend
-   the current phase instead (prerequisites must be satisfied first).
+   If the suggested phase differs from the MCP-reported current phase (from the
+   `get_phase` response `current_phase` field), recommend the current phase instead
+   (prerequisites must be satisfied first).
    ```
 
 **Keep (not removed):**
@@ -247,7 +248,7 @@ Report aggregate line reduction and estimated token savings (1 line ≈ 10-15 to
 
 1. **CHANGELOG.md:** Add entry under `[Unreleased]` documenting the pseudocode and table removal
 2. **README.md / README_FOR_DEV.md:** If any removed sections are referenced, update references
-3. **CLAUDE.md:** If any removed constructs are referenced in key references or commands sections, update
+3. **CLAUDE.md:** Update line referencing "Workflow Map section" in the Documentation Sync table. Replace `Workflow Map section (if phase sequence or prerequisites change)` with `Phase Sequence one-liner (if phase names change)` since prerequisites are now in Python code, not SKILL.md
 
 ## Non-Functional Requirements
 
@@ -283,7 +284,7 @@ All changes are removals or text edits to existing markdown files. No new tools,
 - AC-4: GIVEN workflow-state/SKILL.md after cleanup, WHEN searching for `## Workflow Map`, THEN zero matches found
 - AC-5: GIVEN workflow-state/SKILL.md after cleanup, WHEN searching for `brainstorm → specify → design → create-plan → create-tasks → implement → finish`, THEN exactly one match found (the preserved one-line sequence)
 - AC-6: GIVEN secretary.md after cleanup, WHEN searching for `Phase Progression Table`, THEN zero matches found
-- AC-7: GIVEN create-specialist-team.md after cleanup, WHEN searching for `Phase-to-command mapping`, THEN zero matches found. WHEN searching for the inline arrow sequence `brainstorm → specify → design`, THEN zero matches found in Step 3 (the arrow sequence in workflow-state SKILL.md remains)
+- AC-7: GIVEN create-specialist-team.md after cleanup, WHEN searching for `Phase-to-command mapping`, THEN zero matches found. WHEN searching for `Phase name (.meta.json)`, THEN zero matches found (table column header). WHEN searching for the inline arrow sequence `brainstorm → specify → design`, THEN zero matches found in Step 3 (the arrow sequence in workflow-state SKILL.md remains)
 - AC-8: GIVEN `./validate.sh` is run, THEN it passes with zero errors
 - AC-9: GIVEN `test_gate.py` SC-5 test is run, THEN it passes (SKILL.md still contains the one-line phase sequence)
 - AC-10: GIVEN any command file (implement.md, create-tasks.md, create-plan.md), WHEN searching for `validateArtifact(`, THEN zero matches found
