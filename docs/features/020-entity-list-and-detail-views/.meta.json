@@ -1,0 +1,25 @@
+{
+  "id": "020",
+  "slug": "entity-list-and-detail-views",
+  "status": "active",
+  "created": "2026-03-01T16:27:59+08:00",
+  "mode": "standard",
+  "branch": "feature/020-entity-list-and-detail-views",
+  "project_id": "P001",
+  "module": "iflow-ui Web Application",
+  "depends_on_features": [
+    "018-unified-iflow-ui-server-with-s"
+  ],
+  "brainstorm_source": "docs/projects/P001-iflow-arch-evolution/prd.md",
+  "lastCompletedPhase": "specify",
+  "phases": {
+    "specify": {
+      "started": "2026-03-09T03:10:00+08:00",
+      "completed": "2026-03-09T03:55:00+08:00",
+      "phaseReview": {
+        "iterations": 2,
+        "reviewerNotes": []
+      }
+    }
+  }
+}
