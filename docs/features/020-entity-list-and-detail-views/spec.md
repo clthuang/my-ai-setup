@@ -118,7 +118,7 @@ The entity list page SHALL support text search using the existing FTS index.
 - GET `/entities?q=search+term` filters entities using `search_entities()` method
 - When `search_entities()` raises `ValueError` (FTS index unavailable), the route falls back to displaying all entities with the search field disabled and a "Search unavailable" indicator
 - Search passes `limit=100` to `search_entities()` to reduce silent truncation when combining with post-filters; the UI does not paginate (all results shown)
-- Search is combinable with type and status filters; note that status post-filtering on search results may reduce the result count below the FTS limit
+- Search is combinable with type and status filters; status post-filtering on search results may reduce the result count below the FTS limit — no truncation warning is shown; the displayed row count reflects what is actually rendered
 - HTMX partial refresh on search input, debounced at 300ms using `hx-trigger="input changed delay:300ms"`
 - Empty search results show "No entities match your search" message
 
@@ -165,6 +165,7 @@ All required DB methods (list_entities, get_entity, get_lineage, search_entities
 
 - Given a database with N entities, when GET `/entities` is requested, then the response returns HTTP 200 and contains exactly N entity rows
 - Given a database with M feature entities, when GET `/entities?type=feature` is requested, then the response contains exactly M rows
+- Given a database with K entities with status "active", when GET `/entities?status=active` is requested, then the response contains exactly K rows
 - Given a feature entity with type_id "feature:020-entity-list-and-detail-views", when GET `/entities/feature:020-entity-list-and-detail-views` is requested, then the response returns HTTP 200 and displays all entity fields plus workflow phase data
 - Given a feature entity with workflow_phases data, when viewing its detail page, then the page displays kanban_column, workflow_phase, last_completed_phase, and mode
 - Given a Kanban card with type_id "feature:001", when the card is clicked, then the browser navigates to `/entities/feature:001`
