@@ -140,7 +140,7 @@ All data access uses the existing `EntityDatabase` class methods:
 - `list_workflow_phases()` — all workflow phase rows (used for entity list batch lookup)
 - `get_workflow_phase(type_id)` — single entity workflow phase lookup (used for entity detail)
 
-No new database methods are needed. Status filtering is performed via Python-side post-filtering on the results from `list_entities()` and `search_entities()`. Workflow phase data for the entity list (kanban_column) and entity detail (phase history) is obtained by calling `list_workflow_phases()` and matching by type_id.
+No new database methods are needed. Status filtering is performed via Python-side post-filtering on the results from `list_entities()` and `search_entities()`. Workflow phase data for the entity list (kanban_column) is obtained by calling `list_workflow_phases()` and building a dict keyed by type_id; for entity detail, `get_workflow_phase(type_id)` is called directly.
 
 **Data access strategy:**
 - Sorting: `list_entities()` returns rows without ORDER BY; the route sorts results by `updated_at` descending in Python before rendering.
@@ -151,7 +151,7 @@ No new database methods are needed. Status filtering is performed via Python-sid
 
 ## Feasibility
 
-All required DB methods (list_entities, get_entity, get_lineage, search_entities, list_workflow_phases) exist in EntityDatabase (verified in database.py). HTMX partial refresh pattern is established in the existing board route. No new dependencies required.
+All required DB methods (list_entities, get_entity, get_lineage, search_entities, list_workflow_phases, get_workflow_phase) exist in EntityDatabase (verified in database.py). HTMX partial refresh pattern is established in the existing board route. No new dependencies required.
 
 ## UI Design Constraints
 
