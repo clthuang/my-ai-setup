@@ -6,7 +6,7 @@ All changes are text-only edits to markdown files. No Python code, no MCP server
 
 ### Phase 1: Core Removal (workflow-state/SKILL.md)
 
-Single file, multiple section removals. Match by content, not line numbers. After all removals, ensure each remaining section is separated by a single blank line for consistent markdown formatting.
+Single file, multiple section removals. Match by content, not line numbers.
 
 **Step 1.1: Capture pre-edit line count**
 - Run `wc -l` on `plugins/iflow/skills/workflow-state/SKILL.md` (FR-13)
@@ -41,17 +41,21 @@ Single file, multiple section removals. Match by content, not line numbers. Afte
 - Locate `function validateArtifact(path, type)` code block
 - Remove the "Implementation" label, code fence, function body, and "Usage in Commands" section (~lines 201-237, ~36 lines)
 
-**Step 1.8: Update Planned→Active cross-reference (FR-11)**
+**Step 1.8: Normalize section spacing**
+- After all removals (Steps 1.2-1.7), ensure each remaining section is separated by exactly one blank line for consistent markdown formatting
+- Do NOT apply formatting fixups between individual removal steps — wait until all removals complete
+
+**Step 1.9: Update Planned→Active cross-reference (FR-11)**
 - Locate line containing `proceed to \`validateTransition\` below`
 - Replace with `proceed to workflow-transitions Step 1`
 
-**Step 1.9: Verify preservation**
+**Step 1.10: Verify preservation**
 - Confirm `## Phase Sequence` heading present
 - Confirm one-liner `brainstorm → specify → design → create-plan → create-tasks → implement → finish` present
 - Confirm `## Planned→Active Transition` section intact
 - Confirm `## State Schema` section intact
 
-**Step 1.10: Early SC-5 test**
+**Step 1.11: Early SC-5 test**
 - Run `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/test_gate.py -k "SC_5"` to verify Phase Sequence preservation before proceeding to Phase 2
 - If fails: fix immediately — do not proceed with stale content in other files
 
@@ -72,12 +76,12 @@ Two files with atomic replace-then-remove per Technical Decision 1.
 
 **Step 2.3: Update secretary.md site 1 — Orchestrate (FR-7)**
 - Locate "Determine Next Command" (~line 336) containing `Use the Phase Progression Table above`
-- Context: feature id/slug already extracted via glob+parse before this line (lines ~320-321)
+- Context: feature id/slug extracted via glob+parse before this line (lines ~320-321). **Verify** id and slug are available as discrete extracted values (not just embedded in a formatted report string) before the `get_phase` call. If only in report string, add explicit extraction from `.meta.json` fields
 - Use the exact replacement text from spec FR-7 item 1 (lines 95-106) verbatim, maintaining current indentation level
 
 **Step 2.4: Update secretary.md site 2 — Workflow Guardian (FR-7)**
 - Locate "Workflow Guardian" (~line 520) containing `Determine next phase using the Phase Progression Table above`
-- **Verify before applying:** lines ~512-513 glob for `.meta.json` files extracting feature identity, and line ~519 extracts `lastCompletedPhase`. If id/slug extraction is not present in surrounding context, add it before the `get_phase` call
+- **Pre-requisite:** lines ~512-513 glob for `.meta.json` and filter by status, but do NOT explicitly extract id/slug as discrete values — only `lastCompletedPhase` is extracted at line ~519. **Add id/slug extraction** from the `.meta.json` read before the `get_phase` call (needed to construct `feature_type_id`)
 - Use the exact replacement text from spec FR-7 item 1 verbatim (identical to Step 2.3)
 
 **Step 2.5: Remove inline phase sequence from create-specialist-team.md Step 3 (FR-8 item 1)**
@@ -199,12 +203,12 @@ Light edits — update references to removed constructs.
 
 | Phase | Steps | Est. Complexity |
 |-------|-------|-----------------|
-| Phase 1 | 10 steps | Medium — many sections but single file, content-match removal + early test |
+| Phase 1 | 11 steps | Medium — many sections but single file, content-match removal + early test |
 | Phase 2 | 7 steps | Medium — atomic replace-then-remove, two files |
 | Phase 3 | 5 steps | Light — small text replacements, four files |
 | Phase 4 | 10 steps | Light-Medium — documentation updates + validation sweep |
 
-Total: ~32 steps across 4 phases. All text-only edits.
+Total: ~33 steps across 4 phases. All text-only edits.
 
 ## Risks and Mitigations
 
