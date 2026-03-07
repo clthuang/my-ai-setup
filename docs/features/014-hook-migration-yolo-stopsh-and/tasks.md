@@ -26,9 +26,9 @@
 
 - [ ] Run `ls plugins/iflow/hooks/lib/` and confirm `transition_gate/`, `workflow_engine/`, `entity_registry/` directories exist
 - [ ] Read `plugins/iflow/hooks/yolo-stop.sh` and verify shell variables are assigned before line 172: `FEATURE_ID` (line 126), `LAST_COMPLETED_PHASE` (line 126), `PROJECT_ROOT` (line 11), `ARTIFACTS_ROOT` (line 73)
-- [ ] Run `sed -n '172p' plugins/iflow/hooks/yolo-stop.sh` and confirm the output starts with `NEXT_PHASE=$(python3 -c "` — this is the line where the replacement begins
+- [ ] Run `grep -n 'phase_map = {' plugins/iflow/hooks/yolo-stop.sh` and confirm exactly one match exists — this is the replacement target. Record the line number for use in Task 1.2
 
-**Done when:** All three packages exist in `lib/`, all four variables are assigned before line 172, and `sed -n '172p'` output confirms the replacement target line. If any check fails, stop and investigate before proceeding.
+**Done when:** All three packages exist in `lib/`, all four variables are assigned before the `phase_map` line, and `grep -n` confirms exactly one `phase_map = {` match. If any check fails, stop and investigate before proceeding.
 
 **Files:** None (read-only)
 
@@ -41,8 +41,8 @@
 **Depends on:** Task 1.1
 
 - [ ] Open `plugins/iflow/hooks/yolo-stop.sh`
-- [ ] Locate the block starting with `NEXT_PHASE=$(python3 -c "` and ending on the line containing `" 2>/dev/null)` that immediately follows the `print(phase_map.get(last, ''))` line (pre-migration lines 172-184) — match by the `phase_map = {` pattern inside
-- [ ] Replace the entire block (lines 172 through the `" 2>/dev/null)` closing line) with the combined Python invocation from design.md C1:
+- [ ] Locate the replacement target: run `grep -n 'phase_map = {' plugins/iflow/hooks/yolo-stop.sh` to find the unique `phase_map` line (should match Task 1.1 result). The block starts on the `NEXT_PHASE=$(python3 -c "` line immediately above. Run `grep -n '2>/dev/null' plugins/iflow/hooks/yolo-stop.sh` and select the `" 2>/dev/null)` line immediately after the `phase_map` match — that is the block end
+- [ ] Replace the entire block (from the `NEXT_PHASE=$(python3 -c "` opening through the `" 2>/dev/null)` closing) with the combined Python invocation from design.md C1:
 
 ```bash
 NEXT_PHASE=$(PYTHONPATH="${SCRIPT_DIR}/lib" python3 -c "
@@ -111,6 +111,8 @@ except Exception:
 
 **Files:** None (read-only)
 
+**Parallel with:** Task 2.2 (no dependency between 2.1 and 2.2)
+
 ---
 
 ### Task 2.2: Run transition_gate and workflow_engine tests
@@ -143,6 +145,7 @@ except Exception:
 
 - [ ] Ensure `ENTITY_DB_PATH` points to a valid database (default: `~/.claude/iflow/entities/entities.db`)
 - [ ] Verify the feature entity exists: `sqlite3 $ENTITY_DB_PATH "SELECT type_id FROM entities WHERE type_id = 'feature:014-hook-migration-yolo-stopsh-and'"`. If missing, register via: `sqlite3 $ENTITY_DB_PATH "INSERT INTO entities (type_id, entity_type, entity_id, name, status) VALUES ('feature:014-hook-migration-yolo-stopsh-and', 'feature', '014-hook-migration-yolo-stopsh-and', 'hook-migration-yolo-stopsh-and', 'active')"`
+- [ ] Verify feature 014 is the only active feature: run `grep -r '"status": "active"' docs/features/*/.meta.json` and confirm exactly one match pointing to `014-hook-migration-yolo-stopsh-and`. If other features are active, temporarily set them to a different status so the hook's active feature scanning resolves feature 014
 - [ ] Set up the test state: ensure the feature's `.meta.json` at `docs/features/014-hook-migration-yolo-stopsh-and/.meta.json` has `"lastCompletedPhase": "specify"` (it should already — if not, temporarily set it)
 - [ ] Run the hook from the project root with stdin pipe (the hook reads stdin via `INPUT=$(cat)` on line 17 — without stdin it hangs): `OUTPUT=$(echo '{"stop_hook_active":false}' | bash plugins/iflow/hooks/yolo-stop.sh); echo "$OUTPUT"`
 - [ ] Parse and inspect the JSON output: `echo "$OUTPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('reason','NO REASON FIELD'))"` — confirm the reason field contains `"Invoke /iflow:design"`
