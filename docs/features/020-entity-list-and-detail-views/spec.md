@@ -16,7 +16,8 @@ Add entity list and detail views to the iflow-ui web application, enabling users
 
 ### Out of Scope
 - DAG/tree visualization with Cytoscape.js (feature 021)
-- Per-phase history with started/completed timestamps (requires schema extension to workflow_phases table; deferred to future feature)
+- Per-phase history with started/completed timestamps (PRD FR-17 requests phase history; this feature delivers current phase state only — workflow_phases table stores only current state, not per-phase timestamps; full phase history requires schema extension and is deferred to a future feature)
+- Phase filtering on entity list (entity list already shows kanban_column; phase filter adds complexity without strong use case for this iteration)
 - Drag-and-drop Kanban column changes from entity views
 - Entity creation/editing via the UI
 - Cross-project entity browsing
@@ -79,17 +80,18 @@ The application SHALL serve an entity detail page at `/entities/{identifier}` sh
 - Detail page shows all entity fields: name, type_id, uuid, entity_type, entity_id, status, artifact_path, created_at, updated_at, metadata (formatted JSON)
 - For feature entities, detail page additionally shows workflow data: workflow_phase, last_completed_phase, kanban_column, mode, and backward_transition_reason (all fields available in workflow_phases table)
 - 404 page returned if entity not found
-- Route accepts any string as the path parameter and delegates to `get_entity()` which internally distinguishes UUID vs type_id format
+- Route uses a catch-all path parameter (`{identifier:path}`) to accept the full type_id including colons (e.g., `feature:020-entity-list-and-detail-views`) and delegates to `get_entity()` which internally distinguishes UUID vs type_id format
+- Entity detail page is full page load only — no HTMX partial needed (unlike entity list which has a `_content` partial)
 
 ### FR-5: Entity Lineage Display
 The entity detail page SHALL display the entity's lineage (ancestors and children).
 
 **Acceptance Criteria:**
-- Ancestors section shows parent chain from root to current entity using `get_lineage(direction="up", max_depth=10)`
-- Children section shows direct children of the current entity using `get_lineage(direction="down", max_depth=1)`
+- Ancestors section shows parent chain from root to current entity using `get_lineage(direction="up", max_depth=10)`; the route strips the current entity (depth 0) from the result before rendering since `get_lineage` includes self
+- Children section shows direct children of the current entity using `get_lineage(direction="down", max_depth=1)`; the route strips the current entity (depth 0) from the result before rendering since `get_lineage` includes self
 - Each lineage entry is a clickable link to that entity's detail page
-- Empty ancestors shows "No parent" indicator
-- Empty children shows "No children" indicator
+- Empty ancestors (after stripping self) shows "No parent" indicator
+- Empty children (after stripping self) shows "No children" indicator
 - If ancestor chain exceeds max_depth, display is truncated (no error)
 
 ### FR-6: Kanban Card Click-Through
@@ -135,13 +137,15 @@ All data access uses the existing `EntityDatabase` class methods:
 - `get_entity(type_id)` — single entity detail (supports UUID and type_id)
 - `get_lineage(type_id, direction, max_depth)` — ancestor/descendant traversal
 - `search_entities(query, entity_type, limit)` — FTS search with ranking
-- `list_workflow_phases()` — workflow phase data for Kanban column and phase history
+- `list_workflow_phases()` — all workflow phase rows (used for entity list batch lookup)
+- `get_workflow_phase(type_id)` — single entity workflow phase lookup (used for entity detail)
 
 No new database methods are needed. Status filtering is performed via Python-side post-filtering on the results from `list_entities()` and `search_entities()`. Workflow phase data for the entity list (kanban_column) and entity detail (phase history) is obtained by calling `list_workflow_phases()` and matching by type_id.
 
 **Data access strategy:**
 - Sorting: `list_entities()` returns rows without ORDER BY; the route sorts results by `updated_at` descending in Python before rendering.
-- Workflow join: Call `list_workflow_phases()` once per request, build a `dict[str, dict]` keyed by `type_id` for O(1) lookup when annotating entity rows with kanban_column.
+- Workflow join (entity list): Call `list_workflow_phases()` once per request, build a `dict[str, dict]` keyed by `type_id` for O(1) lookup when annotating entity rows with kanban_column.
+- Workflow lookup (entity detail): Call `get_workflow_phase(type_id)` for single-entity lookup instead of fetching all workflow rows.
 - FTS fallback: If `search_entities()` raises `ValueError`, fall back to `list_entities()` with search field disabled.
 - Search limit: Pass `limit=100` to `search_entities()` to reduce truncation when combining with status post-filtering.
 
