@@ -37,7 +37,7 @@ Phase 4: Integration Tests
 **Key implementation details:**
 - `ENTITY_TYPES = ["backlog", "brainstorm", "project", "feature"]` — constant at module level, matching DB CHECK constraint.
 - `entity_list`: Follow 5-code-path pattern per design. Code paths: (1) missing DB → error.html, (2) DB query error → error.html with stderr logging, (3) search with FTS unavailable (ValueError) → fallback to list_entities with search disabled, (4) HX-Request header → _entities_content.html partial, (5) normal request → entities.html full page. Validate type param against ENTITY_TYPES constant. Post-filter by status. Sort by updated_at DESC. Build workflow lookup dict via `_build_workflow_lookup(db)` — call `list_workflow_phases()` with no arguments. Annotate each entity dict with kanban_column from workflow lookup: `for e in entities: e["kanban_column"] = workflow_lookup.get(e["type_id"], {}).get("kanban_column")` (design Route Contract step 7). A failure in any DB call (list_entities, search_entities, list_workflow_phases) within the try/except causes full error page — no partial degradation.
-- `entity_detail`: Check DB not None. Call `get_entity(identifier)` — None → 404.html with status_code=404. Extract type_id from entity dict. Call get_lineage up/down with self-stripping via `_strip_self_from_lineage()`. Call `get_workflow_phase(type_id)`. Format metadata JSON via `_format_metadata()`. Return full page only.
+- `entity_detail`: Check DB not None. Call `get_entity(identifier)` — None → 404.html with status_code=404. Extract type_id from entity dict. Call get_lineage up/down with self-stripping via `_strip_self_from_lineage()`. Call `get_workflow_phase(type_id)`. Format metadata JSON via `_format_metadata()`. Return full page only. A failure in any DB call (get_lineage, get_workflow_phase) within the try/except causes full error page — no partial degradation.
 - Both routes pass `active_page: "entities"` in template context.
 
 **Dependencies:** None (uses only existing DB methods via `request.app.state.db`).
@@ -105,7 +105,7 @@ Phase 4: Integration Tests
 - Status dropdown with hx-trigger="change", hx-include="[name='type'],[name='q']"
 - Table with columns: Name, Type ID, Type, Status, Kanban Column, Updated
 - Name cell as clickable link to detail page: `<a href="/entities/{{ entity.type_id }}">`
-- Kanban Column cell: shows value from workflow lookup for feature entities, blank for others
+- Kanban Column cell: shows `entity.kanban_column` (annotated by route from workflow lookup); displays blank when None
 - Empty state messaging ("No entities found" / "No entities match your search")
 - Row count display: `{{ entities | length }} entities`
 - Search unavailable indicator when search_available is False
