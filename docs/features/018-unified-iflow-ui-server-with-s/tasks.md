@@ -30,7 +30,7 @@
 - **Depends on:** 0.2.1, 0.2.2, 0.2.3
 
 ### Task 0.3.2: Run PoC and evaluate result
-- **Action:** Run `cd plugins/iflow && uv run python ../../agent_sandbox/018-poc/test_thread_safety.py`. If pass (exit 0, all 10 responses HTTP 200, no ProgrammingError in output) → continue with sync routes. If fail → append `# ASYNC_FALLBACK=True` comment to `agent_sandbox/018-poc/test_thread_safety.py` and update tasks 2.3.1/2.3.2 action text to use `async def` instead of `def`.
+- **Action:** Run `cd plugins/iflow && uv run python ../../agent_sandbox/018-poc/test_thread_safety.py`. If pass (exit 0, all 10 responses HTTP 200, no ProgrammingError in output) → continue with sync routes. If fail → append `# ASYNC_FALLBACK=True` comment to `agent_sandbox/018-poc/test_thread_safety.py`. When implementing 2.3.1/2.3.2, use `async def board()` and wrap DB call: `rows = await asyncio.to_thread(db.list_workflow_phases)`.
 - **Done when:** (pass) script exits 0 with all 200s OR (fail) `grep ASYNC_FALLBACK agent_sandbox/018-poc/test_thread_safety.py` returns a match
 - **Depends on:** 0.3.1
 
@@ -54,8 +54,14 @@
 
 ### Task 1.2.2: Create __init__.py files and board router stub
 - **Action:** Create empty `__init__.py` files: `plugins/iflow/ui/__init__.py`, `plugins/iflow/ui/routes/__init__.py`, `plugins/iflow/ui/tests/__init__.py`. Also create `plugins/iflow/ui/routes/board.py` with stub: `from fastapi import APIRouter` and `router = APIRouter()` — this allows create_app() (2.2.1) to import and register the router before the full board route implementation (2.3.x) fills in the handler.
-- **Done when:** `test -f plugins/iflow/ui/__init__.py && test -f plugins/iflow/ui/routes/__init__.py && test -f plugins/iflow/ui/tests/__init__.py && plugins/iflow/.venv/bin/python -c "import importlib.util; spec=importlib.util.spec_from_file_location('board','plugins/iflow/ui/routes/board.py'); print('OK')"` succeeds
+- **Done when:** `test -f plugins/iflow/ui/__init__.py && test -f plugins/iflow/ui/routes/__init__.py && test -f plugins/iflow/ui/tests/__init__.py && cd plugins/iflow && PYTHONPATH=.:hooks/lib .venv/bin/python -c "from ui.routes.board import router; print('OK')"` succeeds
 - **Depends on:** 1.2.1
+
+### Task 1.2.3: Create conftest.py for test path resolution
+- **File:** `plugins/iflow/ui/tests/conftest.py`
+- **Action:** Create conftest.py with `sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))` (adds `plugins/iflow/` for `from ui import ...`) and `sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "hooks" / "lib"))` (adds `hooks/lib/` for `from entity_registry import ...`). This eliminates the need for PYTHONPATH in all pytest invocations.
+- **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/ui/tests/ --collect-only 2>&1 | grep -c "no tests"` returns 1 (empty collection, no import errors)
+- **Depends on:** 1.2.2
 
 ## Phase 2: Core Application — TDD
 
@@ -93,7 +99,7 @@
 - **File:** `plugins/iflow/ui/__init__.py`
 - **Action:** Implement `create_app(db_path: str | None = None) -> FastAPI`. Resolve DB path from param → `ENTITY_DB_PATH` env → `~/.claude/iflow/entities/entities.db`. Set `app.state.db = EntityDatabase(path, check_same_thread=False)` if file exists else `None`. Set `app.state.db_path` and `app.state.templates = Jinja2Templates(directory=templates_dir)`. Register board router.
 - **Done when:** `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/ui/tests/test_app.py::test_create_app_returns_fastapi_with_state_attrs plugins/iflow/ui/tests/test_app.py::test_create_app_missing_db_sets_none -v` passes. Note: tests test_group_by_column_* remain RED (expected — they are satisfied in 2.3.1)
-- **Depends on:** 2.1.1, 2.1.2
+- **Depends on:** 2.1.1, 2.1.2, 1.2.3
 
 ### Task 2.3.1: Implement COLUMN_ORDER and _group_by_column() (GREEN)
 - **File:** `plugins/iflow/ui/routes/board.py`
@@ -104,7 +110,7 @@
 ### Task 2.3.2: Implement board() route handler
 - **File:** `plugins/iflow/ui/routes/board.py`
 - **Action:** Implement `def board(request: Request)` (or `async def` if PoC failed). Handle 4 code paths: (1) missing DB → error.html, (2) DB query error → error.html, (3) HX-Request header → partial `_board_content.html`, (4) else → full `board.html`. Use keyword args: `templates.TemplateResponse(request=request, name=..., context=...)`. Create `router = APIRouter()` with `@router.get("/")`.
-- **Done when:** `grep -c "def board" plugins/iflow/ui/routes/board.py` returns 1 AND `grep -c "error.html" plugins/iflow/ui/routes/board.py` returns at least 2 (missing DB + DB error) AND `grep "HX-Request" plugins/iflow/ui/routes/board.py` returns a match AND `grep "board.html" plugins/iflow/ui/routes/board.py` returns a match
+- **Done when:** `grep -c "def board" plugins/iflow/ui/routes/board.py` returns 1 AND `grep -c "error.html" plugins/iflow/ui/routes/board.py` returns at least 2 (grep -c counts matching lines — each error path has its own return statement on a separate line) AND `grep "HX-Request" plugins/iflow/ui/routes/board.py` returns a match AND `grep "board.html" plugins/iflow/ui/routes/board.py` returns a match
 - **Depends on:** 2.3.1
 
 ## Phase 3: Templates (Parallel)
@@ -161,13 +167,13 @@
 
 ### Task 4.1.4: Write integration test — DB error
 - **File:** `plugins/iflow/ui/tests/test_app.py`
-- **Action:** Create app via `create_app(db_path=tmp_db_path)` where `tmp_db_path` is a real temp DB file (so `app.state.db` is a real EntityDatabase instance, not None). Then patch the method: `app.state.db.list_workflow_phases = unittest.mock.MagicMock(side_effect=Exception("DB error"))`. Use `TestClient(app)`, GET `/` returns response containing error message text
+- **Action:** Create a schema-initialized temp DB: `tmp = tempfile.mktemp(suffix=".db"); EntityDatabase(tmp)` (this triggers `_migrate()` which creates the workflow_phases table). Then `app = create_app(db_path=tmp)` — `app.state.db` is a real EntityDatabase. Patch: `app.state.db.list_workflow_phases = unittest.mock.MagicMock(side_effect=Exception("DB error"))`. Use `TestClient(app)`, GET `/` returns response containing error message text
 - **Done when:** test passes
 - **Depends on:** 3.5.1
 
 ### Task 4.1.5: Write integration test — card content (AC-5)
 - **File:** `plugins/iflow/ui/tests/test_app.py`
-- **Action:** Seed temp DB with a workflow_phases row (type_id="feature:test-slug", workflow_phase="wip", mode="standard", kanban_column="wip"). GET `/`, assert response HTML contains "test-slug", "wip" badge, and "standard"
+- **Action:** Create schema-initialized temp DB via `EntityDatabase(tmp)`. Seed row via raw SQL: `conn = sqlite3.connect(tmp); conn.execute("INSERT INTO workflow_phases (type_id, workflow_phase, kanban_column, mode) VALUES ('feature:test-slug', 'wip', 'wip', 'standard')"); conn.commit(); conn.close()`. Then `create_app(db_path=tmp)`, GET `/`, assert response HTML contains "test-slug", "wip" badge, and "standard"
 - **Done when:** test passes
 - **Depends on:** 3.4.1, 3.3.1, 3.2.1, 3.1.1
 
@@ -202,8 +208,8 @@
 
 ### Task 4.3.1: Create shell bootstrap wrapper
 - **File:** `plugins/iflow/mcp/run-ui-server.sh`
-- **Action:** Adapt `run-workflow-server.sh` pattern: resolve PLUGIN_DIR and VENV_DIR, set `PYTHONPATH` to include both `$PLUGIN_DIR/hooks/lib` (for entity_registry imports) and `$PLUGIN_DIR` (for `from ui import create_app`), invoke `exec "$VENV_DIR/bin/python" "$PLUGIN_DIR/ui/__main__.py" "$@"`
-- **Done when:** file exists, is executable, and follows run-workflow-server.sh structure
+- **Action:** Adapt `run-workflow-server.sh` pattern: resolve PLUGIN_DIR and VENV_DIR. Key difference from sibling scripts: set PYTHONPATH with TWO paths: `export PYTHONPATH="$PLUGIN_DIR/hooks/lib:$PLUGIN_DIR${PYTHONPATH:+:$PYTHONPATH}"` (the sibling only has `$PLUGIN_DIR/hooks/lib` — the UI server also needs `$PLUGIN_DIR` for `from ui import create_app`). Invoke `exec "$VENV_DIR/bin/python" "$PLUGIN_DIR/ui/__main__.py" "$@"`
+- **Done when:** file exists AND `test -x plugins/iflow/mcp/run-ui-server.sh` AND `grep 'PLUGIN_DIR/hooks/lib.*PLUGIN_DIR' plugins/iflow/mcp/run-ui-server.sh` returns a match (verifies both paths present)
 - **Depends on:** 4.2.1
 
 ### Task 4.3.2: Verify shell wrapper starts server
@@ -216,12 +222,12 @@
 ### Task 5.1.1: Verify SIGINT clean exit
 - **Action:** Run `bash plugins/iflow/mcp/run-ui-server.sh 2>/tmp/018-sigint-stderr.txt & PID=$!; sleep 2; kill -INT $PID; wait $PID; echo "EXIT:$?"`. Verify exit code is 0 and `grep -c Traceback /tmp/018-sigint-stderr.txt` returns 0
 - **Done when:** exit code is 0 AND no traceback in stderr
-- **Depends on:** 4.1.7
+- **Depends on:** 4.1.7, 4.3.1
 
 ### Task 5.1.2: Verify SIGTERM clean exit
 - **Action:** Run `bash plugins/iflow/mcp/run-ui-server.sh 2>/tmp/018-sigterm-stderr.txt & PID=$!; sleep 2; kill -TERM $PID; wait $PID; echo "EXIT:$?"`. Verify exit code is 0 and `grep -c Traceback /tmp/018-sigterm-stderr.txt` returns 0
 - **Done when:** exit code is 0 AND no traceback in stderr
-- **Depends on:** 4.1.7
+- **Depends on:** 4.1.7, 4.3.1
 
 ### Task 5.1.3: Verify DB integrity after shutdown
 - **Action:** After 5.1.1 and 5.1.2, run `DB_PATH="${ENTITY_DB_PATH:-$HOME/.claude/iflow/entities/entities.db}" && sqlite3 "$DB_PATH" 'PRAGMA integrity_check'`
@@ -266,6 +272,7 @@
 
 ### Critical Path
 ```
-0.2.x → 0.3.x → 1.1.x → 1.2.x → 2.1.x → 2.2.1 → 2.3.x → 3.x → 4.1.x → 4.1.7 → 5.x
+0.2.x → 0.3.x → 1.1.x → 1.2.x → 1.2.3 → 2.1.x → 2.2.1 → 2.3.x → 3.x → 4.1.x → 4.1.7 → 5.x
 (0.1.1 runs in parallel with 0.2.x — not on critical path)
+(5.1.x also depends on 4.3.1 — shell wrapper must exist for signal tests)
 ```

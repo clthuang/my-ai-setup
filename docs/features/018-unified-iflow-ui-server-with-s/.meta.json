@@ -40,6 +40,15 @@
         "reviewerNotes": []
       }
     },
+    "create-tasks": {
+      "started": "2026-03-08T21:20:00+08:00",
+      "taskReview": {
+        "iterations": 5,
+        "concerns": [
+          "Task-reviewer cap reached at 5/5. All 3 blockers and 4 warnings from final iteration were addressed: added conftest.py task, explicit PYTHONPATH in shell wrapper, signal test dependencies, DB initialization steps. Remaining suggestions (importlib verification, schema ambiguity) addressed as well."
+        ]
+      }
+    },
     "specify": {
       "started": "2026-03-08T16:30:00+08:00",
       "completed": "2026-03-08T17:00:00+08:00",
