@@ -11,7 +11,7 @@
     "018-unified-iflow-ui-server-with-s"
   ],
   "brainstorm_source": "docs/projects/P001-iflow-arch-evolution/prd.md",
-  "lastCompletedPhase": "create-plan",
+  "lastCompletedPhase": "create-tasks",
   "phases": {
     "specify": {
       "started": "2026-03-09T03:10:00+08:00",
@@ -37,6 +37,18 @@
       "completed": "2026-03-09T05:35:00+08:00",
       "phaseReview": {
         "iterations": 1,
+        "reviewerNotes": []
+      }
+    },
+    "create-tasks": {
+      "started": "2026-03-09T05:40:00+08:00",
+      "completed": "2026-03-09T06:45:00+08:00",
+      "taskReview": {
+        "iterations": 4,
+        "reviewerNotes": []
+      },
+      "chainReview": {
+        "iterations": 4,
         "reviewerNotes": []
       }
     }

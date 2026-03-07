@@ -135,7 +135,7 @@
   - Create app: `app = create_app(str(tmp_path / "test.db"))` and use `httpx.AsyncClient(transport=ASGITransport(app=app))` or `TestClient(app)`
   - Return client (and optionally app) for use by test functions
 - **Done when:** `cd plugins/iflow && PYTHONPATH=.:hooks/lib .venv/bin/python -c "from ui.tests.test_entities import *; print('OK')"` prints OK (fixture importable, no syntax errors)
-- **Depends on:** 1.7, 2.1, 2.2, 2.3, 2.4
+- **Depends on:** 1.7, 2.1, 2.2b, 2.3, 2.4
 
 ### Task 4.1: Write entity list integration tests
 - **File:** `plugins/iflow/ui/tests/test_entities.py`
