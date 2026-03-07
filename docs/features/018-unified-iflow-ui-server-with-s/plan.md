@@ -11,7 +11,7 @@
 - Done when: `grep cdn.tailwindcss.com spec.md` returns zero matches; Jinja2 line corrected
 
 **0.2: Install dependencies**
-- Why: FastAPI, Jinja2, and httpx must be available before any code or tests.
+- Why: FastAPI, Jinja2, and httpx must be available before any code or tests. Added as main dependencies for simplicity — the plugin already has heavy deps (mcp, etc.) and splitting into optional groups adds complexity without benefit for private tooling.
 - Run `uv add fastapi>=0.128.3` and `uv add jinja2` in `plugins/iflow/`
 - If FastAPI or Jinja2 version resolution fails: STOP and escalate
 - Verify httpx is available (required by FastAPI TestClient): `uv run python -c "import httpx"`. If import fails, run `uv add httpx`
@@ -20,7 +20,9 @@
 **0.3: PoC Validation Gate (pass/fail)**
 - Why: Must validate SQLite thread safety before committing to sync vs async route design.
 - Create `agent_sandbox/018-poc/test_thread_safety.py` — 20-line script:
-  - FastAPI app with sync route, `EntityDatabase(check_same_thread=False)` on temp DB
+  - FastAPI app with sync route using `sqlite3.connect(path, check_same_thread=False)` on temp DB
+  - Must replicate EntityDatabase's PRAGMA settings: `journal_mode=WAL`, `busy_timeout=5000`, `foreign_keys=ON` (same as `_set_pragmas()`)
+  - Note: Uses raw sqlite3 because EntityDatabase's `check_same_thread` parameter is not yet added (that's 1.1). The PRAGMAs are what matter for concurrency behavior.
   - Seed 10 workflow_phases rows
   - Fire 10 concurrent GET requests via `asyncio.gather` + `httpx.AsyncClient`
 - Pass: all 10 return HTTP 200, zero `ProgrammingError` in stderr, script exits 0
@@ -53,8 +55,11 @@
 - File: `plugins/iflow/ui/tests/test_app.py`
 - Unit test for `create_app()`: returns FastAPI with `db`, `db_path`, `templates` state attrs
 - Unit test for `create_app()` with missing DB path: `app.state.db` is `None`
-- Unit test for `_group_by_column()`: empty input returns 8 empty lists; single-column input routes to correct column; unknown kanban_column rows are silently dropped (per design lines 283-287: only appends if `col in columns`)
-- Unit test for CLI port-conflict detection logic (socket.bind on occupied port raises expected error)
+- Unit test for `_group_by_column()` with three distinct cases:
+  - Empty input returns 8 empty lists
+  - Single-column input routes to correct column
+  - Rows with missing/None `kanban_column` default to 'backlog' (per design `row.get('kanban_column', 'backlog')`)
+  - Rows with unknown non-None `kanban_column` values (e.g., 'archived') are silently dropped (per design lines 283-287: only appends if `col in columns`)
 - These tests will FAIL initially — that's expected (RED phase)
 - Done when: tests are written and run (failures expected)
 
@@ -64,6 +69,7 @@
 - Implement `create_app(db_path: str | None = None) -> FastAPI`
 - DB path resolution from `ENTITY_DB_PATH` env var or default `~/.claude/iflow/entities/entities.db`
 - `app.state.db = EntityDatabase(path, check_same_thread=False)` if file exists, else `None`
+- Note: EntityDatabase.__init__ calls `_migrate()` which is idempotent on an already-migrated schema. Concurrent startup with MCP servers is safe due to WAL mode + busy_timeout=5000.
 - `app.state.db_path = resolved_path`
 - `app.state.templates = Jinja2Templates(directory=templates_dir)`
 - Register board router via `app.include_router()`
@@ -74,7 +80,7 @@
 - File: `plugins/iflow/ui/routes/board.py`
 - Implement `COLUMN_ORDER` list, `_group_by_column()` helper, `board()` route handler
 - Route: sync `def board(request: Request)` (or `async def` if PoC failed)
-- Use keyword arguments for TemplateResponse: `templates.TemplateResponse(request=request, name="board.html", context=context)`
+- Use keyword arguments for TemplateResponse: `templates.TemplateResponse(request=request, name="board.html", context=context)` — this supersedes design line 260's positional convention, which is the deprecated Starlette signature incompatible with FastAPI >=0.128.3
 - Handle: missing DB → error.html, DB error → error.html, HX-Request → partial, else → full page
 - Done when: _group_by_column unit tests pass, route function exists with all 4 code paths
 
@@ -122,21 +128,22 @@ Done when: all templates have valid Jinja2 syntax
 - Run: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/ui/tests/ -v`
 - Done when: all unit and integration tests pass
 
-**4.2: CLI Entry Point (C2)**
-- Why: C2 design component — user-facing entry point.
+**4.2: CLI Entry Point + CLI tests (C2)**
+- Why: C2 design component — user-facing entry point. CLI port-conflict test written here alongside implementation (not in 2.1) to avoid a permanently-RED test through Phases 2-3.
 - File: `plugins/iflow/ui/__main__.py`
 - argparse: `--port` (int, default 8718)
 - Port conflict detection via `socket.bind()` attempt
 - Print startup URL to stdout
 - `uvicorn.run(create_app(), host="127.0.0.1", port=port)`
-- Done when: CLI port-conflict unit test from 2.1 passes; manual verification that `PYTHONPATH=<project_root>:plugins/iflow/hooks/lib python -m plugins.iflow.ui` starts the server
+- Write unit test for CLI port-conflict detection (socket.bind on occupied port raises expected error) in `plugins/iflow/ui/tests/test_cli.py`
+- Done when: CLI port-conflict unit test passes; `python -c "from plugins.iflow.ui import create_app; print(create_app())"` succeeds with correct PYTHONPATH. Full server startup verification deferred to 4.3 (wrapper) and 5.3 (smoke test).
 
 **4.3: Shell Bootstrap Wrapper (C2b)**
 - Why: C2b design component — co-located with sibling `run-*-server.sh` scripts in `mcp/` directory.
 - File: `plugins/iflow/mcp/run-ui-server.sh`
 - Adapt `run-workflow-server.sh` pattern: venv resolution, forward args
-- PYTHONPATH must include BOTH `$PLUGIN_DIR/hooks/lib` (for entity_registry imports) AND `$PLUGIN_DIR/../..` (project root, for `python -m plugins.iflow.ui` module resolution)
-- Invocation: `exec "$VENV_DIR/bin/python" -m plugins.iflow.ui "$@"` (module invocation, not script path)
+- PYTHONPATH must include `$PLUGIN_DIR/hooks/lib` (for entity_registry imports)
+- Invocation: `exec "$VENV_DIR/bin/python" "$PLUGIN_DIR/ui/__main__.py" "$@"` (direct script path, matching the existing run-workflow-server.sh pattern — avoids module resolution issues when invoked from plugin cache location vs dev workspace)
 - Done when: `bash plugins/iflow/mcp/run-ui-server.sh` starts the server
 
 ### Phase 5: Verification (Sequential)
@@ -189,7 +196,7 @@ Done when: all templates have valid Jinja2 syntax
 | AC | Plan Item | Verification |
 |----|-----------|-------------|
 | AC-1 | 4.2 CLI Entry Point | Server binds, prints URL |
-| AC-2 | 2.1 + 4.2 CLI Entry Point | Port conflict error (unit test + manual) |
+| AC-2 | 4.2 CLI Entry Point + test | Port conflict error (unit test) |
 | AC-3 | 4.1 + 3.1-3.3 | Full page with 8 columns (TestClient + smoke) |
 | AC-4 | 4.1 + 3.2-3.3 | HTMX partial refresh (TestClient + smoke) |
 | AC-5 | 3.4 _card.html | Card displays correct fields |
@@ -211,3 +218,6 @@ Done when: all templates have valid Jinja2 syntax
 | EntityDatabase regression | 1.1 revert-and-investigate clause |
 | Signal handling | 5.1 explicit verification with PRAGMA integrity_check |
 | Template-test circular dep | Integration tests (4.1) separated from unit tests (2.1), run after templates |
+| PoC fidelity vs real DB | 0.3 uses raw sqlite3 with same PRAGMAs as EntityDatabase._set_pragmas() |
+| Shell wrapper portability | 4.3 uses direct script path (not module invocation) to work from both dev and cache locations |
+| Concurrent _migrate() | WAL mode + busy_timeout=5000 handles brief lock contention; _migrate() is idempotent |
