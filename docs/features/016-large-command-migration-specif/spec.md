@@ -158,7 +158,7 @@ If the `.meta.json` write fails, skip the MCP call (the phase operation failed).
 - AC-8: GIVEN `feature_type_id` is constructed in `workflow-transitions`, WHEN it is used for MCP calls, THEN the format matches `"feature:{id}-{slug}"` consistent with entity registry convention
 - AC-9: GIVEN domain metadata writes (reviewer notes, stage tracking, task concerns) occur in commands, WHEN the migration is complete, THEN these writes remain as inline `.meta.json` operations with no MCP involvement
 - AC-10: GIVEN `validateAndSetup()` Step 1 already validates transitions via its own logic (reading `.meta.json`), WHEN `transition_phase` returns a rejection, THEN the rejection is logged as a warning but does NOT override the skill's own validation result
-- AC-11: GIVEN a successful phase run with the workflow-engine MCP server available, WHEN `get_phase` is queried with the same `feature_type_id`, THEN `current_phase` matches the phase just started or completed
+- AC-11: GIVEN a successful phase run where the workflow-engine MCP server was available throughout (both `transition_phase` and `complete_phase` MCP calls succeeded), WHEN `get_phase` is queried with the same `feature_type_id`, THEN `current_phase` matches the phase just started or completed
 
 ## Out of Scope
 
