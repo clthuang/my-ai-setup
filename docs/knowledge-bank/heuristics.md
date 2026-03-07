@@ -459,3 +459,27 @@ When prose references a count (e.g., "7 target files"), derive it from the actua
 - Keywords: ["derived-counts", "hardcoded-numbers", "stale-references", "prose-accuracy", "review-iterations"]
 - Last observed: Feature 017
 - Observation count: 1
+
+### create-plan Double Cap Predicts Three Simultaneous Blocker Categories
+When both plan-reviewer and chain-reviewer stages each hit the 5-iteration cap, expect three or more independent blocker categories to be active simultaneously. A single category resolves in 2–3 iterations; double cap requires all categories to converge at the same time, which rarely happens before iteration 8–10. Budget 150–180 minutes for create-plan when the feature combines: (a) TDD methodology, (b) shell wrapper invocation, and (c) a multi-phase dependency graph with 4+ phases.
+- Source: Feature 018, create-plan phase — 165 min, 10 iterations, both plan-reviewer and chain-reviewer hit 5/5 cap; three concurrent blocker categories: TDD order inverted, dependency graph contradictions (4.1/4.3 parallel vs sequential redrawn 4 times), shell wrapper invocation pattern ($PLUGIN_DIR/../.. vs direct script path)
+- Confidence: medium
+- Keywords: ["create-plan", "double-cap", "iteration-budget", "tdd-ordering", "dependency-graph", "shell-wrapper", "concurrent-blockers"]
+- Last observed: Feature 018
+- Observation count: 1
+
+### Recurring Cross-Phase Blocker in Same Category Signals Missing Spec-Level Annotation
+When the same issue category (e.g., Python import paths, PYTHONPATH, shell wrapper mechanics) reappears as a blocker across 3 or more phase boundaries, the spec is missing a foundational annotation that downstream phases are independently re-discovering. Stop and add the annotation to spec before continuing.
+- Source: Feature 018 — import path/PYTHONPATH blocker appeared at design, plan iter 1, task iter 2, and task iter 5 (4 phases). The correct PYTHONPATH root and import base were never stated in the spec, so each reviewer had to re-derive them.
+- Confidence: high
+- Keywords: ["cross-phase-blocker", "recurring-issue", "spec-annotation", "import-path", "pythonpath", "discovery-overhead"]
+- Last observed: Feature 018
+- Observation count: 1
+
+### PoC Gate Requires Four Elements Before Design Handoff
+A PoC validation gate in a design document must specify all four elements atomically before handoff: (1) exact pass/fail criteria with commands and expected output, (2) named failure contingency with alternative approach, (3) task sequencing showing conditional branches, (4) where the PoC artifact lives on disk. Missing any one causes the handoff reviewer to request it in a separate iteration.
+- Source: Feature 018, design handoff — 4 iterations to resolve PoC gate mechanics: iter 1 added failure contingency, iter 2 added pass/fail criteria and artifact file location, iter 3 added task sequencing with conditional branches, iter 4 approved
+- Confidence: medium
+- Keywords: ["poc-gate", "design-handoff", "feasibility", "pass-fail-criteria", "contingency-plan", "atomic-specification", "task-sequencing"]
+- Last observed: Feature 018
+- Observation count: 1

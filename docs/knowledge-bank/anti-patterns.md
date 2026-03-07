@@ -464,3 +464,23 @@ When smoke test specifications assume CLI flags exist without verifying against 
 - Keywords: ["smoke-test", "cli-flags", "unverified-assumptions", "test-specification", "revision-cycles"]
 - Last observed: Feature 017
 - Observation count: 1
+
+### Anti-Pattern: Spec Dependency Claims Without Venv Verification
+Writing spec statements like "Jinja2 already available in venv" or referencing CDN URLs without verifying against actual project files. These false-certainty claims propagate as design-phase blockers and require explicit correction sections in subsequent artifacts.
+- Observed in: Feature 018, design iter 1 — two blockers both from unverified spec claims: Jinja2 not in venv (spec line 112 "already available"), CDN URL wrong (cdn.tailwindcss.com vs @tailwindcss/browser@4); required "Spec inaccuracies addressed by this design" section and a plan correction task
+- Cost: 2+ design iterations; required explicit spec-correction section in design.md and a correction task in plan
+- Instead: For each external library listed as "available," verify presence in plugins/iflow/.venv/lib. For each CDN URL, verify against an existing sibling file. Annotate "verified against: <file>:<line>".
+- Confidence: high
+- Keywords: ["spec-accuracy", "venv-verification", "cdn-url", "dependency-claims", "false-certainty", "design-blockers"]
+- Last observed: Feature 018
+- Observation count: 1
+
+### Anti-Pattern: Switching Install Command Without Auditing Dependency Manifest
+Changing a bootstrap wrapper from `uv pip install <list>` to `uv sync --no-dev` without immediately auditing pyproject.toml [project] dependencies. The hand-maintained install list and the manifest can silently diverge, with the gap only discovered at runtime execution — potentially several review iterations after the change.
+- Observed in: Feature 018, implement iters 1 and 4 — quality reviewer improved install step at iter 1; uvicorn absent from [project] deps; caught only at iter 4 final validation when uv sync --no-dev was actually executed
+- Cost: 1 extra implement review iteration; blocked final validation requiring a pyproject.toml + uv lock fix
+- Instead: When switching from uv pip install to uv sync --no-dev, immediately compare the hand-maintained package list against pyproject.toml [project] deps and reconcile before declaring the task done.
+- Confidence: high
+- Keywords: ["uv-sync", "install-command", "manifest-audit", "bootstrap-wrapper", "runtime-gap", "pyproject-toml"]
+- Last observed: Feature 018
+- Observation count: 1
