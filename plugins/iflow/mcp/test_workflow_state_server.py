@@ -3005,3 +3005,250 @@ class TestAtomicJsonWrite:
         assert os.path.isfile(target)
         # Verify no file was left in system /tmp
         assert os.path.dirname(os.path.abspath(target)) == subdir
+
+
+# ---------------------------------------------------------------------------
+# init_project_state tests (T5.1 — RED phase)
+# ---------------------------------------------------------------------------
+
+
+class TestInitProjectState:
+    """Tests for _process_init_project_state.
+
+    RED phase: _process_init_project_state does not exist yet.
+    All tests will fail (TypeError from None call or AttributeError).
+    """
+
+    def _skip_if_not_implemented(self):
+        """Guard: skip with clear message if function not yet available."""
+        if _process_init_project_state is None:
+            pytest.fail(
+                "_process_init_project_state is not implemented yet (RED phase)"
+            )
+
+    def test_creates_project_entity_and_meta_json(self, db, tmp_path):
+        """Creates project entity in DB and writes .meta.json with features
+        and milestones arrays."""
+        self._skip_if_not_implemented()
+
+        project_dir = os.path.join(str(tmp_path), "projects", "001-my-project")
+        os.makedirs(project_dir, exist_ok=True)
+
+        result = _process_init_project_state(
+            db,
+            project_dir,
+            "001",
+            "my-project",
+            '["feat-a", "feat-b"]',
+            '[{"name": "m1", "features": ["feat-a"]}]',
+            None,
+        )
+        data = json.loads(result)
+
+        assert data["created"] is True
+        assert data["project_type_id"] == "project:001-my-project"
+
+        # Verify entity registered
+        entity = db.get_entity("project:001-my-project")
+        assert entity is not None
+        assert entity["status"] == "active"
+
+        # Verify .meta.json written
+        meta_path = os.path.join(project_dir, ".meta.json")
+        assert os.path.isfile(meta_path)
+        with open(meta_path) as f:
+            meta = json.load(f)
+        assert meta["id"] == "001"
+        assert meta["slug"] == "my-project"
+        assert meta["status"] == "active"
+        assert meta["features"] == ["feat-a", "feat-b"]
+        assert meta["milestones"] == [{"name": "m1", "features": ["feat-a"]}]
+        assert "created" in meta  # ISO timestamp
+
+    def test_brainstorm_source_included_when_provided(self, db, tmp_path):
+        """brainstorm_source appears in .meta.json when provided."""
+        self._skip_if_not_implemented()
+
+        project_dir = os.path.join(str(tmp_path), "projects", "002-src")
+        os.makedirs(project_dir, exist_ok=True)
+
+        _process_init_project_state(
+            db,
+            project_dir,
+            "002",
+            "src",
+            "[]",
+            "[]",
+            "docs/brainstorms/some-brainstorm.md",
+        )
+
+        meta_path = os.path.join(project_dir, ".meta.json")
+        with open(meta_path) as f:
+            meta = json.load(f)
+        assert meta["brainstorm_source"] == "docs/brainstorms/some-brainstorm.md"
+
+    def test_brainstorm_source_omitted_when_none(self, db, tmp_path):
+        """brainstorm_source is NOT present in .meta.json when None."""
+        self._skip_if_not_implemented()
+
+        project_dir = os.path.join(str(tmp_path), "projects", "003-no-src")
+        os.makedirs(project_dir, exist_ok=True)
+
+        _process_init_project_state(
+            db,
+            project_dir,
+            "003",
+            "no-src",
+            "[]",
+            "[]",
+            None,
+        )
+
+        meta_path = os.path.join(project_dir, ".meta.json")
+        with open(meta_path) as f:
+            meta = json.load(f)
+        assert "brainstorm_source" not in meta
+
+    def test_json_string_params_parsed_correctly(self, db, tmp_path):
+        """features and milestones JSON strings are parsed into lists."""
+        self._skip_if_not_implemented()
+
+        project_dir = os.path.join(str(tmp_path), "projects", "004-parse")
+        os.makedirs(project_dir, exist_ok=True)
+
+        features_json = '["alpha", "beta", "gamma"]'
+        milestones_json = '[{"name": "v1", "features": ["alpha"]}, {"name": "v2", "features": ["beta", "gamma"]}]'
+
+        _process_init_project_state(
+            db,
+            project_dir,
+            "004",
+            "parse",
+            features_json,
+            milestones_json,
+            None,
+        )
+
+        meta_path = os.path.join(project_dir, ".meta.json")
+        with open(meta_path) as f:
+            meta = json.load(f)
+        assert isinstance(meta["features"], list)
+        assert len(meta["features"]) == 3
+        assert isinstance(meta["milestones"], list)
+        assert len(meta["milestones"]) == 2
+        assert meta["milestones"][0]["name"] == "v1"
+
+    def test_catch_value_error_on_malformed_features_json(self, db, tmp_path):
+        """@_catch_value_error catches malformed JSON string for features."""
+        self._skip_if_not_implemented()
+
+        project_dir = os.path.join(str(tmp_path), "projects", "005-bad")
+        os.makedirs(project_dir, exist_ok=True)
+
+        result = _process_init_project_state(
+            db,
+            project_dir,
+            "005",
+            "bad",
+            "not-valid-json",  # malformed
+            "[]",
+            None,
+        )
+        data = json.loads(result)
+        # _catch_value_error wraps ValueError as error response
+        assert data.get("error_code") == "invalid_transition"
+
+    def test_catch_value_error_on_malformed_milestones_json(self, db, tmp_path):
+        """@_catch_value_error catches malformed JSON string for milestones."""
+        self._skip_if_not_implemented()
+
+        project_dir = os.path.join(str(tmp_path), "projects", "006-bad-ms")
+        os.makedirs(project_dir, exist_ok=True)
+
+        result = _process_init_project_state(
+            db,
+            project_dir,
+            "006",
+            "bad-ms",
+            "[]",
+            "{broken",  # malformed
+            None,
+        )
+        data = json.loads(result)
+        assert data.get("error_code") == "invalid_transition"
+
+    def test_meta_json_contains_correct_fields_and_excludes_feature_fields(
+        self, db, tmp_path
+    ):
+        """Project .meta.json contains id, slug, status, created, features,
+        milestones — and does NOT contain phases, lastCompletedPhase, branch,
+        mode (these are feature-only per design C4)."""
+        self._skip_if_not_implemented()
+
+        project_dir = os.path.join(str(tmp_path), "projects", "007-fields")
+        os.makedirs(project_dir, exist_ok=True)
+
+        _process_init_project_state(
+            db,
+            project_dir,
+            "007",
+            "fields",
+            '["f1"]',
+            '[]',
+            None,
+        )
+
+        meta_path = os.path.join(project_dir, ".meta.json")
+        with open(meta_path) as f:
+            meta = json.load(f)
+
+        # Required fields present
+        assert "id" in meta
+        assert "slug" in meta
+        assert "status" in meta
+        assert "created" in meta
+        assert "features" in meta
+        assert isinstance(meta["features"], list)
+        assert "milestones" in meta
+        assert isinstance(meta["milestones"], list)
+
+        # Feature-only fields must NOT be present
+        assert "phases" not in meta
+        assert "lastCompletedPhase" not in meta
+        assert "branch" not in meta
+        assert "mode" not in meta
+
+    def test_atomic_json_write_called_with_correct_args(self, db, tmp_path):
+        """_atomic_json_write is called with the correct path and dict
+        (not open() + json.dump() directly)."""
+        self._skip_if_not_implemented()
+
+        project_dir = os.path.join(str(tmp_path), "projects", "008-atomic")
+        os.makedirs(project_dir, exist_ok=True)
+
+        from unittest.mock import patch
+
+        with patch(
+            "workflow_state_server._atomic_json_write"
+        ) as mock_write:
+            _process_init_project_state(
+                db,
+                project_dir,
+                "008",
+                "atomic",
+                '["x"]',
+                '[]',
+                None,
+            )
+
+            mock_write.assert_called_once()
+            call_args = mock_write.call_args
+            # First positional arg is path
+            assert call_args[0][0] == os.path.join(project_dir, ".meta.json")
+            # Second positional arg is dict with expected keys
+            written_dict = call_args[0][1]
+            assert isinstance(written_dict, dict)
+            assert written_dict["id"] == "008"
+            assert written_dict["slug"] == "atomic"
+            assert written_dict["features"] == ["x"]
+            assert written_dict["milestones"] == []
