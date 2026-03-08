@@ -4065,3 +4065,119 @@ class TestMigration5:
             assert row["last_completed_phase"] == "draft"
         finally:
             db.close()
+
+
+# ---------------------------------------------------------------------------
+# Deepened tests: Migration 5 CHECK constraint boundary + adversarial
+# ---------------------------------------------------------------------------
+
+
+class TestMigration5Deepened:
+    """Deepened tests for migration 5 CHECK constraint expansion.
+
+    derived_from: spec:AC-2 (workflow_phase CHECK constraint),
+                  dimension:boundary_values, dimension:adversarial
+    """
+
+    def test_migration_5_rejects_invalid_phase_value(self, db: EntityDatabase):
+        """After migration 5, an invalid phase value is still rejected by CHECK.
+        derived_from: spec:AC-2, dimension:adversarial
+
+        Anticipate: If the CHECK constraint was accidentally removed during
+        migration (e.g., table recreated without CHECK), any value would be
+        accepted silently.
+        """
+        # Given a fresh DB (already at schema v5) with a registered entity
+        db.register_entity("brainstorm", "chk-invalid", "Check Invalid")
+        now = EntityDatabase._now_iso()
+        # When inserting a workflow_phase with a value NOT in the valid set
+        with pytest.raises(sqlite3.IntegrityError):
+            db._conn.execute(
+                "INSERT INTO workflow_phases "
+                "(type_id, workflow_phase, kanban_column, updated_at) "
+                "VALUES (?, 'totally_bogus', 'wip', ?)",
+                ("brainstorm:chk-invalid", now),
+            )
+
+    def test_migration_5_allows_null_workflow_phase(self, db: EntityDatabase):
+        """After migration 5, NULL workflow_phase is allowed by CHECK.
+        derived_from: spec:AC-2, dimension:boundary_values
+
+        Anticipate: If the CHECK was rewritten without the OR NULL clause,
+        NULL would be rejected, breaking legacy data patterns.
+        """
+        # Given a registered entity
+        db.register_entity("brainstorm", "chk-null", "Check Null")
+        now = EntityDatabase._now_iso()
+        # When inserting with NULL workflow_phase
+        db._conn.execute(
+            "INSERT INTO workflow_phases "
+            "(type_id, workflow_phase, kanban_column, updated_at) "
+            "VALUES (?, NULL, 'backlog', ?)",
+            ("brainstorm:chk-null", now),
+        )
+        db._conn.commit()
+        # Then the row exists with NULL phase
+        row = db._conn.execute(
+            "SELECT workflow_phase FROM workflow_phases "
+            "WHERE type_id = 'brainstorm:chk-null'"
+        ).fetchone()
+        assert row["workflow_phase"] is None
+
+    def test_migration_5_accepts_all_backlog_phase_values(self, db: EntityDatabase):
+        """All 3 backlog-specific phases (open, triaged, dropped) accepted.
+        derived_from: spec:AC-2, dimension:boundary_values
+
+        Anticipate: If migration only added brainstorm phases but missed
+        backlog phases, INSERT would fail for open/triaged/dropped.
+        """
+        # Given a fresh DB at schema v5
+        for i, phase in enumerate(("open", "triaged", "dropped")):
+            eid = f"bl-phase-{i}"
+            db.register_entity("backlog", eid, f"Backlog Phase {i}")
+            now = EntityDatabase._now_iso()
+            # When inserting each backlog phase value
+            db._conn.execute(
+                "INSERT INTO workflow_phases "
+                "(type_id, workflow_phase, kanban_column, updated_at) "
+                "VALUES (?, ?, 'backlog', ?)",
+                (f"backlog:{eid}", phase, now),
+            )
+        db._conn.commit()
+        # Then all 3 rows exist
+        count = db._conn.execute(
+            "SELECT COUNT(*) FROM workflow_phases "
+            "WHERE type_id LIKE 'backlog:bl-phase-%'"
+        ).fetchone()[0]
+        assert count == 3
+
+    def test_migration_5_existing_feature_phases_still_work(self, db: EntityDatabase):
+        """All 7 original feature phases still accepted after migration 5.
+        derived_from: spec:AC-2, dimension:mutation_mindset
+
+        Anticipate: If migration replaced the CHECK list instead of extending
+        it, the 7 original feature phases would be rejected.
+        Mutation: swapping the complete list would break these.
+        """
+        # Given a fresh DB at schema v5
+        feature_phases = [
+            "brainstorm", "specify", "design", "create-plan",
+            "create-tasks", "implement", "finish",
+        ]
+        for i, phase in enumerate(feature_phases):
+            eid = f"fp-{i}"
+            db.register_entity("feature", eid, f"Feature Phase {i}")
+            now = EntityDatabase._now_iso()
+            db._conn.execute(
+                "INSERT INTO workflow_phases "
+                "(type_id, workflow_phase, kanban_column, updated_at) "
+                "VALUES (?, ?, 'wip', ?)",
+                (f"feature:{eid}", phase, now),
+            )
+        db._conn.commit()
+        # Then all 7 rows exist
+        count = db._conn.execute(
+            "SELECT COUNT(*) FROM workflow_phases "
+            "WHERE type_id LIKE 'feature:fp-%'"
+        ).fetchone()[0]
+        assert count == 7

@@ -1650,3 +1650,56 @@ class TestWorkflowPhaseBackfill:
         assert "updated" in result
         assert isinstance(result["updated"], int)
         assert result["updated"] == 2
+
+    def test_backfill_child_completion_with_all_feature_children_completed(
+        self, tmp_path, db
+    ):
+        """Brainstorm with multiple completed children -> kanban_column='completed'.
+        derived_from: spec:AC-7, dimension:boundary_values
+
+        Anticipate: If child completion logic uses "any" instead of "all",
+        a single completed child among many incomplete ones would incorrectly
+        set kanban_column to 'completed'.
+        """
+        # Given a brainstorm with 3 feature children, all status='completed'
+        db.register_entity("brainstorm", "bs-multi-done", "Multi Done Parent")
+        for i in range(3):
+            child_uuid = db.register_entity(
+                "feature", f"f-done-{i}", f"Done Child {i}", status="completed"
+            )
+            db.set_parent(child_uuid, "brainstorm:bs-multi-done")
+
+        # When running backfill
+        backfill_workflow_phases(db, str(tmp_path))
+
+        # Then brainstorm kanban_column is 'completed'
+        wp = db.get_workflow_phase("brainstorm:bs-multi-done")
+        assert wp is not None
+        assert wp["kanban_column"] == "completed"
+
+    def test_backfill_child_completion_not_all_completed(self, tmp_path, db):
+        """Brainstorm with mix of completed and active children -> NOT completed.
+        derived_from: spec:AC-7, dimension:mutation_mindset
+
+        Anticipate: If child completion uses "any" instead of "all",
+        this test would incorrectly pass (kanban='completed' even though
+        one child is active).
+        """
+        # Given a brainstorm with 2 children: one completed, one active
+        db.register_entity("brainstorm", "bs-mixed", "Mixed Parent")
+        child1 = db.register_entity(
+            "feature", "f-mix-done", "Done Child", status="completed"
+        )
+        child2 = db.register_entity(
+            "feature", "f-mix-active", "Active Child", status="active"
+        )
+        db.set_parent(child1, "brainstorm:bs-mixed")
+        db.set_parent(child2, "brainstorm:bs-mixed")
+
+        # When running backfill
+        backfill_workflow_phases(db, str(tmp_path))
+
+        # Then brainstorm kanban_column should NOT be 'completed'
+        wp = db.get_workflow_phase("brainstorm:bs-mixed")
+        assert wp is not None
+        assert wp["kanban_column"] != "completed"

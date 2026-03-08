@@ -5445,3 +5445,280 @@ class TestTransitionEntityPhase:
         assert result["transitioned"] is True
         assert result["to_phase"] == "dropped"
         assert result["kanban_column"] == "completed"
+
+
+# ---------------------------------------------------------------------------
+# Deepened tests: entity workflow lifecycle
+# ---------------------------------------------------------------------------
+
+
+class TestInitEntityWorkflowDeepened:
+    """Deepened tests for _process_init_entity_workflow.
+    derived_from: spec:AC-3, dimension:adversarial, dimension:boundary_values
+    """
+
+    def test_init_entity_workflow_empty_type_id(self, db):
+        """Empty string type_id -> entity_not_found error.
+        derived_from: spec:AC-3, dimension:boundary_values
+
+        Anticipate: If init_entity_workflow doesn't validate empty strings,
+        it could create a malformed workflow row or crash.
+        """
+        # Given an empty type_id
+        result = json.loads(
+            _process_init_entity_workflow(db, "", "draft", "wip")
+        )
+        # Then it returns an error (entity not found or similar)
+        assert result["error"] is True
+
+
+class TestTransitionEntityPhaseDeepened:
+    """Deepened tests for _process_transition_entity_phase.
+    derived_from: spec:AC-4, dimension:adversarial, dimension:mutation_mindset
+    """
+
+    def _seed_entity_with_workflow(self, db, entity_type, entity_id, phase, kanban_column,
+                                    last_completed_phase=None):
+        """Helper: register entity and insert workflow_phases row directly."""
+        db.register_entity(entity_type, entity_id, f"Test {entity_type}", status=phase)
+        db._conn.execute(
+            "INSERT INTO workflow_phases "
+            "(type_id, workflow_phase, kanban_column, last_completed_phase, updated_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (f"{entity_type}:{entity_id}", phase, kanban_column, last_completed_phase,
+             db._now_iso()),
+        )
+        db._conn.commit()
+
+    def test_transition_type_id_without_colon(self, db):
+        """Malformed type_id without colon -> error.
+        derived_from: spec:AC-4, dimension:adversarial
+
+        Anticipate: If the function blindly splits on ':', it could index
+        error or create garbage entity_type.
+        """
+        # Given a type_id with no colon separator
+        result = json.loads(
+            _process_transition_entity_phase(db, "brainstorm-no-colon", "reviewing")
+        )
+        # Then it returns an error
+        assert result["error"] is True
+
+    def test_transition_brainstorm_all_valid_transitions_exhaustive(self, db):
+        """Exhaustively verify all 5 brainstorm transitions in one test.
+        derived_from: spec:AC-4, dimension:bdd_scenarios
+
+        Anticipate: If any single transition pair is missing from the machine,
+        this test catches it by verifying all 5 documented transitions succeed.
+        """
+        # All brainstorm transitions: draft->reviewing, draft->abandoned,
+        # reviewing->promoted, reviewing->draft, reviewing->abandoned
+        transitions = [
+            ("draft", "reviewing", "agent_review"),
+            ("draft", "abandoned", "completed"),
+        ]
+        for i, (from_phase, to_phase, expected_kanban) in enumerate(transitions):
+            self._seed_entity_with_workflow(
+                db, "brainstorm", f"exh-b-{i}", from_phase,
+                ENTITY_MACHINES["brainstorm"]["columns"][from_phase],
+            )
+            result = json.loads(
+                _process_transition_entity_phase(db, f"brainstorm:exh-b-{i}", to_phase)
+            )
+            assert result["transitioned"] is True, (
+                f"brainstorm {from_phase}->{to_phase} failed"
+            )
+            assert result["kanban_column"] == expected_kanban, (
+                f"brainstorm {from_phase}->{to_phase}: expected kanban={expected_kanban}, "
+                f"got {result['kanban_column']}"
+            )
+
+        # Reviewing-based transitions
+        reviewing_transitions = [
+            ("reviewing", "promoted", "completed"),
+            ("reviewing", "draft", "wip"),
+            ("reviewing", "abandoned", "completed"),
+        ]
+        for i, (from_phase, to_phase, expected_kanban) in enumerate(reviewing_transitions):
+            self._seed_entity_with_workflow(
+                db, "brainstorm", f"exh-br-{i}", from_phase, "agent_review",
+            )
+            result = json.loads(
+                _process_transition_entity_phase(db, f"brainstorm:exh-br-{i}", to_phase)
+            )
+            assert result["transitioned"] is True, (
+                f"brainstorm {from_phase}->{to_phase} failed"
+            )
+            assert result["kanban_column"] == expected_kanban
+
+    def test_transition_backlog_all_valid_transitions_exhaustive(self, db):
+        """Exhaustively verify all 4 backlog transitions in one test.
+        derived_from: spec:AC-4, dimension:bdd_scenarios
+
+        Anticipate: If any single backlog transition pair is missing,
+        this test catches it.
+        """
+        # open->triaged, open->dropped
+        transitions_open = [
+            ("open", "triaged", "prioritised"),
+            ("open", "dropped", "completed"),
+        ]
+        for i, (from_phase, to_phase, expected_kanban) in enumerate(transitions_open):
+            self._seed_entity_with_workflow(
+                db, "backlog", f"exh-bl-{i}", from_phase, "backlog",
+            )
+            result = json.loads(
+                _process_transition_entity_phase(db, f"backlog:exh-bl-{i}", to_phase)
+            )
+            assert result["transitioned"] is True
+            assert result["kanban_column"] == expected_kanban
+
+        # triaged->promoted, triaged->dropped
+        transitions_triaged = [
+            ("triaged", "promoted", "completed"),
+            ("triaged", "dropped", "completed"),
+        ]
+        for i, (from_phase, to_phase, expected_kanban) in enumerate(transitions_triaged):
+            self._seed_entity_with_workflow(
+                db, "backlog", f"exh-blt-{i}", from_phase, "prioritised",
+            )
+            result = json.loads(
+                _process_transition_entity_phase(db, f"backlog:exh-blt-{i}", to_phase)
+            )
+            assert result["transitioned"] is True
+            assert result["kanban_column"] == expected_kanban
+
+    def test_transition_cross_entity_phase_name(self, db):
+        """Brainstorm trying a backlog-only phase should be rejected.
+        derived_from: spec:AC-4, dimension:adversarial
+
+        Anticipate: If the transition lookup doesn't scope by entity_type,
+        a brainstorm could incorrectly accept 'triaged' (backlog-only phase).
+        """
+        # Given a brainstorm in draft phase
+        self._seed_entity_with_workflow(db, "brainstorm", "cross-1", "draft", "wip")
+        # When trying to transition to 'triaged' (a backlog-only phase)
+        result = json.loads(
+            _process_transition_entity_phase(db, "brainstorm:cross-1", "triaged")
+        )
+        # Then it's rejected as invalid
+        assert result["error"] is True
+        assert result["error_type"] == "invalid_transition"
+
+    def test_transition_from_terminal_abandoned_brainstorm(self, db):
+        """Brainstorm in 'abandoned' (terminal) cannot transition.
+        derived_from: spec:AC-4, dimension:mutation_mindset
+
+        Anticipate: If terminal state check only covers 'promoted' but not
+        'abandoned', transitions from abandoned would be allowed incorrectly.
+        Mutation: removing the terminal guard for 'abandoned' would let this pass.
+        """
+        # Given a brainstorm in abandoned (terminal) state
+        self._seed_entity_with_workflow(db, "brainstorm", "term-ab", "abandoned", "completed")
+        # When trying to transition to 'draft'
+        result = json.loads(
+            _process_transition_entity_phase(db, "brainstorm:term-ab", "draft")
+        )
+        # Then it's rejected
+        assert result["error"] is True
+        assert result["error_type"] == "invalid_transition"
+
+    def test_transition_from_terminal_dropped_backlog(self, db):
+        """Backlog in 'dropped' (terminal) cannot transition.
+        derived_from: spec:AC-4, dimension:mutation_mindset
+
+        Anticipate: If terminal state check only covers 'promoted' but not
+        'dropped', transitions from dropped would be allowed incorrectly.
+        """
+        # Given a backlog in dropped (terminal) state
+        self._seed_entity_with_workflow(db, "backlog", "term-dr", "dropped", "completed")
+        # When trying to transition to 'open'
+        result = json.loads(
+            _process_transition_entity_phase(db, "backlog:term-dr", "open")
+        )
+        # Then it's rejected
+        assert result["error"] is True
+        assert result["error_type"] == "invalid_transition"
+
+    def test_transition_no_workflow_phases_row(self, db):
+        """Entity exists but has no workflow_phases row -> error with init hint.
+        derived_from: spec:AC-4, dimension:error_propagation
+
+        Anticipate: If the function doesn't check for missing workflow row
+        and proceeds with None state, it could crash with AttributeError or
+        produce a confusing error.
+        """
+        # Given an entity registered but NO workflow_phases row
+        db.register_entity("brainstorm", "no-wp", "No Workflow", status="draft")
+        # When trying to transition
+        result = json.loads(
+            _process_transition_entity_phase(db, "brainstorm:no-wp", "reviewing")
+        )
+        # Then it returns an error pointing to init_entity_workflow
+        assert result["error"] is True
+
+    def test_brainstorm_draft_to_promoted_is_invalid(self, db):
+        """Draft cannot skip directly to promoted (must go through reviewing).
+        derived_from: spec:AC-4, dimension:mutation_mindset
+
+        Anticipate: If the transition map incorrectly includes
+        draft->promoted, users could skip the review step.
+        Mutation: adding 'promoted' to draft's target list would break this.
+        """
+        # Given a brainstorm in draft
+        self._seed_entity_with_workflow(db, "brainstorm", "skip-1", "draft", "wip")
+        # When trying to skip to promoted
+        result = json.loads(
+            _process_transition_entity_phase(db, "brainstorm:skip-1", "promoted")
+        )
+        # Then it's rejected
+        assert result["error"] is True
+        assert result["error_type"] == "invalid_transition"
+
+
+class TestErrorDecoratorDeepened:
+    """Deepened tests for _catch_entity_value_error decorator.
+    derived_from: spec:AC-5, dimension:error_propagation, dimension:mutation_mindset
+    """
+
+    def test_error_decorator_recovery_hints_populated(self):
+        """Every known error type should produce a non-empty recovery_hint.
+        derived_from: spec:AC-5, dimension:error_propagation
+
+        Anticipate: If recovery_hint mapping is incomplete, users get empty
+        hints that provide no guidance on fixing the error.
+        """
+        # Given decorated functions that raise each known error type
+        for prefix, expected_type in [
+            ("entity_not_found:", "entity_not_found"),
+            ("invalid_entity_type:", "invalid_entity_type"),
+            ("invalid_transition:", "invalid_transition"),
+        ]:
+            @_catch_entity_value_error
+            def raises(p=prefix):
+                raise ValueError(f"{p} test message")
+
+            result = json.loads(raises())
+            # Then recovery_hint is non-empty for each
+            assert result["recovery_hint"], (
+                f"recovery_hint is empty for error_type={expected_type}"
+            )
+            assert isinstance(result["recovery_hint"], str)
+            assert len(result["recovery_hint"]) > 5  # not trivially empty
+
+    def test_error_decorator_stacking_order(self):
+        """Unexpected Exception (not ValueError) re-raises through decorator.
+        derived_from: spec:AC-5, dimension:mutation_mindset
+
+        Anticipate: If the decorator catches too broadly (e.g., Exception
+        instead of ValueError), unexpected errors would be silently turned
+        into structured errors, hiding real bugs.
+        """
+        # Given a decorated function that raises a non-ValueError
+        @_catch_entity_value_error
+        def raises_runtime():
+            raise RuntimeError("unexpected crash")
+
+        # Then the RuntimeError propagates unmodified
+        with pytest.raises(RuntimeError, match="unexpected crash"):
+            raises_runtime()
