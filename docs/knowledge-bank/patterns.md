@@ -155,8 +155,8 @@ When a workflow has nested iteration loops, make budgets independent.
 Heavy upfront review investment (15-30+ pre-implementation review iterations) correlates with clean implementation (0-1 actionable issues across all reviewers). Front-loading review effort shifts risk discovery to phases where changes are cheap (text edits) rather than expensive (code changes).
 - Observed in: Feature #022, implementation phase
 - Confidence: high
-- Last observed: Feature 013
-- Observation count: 10
+- Last observed: Feature 021
+- Observation count: 11
 
 ### Pattern: Template Indentation Matching
 When inserting blocks into existing prompt templates, read the target file first and match its specific indentation level (which may differ per file). Prevents downstream formatting issues.
@@ -460,6 +460,30 @@ When upgrading a shell bootstrap wrapper from a hand-maintained `uv pip install 
 - Confidence: high
 - Keywords: ["uv-sync", "pyproject-toml", "runtime-deps", "bootstrap-wrapper", "dependency-audit", "no-dev"]
 - Last observed: Feature 018
+- Observation count: 1
+
+### Pattern: Security Surface Enumeration at Spec Time
+When a spec introduces security-relevant third-party configuration (e.g., securityLevel, template escaping modes, CDN-loaded scripts), add a dedicated section listing: template escaping interaction, sanitization requirements, known CVEs, and residual risk acceptance. This prevents security concerns from threading across every subsequent phase as each discovers a new facet of the same attack surface.
+- Observed in: Feature 021, securityLevel 'loose' identified at specify (blocker), validated at design, caught at plan (Jinja2 autoescaping), hardened at implement (CVE references)
+- Confidence: high
+- Keywords: ["security-surface", "spec-enumeration", "third-party-config", "cve-documentation", "xss-mitigation", "mermaid"]
+- Last observed: Feature 021
+- Observation count: 1
+
+### Pattern: Library Integration Research Sub-Step in Design
+For features integrating third-party rendering libraries, explicitly research during the design phase: security model, escaping behavior, interaction handler syntax, and template engine gotchas. This prevents discovery of library-specific constraints during plan/implement phases where changes are more expensive.
+- Observed in: Feature 021, Mermaid click syntax (bare vs href), Jinja2 autoescaping interaction with Mermaid arrows, ESM module timing — each discovered at different phases
+- Confidence: high
+- Keywords: ["library-integration", "design-research", "third-party-rendering", "mermaid", "jinja2", "template-engine"]
+- Last observed: Feature 021
+- Observation count: 1
+
+### Pattern: Early Feature Absorption as Planning Efficiency
+When a planned feature's scope is a strict subset of another feature already in planning, absorb it early (during spec/design) rather than running a separate full cycle. This eliminates redundant brainstorm-to-implement overhead while preserving all requirements.
+- Observed in: Feature 021 absorbed Feature 022 (kanban-card-click-through-navi) during planning, eliminating a full separate development cycle
+- Confidence: medium
+- Keywords: ["feature-absorption", "scope-overlap", "planning-efficiency", "redundancy-elimination"]
+- Last observed: Feature 021
 - Observation count: 1
 
 ### Pattern: Establish Python Import Root at Spec Time for New Packages
