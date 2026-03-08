@@ -104,7 +104,7 @@
 
 | Risk | Mitigation |
 |------|------------|
-| Reserved Mermaid node IDs (`end`, IDs starting with `o`/`x`) | `_sanitize_id()` hash suffix makes all IDs unique alphanumeric strings; the `n` prefix for digit-start handles the `o`/`x` case only if the entire sanitized result starts with those letters — but since we append `_XXXX` hash, bare `end` becomes `end_XXXX` which is safe |
+| Reserved Mermaid node IDs (`end`, IDs starting with `o`/`x`) | `_sanitize_id()` prefixes with `n` if the sanitized base starts with a digit, `o`, or `x`, and appends a 4-char hash suffix — eliminating bare reserved IDs like `end` (→ `end_XXXX`) and reserved-prefix IDs like `o_foo` (→ `no_foo_XXXX`) |
 | CDN unavailable | Raw Mermaid text in `<pre>` is still human-readable; flat list in `<details>` is expandable |
 | Large graphs (>50 nodes) | Depth=10 on entity hierarchies typically yields <50 nodes; Mermaid handles hundreds of nodes |
 | HTMX partial navigation breaks Mermaid | Current detail page is full-page load; if HTMX partial nav is added later, `htmx:afterSwap` → `mermaid.run()` will be needed |
