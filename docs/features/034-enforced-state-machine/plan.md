@@ -8,7 +8,7 @@ Implementation follows the dependency chain from design.md (C8→C2→C1→C3→
 
 ### Entity access convention
 
-`db.get_entity()` returns `dict | None`. Access fields via dict keys: `entity["status"]`, `entity["metadata"]`, `entity["artifact_path"]`, `entity["created_at"]`. The `metadata` field is a JSON TEXT column — must `json.loads(entity["metadata"])` before use. All `_process_*` functions and `_project_meta_json()` must use dict-style access throughout.
+`db.get_entity()` returns `dict | None`. Access fields via dict keys: `entity["status"]`, `entity["metadata"]`, `entity["artifact_path"]`, `entity["created_at"]`. The `metadata` field is a nullable JSON TEXT column — use `json.loads(entity["metadata"]) if entity["metadata"] else {}` for safe parsing. All `_process_*` functions and `_project_meta_json()` must use dict-style access throughout.
 
 ### Step 0: `_iso_now()` utility
 
