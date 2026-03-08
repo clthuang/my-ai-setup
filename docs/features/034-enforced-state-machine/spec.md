@@ -27,7 +27,12 @@ LLM → Write(.meta.json) → PreToolUse hook → BLOCKED
 LLM → transition_phase() → MCP server → Python open() → .meta.json written ✓
 ```
 
-**`_write_meta_json_fallback()` in Phase 1:** This Python fallback writer (engine.py:442-512) remains active in Phase 1. It runs in Python (not via LLM tool calls), so the hook does NOT block it. It only fires during DB degradation. Phase 2 removes it when read-only degradation replaces it. **Accepted Phase 1 limitation:** the fallback can create state that the hook would have blocked if done by LLM.
+**Two `.meta.json` write paths in Phase 1 (mutually exclusive):**
+
+1. **Normal path (new):** MCP tool mutates DB → calls `_project_meta_json()` → writes `.meta.json` as synchronous projection. This is the designed path for all 9 write sites.
+2. **Degraded path (existing, unchanged):** When DB is unavailable, `_write_meta_json_fallback()` (engine.py:442-512) writes `.meta.json` directly from in-memory state. This runs in Python (not via LLM tool calls), so the hook does NOT block it.
+
+These paths are **mutually exclusive**: `_project_meta_json()` only runs after a successful DB mutation; `_write_meta_json_fallback()` only runs when DB mutation fails. They cannot both write `.meta.json` for the same operation. Phase 2 removes the degraded path when read-only degradation replaces it. **Accepted Phase 1 limitation:** the fallback can create state that the hook would have blocked if done by LLM.
 
 ## Functional Specification
 
@@ -144,6 +149,8 @@ async def init_project_state(
 ) -> str:
 ```
 
+Writes project `.meta.json` directly via Python `open()` (bypasses hook, same mechanism as `init_feature_state`). Uses its own formatting logic since project schema differs from feature schema (includes `features[]` and `milestones[]` arrays instead of `phases{}`).
+
 **Acceptance Criteria:**
 - [ ] Decomposing skill calls `init_project_state` instead of direct Write
 - [ ] Project `.meta.json` structure matches current format
@@ -217,7 +224,7 @@ async def complete_phase(
 ) -> str:
 ```
 
-Stores timing data in entity metadata (or a lightweight timing dict), then projects to `.meta.json`.
+**Implementation layer:** The MCP server wrapper `_process_complete_phase` stores `iterations` and `reviewer_notes` in entity metadata via `db.update_entity(feature_type_id, metadata=...)` after calling `engine.complete_phase()`, then calls `_project_meta_json()`.
 
 **Acceptance Criteria:**
 - [ ] `workflow-transitions/SKILL.md` `commitAndComplete` Step 2 no longer writes `.meta.json`
@@ -291,16 +298,20 @@ Stores timing data in entity metadata (or a lightweight timing dict), then proje
 All MCP tools that mutate state must regenerate `.meta.json` after DB updates. This is a shared utility:
 
 ```python
-def _project_meta_json(feature_type_id: str, feature_dir: str) -> None:
+def _project_meta_json(feature_type_id: str, feature_dir: str | None = None) -> None:
     """Regenerate .meta.json from current DB + entity state.
 
     Reads: entities table (status, metadata), workflow_phases table (phase, timing)
     Writes: {feature_dir}/.meta.json (complete file replacement via Python open())
 
+    If feature_dir is None, resolves it from db.get_entity(feature_type_id).artifact_path.
+
     Called by: init_feature_state, activate_feature, transition_phase, complete_phase
     NOT called by: init_project_state (projects have different schema)
     """
 ```
+
+**Directory resolution:** For tools that don't have `feature_dir` as a parameter (e.g., `transition_phase`, `complete_phase`), the MCP server resolves it via `db.get_entity(feature_type_id).artifact_path` (existing field in entity registry, populated during `register_entity`).
 
 **Fields projected:**
 - `id`, `slug` — from entity metadata
