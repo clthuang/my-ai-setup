@@ -389,9 +389,20 @@ elif entity_type in ("brainstorm", "backlog"):
     else:  # backlog
         workflow_phase = "open"
         kanban_column = "backlog"
+
+    # Case 3: existing row with NULL workflow_phase — UPDATE in place
+    if existing_row and existing_row["workflow_phase"] is None:
+        db._conn.execute(
+            "UPDATE workflow_phases SET workflow_phase = ?, kanban_column = ?, "
+            "updated_at = ? WHERE type_id = ?",
+            (workflow_phase, kanban_column, db._now_iso(), type_id),
+        )
+        db._conn.commit()
+        updated += 1
+        continue
 ```
 
-The rest of the function (INSERT OR IGNORE) handles the actual row creation. The `continue` on existing non-null rows short-circuits to skip the INSERT.
+The rest of the function (INSERT OR IGNORE) handles case 1 (no row exists). The `continue` on existing non-null rows (case 2) short-circuits to skip the INSERT. The UPDATE on null-phase rows (case 3) fixes legacy rows created before this feature.
 
 **Child-completion override** remains at line 210-221 — it runs before this new block, and `kanban_column` may be overridden to `"completed"` regardless of the derived phase.
 
@@ -616,7 +627,7 @@ Follows same pattern as `_create_workflow_phases_table` (Migration 3):
 
 ### I4: Backfill — Updated `backfill_workflow_phases()` Signature
 
-No signature change. Return type unchanged: `{"created": int, "skipped": int, "errors": list[str]}`.
+No signature change. Return type expanded: `{"created": int, "updated": int, "skipped": int, "errors": list[str]}`. The new `updated` counter tracks case 3 (legacy null-phase rows fixed in place).
 
 Behavioral change: brainstorm/backlog entities now get `workflow_phase` set (instead of NULL) when backfill creates their rows.
 
