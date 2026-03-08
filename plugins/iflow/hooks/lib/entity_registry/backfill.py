@@ -207,6 +207,19 @@ def backfill_workflow_phases(
 
             kanban_column = STATUS_TO_KANBAN[status]
 
+            # For brainstorm/backlog: if all child features are completed,
+            # override kanban to "completed" (Gap S3 fix)
+            if entity_type in ("brainstorm", "backlog"):
+                children = [
+                    e for e in all_entities
+                    if e.get("parent_type_id") == type_id
+                    and e["entity_type"] == "feature"
+                ]
+                if children and all(
+                    c.get("status") == "completed" for c in children
+                ):
+                    kanban_column = "completed"
+
             # Feature-specific: derive workflow_phase, last_completed_phase, mode
             workflow_phase = None
             last_completed_phase = None

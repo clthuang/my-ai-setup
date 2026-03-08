@@ -1496,6 +1496,50 @@ class TestDeepenedMutationMindset:
         assert row["last_completed_phase"] == "specify"
         assert row["workflow_phase"] == "design"
 
+    def test_complete_finish_phase_syncs_entity_status_to_completed(
+        self, tmp_path
+    ) -> None:
+        """Pin: complete_phase('finish') must update entities.status to 'completed'.
+
+        Gap S1 fix: entities.status was never updated by workflow engine,
+        causing drift between workflow_phases and entities tables.
+        derived_from: dimension:mutation_mindset (line deletion)
+        """
+        # Given a feature at implement with create-tasks completed
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="finish",
+            last_completed_phase="implement",
+        )
+        # Verify entity starts as active
+        entity = db.get_entity(type_id)
+        assert entity["status"] == "active"
+        # When completing finish phase
+        state = engine.complete_phase(type_id, "finish")
+        assert state.current_phase == "finish"
+        assert state.last_completed_phase == "finish"
+        # Then entities.status is synced to completed
+        entity = db.get_entity(type_id)
+        assert entity["status"] == "completed"
+
+    def test_complete_non_finish_phase_does_not_change_entity_status(
+        self, tmp_path
+    ) -> None:
+        """Pin: complete_phase for non-terminal phases must NOT touch entities.status.
+
+        derived_from: dimension:mutation_mindset (guard condition removal)
+        """
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="specify",
+            last_completed_phase="brainstorm",
+        )
+        state = engine.complete_phase(type_id, "specify")
+        assert state.current_phase == "design"
+        # Entity status must still be active (not "completed")
+        entity = db.get_entity(type_id)
+        assert entity["status"] == "active"
+
     def test_transition_phase_only_updates_workflow_phase_not_last_completed(
         self, tmp_path
     ) -> None:

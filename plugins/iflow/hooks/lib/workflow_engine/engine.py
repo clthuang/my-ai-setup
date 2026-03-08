@@ -167,6 +167,9 @@ class WorkflowStateEngine:
                 last_completed_phase=phase,
                 workflow_phase=next_phase,
             )
+            # Sync entities.status when terminal phase reached (Gap S1 fix)
+            if phase == "finish":
+                self.db.update_entity(feature_type_id, status="completed")
         except sqlite3.Error as exc:
             print(
                 f"workflow-engine: DB write failed in complete_phase "
