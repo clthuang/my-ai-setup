@@ -161,9 +161,10 @@ def backfill_workflow_phases(
     Returns
     -------
     dict
-        {"created": int, "skipped": int, "errors": list[str]}
+        {"created": int, "updated": int, "skipped": int, "errors": list[str]}
     """
     created = 0
+    updated = 0
     skipped = 0
     errors: list[str] = []
 
@@ -188,6 +189,65 @@ def backfill_workflow_phases(
                         meta_path, type_id,
                     )
 
+            # Early handling for brainstorm/backlog — skip STATUS_TO_KANBAN
+            if entity_type in ("brainstorm", "backlog"):
+                # Child-completion override
+                children = [
+                    e for e in all_entities
+                    if e.get("parent_type_id") == type_id
+                    and e["entity_type"] == "feature"
+                ]
+                all_children_completed = children and all(
+                    c.get("status") == "completed" for c in children
+                )
+
+                # Check existing workflow_phases row
+                existing_row = db._conn.execute(
+                    "SELECT workflow_phase FROM workflow_phases WHERE type_id = ?",
+                    (type_id,),
+                ).fetchone()
+
+                if existing_row and existing_row["workflow_phase"] is not None:
+                    skipped += 1
+                    continue
+
+                # Derive defaults
+                if entity_type == "brainstorm":
+                    workflow_phase = "draft"
+                    kanban_column = "wip"
+                else:  # backlog
+                    workflow_phase = "open"
+                    kanban_column = "backlog"
+
+                # Apply child-completion override
+                if all_children_completed:
+                    kanban_column = "completed"
+
+                # Case 3: existing row with NULL phase -> UPDATE
+                if existing_row and existing_row["workflow_phase"] is None:
+                    db._conn.execute(
+                        "UPDATE workflow_phases SET workflow_phase = ?, kanban_column = ?, "
+                        "updated_at = ? WHERE type_id = ?",
+                        (workflow_phase, kanban_column, db._now_iso(), type_id),
+                    )
+                    updated += 1
+                    continue
+
+                # Case 1: no row -> INSERT
+                cursor = db._conn.execute(
+                    "INSERT OR IGNORE INTO workflow_phases "
+                    "(type_id, kanban_column, workflow_phase, "
+                    "last_completed_phase, mode, "
+                    "backward_transition_reason, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (type_id, kanban_column, workflow_phase, None, None, None, db._now_iso()),
+                )
+                if cursor.rowcount > 0:
+                    created += 1
+                else:
+                    skipped += 1  # concurrent insert won the race
+                continue
+
             # 3-tier status resolution
             status = None
             if meta is not None and "status" in meta:
@@ -206,19 +266,6 @@ def backfill_workflow_phases(
                 status = "planned"
 
             kanban_column = STATUS_TO_KANBAN[status]
-
-            # For brainstorm/backlog: if all child features are completed,
-            # override kanban to "completed" (Gap S3 fix)
-            if entity_type in ("brainstorm", "backlog"):
-                children = [
-                    e for e in all_entities
-                    if e.get("parent_type_id") == type_id
-                    and e["entity_type"] == "feature"
-                ]
-                if children and all(
-                    c.get("status") == "completed" for c in children
-                ):
-                    kanban_column = "completed"
 
             # Feature-specific: derive workflow_phase, last_completed_phase, mode
             workflow_phase = None
@@ -280,7 +327,7 @@ def backfill_workflow_phases(
     # Commit once at end (TD-10: direct connection access for bulk insert)
     db._conn.commit()
 
-    return {"created": created, "skipped": skipped, "errors": errors}
+    return {"created": created, "updated": updated, "skipped": skipped, "errors": errors}
 
 
 # ---------------------------------------------------------------------------

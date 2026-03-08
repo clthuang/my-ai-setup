@@ -91,7 +91,7 @@ plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate
 plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/workflow_engine/ -v
 
 # Run reconciliation module tests (drift detection, apply, frontmatter sync — 103 tests)
-plugins/iflow/.venv/bin/python -m pytest plugins/iflow/mcp/test_reconciliation.py -v
+plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/workflow_engine/test_reconciliation.py -v
 
 # Run workflow state MCP server tests (processing + reconciliation integration — 146 tests)
 plugins/iflow/.venv/bin/python -m pytest plugins/iflow/mcp/test_workflow_state_server.py -v

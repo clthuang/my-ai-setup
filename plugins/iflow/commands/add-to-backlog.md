@@ -39,7 +39,26 @@ Add an item to the centralized backlog at `{iflow_artifacts_root}/backlog.md`.
      ```
    - Append the new row: `| {ID} | {Timestamp} | {Description} |`
 
-6. **Confirm to user:**
+6. **Register entity and initialize workflow:**
+   ```
+   register_entity(
+     entity_type="backlog",
+     entity_id="{5-digit-id}",
+     name="{description}",
+     artifact_path="{iflow_artifacts_root}/backlog.md",
+     status="open"
+   )
+   ```
+   ```
+   init_entity_workflow(
+     type_id="backlog:{5-digit-id}",
+     workflow_phase="open",
+     kanban_column="backlog"
+   )
+   ```
+   If MCP call fails, warn "Entity registration failed: {error}" but do NOT block backlog creation.
+
+7. **Confirm to user:**
    ```
    Added to backlog: #{ID} - {Description}
    ```

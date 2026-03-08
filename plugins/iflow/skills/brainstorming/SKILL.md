@@ -245,7 +245,7 @@ Analyze this problem from your advisory perspective. Return JSON per the advisor
 
 2. **Parse for backlog source** in the PRD content using pattern `\*Source: Backlog #(\d{5})\*`
 
-3. **If backlog marker found**, register the backlog entity (idempotent):
+3. **If backlog marker found**, register the backlog entity and initialize its workflow (idempotent):
    ```
    register_entity(
      entity_type="backlog",
@@ -253,6 +253,25 @@ Analyze this problem from your advisory perspective. Return JSON per the advisor
      name="Backlog #{id}"
    )
    ```
+   If duplicate error (already registered by add-to-backlog), swallow and continue.
+
+   ```
+   init_entity_workflow(
+     type_id="backlog:{5-digit backlog id}",
+     workflow_phase="open",
+     kanban_column="backlog"
+   )
+   ```
+   Idempotent — if `add-to-backlog` already created the workflow_phases row, returns `created: false` without error.
+
+   ```
+   transition_entity_phase(
+     type_id="backlog:{5-digit backlog id}",
+     target_phase="triaged"
+   )
+   ```
+   If MCP call fails (e.g., already triaged or entity missing), warn "Backlog transition failed: {error}" but do NOT block brainstorm creation.
+
    Set `parent_type_id` for the brainstorm to `"backlog:{5-digit backlog id}"` in step 4.
 
 4. **Register brainstorm entity:**
@@ -267,12 +286,31 @@ Analyze this problem from your advisory perspective. Return JSON per the advisor
    )
    ```
 
+5. **Initialize brainstorm workflow state:**
+   ```
+   init_entity_workflow(
+     type_id="brainstorm:{stem}",
+     workflow_phase="draft",
+     kanban_column="wip"
+   )
+   ```
+   If MCP call fails, warn "Workflow init failed: {error}" but do NOT block brainstorm creation.
+
 ---
 ### Stage 4: CRITICAL REVIEW AND CORRECTION
 
 **Goal:** Challenge PRD quality and auto-correct issues in a review-correct loop (max 3 iterations).
 
 Set `review_iteration = 0`.
+
+**Transition brainstorm to reviewing phase:**
+```
+transition_entity_phase(
+  type_id="brainstorm:{stem}",
+  target_phase="reviewing"
+)
+```
+If MCP call fails, warn "Phase transition failed: {error}" but do NOT block review.
 
 **a. Dispatch prd-reviewer** (always a NEW Task tool instance per iteration):
 - Tool: `Task`
@@ -452,12 +490,39 @@ AskUserQuestion:
 
 | Response | Action |
 |----------|--------|
-| Promote to Project | Skip mode prompt → Invoke `/iflow:create-project --prd={current-prd-path}` → STOP |
-| Promote to Feature / Promote Anyway / Promote if crystallised | Ask for mode → Invoke `/iflow:create-feature --prd={current-prd-path}` → STOP |
-| Refine Further / Address Issues | Loop back to Stage 1 with issue context |
+| Promote to Project | Transition brainstorm to promoted (see below) → Skip mode prompt → Invoke `/iflow:create-project --prd={current-prd-path}` → STOP |
+| Promote to Feature / Promote Anyway / Promote if crystallised | Transition brainstorm to promoted (see below) → Ask for mode → Invoke `/iflow:create-feature --prd={current-prd-path}` → STOP |
+| Refine Further / Address Issues | Transition brainstorm to draft (see below) → Loop back to Stage 1 with issue context |
 | Save and Exit / Save as Decision Document | Output "PRD saved to {filepath}." → STOP |
 | Route to /root-cause-analysis | Invoke `Skill({ skill: "iflow:root-cause-analysis" })` → STOP |
 | Create fix task | Invoke `Skill({ skill: "iflow:create-feature", args: "--prd={current-prd-path}" })` with Standard mode → STOP |
+
+**Workflow transitions for decision handlers:**
+
+Before invoking create-feature or create-project for "Promote to Feature" / "Promote Anyway" / "Promote if crystallised" / "Promote to Project":
+```
+transition_entity_phase(
+  type_id="brainstorm:{stem}",
+  target_phase="promoted"
+)
+```
+If the brainstorm references a backlog item (parsed in Stage 3), also transition the backlog:
+```
+transition_entity_phase(
+  type_id="backlog:{5-digit backlog id}",
+  target_phase="promoted"
+)
+```
+If either MCP call fails, warn "Phase transition failed: {error}" but do NOT block feature/project creation.
+
+Before looping back for "Refine Further" / "Address Issues":
+```
+transition_entity_phase(
+  type_id="brainstorm:{stem}",
+  target_phase="draft"
+)
+```
+If MCP call fails, warn "Phase transition failed: {error}" but do NOT block loop-back.
 
 **Mode prompt bypass:** "Promote to Project" skips the mode selection below. Projects have no mode — modes are per-feature, set during planned→active transition when a user starts working on a decomposed feature.
 
