@@ -275,3 +275,250 @@ def test_classdef_lines_emitted():
     assert "fill:#0891b2" in result  # brainstorm fill
     assert "fill:#4b5563" in result  # backlog fill
     assert "fill:#7c3aed" in result  # current fill
+
+
+# ===========================================================================
+# Deepened tests: Boundary Value & Equivalence Partitioning
+# ===========================================================================
+
+
+def test_sanitize_id_empty_string():
+    """Empty type_id produces a valid Mermaid identifier (no crash).
+    derived_from: dimension:boundary_values (empty input)
+    """
+    # Given an empty type_id string
+    from ui.mermaid import _sanitize_id
+
+    # When we sanitize it
+    result = _sanitize_id("")
+
+    # Then the result is still a valid Mermaid ID (non-empty, starts with letter/underscore)
+    assert len(result) > 0
+    assert re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", result), f"Invalid ID: {result}"
+
+
+def test_sanitize_id_all_special_chars():
+    """':::' becomes all underscores + hash suffix.
+    derived_from: dimension:boundary_values (all-special input)
+    """
+    # Given a type_id composed entirely of special characters
+    from ui.mermaid import _sanitize_id
+
+    # When we sanitize it
+    result = _sanitize_id(":::")
+
+    # Then the base is all underscores and the result is valid
+    assert re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", result), f"Invalid ID: {result}"
+    # The base portion (before hash) should be underscores only
+    base = result.rsplit("_", 1)[0]
+    assert all(c == "_" for c in base), f"Expected all underscores in base, got: {base}"
+
+
+def test_sanitize_id_starts_with_uppercase():
+    """Uppercase first char does NOT get 'n' prefix — only digits, 'o', 'x' do.
+    derived_from: dimension:boundary_values (uppercase prefix)
+    """
+    # Given a type_id starting with uppercase letter
+    from ui.mermaid import _sanitize_id
+
+    # When we sanitize it
+    result = _sanitize_id("Alpha")
+
+    # Then it should NOT start with 'n' prefix
+    assert result.startswith("Alpha_"), f"Expected 'Alpha_...' but got: {result}"
+
+
+def test_sanitize_label_empty_string():
+    """Empty string label returns empty string.
+    derived_from: dimension:boundary_values (empty input)
+    """
+    # Given an empty label string
+    from ui.mermaid import _sanitize_label
+
+    # When we sanitize it
+    result = _sanitize_label("")
+
+    # Then the result is empty
+    assert result == ""
+
+
+def test_sanitize_label_all_special_combined():
+    """All escapable characters in a single string are all replaced.
+    derived_from: dimension:boundary_values (combined specials)
+    """
+    # Given a label containing every escapable character
+    from ui.mermaid import _sanitize_label
+
+    # When we sanitize a string with all special chars: " [ ] \ < >
+    result = _sanitize_label('"hello" [world] a\\b <c>')
+
+    # Then every special char is replaced
+    assert result == "'hello' (world) a/b &lt;c&gt;"
+
+
+def test_hash_suffix_exactly_4_hex():
+    """Hash suffix is exactly 4 hex characters after the last underscore.
+    derived_from: dimension:mutation_mindset (pin hash length)
+    """
+    # Given various type_ids
+    from ui.mermaid import _sanitize_id
+
+    for tid in ["feature:001", "project:abc", "x", ":::", ""]:
+        # When we sanitize each
+        result = _sanitize_id(tid)
+        # Then the last 4 chars after the final underscore are hex
+        parts = result.rsplit("_", 1)
+        assert len(parts) == 2, f"Expected underscore separator in: {result}"
+        hex_part = parts[1]
+        assert len(hex_part) == 4, f"Expected 4 hex chars, got {len(hex_part)}: {hex_part}"
+        assert re.match(r"^[0-9a-f]{4}$", hex_part), f"Not hex: {hex_part}"
+
+
+# ===========================================================================
+# Deepened tests: Adversarial / Negative Testing
+# ===========================================================================
+
+
+def test_entity_with_parent_type_id_not_in_all_entities():
+    """Orphan parent_type_id should not produce an edge.
+    derived_from: dimension:adversarial (orphan parent ref)
+    """
+    # Given a child entity whose parent_type_id is NOT in ancestors or children
+    from ui.mermaid import build_mermaid_dag
+
+    current = _entity("feature:cur", "Current")
+    orphan_child = _entity("feature:orphan", "Orphan", "feature", parent_type_id="feature:missing")
+
+    # When we build the DAG
+    result = build_mermaid_dag(current, [], [orphan_child])
+    edges = [l for l in result.split("\n") if "-->" in l]
+
+    # Then no edge is created for the orphan parent reference
+    assert len(edges) == 0, f"Expected 0 edges for orphan parent, got: {edges}"
+
+
+def test_entity_name_with_mermaid_syntax():
+    """Entity name containing --> [] and " chars is safely escaped.
+    derived_from: dimension:adversarial (mermaid injection)
+    """
+    # Given an entity whose name contains Mermaid syntax characters
+    from ui.mermaid import build_mermaid_dag
+
+    dangerous_name = 'A --> B ["inject"]'
+    current = _entity("feature:danger", dangerous_name)
+
+    # When we build the DAG
+    result = build_mermaid_dag(current, [], [])
+
+    # Then the raw dangerous chars should NOT appear in node definitions
+    node_lines = [l for l in result.split("\n") if '["' in l and "flowchart" not in l]
+    assert len(node_lines) == 1
+    # The label should have " replaced with ' and [] replaced with ()
+    assert "--&gt;" in node_lines[0] or "-->" not in node_lines[0].split('["')[1]
+    assert '"inject"' not in node_lines[0].split('["', 1)[1].rsplit('"]', 1)[0]
+
+
+def test_current_entity_also_in_ancestors():
+    """Current entity appearing in ancestors is deduped; current dict wins.
+    derived_from: dimension:adversarial (dedup + current wins)
+    """
+    # Given the current entity also appears in the ancestors list
+    from ui.mermaid import build_mermaid_dag
+
+    current = _entity("feature:dup", "CurrentVersion")
+    ancestor_copy = _entity("feature:dup", "AncestorVersion")
+
+    # When we build the DAG
+    result = build_mermaid_dag(current, [ancestor_copy], [])
+    node_lines = [l for l in result.split("\n") if '["' in l and "-->" not in l]
+
+    # Then only one node def exists (deduped)
+    assert len(node_lines) == 1
+    # And the current entity's name wins (entity is appended last)
+    assert "CurrentVersion" in node_lines[0]
+
+
+def test_sanitize_id_unicode():
+    """Unicode characters in type_id are replaced, result is valid.
+    derived_from: dimension:adversarial (unicode input)
+    """
+    # Given a type_id with unicode characters
+    from ui.mermaid import _sanitize_id
+
+    # When we sanitize it
+    result = _sanitize_id("feature:café-résumé")
+
+    # Then the result is a valid Mermaid identifier
+    assert re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", result), f"Invalid ID: {result}"
+    assert len(result) > 4  # At least hash suffix
+
+
+# ===========================================================================
+# Deepened tests: Error Propagation & Failure Modes
+# ===========================================================================
+
+
+def test_build_mermaid_dag_entity_missing_name_key():
+    """Entity dict with no 'name' key falls back to type_id for label.
+    derived_from: dimension:error_propagation (absent name key)
+    """
+    # Given an entity dict that has no 'name' key at all
+    from ui.mermaid import build_mermaid_dag, _sanitize_label
+
+    entity = {"type_id": "feature:noname", "entity_type": "feature", "parent_type_id": None}
+
+    # When we build the DAG
+    result = build_mermaid_dag(entity, [], [])
+
+    # Then it doesn't crash and falls back to type_id as label
+    safe_label = _sanitize_label("feature:noname")
+    assert f'["{safe_label}"]' in result
+
+
+# ===========================================================================
+# Deepened tests: Mutation Testing Mindset
+# ===========================================================================
+
+
+def test_edge_direction_parent_to_child():
+    """Edge goes parent --> child, NOT child --> parent.
+    derived_from: dimension:mutation_mindset (direction swap)
+    """
+    # Given a parent and child entity
+    from ui.mermaid import build_mermaid_dag, _sanitize_id
+
+    parent = _entity("project:parent", "Parent", "project")
+    child = _entity("feature:child", "Child", "feature", parent_type_id="project:parent")
+
+    parent_id = _sanitize_id("project:parent")
+    child_id = _sanitize_id("feature:child")
+
+    # When we build the DAG
+    result = build_mermaid_dag(child, [parent], [])
+    edges = [l for l in result.split("\n") if "-->" in l]
+
+    # Then the edge direction is parent --> child
+    assert len(edges) == 1
+    assert edges[0].strip() == f"{parent_id} --> {child_id}"
+    # And NOT the reverse
+    assert f"{child_id} --> {parent_id}" not in result
+
+
+def test_entity_dict_wins_over_ancestor_duplicate():
+    """When same type_id in ancestors and as current, current entity dict wins.
+    derived_from: dimension:mutation_mindset (merge order)
+    """
+    # Given an ancestor with same type_id but different name than current
+    from ui.mermaid import build_mermaid_dag
+
+    ancestor_version = _entity("feature:shared", "OldName")
+    current_version = _entity("feature:shared", "NewName")
+
+    # When we build the DAG (entity is current_version)
+    result = build_mermaid_dag(current_version, [ancestor_version], [])
+    node_lines = [l for l in result.split("\n") if '["' in l and "-->" not in l]
+
+    # Then only one node exists with the current entity's name
+    assert len(node_lines) == 1
+    assert "NewName" in node_lines[0]
+    assert "OldName" not in node_lines[0]

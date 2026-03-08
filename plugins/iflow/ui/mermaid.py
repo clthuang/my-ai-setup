@@ -12,7 +12,6 @@ _ENTITY_TYPE_STYLES = {
 
 _CURRENT_STYLE = "fill:#7c3aed,stroke:#a78bfa,color:#fff,stroke-width:3px"
 
-_KNOWN_ENTITY_TYPES = set(_ENTITY_TYPE_STYLES.keys())
 
 
 def _sanitize_id(type_id: str) -> str:
@@ -78,7 +77,7 @@ def build_mermaid_dag(
             lines.append(f"class {safe_id} current")
         else:
             etype = e.get("entity_type", "feature")
-            if etype not in _KNOWN_ENTITY_TYPES:
+            if etype not in _ENTITY_TYPE_STYLES:
                 etype = "feature"
             lines.append(f"class {safe_id} {etype}")
 
