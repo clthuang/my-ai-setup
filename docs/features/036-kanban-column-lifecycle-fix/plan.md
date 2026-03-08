@@ -22,12 +22,19 @@ Tasks follow TDD: write failing tests first, then implement to make them pass.
 
 ### Phase 2: Engine backfill fix (low-risk, isolated)
 
-**Task 3: Pass `kanban_column` in engine degraded-mode backfill**
+**Task 3a: Write failing test for engine degraded-mode backfill kanban**
+- File: `plugins/iflow/hooks/lib/workflow_engine/test_workflow_engine.py` (existing)
+- Test: when engine.get_state() triggers degraded-mode backfill (no DB row), the created workflow_phases row has kanban_column from FEATURE_PHASE_TO_KANBAN (not "backlog")
+- Test should FAIL initially
+- Depends on: Task 1
+- AC: R8
+
+**Task 3b: Pass `kanban_column` in engine degraded-mode backfill**
 - File: `plugins/iflow/hooks/lib/workflow_engine/engine.py` (~line 590)
 - Import `FEATURE_PHASE_TO_KANBAN` from `.constants`
 - Add `kanban_column=FEATURE_PHASE_TO_KANBAN.get(state.current_phase, "backlog")` to `create_workflow_phase()` call
-- Why: safety net path — existing engine tests cover degraded mode; verified by regression in Phase 6
-- Depends on: Task 1
+- Makes Task 3a test pass
+- Depends on: Task 3a
 - AC: R8
 
 ### Phase 3: Reconciliation (detect + fix drift) — TDD
@@ -106,7 +113,7 @@ Tasks follow TDD: write failing tests first, then implement to make them pass.
 - File: `plugins/iflow/mcp/workflow_state_server.py` (~line 726)
 - Add STATUS_TO_KANBAN inline dict (with cross-ref comments to backfill.py:35-40 and scripts/fix_kanban_columns.py)
 - Insert AFTER _project_meta_json() call which triggers engine hydration → create_workflow_phase
-- The try/except ValueError guards against engine initialization failure where create_workflow_phase didn't execute (e.g., engine raised before reaching the degraded backfill path)
+- The try/except ValueError guards against engine initialization failure where create_workflow_phase didn't execute. Verified: database.py:1377 raises `ValueError("Workflow phase not found: {type_id}")` when the row doesn't exist
 - Makes Task 8 init tests pass
 - Depends on: Task 8
 - AC: AC-6
@@ -147,7 +154,8 @@ Tasks follow TDD: write failing tests first, then implement to make them pass.
 ```
 Task 1 (constants.py)
 ├── Task 2 (test constants)
-├── Task 3 (engine backfill)
+├── Task 3a (failing engine backfill test) ← TDD RED
+│   └── Task 3b (engine backfill impl) ← TDD GREEN
 ├── Task 4 (helper + helper tests)
 │   └── Task 5 (failing recon tests) ← TDD RED
 │       ├── Task 6 (drift detection impl) ← TDD GREEN
@@ -164,7 +172,7 @@ Task 14 (regression) ← depends on all above
 
 ## Parallel Execution Opportunities
 
-After Task 1 completes, Tasks 2-4, 8, and 12 can proceed in parallel (different files, independent test suites).
+After Task 1 completes, Tasks 2, 3a, 4, 8, and 12 can proceed in parallel (different files, independent test suites). Note: Tasks 9-11 each depend on Task 8 being in RED (tests failing) before implementation begins.
 
 ## Risk Mitigation During Implementation
 
