@@ -15,7 +15,7 @@
   "absorbed_features": [
     "022-kanban-card-click-through-navi"
   ],
-  "lastCompletedPhase": "create-plan",
+  "lastCompletedPhase": "create-tasks",
   "phases": {
     "design": {
       "stages": {
@@ -32,6 +32,14 @@
       "reviewIterations": {
         "planReviewer": 3,
         "phaseReviewer": 1
+      }
+    },
+    "create-tasks": {
+      "started": "2026-03-08T18:25:00+08:00",
+      "completed": "2026-03-08T19:00:00+08:00",
+      "reviewIterations": {
+        "taskReviewer": 3,
+        "phaseReviewer": 2
       }
     }
   }
