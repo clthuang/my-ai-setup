@@ -12,7 +12,7 @@ Add a Mermaid.js-rendered DAG diagram to the entity detail page's Lineage sectio
 **In scope:**
 - Server-side Mermaid flowchart string generation (`build_mermaid_dag`)
 - Client-side rendering via Mermaid.js CDN (lazy-loaded on detail page only)
-- Clickable nodes using URL link syntax with `securityLevel: 'loose'` (safe — only URL strings emitted, no JS callbacks)
+- Clickable nodes using URL link syntax — requires `securityLevel: 'loose'` (Mermaid click functionality does not activate at default security level regardless of syntax)
 - Entity type color coding + current node highlighting
 - Increase children depth from 1 to 10
 - Collapsed `<details>` fallback for flat ancestor/children lists
@@ -146,7 +146,7 @@ Escapes characters that would break Mermaid node labels inside double quotes.
 **AC:**
 - AC-R3.1: Entity detail page contains `<pre class="mermaid">` element
 - AC-R3.2: Flat lists are inside a `<details>` element, collapsed by default
-- AC-R3.3: Mermaid.js CDN script appears only in entity_detail.html, not in base.html
+- AC-R3.3: Mermaid.js CDN script tag appears only within entity_detail.html and no other template file (base.html, partials, or includes)
 - AC-R3.4: Board page (`/`) HTML does not contain `mermaid` script references
 - AC-R3.5: Entity list page (`/entities`) HTML does not contain `mermaid` script references
 - AC-R3.6: Clicking a non-current node in the rendered DAG navigates to that entity's detail page (browser verification)
@@ -216,6 +216,7 @@ Escapes characters that would break Mermaid node labels inside double quotes.
 | `test_entity_detail_context_has_mermaid_dag` | AC-R2.1 |
 | `test_entity_detail_mermaid_dag_contains_entity_node` | AC-R2.1: mermaid_dag string contains sanitized node ID for the entity |
 | `test_entity_detail_children_depth_beyond_one` | AC-R2.2: mermaid_dag or children list contains grandchildren (depth>1 entities) |
+| `test_entity_detail_flat_list_in_details` | AC-R3.2: response contains `<details>` wrapping lineage lists with no `open` attribute (collapsed) |
 
 ### Browser Verification (Playwright MCP)
 
