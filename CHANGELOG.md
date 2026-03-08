@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Entity registry: `complete_phase("finish")` now syncs `entities.status` to `completed`, ensuring finished features appear correctly on the board
+- Entity registry: Backfill now derives parent kanban column from child feature status for brainstorm and backlog entities, eliminating kanban drift for parent nodes
+- Entity server: `backfill_workflow_phases()` wired into server startup so new installs and restarts auto-correct stale phase/kanban state
+
 ## [4.11.9] - 2026-03-08
 
 ### Added
