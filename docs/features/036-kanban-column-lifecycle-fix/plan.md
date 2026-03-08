@@ -39,19 +39,24 @@ Tasks follow TDD: write failing tests first, then implement to make them pass.
 
 ### Phase 3: Reconciliation (detect + fix drift) — TDD
 
-**Task 4: Add `_derive_expected_kanban()` helper + its unit tests**
-- File: `plugins/iflow/hooks/lib/workflow_engine/reconciliation.py`
-- Add import: `from .constants import FEATURE_PHASE_TO_KANBAN`
-- Add pure function with signature `(workflow_phase: str | None, last_completed_phase: str | None) -> str | None`
-- Three branches: None→None, finish+finish→completed, otherwise→lookup
-- Write unit tests for the helper in `plugins/iflow/hooks/lib/workflow_engine/test_reconciliation.py` (same package as reconciliation module):
+**Task 4a: Write failing unit tests for `_derive_expected_kanban()` helper** ← TDD RED
+- File: `plugins/iflow/hooks/lib/workflow_engine/test_reconciliation.py` (same package as reconciliation module)
+- Test cases:
   - None phase → returns None
   - finish+finish → returns "completed"
   - finish+specify → returns "documenting"
   - implement+specify → returns "wip"
   - unknown phase → returns None
-- Why: pure function, testable in isolation before integration
+- Tests should FAIL initially (helper not yet implemented)
 - Depends on: Task 1
+
+**Task 4b: Implement `_derive_expected_kanban()` helper** ← TDD GREEN
+- File: `plugins/iflow/hooks/lib/workflow_engine/reconciliation.py`
+- Add import: `from .constants import FEATURE_PHASE_TO_KANBAN`
+- Add pure function with signature `(workflow_phase: str | None, last_completed_phase: str | None) -> str | None`
+- Three branches: None→None, finish+finish→completed, otherwise→lookup
+- Makes Task 4a tests pass
+- Depends on: Task 4a
 
 **Task 5: Write failing tests for kanban drift detection and reconciliation fix**
 - File: `plugins/iflow/hooks/lib/workflow_engine/test_reconciliation.py`
@@ -60,7 +65,7 @@ Tasks follow TDD: write failing tests first, then implement to make them pass.
 - Test: _reconcile_single_feature corrects kanban_column via update_workflow_phase
 - Test: _reconcile_single_feature skips kanban_column when _derive_expected_kanban returns None
 - These tests should FAIL initially (kanban check/fix not yet implemented)
-- Depends on: Task 4
+- Depends on: Task 4b
 - AC: AC-4, AC-5
 
 **Task 6: Implement kanban drift detection in `_check_single_feature()`**
@@ -156,8 +161,9 @@ Task 1 (constants.py)
 ├── Task 2 (test constants)
 ├── Task 3a (failing engine backfill test) ← TDD RED
 │   └── Task 3b (engine backfill impl) ← TDD GREEN
-├── Task 4 (helper + helper tests)
-│   └── Task 5 (failing recon tests) ← TDD RED
+├── Task 4a (failing helper tests) ← TDD RED
+│   └── Task 4b (helper impl) ← TDD GREEN
+│       └── Task 5 (failing recon tests) ← TDD RED
 │       ├── Task 6 (drift detection impl) ← TDD GREEN
 │       └── Task 7 (recon fix impl) ← TDD GREEN
 ├── Task 8 (failing MCP tests) ← TDD RED
@@ -172,7 +178,7 @@ Task 14 (regression) ← depends on all above
 
 ## Parallel Execution Opportunities
 
-After Task 1 completes, Tasks 2, 3a, 4, 8, and 12 can proceed in parallel (different files, independent test suites). Note: Tasks 9-11 each depend on Task 8 being in RED (tests failing) before implementation begins.
+After Task 1 completes, Tasks 2, 3a, 4a, 8, and 12 can proceed in parallel (different files, independent test suites). Note: Tasks 9-11 each depend on Task 8 being in RED (tests failing) before implementation begins.
 
 ## Risk Mitigation During Implementation
 
