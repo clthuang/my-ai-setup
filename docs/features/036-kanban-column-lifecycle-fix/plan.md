@@ -89,7 +89,7 @@ Tasks follow TDD: write failing tests first, then implement to make them pass.
 **Task 9: Implement `_process_transition_phase()` kanban update**
 - File: `plugins/iflow/mcp/workflow_state_server.py` (~line 503)
 - Add feature guard + FEATURE_PHASE_TO_KANBAN lookup + db.update_workflow_phase call
-- Insert AFTER the existing db.update_entity() call (not after _project_meta_json)
+- Insert after db.update_entity() call (line 521). _project_meta_json (line 524) does not modify workflow_phases, so placement relative to it is safe
 - Makes Task 8 transition tests pass
 - Depends on: Task 8
 - AC: AC-1
@@ -97,7 +97,7 @@ Tasks follow TDD: write failing tests first, then implement to make them pass.
 **Task 10: Implement `_process_complete_phase()` kanban update**
 - File: `plugins/iflow/mcp/workflow_state_server.py` (~line 578)
 - Add feature guard + conditional logic (finish→completed, else→lookup from state.current_phase)
-- Insert AFTER engine.complete_phase() returns state
+- Insert after db.update_entity() call (line 578) and before _project_meta_json (line 581)
 - Makes Task 8 complete tests pass
 - Depends on: Task 8
 - AC: AC-2, AC-3, AC-3b
