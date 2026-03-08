@@ -63,7 +63,8 @@ def build_mermaid_dag(
     current_tid = entity["type_id"]
     for tid in all_entities:
         if tid != current_tid:
-            lines.append(f'click {_sanitize_id(tid)} href "/entities/{tid}"')
+            safe_tid = tid.replace('"', '%22')
+            lines.append(f'click {_sanitize_id(tid)} href "/entities/{safe_tid}"')
 
     # Step 4: classDef blocks
     for etype, style in _ENTITY_TYPE_STYLES.items():

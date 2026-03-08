@@ -111,6 +111,20 @@
         <pre class="text-xs bg-base-300 p-3 rounded overflow-x-auto max-h-96">{{ metadata_formatted }}</pre>
     </div>
 </div>
+<!--
+    securityLevel: 'loose' is required for Mermaid click handlers (href links) to be
+    interactive. At 'strict' (default), click events are silently disabled regardless
+    of syntax (confirmed: Mermaid GitHub issue #6809). 'antiscript' is not used because
+    it may break click functionality in some Mermaid versions.
+
+    XSS mitigations in place:
+    - _sanitize_label() escapes <, >, ", [, ], \ — blocks HTML/script injection in
+      node labels before Mermaid JS processes them (covers CVE-2025-54880, CVE-2025-54881,
+      CVE-2026-23733 vectors).
+    - Click handler URLs use only server-generated relative paths with URL-encoded
+      double-quotes — no user-supplied JS callbacks.
+    - Entity data is internal (from entity registry DB), not user-supplied input.
+-->
 <script type="module">
     import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
     mermaid.initialize({ startOnLoad: true, securityLevel: 'loose', theme: 'dark' });

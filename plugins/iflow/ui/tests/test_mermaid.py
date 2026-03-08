@@ -258,6 +258,27 @@ def test_click_handler_raw_type_id_with_colon():
     assert any("/entities/feature:021" in c for c in clicks)
 
 
+def test_click_handler_url_encodes_double_quote_in_tid():
+    """Double-quote in type_id is URL-encoded to %22 in click handler URL.
+
+    Prevents breakout from Mermaid quoted string in click href.
+    """
+    from ui.mermaid import build_mermaid_dag
+
+    current = _entity("project:p", "P", "project")
+    child = _entity('feature:"evil"', "Evil", "feature", parent_type_id="project:p")
+
+    result = build_mermaid_dag(current, [], [child])
+    clicks = [l for l in result.split("\n") if l.strip().startswith("click ")]
+
+    # The raw double-quote should NOT appear in the URL portion
+    assert any('/entities/feature:%22evil%22' in c for c in clicks)
+    # Ensure no unescaped " in the URL (beyond the wrapping quotes)
+    for c in clicks:
+        url_part = c.split('href "')[1].rsplit('"')[0]
+        assert '"' not in url_part, f"Unescaped double-quote in URL: {url_part}"
+
+
 def test_classdef_lines_emitted():
     """Output contains classDef for feature, project, brainstorm, backlog, current."""
     from ui.mermaid import build_mermaid_dag
