@@ -6,7 +6,7 @@
 Phase A (parallel):  T0.1  T1.1─T1.2  T3.1─T3.2─T3.3  T5.1
                                   │                           │
                                   ▼                           ▼
-Phase A→B bridge:               T1.2─────────────────────→T5.2─T5.3
+Phase A→B bridge:          T0.1+T1.2─────────────────────→T5.2─T5.3
                        │      │
                        ▼      ▼
 Phase B:             T2.1─T2.2─T2.3─T2.4
@@ -408,8 +408,8 @@ Phase E:             T10.1─T10.2
 ### T9.9: Update `commands/create-project.md` — project .meta.json (Site 9)
 **File:** `plugins/iflow/commands/create-project.md`
 **Do:**
-1. Find Write instruction for project `.meta.json` (~lines 60-75)
-2. Replace with `init_project_state(project_dir, project_id, slug, features, milestones, brainstorm_source)` call
+1. Run `grep -n 'Write.*meta.json\|project.*meta\.json' plugins/iflow/commands/create-project.md` to find exact lines
+2. Replace Write instruction with `init_project_state(project_dir, project_id, slug, features, milestones, brainstorm_source)` call
 **Verify:** `grep -rn 'Write.*meta.json\|Edit.*meta.json' plugins/iflow/skills/ plugins/iflow/commands/` returns zero matches across ALL files
 **Done when:** Zero residual `.meta.json` write instructions in entire plugin
 
@@ -448,7 +448,7 @@ Phase E:             T10.1─T10.2
 | Phase | Tasks | Parallel | Depends On |
 |-------|-------|----------|------------|
 | A | T0.1, T1.1-T1.2, T3.1-T3.3, T5.1 | Yes | None |
-| A→B | T5.2-T5.3 | No | T1.2 |
+| A→B | T5.2-T5.3 | No | T0.1, T1.2 |
 | B | T2.1-T2.4 | No | A (T0.1, T1.2) |
 | C | T4.1-T4.3, T6.1-T6.2, T7.1-T7.3, T8.1-T8.3 | Yes | B (T2.3) |
 | D | T9.1-T9.9 | Sequential | C (all) |
