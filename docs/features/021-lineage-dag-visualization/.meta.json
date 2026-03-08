@@ -15,7 +15,7 @@
   "absorbed_features": [
     "022-kanban-card-click-through-navi"
   ],
-  "lastCompletedPhase": "design",
+  "lastCompletedPhase": "create-plan",
   "phases": {
     "design": {
       "stages": {
@@ -24,6 +24,14 @@
         "interface": { "started": "2026-03-08T17:40:00+08:00", "completed": "2026-03-08T17:40:00+08:00" },
         "designReview": { "started": "2026-03-08T17:40:00+08:00", "completed": "2026-03-08T17:55:00+08:00", "iterations": 3, "reviewerNotes": [] },
         "handoffReview": { "started": "2026-03-08T17:50:00+08:00", "completed": "2026-03-08T17:55:00+08:00", "iterations": 3, "approved": true, "reviewerNotes": [] }
+      }
+    },
+    "create-plan": {
+      "started": "2026-03-08T17:55:00+08:00",
+      "completed": "2026-03-08T18:25:00+08:00",
+      "reviewIterations": {
+        "planReviewer": 3,
+        "phaseReviewer": 1
       }
     }
   }
