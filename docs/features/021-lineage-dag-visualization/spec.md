@@ -47,7 +47,7 @@ Generates a Mermaid `flowchart TD` definition string.
 1. Build `all_entities` dict keyed by `type_id` from `ancestors + [entity] + children` (deduplication via dict merge)
 2. Emit node definitions: `{safe_id}["{safe_label}"]` for each entity
 3. Emit edges: `{safe_parent_id} --> {safe_child_id}` where `parent_type_id` exists in `all_entities`
-4. Emit click handlers: `click {safe_id} "/entities/{type_id}"` (URL link syntax, no tooltip/target needed) for every entity EXCEPT the current one
+4. Emit click handlers: `click {safe_id} href "/entities/{type_id}"` (explicit URL link syntax with `href` keyword) for every entity EXCEPT the current one
 5. Emit classDef blocks for entity types + `current` style
 6. Emit class assignments: `current` for the entity itself, entity_type for all others. Unknown `entity_type` values default to `feature` class
 

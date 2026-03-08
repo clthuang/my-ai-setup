@@ -108,6 +108,8 @@
 | CDN unavailable | Raw Mermaid text in `<pre>` is still human-readable; flat list in `<details>` is expandable |
 | Large graphs (>50 nodes) | Depth=10 on entity hierarchies typically yields <50 nodes; Mermaid handles hundreds of nodes |
 | HTMX partial navigation breaks Mermaid | Current detail page is full-page load; if HTMX partial nav is added later, `htmx:afterSwap` → `mermaid.run()` will be needed |
+| Flat children list shows all descendants | With depth=10, the fallback flat list shows all descendants without hierarchy nesting. Accepted trade-off — the DAG is the primary view, flat list is a CDN-failure fallback |
+| ESM module load timing | `startOnLoad: true` calls `mermaid.run()` internally after `initialize()`. ESM modules execute after DOM is ready, so `<pre class="mermaid">` elements are already present. Mermaid detects and processes existing elements even when initialize runs after DOMContentLoaded. If issues arise, fallback: call `await mermaid.run()` explicitly after `initialize()` |
 
 ## Interfaces
 
@@ -135,23 +137,27 @@ def build_mermaid_dag(
     """
 ```
 
+**Pre-condition:** `ancestors` and `children` must not contain the entity itself (ensured by `_strip_self_from_lineage()` in the route).
+
 **Emission pipeline (6 steps, all appending to a `lines: list[str]`):**
 
 1. **Header:** `"flowchart TD"`
-2. **Nodes:** For each entity in `all_entities` (deduped by `type_id`):
+2. **Build `all_entities`:** `{e["type_id"]: e for e in ancestors + children + [entity]}` — entity dict is last, so it wins on any duplicate `type_id` (defensive against data anomalies).
+3. **Nodes:** For each entity in `all_entities` (deduped by `type_id`):
    ```
        {_sanitize_id(tid)}["{_sanitize_label(name or tid)}"]
    ```
-3. **Edges:** For each entity with `parent_type_id` present in `all_entities`:
+4. **Edges:** For each entity with `parent_type_id` present in `all_entities`:
    ```
        {_sanitize_id(parent_type_id)} --> {_sanitize_id(tid)}
    ```
-4. **Click handlers:** For each entity EXCEPT current:
+5. **Click handlers:** For each entity EXCEPT current:
    ```
-       click {_sanitize_id(tid)} "/entities/{tid}"
+       click {_sanitize_id(tid)} href "/entities/{tid}"
    ```
-5. **Class definitions:** 5 `classDef` lines (feature, project, brainstorm, backlog, current)
-6. **Class assignments:** For each entity:
+   Uses `href` keyword for explicit URL link syntax (both `click A "url"` and `click A href "url"` work in Mermaid v11, but `href` is more explicit and future-proof). Type IDs containing special URL characters (colons, etc.) are safe because FastAPI's `{identifier:path}` route parameter handles them, and Mermaid treats the quoted string as an opaque URL.
+6. **Class definitions:** 5 `classDef` lines (feature, project, brainstorm, backlog, current)
+7. **Class assignments:** For each entity:
    ```
        class {_sanitize_id(tid)} {cls}
    ```
@@ -184,6 +190,8 @@ def _sanitize_id(type_id: str) -> str:
     suffix = hashlib.sha256(type_id.encode("utf-8")).hexdigest()[:4]
     return f"{base}_{suffix}"
 ```
+
+**Edge cases:** `type_id = ":::"` → base = `"___"`, result = `"____XXXX"` (valid). `type_id = ""` → base = `""`, result = `"_XXXX"` (starts with `_`, valid per regex). Empty type_id is not expected in practice but handled safely.
 
 #### `_sanitize_label(text: str) -> str`
 
@@ -333,13 +341,31 @@ def _make_entity(type_id, name=None, entity_type="feature", parent_type_id=None)
 
 ```python
 def _seed_entity_with_parent(cursor, type_id, name, entity_type, parent_type_id):
+    """Seed entity with parent linkage for lineage traversal.
+
+    Sets both parent_type_id AND parent_uuid — get_lineage() uses
+    recursive CTE on parent_uuid, so parent_type_id alone is insufficient.
+    """
+    entity_uuid = str(uuid.uuid4())
+    # Look up parent's UUID if parent exists
+    parent_uuid = None
+    if parent_type_id:
+        row = cursor.execute(
+            "SELECT uuid FROM entities WHERE type_id = ?", (parent_type_id,)
+        ).fetchone()
+        if row:
+            parent_uuid = row[0]
     cursor.execute(
         """INSERT OR IGNORE INTO entities
-           (uuid, type_id, entity_type, entity_id, name, status, parent_type_id)
-           VALUES (?, ?, ?, ?, ?, 'active', ?)""",
-        (str(uuid.uuid4()), type_id, entity_type, type_id, name, parent_type_id),
+           (uuid, type_id, entity_type, entity_id, name, status,
+            parent_type_id, parent_uuid)
+           VALUES (?, ?, ?, ?, ?, 'active', ?, ?)""",
+        (entity_uuid, type_id, entity_type, type_id, name,
+         parent_type_id, parent_uuid),
     )
 ```
+
+**Important:** Entities must be seeded in parent-first order so `parent_uuid` lookup succeeds.
 
 **Test setup:** Create a 3-level hierarchy (project → brainstorm → feature) to verify:
 - `mermaid_dag` in response context
