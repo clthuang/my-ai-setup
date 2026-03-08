@@ -15,14 +15,15 @@
   "absorbed_features": [
     "022-kanban-card-click-through-navi"
   ],
-  "lastCompletedPhase": "specify",
+  "lastCompletedPhase": "design",
   "phases": {
     "design": {
       "stages": {
         "research": { "started": "2026-03-08T17:30:00+08:00", "completed": "2026-03-08T17:35:00+08:00", "skipped": false },
         "architecture": { "started": "2026-03-08T17:35:00+08:00", "completed": "2026-03-08T17:40:00+08:00" },
         "interface": { "started": "2026-03-08T17:40:00+08:00", "completed": "2026-03-08T17:40:00+08:00" },
-        "designReview": { "started": "2026-03-08T17:40:00+08:00", "iterations": 0, "reviewerNotes": [] }
+        "designReview": { "started": "2026-03-08T17:40:00+08:00", "completed": "2026-03-08T17:55:00+08:00", "iterations": 3, "reviewerNotes": [] },
+        "handoffReview": { "started": "2026-03-08T17:50:00+08:00", "completed": "2026-03-08T17:55:00+08:00", "iterations": 3, "approved": true, "reviewerNotes": [] }
       }
     }
   }
