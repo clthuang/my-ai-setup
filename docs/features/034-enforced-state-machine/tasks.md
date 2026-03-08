@@ -113,6 +113,8 @@ Phase E:             T10.1─T10.2
 
 ---
 
+## Phase A→B Bridge (depends on T0.1, T1.2)
+
 ### T5.2: Implement `_process_init_project_state()` (GREEN)
 **File:** `plugins/iflow/mcp/workflow_state_server.py`
 **Do:**
