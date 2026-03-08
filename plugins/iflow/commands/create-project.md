@@ -72,7 +72,7 @@ init_project_state(
 )
 ```
 
-The MCP tool creates the `.meta.json` with proper structure including `id`, `slug`, `status`, `created` timestamp, `features`, `milestones`, and `brainstorm_source`.
+The MCP tool creates the `.meta.json` with required fields: `id`, `slug`, `status`, `created` timestamp, `features`, `milestones`, and `brainstorm_source`.
 
 ## Step 8: Copy PRD
 

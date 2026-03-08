@@ -110,7 +110,7 @@ init_feature_state(
 
 Notes:
 - `brainstorm_source` is only included when feature is promoted from a brainstorm — omit the parameter if not applicable
-- The MCP tool creates the `.meta.json` with proper structure (phases, lastCompletedPhase, timestamps)
+- The MCP tool creates the `.meta.json` with required fields (phases, lastCompletedPhase, timestamps)
 - The tool returns `feature_type_id` and `meta_json_path` in its response
 
 ## Handle PRD Source
