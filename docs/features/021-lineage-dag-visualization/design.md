@@ -139,7 +139,7 @@ def build_mermaid_dag(
 
 **Pre-condition:** `ancestors` and `children` must not contain the entity itself (ensured by `_strip_self_from_lineage()` in the route).
 
-**Emission pipeline (6 steps, all appending to a `lines: list[str]`):**
+**Emission pipeline (1 prep step + 6 emission steps, all appending to a `lines: list[str]`):**
 
 1. **Header:** `"flowchart TD"`
 2. **Build `all_entities`:** `{e["type_id"]: e for e in ancestors + children + [entity]}` — entity dict is last, so it wins on any duplicate `type_id` (defensive against data anomalies).
@@ -340,22 +340,23 @@ def _make_entity(type_id, name=None, entity_type="feature", parent_type_id=None)
 **Requires custom seeding with `parent_type_id`** — the existing `_seed_entity()` helper doesn't set it.
 
 ```python
-def _seed_entity_with_parent(cursor, type_id, name, entity_type, parent_type_id):
+def _seed_entity_with_parent(db_file, type_id, name, entity_type, parent_type_id=None):
     """Seed entity with parent linkage for lineage traversal.
 
+    Matches existing _seed_entity(db_file, ...) pattern — manages its own connection.
     Sets both parent_type_id AND parent_uuid — get_lineage() uses
     recursive CTE on parent_uuid, so parent_type_id alone is insufficient.
     """
+    conn = sqlite3.connect(db_file)
     entity_uuid = str(uuid.uuid4())
-    # Look up parent's UUID if parent exists
     parent_uuid = None
     if parent_type_id:
-        row = cursor.execute(
+        row = conn.execute(
             "SELECT uuid FROM entities WHERE type_id = ?", (parent_type_id,)
         ).fetchone()
         if row:
             parent_uuid = row[0]
-    cursor.execute(
+    conn.execute(
         """INSERT OR IGNORE INTO entities
            (uuid, type_id, entity_type, entity_id, name, status,
             parent_type_id, parent_uuid)
@@ -363,6 +364,8 @@ def _seed_entity_with_parent(cursor, type_id, name, entity_type, parent_type_id)
         (entity_uuid, type_id, entity_type, type_id, name,
          parent_type_id, parent_uuid),
     )
+    conn.commit()
+    conn.close()
 ```
 
 **Important:** Entities must be seeded in parent-first order so `parent_uuid` lookup succeeds.
