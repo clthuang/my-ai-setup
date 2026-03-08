@@ -15,8 +15,8 @@ Phase 1 of the enforced state machine deploys a PreToolUse hook that blocks all 
 | FR-7 | PreToolUse hook `meta-json-guard.sh` blocking ALL Write/Edit to `*/.meta.json` | 1 | |
 | FR-8 | Update 9 LLM-driven `.meta.json` write sites to use MCP tools | 1 | 3 new + 2 extended tools |
 | FR-11 | Instrumentation — log every blocked write with feature ID, tool name, timestamp | 1 | Calling command not available in hook context |
-| FR-4 | Extended `complete_phase` with timing metadata | 1 (pulled forward) | Required: MCP must write `.meta.json` |
-| FR-5 | `.meta.json` projection function `_project_meta_json` | 1 (pulled forward) | Required: hook blocks all writes |
+| FR-4 | Extended `complete_phase` with timing metadata | 1 (pulled forward) | Hook blocks all writes; MCP write path requires projection |
+| FR-5 | `.meta.json` projection function `_project_meta_json` | 1 (pulled forward) | Hook blocks all writes; existing MCP tools don't write `.meta.json` |
 
 ## Enforcement Boundary
 
@@ -149,7 +149,15 @@ async def init_project_state(
 ) -> str:
 ```
 
-Writes project `.meta.json` directly via Python `open()` (bypasses hook, same mechanism as `init_feature_state`). Uses its own formatting logic since project schema differs from feature schema (includes `features[]` and `milestones[]` arrays instead of `phases{}`).
+Writes project `.meta.json` directly via Python `open()` (bypasses hook, same mechanism as `init_feature_state`). Uses its own inline formatting logic (no shared `_project_meta_json` — project schema differs from feature schema).
+
+**Project `.meta.json` fields written:**
+- `id`, `slug`, `status` ("active"), `created` (ISO timestamp)
+- `brainstorm_source` (optional)
+- `features` — JSON array of feature ID strings
+- `milestones` — JSON array of milestone objects (`{name, features[], target_date?}`)
+
+No `phases{}`, `lastCompletedPhase`, `branch`, or `mode` fields (these are feature-only).
 
 **Acceptance Criteria:**
 - [ ] Decomposing skill calls `init_project_state` instead of direct Write
@@ -277,7 +285,7 @@ async def complete_phase(
 - [ ] Log file created on first write (no pre-creation needed, `mkdir -p` + `>>` handles it)
 - [ ] Log entries are valid JSONL (one JSON object per line)
 - [ ] Feature ID extracted from path where possible
-- [ ] Calling command NOT logged (unavailable in PreToolUse hook context — documented deviation from FR-11)
+- [ ] Calling command NOT logged (unavailable in PreToolUse hook context — documented deviation from FR-11). Path + timestamp is sufficient to identify residual write sites; calling command is not required for Phase 1 go/no-go decision
 
 ### 4. New MCP Tools Summary
 
@@ -327,7 +335,7 @@ def _project_meta_json(feature_type_id: str, feature_dir: str | None = None) -> 
 
 **Synchronous:** Called inline after every DB mutation, before MCP tool returns. No staleness window.
 
-**Data source note:** In Phase 1, timing data (phase started/completed/iterations/reviewerNotes) is stored in entity metadata JSON blob (no new DB columns). The projection function reads this metadata and formats it into the `.meta.json` structure LLM agents expect. Phase 2 may migrate timing data to dedicated `workflow_phases` columns.
+**Data source note:** In Phase 1, timing data is stored in entity metadata JSON blob (no new DB columns) with structure: `{"phase_timing": {"specify": {"started": "...", "completed": "...", "iterations": 2, "reviewerNotes": ["..."]}}}`. The projection function reads `metadata.phase_timing` and formats it into the `.meta.json` `phases` object LLM agents expect. Phase 2 may migrate timing data to dedicated `workflow_phases` columns.
 
 **Acceptance Criteria:**
 - [ ] `.meta.json` regenerated after `transition_phase` succeeds
