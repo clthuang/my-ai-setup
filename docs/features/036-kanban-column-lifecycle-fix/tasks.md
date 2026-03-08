@@ -292,11 +292,12 @@ Final:   Task 14 (after all above)
    - Assert: `db.get_workflow_phase(type_id)["kanban_column"] == "prioritised"`
 
 5. Add test `test_init_feature_state_active_sets_kanban_wip`:
+   - Construct engine: `engine = WorkflowStateEngine(db=db, artifacts_root=str(tmp_path))` — follow the engine fixture pattern in `test_engine.py`
    - Call `_process_init_feature_state(db=db, engine=engine, feature_dir=str(tmp_path/"features"/"099-test"), feature_id="099", slug="test", mode="standard", branch="feature/099-test", brainstorm_source=None, backlog_source=None, status="active", artifacts_root=str(tmp_path))`
    - Assert: `db.get_workflow_phase("feature:099-test")["kanban_column"] == "wip"`
 
 6. Add test `test_init_feature_state_planned_sets_kanban_backlog`:
-   - Same call pattern but `status="planned"`, different feature_id/slug
+   - Same engine construction and call pattern but `status="planned"`, different feature_id/slug
    - Assert: `db.get_workflow_phase(type_id)["kanban_column"] == "backlog"`
 
 7. Run tests — all should FAIL (kanban updates not yet implemented in MCP server)
@@ -429,8 +430,7 @@ Final:   Task 14 (after all above)
 2. Run Task 12 test — should now PASS
 
 ### Done when
-- Task 12 test passes
-- `python scripts/fix_kanban_columns.py --dry-run --db-path :memory:` exits with code 0
+- Task 12 test passes (binary: all assertions in `test_fix_kanban_columns.py` green)
 
 ---
 
