@@ -1271,7 +1271,8 @@ def test_entity_detail_has_back_link_to_list():
     content = template_path.read_text()
 
     assert 'href="/entities"' in content
-    assert "Back to Entity List" in content
+    # Breadcrumbs replaced the old "Back to Entity List" button
+    assert "Entities" in content
 
 
 # derived_from: dimension:mutation (search limit=100 passed to search_entities)
@@ -1348,6 +1349,181 @@ def test_entity_detail_lineage_directions(tmp_path):
     # Ancestors: direction="up", max_depth=10
     up_call = [c for c in lineage_calls if c[1] == "up"][0]
     assert up_call[2] == 10
-    # Children: direction="down", max_depth=1
+    # Children: direction="down", max_depth=10
     down_call = [c for c in lineage_calls if c[1] == "down"][0]
-    assert down_call[2] == 1
+    assert down_call[2] == 10
+
+
+# ===========================================================================
+# Feature 021: Lineage DAG Visualization — Integration Tests
+# ===========================================================================
+
+import uuid as uuid_mod
+
+
+def _seed_entity_with_parent(db_file, type_id, name, entity_type,
+                             parent_type_id=None):
+    """Insert an entity with proper parent_uuid for get_lineage CTE traversal.
+
+    Must be called in parent-first order so parent_uuid lookup resolves.
+    """
+    entity_uuid = str(uuid_mod.uuid4())
+    conn = sqlite3.connect(db_file)
+    conn.execute("PRAGMA foreign_keys = OFF")
+
+    parent_uuid = None
+    if parent_type_id:
+        row = conn.execute(
+            "SELECT uuid FROM entities WHERE type_id = ?",
+            (parent_type_id,),
+        ).fetchone()
+        if row:
+            parent_uuid = row[0]
+
+    now = "2026-03-08T12:00:00Z"
+    conn.execute(
+        "INSERT OR IGNORE INTO entities "
+        "(uuid, type_id, entity_type, entity_id, name, status, "
+        "parent_type_id, parent_uuid, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (entity_uuid, type_id, entity_type, type_id, name, "active",
+         parent_type_id, parent_uuid, now, now),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Task 3.2: Mermaid DAG in entity detail route
+# ---------------------------------------------------------------------------
+def test_entity_detail_has_mermaid_dag(tmp_path):
+    """Entity detail response contains 'flowchart TD'."""
+    db_file = str(tmp_path / "test.db")
+    EntityDatabase(db_file)
+    _seed_entity_with_parent(db_file, "feature:dag-test", "DAG Test", "feature")
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+    response = client.get("/entities/feature:dag-test")
+
+    assert response.status_code == 200
+    assert "flowchart TD" in response.text
+
+
+def test_entity_detail_mermaid_dag_contains_entity_node(tmp_path):
+    """Mermaid DAG contains the sanitized node ID for the entity."""
+    from ui.mermaid import _sanitize_id
+
+    db_file = str(tmp_path / "test.db")
+    EntityDatabase(db_file)
+    _seed_entity_with_parent(db_file, "feature:node-test", "Node Test", "feature")
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+    response = client.get("/entities/feature:node-test")
+
+    expected_node_id = _sanitize_id("feature:node-test")
+    assert response.status_code == 200
+    assert expected_node_id in response.text
+
+
+def test_entity_detail_children_depth_beyond_one(tmp_path):
+    """Grandchild entity appears in response (depth > 1)."""
+    db_file = str(tmp_path / "test.db")
+    EntityDatabase(db_file)
+
+    # Seed in parent-first order
+    _seed_entity_with_parent(db_file, "project:gp", "Grandparent", "project")
+    _seed_entity_with_parent(db_file, "feature:parent", "Parent", "feature",
+                             parent_type_id="project:gp")
+    _seed_entity_with_parent(db_file, "feature:child", "Child", "feature",
+                             parent_type_id="feature:parent")
+    _seed_entity_with_parent(db_file, "feature:grandchild", "Grandchild", "feature",
+                             parent_type_id="feature:child")
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+    # View parent's detail page — should show grandchild (depth > 1)
+    response = client.get("/entities/feature:parent")
+
+    assert response.status_code == 200
+    assert "feature:grandchild" in response.text
+
+
+# ---------------------------------------------------------------------------
+# Task 4.1: Template integration tests
+# ---------------------------------------------------------------------------
+def test_entity_detail_contains_mermaid_pre(tmp_path):
+    """Entity detail page contains <pre class="mermaid">."""
+    db_file = str(tmp_path / "test.db")
+    EntityDatabase(db_file)
+    _seed_entity_with_parent(db_file, "feature:pre-test", "Pre Test", "feature")
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+    response = client.get("/entities/feature:pre-test")
+
+    assert response.status_code == 200
+    assert '<pre class="mermaid">' in response.text
+
+
+def test_entity_detail_flat_list_in_details(tmp_path):
+    """Response contains <details> wrapping lineage lists, no open attribute."""
+    db_file = str(tmp_path / "test.db")
+    EntityDatabase(db_file)
+    _seed_entity_with_parent(db_file, "feature:details-test", "Details Test",
+                             "feature")
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+    response = client.get("/entities/feature:details-test")
+
+    assert response.status_code == 200
+    assert "<details" in response.text
+    # The details tag should NOT have open attribute (collapsed by default)
+    # Find the details tag and check it doesn't have 'open'
+    import re as re_mod
+    details_tags = re_mod.findall(r"<details[^>]*>", response.text)
+    assert len(details_tags) >= 1
+    for tag in details_tags:
+        assert "open" not in tag
+
+
+def test_board_page_no_mermaid_script(tmp_path):
+    """Board page (/) does not contain mermaid CDN reference."""
+    db_file = str(tmp_path / "test.db")
+    EntityDatabase(db_file)
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "cdn.jsdelivr.net/npm/mermaid" not in response.text
+
+
+def test_entity_list_no_mermaid_script(tmp_path):
+    """Entity list page (/entities) does not contain mermaid CDN reference."""
+    db_file = str(tmp_path / "test.db")
+    EntityDatabase(db_file)
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+    response = client.get("/entities")
+
+    assert response.status_code == 200
+    assert "cdn.jsdelivr.net/npm/mermaid" not in response.text

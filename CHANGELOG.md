@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.11.9] - 2026-03-08
+
+### Added
+- UI server: Mermaid DAG visualization for entity lineage on detail pages with interactive click-through navigation
+- UI server: `_sanitize_id` and `_sanitize_label` helpers for safe Mermaid node rendering
+- UI server: Click handler URL-encoding for XSS prevention in Mermaid click targets (CVE-2025-54880, CVE-2025-54881, CVE-2026-23733 mitigations)
+
 ## [4.11.8] - 2026-03-08
 
 ### Added

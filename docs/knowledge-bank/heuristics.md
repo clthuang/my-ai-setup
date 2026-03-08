@@ -492,6 +492,22 @@ For FastAPI+Jinja2 features with 2+ sibling route modules, include a "Shared Err
 - Last observed: Feature 020
 - Observation count: 1
 
+### 8-10:1 Test-to-Code Ratio for Visualization Integration Features
+For features integrating third-party visualization libraries (Mermaid, D3, Chart.js) into existing web UIs, expect an 8-10:1 test-to-code ratio (test lines vs production lines). The production code is thin (glue between library and data), but sanitization, edge cases, and integration points each require dedicated test coverage.
+- Source: Feature 021, 727 test lines / 85 production lines = 8.5:1 ratio for Mermaid DAG integration
+- Confidence: medium
+- Keywords: ["test-ratio", "visualization", "mermaid", "integration", "thin-glue-code", "test-coverage"]
+- Last observed: Feature 021
+- Observation count: 1
+
+### Mermaid Integration Checklist
+When integrating Mermaid.js into a web application, verify these items at design time: (1) securityLevel must be 'loose' for click handlers to work, (2) Jinja2 `| safe` filter required to prevent arrow escaping, (3) _sanitize_label must escape `<`, `>`, `"`, `[`, `]`, `\` for node labels, (4) click handler URLs need URL-encoded special characters (especially `"`→`%22`), (5) ESM module import with startOnLoad handles rendering lifecycle.
+- Source: Feature 021, accumulated across specify/design/plan/implement phases — each item discovered at a different phase
+- Confidence: high
+- Keywords: ["mermaid", "securityLevel", "jinja2-safe", "sanitize-label", "click-handler", "url-encoding", "esm-module", "checklist"]
+- Last observed: Feature 021
+- Observation count: 1
+
 ### User-Safe Error Constants Required at Design Time for Web UI Features
 Require user-safe message constants for all error template variables in web UI designs. Design-reviewer prompt should include: "Verify all error template variables use user-safe constants (not str(exc), exception.args, or raw traceback content)."
 - Source: Feature 020, implement iter 1 — security reviewer surfaced raw exception message str(exc) rendered in error.html, exposing internal details at two call sites

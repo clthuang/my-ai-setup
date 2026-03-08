@@ -495,6 +495,16 @@ Designing sibling route modules (e.g., board.py and entities.py) without naming 
 - Last observed: Feature 020
 - Observation count: 1
 
+### Anti-Pattern: Incremental Sanitization Strategy Changes Across Phases
+Changing sanitization encoding rules incrementally across review iterations in different phases (e.g., `&`→`&amp;` in plan iter 1, then `<`/`>` escaping in iter 2, then bare `&` with deferred verification in iter 3). Each change requires cross-artifact updates and risks introducing double-encoding or inconsistency. Instead, enumerate the full sanitization strategy at design time with a lookup table of all characters requiring escaping and their target encodings.
+- Observed in: Feature 021, _sanitize_label encoding changed 3 times across plan-reviewer iterations — ampersand, angle brackets, then bare ampersand
+- Cost: 3 plan-reviewer iterations, cross-artifact updates to spec + design + plan each time
+- Instead: Define complete sanitization table at design time. Research the rendering library's escaping behavior (DOM textContent vs innerHTML) before choosing encoding strategy.
+- Confidence: high
+- Keywords: ["sanitization", "encoding", "double-encoding", "cross-phase-changes", "mermaid", "html-escaping", "incremental-strategy"]
+- Last observed: Feature 021
+- Observation count: 1
+
 ### Anti-Pattern: Raw Exception Content as HTML Error Template Variables
 Passing raw exception content (str(exc)) as template variables to HTML error pages, exposing internal details (file paths, SQL queries, stack traces) to end users. This is a web UI security class not caught at design time.
 - Observed in: Feature 020, implement iter 1 — security reviewer surfaced raw exception rendering in error.html at two call sites
