@@ -249,3 +249,114 @@ def test_integration_empty_board_shows_no_features(tmp_path):
 
     assert response.status_code == 200
     assert "No features yet" in response.text
+
+
+# ===========================================================================
+# HTMX Polling — Real-Time UI Updates
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# Behaviour 1: Board auto-refreshes every 3 seconds
+# ---------------------------------------------------------------------------
+def test_board_full_page_has_polling_trigger(tmp_path):
+    """GIVEN a board full page load
+    WHEN the HTML is rendered
+    THEN the #board-content div has hx-trigger='every 3s' for auto-refresh."""
+    db_file = str(tmp_path / "test.db")
+    EntityDatabase(db_file)
+    from ui import create_app
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert 'hx-trigger="every 3s"' in response.text
+    assert 'hx-get="/"' in response.text
+    assert 'hx-target="#board-content"' in response.text
+
+
+def test_board_polling_returns_partial_without_full_page(tmp_path):
+    """GIVEN the board is polling via HTMX
+    WHEN the HX-Request arrives
+    THEN the response is a partial (no <html> tag) suitable for innerHTML swap."""
+    db_file = str(tmp_path / "test.db")
+    EntityDatabase(db_file)
+    _seed_workflow_row(db_file, "feature:poll-test", kanban_column="wip",
+                       workflow_phase="implement")
+    from ui import create_app
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+
+    response = client.get("/", headers={"HX-Request": "true"})
+
+    assert response.status_code == 200
+    assert "<html" not in response.text
+    assert "poll-test" in response.text
+
+
+# ---------------------------------------------------------------------------
+# Behaviour 2: Entities list auto-refreshes every 5 seconds
+# ---------------------------------------------------------------------------
+def test_entities_full_page_has_polling_trigger(tmp_path):
+    """GIVEN an entities full page load
+    WHEN the HTML is rendered
+    THEN the #entities-content div has hx-trigger='every 5s' for auto-refresh."""
+    db_file = str(tmp_path / "test.db")
+    EntityDatabase(db_file)
+    from ui import create_app
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+
+    response = client.get("/entities")
+
+    assert response.status_code == 200
+    assert 'hx-trigger="every 5s"' in response.text
+    assert 'hx-get="/entities"' in response.text
+    assert 'hx-target="#entities-content"' in response.text
+
+
+def test_entities_polling_preserves_filter_params(tmp_path):
+    """GIVEN the entities page has polling configured
+    WHEN the HTML is rendered
+    THEN hx-include forwards filter inputs so polls preserve active view."""
+    db_file = str(tmp_path / "test.db")
+    EntityDatabase(db_file)
+    from ui import create_app
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+
+    response = client.get("/entities")
+
+    assert response.status_code == 200
+    assert "hx-include=" in response.text
+
+
+# ---------------------------------------------------------------------------
+# Behaviour 3: Board reflects DB changes on next poll cycle
+# ---------------------------------------------------------------------------
+def test_board_reflects_new_data_on_htmx_refresh(tmp_path):
+    """GIVEN a board with one feature in backlog
+    WHEN a new feature is added to DB and HTMX polls
+    THEN the partial response includes the new feature."""
+    db_file = str(tmp_path / "test.db")
+    EntityDatabase(db_file)
+    _seed_workflow_row(db_file, "feature:original", kanban_column="backlog")
+    from ui import create_app
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+
+    # First poll — only original
+    r1 = client.get("/", headers={"HX-Request": "true"})
+    assert "original" in r1.text
+    assert "new-feature" not in r1.text
+
+    # Add new feature to DB (simulates MCP server write)
+    _seed_workflow_row(db_file, "feature:new-feature", kanban_column="wip",
+                       workflow_phase="implement")
+
+    # Second poll — both visible
+    r2 = client.get("/", headers={"HX-Request": "true"})
+    assert "original" in r2.text
+    assert "new-feature" in r2.text
