@@ -39,7 +39,7 @@ T8: Integration verification
 2. Follow Migration 3 pattern: PRAGMA foreign_keys OFF, BEGIN IMMEDIATE, CREATE workflow_phases_new with expanded CHECK, copy data, drop old, rename, recreate trigger + indexes, COMMIT, PRAGMA foreign_keys ON, FK check
 3. Expanded CHECK values: existing 7 feature phases + `draft`, `reviewing`, `promoted`, `abandoned`, `open`, `triaged`, `dropped`
 4. Same expansion for `last_completed_phase` column
-5. Add `5: _expand_workflow_phase_check` to `MIGRATIONS` dict (the `_migrate()` loop auto-discovers target version via `max(MIGRATIONS)` and writes `schema_version` to `_metadata` after each migration — no separate constant to bump)
+5. Add `5: _expand_workflow_phase_check` to `MIGRATIONS` dict (the `_migrate()` loop auto-discovers target version via `max(MIGRATIONS)` and writes `schema_version` to `_metadata` after each migration — no separate constant to bump). **Verified:** `grep -n 'SCHEMA_VERSION' database.py` returns only `EXPORT_SCHEMA_VERSION` (line 411) which is unrelated to DB migrations. No module-level `SCHEMA_VERSION` constant exists.
 6. Migration 3 writes `schema_version` inside its own transaction for crash safety. Follow same pattern: include `UPDATE _metadata SET value='5' WHERE key='schema_version'` inside the BEGIN IMMEDIATE / COMMIT block. This is intentional redundancy — the inner write provides crash safety within the transaction, the outer write in `_migrate()` (line 1431-1436) is the standard pattern. Both write the same value.
 
 **Acceptance:** AC-DB-1 through AC-DB-4
@@ -220,7 +220,7 @@ All three cases `continue` — brainstorm/backlog entities never reach STATUS_TO
 
 **Test first:**
 - Update `plugins/iflow/ui/tests/test_filters.py`:
-  - `test_phase_colors_match_db_check_constraint`: Add 7 new phase values to expected set
+  - `test_phase_colors_match_db_check_constraint`: Add 7 new phase values to expected set: `draft`, `reviewing`, `promoted`, `abandoned`, `open`, `triaged`, `dropped`
 - Add tests:
   - `test_card_feature_renders_mode_badge`: Feature entity shows mode badge
   - `test_card_brainstorm_renders_type_badge`: Brainstorm entity shows "brainstorm" type badge, no mode badge
