@@ -6,6 +6,7 @@ import sys
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
+from ui.mermaid import build_mermaid_dag
 from ui.routes.helpers import DB_ERROR_USER_MESSAGE, missing_db_response
 
 router = APIRouter(prefix="/entities")
@@ -159,9 +160,10 @@ def entity_detail(request: Request, identifier: str) -> HTMLResponse:
         ancestor_lineage = db.get_lineage(type_id, "up", 10)
         ancestors = _strip_self_from_lineage(ancestor_lineage, type_id)
 
-        child_lineage = db.get_lineage(type_id, "down", 1)
+        child_lineage = db.get_lineage(type_id, "down", 10)
         children = _strip_self_from_lineage(child_lineage, type_id)
 
+        mermaid_dag = build_mermaid_dag(entity, ancestors, children)
         workflow = db.get_workflow_phase(type_id)
         metadata_formatted = _format_metadata(entity.get("metadata"))
 
@@ -173,6 +175,7 @@ def entity_detail(request: Request, identifier: str) -> HTMLResponse:
                 "workflow": workflow,
                 "ancestors": ancestors,
                 "children": children,
+                "mermaid_dag": mermaid_dag,
                 "metadata_formatted": metadata_formatted,
                 "active_page": "entities",
             },
