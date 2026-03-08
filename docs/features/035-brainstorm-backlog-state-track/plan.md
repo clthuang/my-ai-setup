@@ -40,7 +40,7 @@ T8: Integration verification
 3. Expanded CHECK values: existing 7 feature phases + `draft`, `reviewing`, `promoted`, `abandoned`, `open`, `triaged`, `dropped`
 4. Same expansion for `last_completed_phase` column
 5. Add `5: _expand_workflow_phase_check` to `MIGRATIONS` dict (the `_migrate()` loop auto-discovers target version via `max(MIGRATIONS)` and writes `schema_version` to `_metadata` after each migration — no separate constant to bump)
-6. Migration 3 writes `schema_version` inside its own transaction for crash safety. Follow same pattern: include `UPDATE _metadata SET value='5' WHERE key='schema_version'` inside the BEGIN IMMEDIATE / COMMIT block
+6. Migration 3 writes `schema_version` inside its own transaction for crash safety. Follow same pattern: include `UPDATE _metadata SET value='5' WHERE key='schema_version'` inside the BEGIN IMMEDIATE / COMMIT block. This is intentional redundancy — the inner write provides crash safety within the transaction, the outer write in `_migrate()` (line 1431-1436) is the standard pattern. Both write the same value.
 
 **Acceptance:** AC-DB-1 through AC-DB-4
 
@@ -183,24 +183,30 @@ if entity_type in ("brainstorm", "backlog"):
             "updated_at = ? WHERE type_id = ?",
             (workflow_phase, kanban_column, db._now_iso(), type_id),
         )
-        db._conn.commit()
         updated += 1
         continue
 
-    # Case 1: no row → fall through to INSERT OR IGNORE below
-    # (but we still need to set the variables for INSERT)
-    last_completed_phase = None
-    mode = None
-    # Don't continue — let the INSERT OR IGNORE at line ~258 handle it
+    # Case 1: no row → INSERT inline (do NOT fall through — subsequent
+    # code would overwrite workflow_phase/kanban_column via STATUS_TO_KANBAN)
+    db._conn.execute(
+        "INSERT OR IGNORE INTO workflow_phases "
+        "(type_id, kanban_column, workflow_phase, "
+        "last_completed_phase, mode, "
+        "backward_transition_reason, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (type_id, kanban_column, workflow_phase, None, None, None, db._now_iso()),
+    )
+    created += 1
+    continue
 ```
 
-This replaces the original lines 210-221 child-completion block (which only applies to brainstorm/backlog). The feature path is unchanged.
+All three cases `continue` — brainstorm/backlog entities never reach STATUS_TO_KANBAN or the feature block. No per-entity `commit()` inside the guard — all changes are committed by the existing bulk `db._conn.commit()` at the end of the function (matching the established pattern).
 
 1. Add early-exit guard for brainstorm/backlog BEFORE STATUS_TO_KANBAN (line ~200)
 2. Move child-completion override logic INTO the early-exit guard
-3. Implement 3-case logic inside the guard: (1) non-null phase → skip, (2) null phase → UPDATE, (3) no row → fall through to INSERT
+3. All 3 cases `continue` inside the guard: (1) non-null phase → skip, (2) null phase → UPDATE, (3) no row → INSERT
 4. Add `updated` counter to return dict
-5. Remove the old child-completion block (lines 210-221) — it only applied to brainstorm/backlog, and features don't need it
+5. Remove the old child-completion block (lines 210-221) — it only applied to brainstorm/backlog. Projects are unaffected (line 212 guard was `if entity_type in ("brainstorm", "backlog")` — projects never matched it).
 6. Before implementing, grep for callers of `backfill_workflow_phases` to verify adding `updated` key won't break any destructuring assertions
 
 **Acceptance:** AC-BF-1 through AC-BF-4

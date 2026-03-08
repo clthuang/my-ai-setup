@@ -401,12 +401,15 @@ elif entity_type in ("brainstorm", "backlog"):
             "updated_at = ? WHERE type_id = ?",
             (workflow_phase, kanban_column, db._now_iso(), type_id),
         )
-        db._conn.commit()
         updated += 1
         continue
+
+    # Case 1: no row — INSERT inline (all 3 cases continue to avoid
+    # falling through to STATUS_TO_KANBAN which would overwrite variables)
+    # No per-entity commit — bulk commit at end of function handles all changes.
 ```
 
-The rest of the function (INSERT OR IGNORE) handles case 1 (no row exists). The `continue` on existing non-null rows (case 2) short-circuits to skip the INSERT. The UPDATE on null-phase rows (case 3) fixes legacy rows created before this feature.
+All three cases `continue` inside the guard. Brainstorm/backlog entities never reach STATUS_TO_KANBAN or the feature-specific block. The existing bulk `db._conn.commit()` at the end of the function commits all changes.
 
 **Child-completion override** remains at line 210-221 — it runs before this new block, and `kanban_column` may be overridden to `"completed"` regardless of the derived phase.
 
