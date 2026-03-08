@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.12.0] - 2026-03-08
+
 ### Added
 - Enforced state machine: PreToolUse hook blocks all direct `.meta.json` writes — LLM agents must use MCP tools instead
 - 3 new MCP tools: `init_feature_state`, `init_project_state`, `activate_feature` for state management
