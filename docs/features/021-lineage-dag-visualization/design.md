@@ -173,7 +173,7 @@ def _sanitize_id(type_id: str) -> str:
 
     Rules:
     1. Replace non-alphanumeric chars with '_'
-    2. Prefix with 'n' if starts with digit
+    2. Prefix with 'n' if starts with digit, 'o', or 'x' (Mermaid reserved prefixes)
     3. Append '_' + first 4 hex chars of SHA-256(type_id.encode('utf-8'))
     """
 ```
@@ -185,7 +185,7 @@ import re
 
 def _sanitize_id(type_id: str) -> str:
     base = re.sub(r"[^a-zA-Z0-9]", "_", type_id)
-    if base and base[0].isdigit():
+    if base and (base[0].isdigit() or base[0] in ("o", "x")):
         base = "n" + base
     suffix = hashlib.sha256(type_id.encode("utf-8")).hexdigest()[:4]
     return f"{base}_{suffix}"
@@ -334,6 +334,7 @@ def _make_entity(type_id, name=None, entity_type="feature", parent_type_id=None)
 - Edge count: `sum(1 for line in output.split("\n") if " --> " in line)`
 - Click count: `sum(1 for line in output.split("\n") if line.strip().startswith("click "))`
 - Class assignment: `f"class {_sanitize_id(tid)} current"` in output
+- Click URL with colon: `f'click {_sanitize_id("feature:021-foo")} href "/entities/feature:021-foo"'` in output (pins raw type_id in URL contract)
 
 #### Integration Tests (additions to `test_entities.py`)
 

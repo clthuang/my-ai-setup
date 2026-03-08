@@ -44,7 +44,7 @@ Generates a Mermaid `flowchart TD` definition string.
 **Output:** Multi-line string starting with `flowchart TD\n`.
 
 **Behavior:**
-1. Build `all_entities` dict keyed by `type_id` from `ancestors + [entity] + children` (deduplication via dict merge)
+1. Build `all_entities` dict keyed by `type_id` from `ancestors + children + [entity]` (entity last — wins on duplicates; deduplication via dict merge)
 2. Emit node definitions: `{safe_id}["{safe_label}"]` for each entity
 3. Emit edges: `{safe_parent_id} --> {safe_child_id}` where `parent_type_id` exists in `all_entities`
 4. Emit click handlers: `click {safe_id} href "/entities/{type_id}"` (explicit URL link syntax with `href` keyword) for every entity EXCEPT the current one
@@ -64,7 +64,7 @@ Converts a type_id into a Mermaid-safe node identifier.
 
 **Rules:**
 1. Replace any character NOT in `[a-zA-Z0-9]` with `_`
-2. If result starts with a digit, prefix with `n`
+2. If result starts with a digit, `o`, or `x`, prefix with `n` (Mermaid reserved prefixes that trigger special edge rendering)
 3. Append `_` + first 4 hex chars of SHA-256 hash of original `type_id` (UTF-8 encoded) to prevent collisions
 
 **AC:**
