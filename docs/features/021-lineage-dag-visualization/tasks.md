@@ -48,7 +48,7 @@
 **File:** EDIT `plugins/iflow/ui/tests/test_mermaid.py`
 **Do:**
 - Add `from ui.mermaid import build_mermaid_dag` import
-- Helper: `_entity(type_id, name=None, entity_type="feature", parent_type_id=None)` returns dict
+- Helper: `_entity(type_id, name=None, entity_type="feature", parent_type_id=None)` returns dict (note: design.md calls this `_make_entity` — use `_entity` here for brevity)
 - Write `test_output_starts_with_flowchart_td`: first line == `"flowchart TD"`
 - Write `test_single_entity_no_lineage`: 1 node def, 0 `-->` edges, 0 `click` lines
 - Write `test_linear_chain_four_entities`: 4 node defs, 3 edges, 3 click lines (current excluded)
@@ -93,14 +93,14 @@
   - `INSERT OR IGNORE INTO entities (uuid, type_id, entity_type, entity_id, name, status, parent_type_id, parent_uuid) VALUES (...)`
   - Commit and close
 - Seed entities in parent-first order in tests
-**Done when:** Helper function exists, no test failures in existing tests
+**Done when:** Run `PYTHONPATH="plugins/iflow/hooks/lib:plugins/iflow" plugins/iflow/.venv/bin/python -m pytest plugins/iflow/ui/tests/test_entities.py -v` — all pre-existing tests pass
 **Depends on:** Task 2.2
 
 ### Task 3.2: Write integration tests for mermaid_dag in route
 **File:** EDIT `plugins/iflow/ui/tests/test_entities.py`
 **Do:**
 - Write `test_entity_detail_has_mermaid_dag`: seed an entity, GET `/entities/{type_id}`, assert `"flowchart TD"` in `response.text`
-- Write `test_entity_detail_mermaid_dag_contains_entity_node`: assert entity's sanitized node ID in response.text
+- Write `test_entity_detail_mermaid_dag_contains_entity_node`: import `_sanitize_id` from `ui.mermaid`, compute `expected_node_id = _sanitize_id(type_id)`, assert `expected_node_id in response.text`
 - Write `test_entity_detail_children_depth_beyond_one`: seed grandparent→parent→child→grandchild (parent-first order), GET parent's detail page, assert grandchild's type_id appears in response
 **Done when:** Tests exist and fail (route not yet modified)
 **Depends on:** Task 3.1
@@ -124,9 +124,9 @@
 **Do:**
 - Write `test_entity_detail_contains_mermaid_pre`: assert `'<pre class="mermaid">'` in response.text
 - Write `test_entity_detail_flat_list_in_details`: assert `"<details"` in response.text, assert `'open'` not in the details tag
-- Write `test_board_page_no_mermaid_script`: GET `/`, assert `"mermaid"` not in response.text (case-sensitive check for script/import)
-- Write `test_entity_list_no_mermaid_script`: GET `/entities`, assert `"mermaid"` not in response.text
-**Done when:** `test_entity_detail_contains_mermaid_pre` and `test_entity_detail_flat_list_in_details` fail (template not yet modified); board/list tests pass
+- Write `test_board_page_no_mermaid_script`: GET `/`, assert `"cdn.jsdelivr.net/npm/mermaid"` not in response.text
+- Write `test_entity_list_no_mermaid_script`: GET `/entities`, assert `"cdn.jsdelivr.net/npm/mermaid"` not in response.text
+**Done when:** All 4 tests exist. `test_board_page_no_mermaid_script` and `test_entity_list_no_mermaid_script` pass. `test_entity_detail_contains_mermaid_pre` and `test_entity_detail_flat_list_in_details` are expected to fail at this point (template not yet modified) — correct TDD behavior.
 **Depends on:** Task 3.3
 
 ### Task 4.2: Add Mermaid diagram to entity_detail.html
