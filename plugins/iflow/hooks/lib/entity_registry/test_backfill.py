@@ -1055,24 +1055,24 @@ class TestWorkflowPhaseBackfill:
     # -------------------------------------------------------------------
 
     def test_backfill_brainstorm_entity(self, tmp_path, db):
-        """Brainstorm entity -> workflow_phase=NULL, kanban_column from status."""
+        """Brainstorm entity -> workflow_phase=draft, kanban_column=wip."""
         db.register_entity("brainstorm", "bs-test", "Test Brainstorm", status="active")
         backfill_workflow_phases(db, str(tmp_path))
 
         wp = db.get_workflow_phase("brainstorm:bs-test")
         assert wp is not None
-        assert wp["workflow_phase"] is None
-        assert wp["kanban_column"] == "wip"  # active -> wip
+        assert wp["workflow_phase"] == "draft"
+        assert wp["kanban_column"] == "wip"
 
     def test_backfill_backlog_entity(self, tmp_path, db):
-        """Backlog entity -> workflow_phase=NULL, kanban_column from status."""
+        """Backlog entity -> workflow_phase=open, kanban_column=backlog."""
         db.register_entity("backlog", "bl-test", "Test Backlog", status="planned")
         backfill_workflow_phases(db, str(tmp_path))
 
         wp = db.get_workflow_phase("backlog:bl-test")
         assert wp is not None
-        assert wp["workflow_phase"] is None
-        assert wp["kanban_column"] == "backlog"  # planned -> backlog
+        assert wp["workflow_phase"] == "open"
+        assert wp["kanban_column"] == "backlog"
 
     # -------------------------------------------------------------------
     # Task 3.5b: Child-derived kanban for brainstorm/backlog (Gap S3)
@@ -1107,8 +1107,8 @@ class TestWorkflowPhaseBackfill:
         assert wp is not None
         assert wp["kanban_column"] == "completed"
 
-    def test_brainstorm_with_mixed_children_stays_at_status_kanban(self, tmp_path, db):
-        """Brainstorm with mix of completed and active children -> no override."""
+    def test_brainstorm_with_mixed_children_stays_at_default_kanban(self, tmp_path, db):
+        """Brainstorm with mix of completed and active children -> no override, uses default wip."""
         db.register_entity("brainstorm", "bs-mixed", "Mixed Brainstorm")
         c1 = db.register_entity("feature", "f-done", "Done", status="completed")
         c2 = db.register_entity("feature", "f-wip", "WIP", status="active")
@@ -1118,17 +1118,17 @@ class TestWorkflowPhaseBackfill:
 
         wp = db.get_workflow_phase("brainstorm:bs-mixed")
         assert wp is not None
-        # Not all children completed, so kanban derived from status (planned->backlog)
-        assert wp["kanban_column"] == "backlog"
+        # Not all children completed, so kanban uses brainstorm default (wip)
+        assert wp["kanban_column"] == "wip"
 
-    def test_brainstorm_with_no_children_stays_at_status_kanban(self, tmp_path, db):
-        """Brainstorm with no child features -> kanban derived from own status."""
+    def test_brainstorm_with_no_children_stays_at_default_kanban(self, tmp_path, db):
+        """Brainstorm with no child features -> kanban uses brainstorm default (wip)."""
         db.register_entity("brainstorm", "bs-lonely", "Lonely Brainstorm")
         backfill_workflow_phases(db, str(tmp_path))
 
         wp = db.get_workflow_phase("brainstorm:bs-lonely")
         assert wp is not None
-        assert wp["kanban_column"] == "backlog"  # planned -> backlog
+        assert wp["kanban_column"] == "wip"  # brainstorm default
 
     # -------------------------------------------------------------------
     # Task 3.6: Project entity exclusion
@@ -1536,3 +1536,117 @@ class TestWorkflowPhaseBackfill:
         """
         assert len(STATUS_TO_KANBAN) == 4
         assert set(STATUS_TO_KANBAN.keys()) == {"planned", "active", "completed", "abandoned"}
+
+    # -------------------------------------------------------------------
+    # Phase 4: Brainstorm/backlog phase-aware backfill (Tasks 4.3)
+    # -------------------------------------------------------------------
+
+    def test_backfill_brainstorm_no_row_creates_draft(self, tmp_path, db):
+        """Brainstorm entity with no workflow_phases row -> INSERT with draft/wip."""
+        db.register_entity("brainstorm", "bs-new", "New Brainstorm")
+        result = backfill_workflow_phases(db, str(tmp_path))
+
+        wp = db.get_workflow_phase("brainstorm:bs-new")
+        assert wp is not None
+        assert wp["workflow_phase"] == "draft"
+        assert wp["kanban_column"] == "wip"
+        assert result["created"] >= 1
+
+    def test_backfill_backlog_no_row_creates_open(self, tmp_path, db):
+        """Backlog entity with no workflow_phases row -> INSERT with open/backlog."""
+        db.register_entity("backlog", "bl-new", "New Backlog")
+        result = backfill_workflow_phases(db, str(tmp_path))
+
+        wp = db.get_workflow_phase("backlog:bl-new")
+        assert wp is not None
+        assert wp["workflow_phase"] == "open"
+        assert wp["kanban_column"] == "backlog"
+        assert result["created"] >= 1
+
+    def test_backfill_brainstorm_nonnull_phase_skipped(self, tmp_path, db):
+        """Existing row with workflow_phase='reviewing' -> skipped, not overwritten."""
+        db.register_entity("brainstorm", "bs-managed", "Managed Brainstorm")
+        # Pre-create a workflow_phases row with a non-null phase (simulating MCP-managed state)
+        db._conn.execute(
+            "INSERT INTO workflow_phases (type_id, workflow_phase, kanban_column, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            ("brainstorm:bs-managed", "reviewing", "agent_review", db._now_iso()),
+        )
+        db._conn.commit()
+
+        result = backfill_workflow_phases(db, str(tmp_path))
+
+        wp = db.get_workflow_phase("brainstorm:bs-managed")
+        assert wp["workflow_phase"] == "reviewing"  # preserved, not overwritten
+        assert wp["kanban_column"] == "agent_review"  # preserved
+        assert result["skipped"] >= 1
+
+    def test_backfill_brainstorm_null_phase_updated(self, tmp_path, db):
+        """Existing row with NULL workflow_phase -> UPDATE to draft/wip."""
+        db.register_entity("brainstorm", "bs-legacy", "Legacy Brainstorm")
+        # Pre-create a workflow_phases row with NULL phase (legacy backfill artifact)
+        db._conn.execute(
+            "INSERT INTO workflow_phases (type_id, workflow_phase, kanban_column, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            ("brainstorm:bs-legacy", None, "backlog", db._now_iso()),
+        )
+        db._conn.commit()
+
+        result = backfill_workflow_phases(db, str(tmp_path))
+
+        wp = db.get_workflow_phase("brainstorm:bs-legacy")
+        assert wp["workflow_phase"] == "draft"
+        assert wp["kanban_column"] == "wip"
+        assert result["updated"] >= 1
+
+    def test_backfill_backlog_null_phase_updated(self, tmp_path, db):
+        """Existing row with NULL workflow_phase -> UPDATE to open/backlog."""
+        db.register_entity("backlog", "bl-legacy", "Legacy Backlog")
+        # Pre-create a workflow_phases row with NULL phase
+        db._conn.execute(
+            "INSERT INTO workflow_phases (type_id, workflow_phase, kanban_column, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            ("backlog:bl-legacy", None, "backlog", db._now_iso()),
+        )
+        db._conn.commit()
+
+        result = backfill_workflow_phases(db, str(tmp_path))
+
+        wp = db.get_workflow_phase("backlog:bl-legacy")
+        assert wp["workflow_phase"] == "open"
+        assert wp["kanban_column"] == "backlog"
+        assert result["updated"] >= 1
+
+    def test_backfill_child_completion_override_preserved(self, tmp_path, db):
+        """Brainstorm with all completed child features -> kanban_column='completed'."""
+        db.register_entity("brainstorm", "bs-done-parent", "Done Parent")
+        child_tid = db.register_entity(
+            "feature", "f-done-child", "Done Child", status="completed"
+        )
+        db.set_parent(child_tid, "brainstorm:bs-done-parent")
+
+        backfill_workflow_phases(db, str(tmp_path))
+
+        wp = db.get_workflow_phase("brainstorm:bs-done-parent")
+        assert wp is not None
+        assert wp["workflow_phase"] == "draft"  # default for brainstorm
+        assert wp["kanban_column"] == "completed"  # overridden by child completion
+
+    def test_backfill_returns_updated_counter(self, tmp_path, db):
+        """Return dict includes 'updated' key with correct count."""
+        db.register_entity("brainstorm", "bs-u1", "Update Test 1")
+        db.register_entity("backlog", "bl-u1", "Update Test 2")
+        # Pre-create rows with NULL phases
+        for tid in ("brainstorm:bs-u1", "backlog:bl-u1"):
+            db._conn.execute(
+                "INSERT INTO workflow_phases (type_id, workflow_phase, kanban_column, updated_at) "
+                "VALUES (?, ?, ?, ?)",
+                (tid, None, "backlog", db._now_iso()),
+            )
+        db._conn.commit()
+
+        result = backfill_workflow_phases(db, str(tmp_path))
+
+        assert "updated" in result
+        assert isinstance(result["updated"], int)
+        assert result["updated"] == 2
