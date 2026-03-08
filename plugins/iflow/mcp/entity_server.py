@@ -69,6 +69,21 @@ async def lifespan(server):
     except Exception as exc:
         print(f"entity-server: backfill failed: {exc}", file=sys.stderr)
 
+    # Always run workflow_phases backfill (has its own INSERT OR IGNORE idempotency).
+    # Called OUTSIDE the backfill_complete guard so newly registered entities
+    # get workflow_phases rows on every startup.
+    try:
+        from entity_registry.backfill import backfill_workflow_phases
+
+        result = backfill_workflow_phases(_db, _artifacts_root)
+        if result["created"] > 0:
+            print(
+                f"entity-server: workflow_phases backfill created {result['created']} rows",
+                file=sys.stderr,
+            )
+    except Exception as exc:
+        print(f"entity-server: workflow_phases backfill failed: {exc}", file=sys.stderr)
+
     print(
         f"entity-server: started (db={db_path}, artifacts={_artifacts_root})",
         file=sys.stderr,

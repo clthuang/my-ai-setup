@@ -1075,6 +1075,62 @@ class TestWorkflowPhaseBackfill:
         assert wp["kanban_column"] == "backlog"  # planned -> backlog
 
     # -------------------------------------------------------------------
+    # Task 3.5b: Child-derived kanban for brainstorm/backlog (Gap S3)
+    # -------------------------------------------------------------------
+
+    def test_brainstorm_with_completed_child_gets_completed_kanban(self, tmp_path, db):
+        """Brainstorm with all child features completed -> kanban=completed.
+
+        Gap S3 fix: brainstorms with completed children were stuck at backlog.
+        """
+        db.register_entity("brainstorm", "bs-parent", "Parent Brainstorm")
+        child_tid = db.register_entity(
+            "feature", "f-child", "Child Feature", status="completed"
+        )
+        db.set_parent(child_tid, "brainstorm:bs-parent")
+        backfill_workflow_phases(db, str(tmp_path))
+
+        wp = db.get_workflow_phase("brainstorm:bs-parent")
+        assert wp is not None
+        assert wp["kanban_column"] == "completed"
+
+    def test_backlog_with_completed_child_gets_completed_kanban(self, tmp_path, db):
+        """Backlog with all child features completed -> kanban=completed."""
+        db.register_entity("backlog", "bl-parent", "Parent Backlog")
+        child_tid = db.register_entity(
+            "feature", "f-child2", "Child Feature 2", status="completed"
+        )
+        db.set_parent(child_tid, "backlog:bl-parent")
+        backfill_workflow_phases(db, str(tmp_path))
+
+        wp = db.get_workflow_phase("backlog:bl-parent")
+        assert wp is not None
+        assert wp["kanban_column"] == "completed"
+
+    def test_brainstorm_with_mixed_children_stays_at_status_kanban(self, tmp_path, db):
+        """Brainstorm with mix of completed and active children -> no override."""
+        db.register_entity("brainstorm", "bs-mixed", "Mixed Brainstorm")
+        c1 = db.register_entity("feature", "f-done", "Done", status="completed")
+        c2 = db.register_entity("feature", "f-wip", "WIP", status="active")
+        db.set_parent(c1, "brainstorm:bs-mixed")
+        db.set_parent(c2, "brainstorm:bs-mixed")
+        backfill_workflow_phases(db, str(tmp_path))
+
+        wp = db.get_workflow_phase("brainstorm:bs-mixed")
+        assert wp is not None
+        # Not all children completed, so kanban derived from status (planned->backlog)
+        assert wp["kanban_column"] == "backlog"
+
+    def test_brainstorm_with_no_children_stays_at_status_kanban(self, tmp_path, db):
+        """Brainstorm with no child features -> kanban derived from own status."""
+        db.register_entity("brainstorm", "bs-lonely", "Lonely Brainstorm")
+        backfill_workflow_phases(db, str(tmp_path))
+
+        wp = db.get_workflow_phase("brainstorm:bs-lonely")
+        assert wp is not None
+        assert wp["kanban_column"] == "backlog"  # planned -> backlog
+
+    # -------------------------------------------------------------------
     # Task 3.6: Project entity exclusion
     # -------------------------------------------------------------------
 
