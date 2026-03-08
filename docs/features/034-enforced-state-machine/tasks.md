@@ -78,7 +78,7 @@ Phase E:             T10.1─T10.2
 **File:** `plugins/iflow/hooks/meta-json-guard.sh`
 **Do:**
 1. Create file with shebang `#!/usr/bin/env bash`, `set -euo pipefail`
-2. Source `lib/common.sh` for `escape_json()`, `install_err_trap()`
+2. Set `SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"`, then `source "${SCRIPT_DIR}/lib/common.sh"` for `escape_json()`, `install_err_trap()` (existing pattern used by all hooks)
 3. Read stdin: `INPUT=$(cat)`
 4. Fast-path: `if [[ "$INPUT" != *".meta.json"* ]]; then echo '{}'; exit 0; fi`
 5. Single python3 call per design C1: `IFS=$'\t' read -r FILE_PATH TOOL_NAME < <(echo "$INPUT" | python3 -c ...)` — do NOT use separate python3 calls or jq (design D2 requires single subprocess)
@@ -118,7 +118,7 @@ Phase E:             T10.1─T10.2
 1. Add `_process_init_project_state(db, project_dir, project_id, slug, features, milestones, brainstorm_source)` per design C4
 2. `@_with_error_handling` + `@_catch_value_error` decorators
 3. `json.loads(features)`, `json.loads(milestones)` for param parsing
-4. `db.register_entity(entity_type="project", ...)` with INSERT OR IGNORE
+4. `db.register_entity(entity_type="project", entity_id=project_id, name=slug, artifact_path=project_dir, status="active", metadata={"id": project_id, "slug": slug, "features": features_list, "milestones": milestones_list})` — type_id resolves to `project:{project_id}`
 5. Build project `.meta.json` dict, call `_atomic_json_write()`
 **Done when:** T5.1 tests pass
 
@@ -164,7 +164,7 @@ Phase E:             T10.1─T10.2
 ### T2.3: Implement `_project_meta_json()` (GREEN)
 **File:** `plugins/iflow/mcp/workflow_state_server.py`
 **Do:**
-1. Add function per design C2 with dict-style entity access
+1. Add function with signature: `_project_meta_json(db: EntityDatabase, engine: WorkflowStateEngine | None, feature_type_id: str, feature_dir: str | None = None) -> str | None` — `feature_dir` defaults to None, resolved from `entity["artifact_path"]` when absent. Use dict-style entity access throughout.
 2. `json.loads(entity["metadata"]) if entity["metadata"] else {}` for safe metadata parsing
 3. Guard: `if engine is not None: engine_state = engine.get_state(...); last_completed = engine_state.last_completed_phase if engine_state else None` else: `last_completed = metadata.get("last_completed_phase")`
 4. Build `.meta.json` dict: id, slug, mode, status, created, branch, optional fields
@@ -199,6 +199,7 @@ Phase E:             T10.1─T10.2
 ### T4.2: Implement `_process_init_feature_state()` (GREEN)
 **File:** `plugins/iflow/mcp/workflow_state_server.py`
 **Do:**
+0. Call `_validate_feature_type_id(feature_type_id, artifacts_root)` — raises ValueError if invalid/missing (caught by `@_catch_value_error`). Add `artifacts_root: str` to function signature.
 1. Add function per design C3 with dict-style entity access
 2. Build metadata dict with id, slug, mode, branch, phase_timing
 3. `existing = db.get_entity(feature_type_id)` — register if None, update if exists
@@ -213,7 +214,7 @@ Phase E:             T10.1─T10.2
 **Do:**
 1. Add `@mcp.tool() async def init_feature_state(...)` wrapper
 2. Guard: `if _db is None: return _NOT_INITIALIZED`
-3. Call `_process_init_feature_state(_db, _engine, ...)`
+3. Call `_process_init_feature_state(_db, _engine, ..., artifacts_root=_artifacts_root)`
 **Done when:** MCP tool callable, all tests pass
 
 ---
@@ -234,11 +235,12 @@ Phase E:             T10.1─T10.2
 ### T6.2: Implement `_process_activate_feature()` + MCP wrapper (GREEN)
 **File:** `plugins/iflow/mcp/workflow_state_server.py`
 **Do:**
+0. Call `_validate_feature_type_id(feature_type_id, artifacts_root)` — raises ValueError if invalid/missing (caught by `@_catch_value_error`). Add `artifacts_root: str` to function signature.
 1. Add function per design C5 with dict-style entity access
 2. `entity = db.get_entity(feature_type_id)` → check None → check status == "planned"
 3. `db.update_entity(feature_type_id, status="active")`
 4. Call `_project_meta_json(db, engine, feature_type_id)`
-5. Add `@mcp.tool() async def activate_feature(...)` wrapper
+5. Add `@mcp.tool() async def activate_feature(...)` wrapper — pass `_artifacts_root`
 **Done when:** T6.1 tests pass
 
 ---
@@ -273,7 +275,7 @@ Phase E:             T10.1─T10.2
 2. After `engine.transition_phase()` success: `entity = db.get_entity(...)`, parse metadata
 3. Store `phase_timing[target_phase]["started"] = _iso_now()`
 4. If `skipped_phases`: `metadata["skipped_phases"] = json.loads(skipped_phases)`
-5. `db.update_entity(feature_type_id, metadata=metadata)`
+5. `db.update_entity(feature_type_id, metadata=metadata)` — note: `update_entity` shallow-merges, but since we parse the full existing metadata, modify in-place, and pass the entire dict back, the merge is effectively a full replace
 6. Call `_project_meta_json(db, engine, feature_type_id)`
 7. Update MCP wrapper: pass `_db`, add `skipped_phases` param
 **Done when:** T7.1 existing + T7.2 new tests pass
@@ -308,11 +310,11 @@ Phase E:             T10.1─T10.2
 **File:** `plugins/iflow/mcp/workflow_state_server.py`
 **Do:**
 1. Add `db: EntityDatabase`, `iterations: int | None = None`, `reviewer_notes: str | None = None` params
-2. After `engine.complete_phase()`: `entity = db.get_entity(...)`, parse metadata
-3. Store `phase_timing[phase]["completed"] = _iso_now()`, iterations, reviewerNotes
+2. After `engine.complete_phase()`: `entity = db.get_entity(...)` — guard: if `entity is None: return _make_error("feature_not_found", ...)` before parsing metadata
+3. Parse metadata, store `phase_timing[phase]["completed"] = _iso_now()`, iterations, reviewerNotes
 4. `metadata["last_completed_phase"] = phase`
-5. If `phase == "finish"`: `db.update_entity(..., status="completed", metadata=metadata)`
-6. Else: `db.update_entity(..., metadata=metadata)`
+5. Build `update_kwargs = {"metadata": metadata}`, add `"status": "completed"` if `phase == "finish"`
+6. `db.update_entity(feature_type_id, **update_kwargs)` — single call for both paths
 7. Call `_project_meta_json(db, engine, feature_type_id)`
 8. Update MCP wrapper: pass `_db`, add `iterations`/`reviewer_notes` params
 **Done when:** T8.1 existing + T8.2 new tests pass
@@ -324,8 +326,8 @@ Phase E:             T10.1─T10.2
 ### T9.1: Update `commands/create-feature.md` (Site 1)
 **File:** `plugins/iflow/commands/create-feature.md`
 **Do:**
-1. Find Write tool instruction for `.meta.json` (~lines 97-110)
-2. Replace with `init_feature_state(feature_dir, feature_id, slug, mode, branch, brainstorm_source, backlog_source, status)` call
+1. Run `grep -n 'Write.*meta.json\|\.meta\.json' plugins/iflow/commands/create-feature.md` to find exact lines, read surrounding context
+2. Replace Write instruction with `init_feature_state(feature_dir, feature_id, slug, mode, branch, brainstorm_source, backlog_source, status)` call
 3. Remove inline JSON template — MCP tool handles format
 **Verify:** `grep -n 'Write.*meta.json\|Edit.*meta.json' plugins/iflow/commands/create-feature.md` returns empty
 **Done when:** No direct `.meta.json` write instructions remain in file
