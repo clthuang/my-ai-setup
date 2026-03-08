@@ -13,6 +13,7 @@ from entity_registry.database import (
     EntityDatabase,
     _UUID_V4_RE,
     _create_initial_schema,
+    _expand_workflow_phase_check,
     _migrate_to_uuid_pk,
 )
 
@@ -321,7 +322,7 @@ class TestMigration2:
 
         # Now open it with EntityDatabase — runs pending migrations (3+)
         db = EntityDatabase(db_path)
-        assert db.get_metadata("schema_version") == "4"
+        assert db.get_metadata("schema_version") == "5"
 
         # Schema should be intact
         cur = db._conn.execute("PRAGMA table_info(entities)")
@@ -534,8 +535,8 @@ class TestMetadata:
         db.set_metadata("foo", "baz")
         assert db.get_metadata("foo") == "baz"
 
-    def test_schema_version_is_4(self, db: EntityDatabase):
-        assert db.get_metadata("schema_version") == "4"
+    def test_schema_version_is_5(self, db: EntityDatabase):
+        assert db.get_metadata("schema_version") == "5"
 
 
 # ---------------------------------------------------------------------------
@@ -2301,7 +2302,7 @@ class TestMigrationIdempotency:
         entity = db2.get_entity("project:p1")
         assert entity is not None
         assert entity["uuid"] == p1_uuid
-        assert db2.get_metadata("schema_version") == "4"
+        assert db2.get_metadata("schema_version") == "5"
         db2.close()
 
 
@@ -2497,9 +2498,9 @@ class TestMigration3:
             "Expected FK from workflow_phases.type_id -> entities.type_id"
         )
 
-    def test_schema_version_is_4(self, db: EntityDatabase):
-        """After all migrations, schema_version should be 4."""
-        assert db.get_metadata("schema_version") == "4"
+    def test_schema_version_is_5(self, db: EntityDatabase):
+        """After all migrations, schema_version should be 5."""
+        assert db.get_metadata("schema_version") == "5"
 
     # -- Task 1.2: Migration creates indexes and trigger (AC-2) ------------
 
@@ -2684,10 +2685,10 @@ class TestMigration3:
     # -- Task 1.4: Fresh DB migration safety (AC-3) ------------------------
 
     def test_fresh_db_has_all_migrations(self, tmp_path):
-        """A brand-new EntityDatabase should run all 3 migrations."""
+        """A brand-new EntityDatabase should run all 5 migrations."""
         fresh_db = EntityDatabase(str(tmp_path / "fresh.db"))
         try:
-            assert fresh_db.get_metadata("schema_version") == "4"
+            assert fresh_db.get_metadata("schema_version") == "5"
         finally:
             fresh_db.close()
 
@@ -3880,3 +3881,187 @@ class TestExportEntitiesJsonDeepened:
         assert result["schema_version"] != "1"
         assert result["schema_version"] != 0
         assert result["schema_version"] != 2
+
+
+# ---------------------------------------------------------------------------
+# Migration 5: Expand workflow_phase CHECK constraint
+# ---------------------------------------------------------------------------
+
+
+class TestMigration5:
+    """Tests for migration 5: expand CHECK constraint on workflow_phases.
+
+    Migration 5 widens the workflow_phase and last_completed_phase CHECK
+    constraints to accept brainstorm/backlog lifecycle phases alongside
+    the existing 7 feature phases.
+    """
+
+    @staticmethod
+    def _create_v4_db(db_path: str) -> sqlite3.Connection:
+        """Create a DB at schema v4 by running migrations 1-4 only."""
+        from entity_registry.database import (
+            _create_fts_index,
+            _create_initial_schema,
+            _create_workflow_phases_table,
+            _migrate_to_uuid_pk,
+        )
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS _metadata "
+            "(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        )
+        conn.commit()
+        for version, fn in [
+            (1, _create_initial_schema),
+            (2, _migrate_to_uuid_pk),
+            (3, _create_workflow_phases_table),
+            (4, _create_fts_index),
+        ]:
+            fn(conn)
+            conn.execute(
+                "INSERT INTO _metadata (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                ("schema_version", str(version)),
+            )
+            conn.commit()
+        return conn
+
+    def test_migration_5_expands_check_constraint(self, tmp_path):
+        """After migration 5, INSERT with workflow_phase='draft' succeeds."""
+        conn = self._create_v4_db(str(tmp_path / "m5.db"))
+        try:
+            # Confirm at v4
+            ver = conn.execute(
+                "SELECT value FROM _metadata WHERE key='schema_version'"
+            ).fetchone()[0]
+            assert ver == "4"
+
+            # Insert an entity so FK is satisfied
+            now = EntityDatabase._now_iso()
+            conn.execute(
+                "INSERT INTO entities "
+                "(type_id, entity_type, entity_id, name, status, "
+                "created_at, updated_at, uuid) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                ("brainstorm:exp-test", "brainstorm", "exp-test",
+                 "Expand Test", "draft", now, now,
+                 "00000000-0000-4000-a000-000000000001"),
+            )
+            conn.commit()
+
+            # Verify 'draft' is rejected at v4
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO workflow_phases "
+                    "(type_id, workflow_phase, kanban_column, updated_at) "
+                    "VALUES (?, 'draft', 'wip', ?)",
+                    ("brainstorm:exp-test", now),
+                )
+            conn.rollback()
+
+            # Run migration 5
+            _expand_workflow_phase_check(conn)
+
+            # Now 'draft' should be accepted
+            conn.execute(
+                "INSERT INTO workflow_phases "
+                "(type_id, workflow_phase, kanban_column, updated_at) "
+                "VALUES (?, 'draft', 'wip', ?)",
+                ("brainstorm:exp-test", now),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT workflow_phase FROM workflow_phases "
+                "WHERE type_id = 'brainstorm:exp-test'"
+            ).fetchone()
+            assert row["workflow_phase"] == "draft"
+        finally:
+            conn.close()
+
+    def test_migration_5_preserves_existing_data(self, tmp_path):
+        """Existing rows with feature phases survive migration 5."""
+        conn = self._create_v4_db(str(tmp_path / "m5-preserve.db"))
+        try:
+            # Insert an entity and a workflow_phases row at v4
+            now = EntityDatabase._now_iso()
+            conn.execute(
+                "INSERT INTO entities "
+                "(type_id, entity_type, entity_id, name, status, "
+                "created_at, updated_at, uuid) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                ("feature:pres-test", "feature", "pres-test",
+                 "Preserve Test", "implement", now, now,
+                 "00000000-0000-4000-a000-000000000002"),
+            )
+            conn.execute(
+                "INSERT INTO workflow_phases "
+                "(type_id, workflow_phase, kanban_column, updated_at) "
+                "VALUES (?, 'implement', 'wip', ?)",
+                ("feature:pres-test", now),
+            )
+            conn.commit()
+
+            # Run migration 5
+            _expand_workflow_phase_check(conn)
+
+            # Verify the row is still intact
+            row = conn.execute(
+                "SELECT workflow_phase, kanban_column FROM workflow_phases "
+                "WHERE type_id = 'feature:pres-test'"
+            ).fetchone()
+            assert row is not None
+            assert row["workflow_phase"] == "implement"
+            assert row["kanban_column"] == "wip"
+        finally:
+            conn.close()
+
+    def test_migration_5_idempotent(self, tmp_path):
+        """Fresh DB runs all migrations including 5; schema_version=5 and
+        new phase values are accepted."""
+        db = EntityDatabase(str(tmp_path / "m5-idem.db"))
+        try:
+            assert db.get_schema_version() == 5
+
+            # Verify all new phase values are accepted
+            new_phases = [
+                "draft", "reviewing", "promoted", "abandoned",
+                "open", "triaged", "dropped",
+            ]
+            for i, phase in enumerate(new_phases):
+                eid = f"idem-{i}"
+                db.register_entity("brainstorm", eid, f"Idem {i}")
+                now = EntityDatabase._now_iso()
+                db._conn.execute(
+                    "INSERT INTO workflow_phases "
+                    "(type_id, workflow_phase, kanban_column, updated_at) "
+                    "VALUES (?, ?, 'wip', ?)",
+                    (f"brainstorm:{eid}", phase, now),
+                )
+            db._conn.commit()
+
+            count = db._conn.execute(
+                "SELECT COUNT(*) FROM workflow_phases"
+            ).fetchone()[0]
+            assert count == len(new_phases)
+
+            # Also verify new values work for last_completed_phase
+            db.register_entity("brainstorm", "lcp-test", "LCP Test")
+            db._conn.execute(
+                "INSERT INTO workflow_phases "
+                "(type_id, workflow_phase, kanban_column, "
+                "last_completed_phase, updated_at) "
+                "VALUES (?, 'reviewing', 'agent_review', 'draft', ?)",
+                ("brainstorm:lcp-test", EntityDatabase._now_iso()),
+            )
+            db._conn.commit()
+            row = db._conn.execute(
+                "SELECT last_completed_phase FROM workflow_phases "
+                "WHERE type_id = 'brainstorm:lcp-test'"
+            ).fetchone()
+            assert row["last_completed_phase"] == "draft"
+        finally:
+            db.close()

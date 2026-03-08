@@ -71,8 +71,13 @@ class TestColorMaps:
         """Phase colors must match the DB CHECK constraint values for
         workflow_phase column — NOT kanban columns like 'wip'."""
         expected = {
+            # Feature phases
             "brainstorm", "specify", "design",
             "create-plan", "create-tasks", "implement", "finish",
+            # Brainstorm lifecycle phases
+            "draft", "reviewing", "promoted", "abandoned",
+            # Backlog lifecycle phases
+            "open", "triaged", "dropped",
         }
         assert set(PHASE_COLORS.keys()) == expected
 
