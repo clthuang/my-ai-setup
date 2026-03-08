@@ -4,7 +4,7 @@
 
 ### Codebase Patterns
 
-- **PreToolUse deny pattern:** `pre-commit-guard.sh` reads stdin JSON, extracts tool_input via python3, uses `output_block()`/`output_allow()` helpers from `common.sh`. The `yolo-guard.sh` hook adds a fast-path string check (`*".meta.json"*`) before JSON parsing — apply this optimization.
+- **PreToolUse deny pattern:** `pre-commit-guard.sh` reads stdin JSON, extracts tool_input via python3, defines `output_block()`/`output_allow()` as **local functions** (lines 89-135, NOT in `common.sh`). The `yolo-guard.sh` hook inlines its own deny JSON via `cat <<EOF`. Apply the inline pattern — no shared deny helper exists.
 - **MCP tool registration:** `workflow_state_server.py` uses `@mcp.tool()` decorator + `_process_*()` functions + `@_with_error_handling` + `@_catch_value_error` decorator stack. Module globals `_db`, `_engine`, `_artifacts_root` set during `lifespan()`.
 - **Atomic file writes:** `_write_meta_json_fallback()` uses `NamedTemporaryFile` + `os.replace()` for crash safety. Reuse this pattern for `_project_meta_json()`.
 - **Path validation:** `_validate_feature_type_id()` defends against path traversal (null bytes, realpath check). All new tools accepting `feature_type_id` must call this.
@@ -91,7 +91,7 @@ engine.transition_phase() → DB fails → _write_meta_json_fallback() → .meta
 - **Fast-path optimization:** Check `*".meta.json"*` via bash string match before any JSON parsing. ~99% of Write/Edit calls don't target `.meta.json`, so this avoids the python3/jq overhead. Borrowed from `yolo-guard.sh` pattern.
 - **Path extraction:** Use python3 inline (same as `pre-commit-guard.sh`) to parse `tool_input.file_path` from stdin JSON. Suppress stderr (`2>/dev/null`) per hook safety convention.
 - **Logging:** Append JSONL to `~/.claude/iflow/meta-json-guard.log` before returning deny. Use `date -u +%Y-%m-%dT%H:%M:%SZ` for timestamp. Extract feature_id via bash regex on path.
-- **Source common.sh:** For `escape_json()`, `detect_project_root()`, `install_err_trap()`, `output_block()` pattern.
+- **Source common.sh:** For `escape_json()`, `detect_project_root()`, `install_err_trap()`. Deny JSON is inlined (no shared `output_block()` exists — it's local to `pre-commit-guard.sh`).
 
 **Internal structure:**
 ```bash
@@ -111,14 +111,16 @@ if [[ "$INPUT" != *".meta.json"* ]]; then
     exit 0
 fi
 
-# Extract file_path from tool_input
-FILE_PATH=$(echo "$INPUT" | python3 -c "
+# Extract file_path AND tool_name in a single python3 call
+read -r FILE_PATH TOOL_NAME < <(echo "$INPUT" | python3 -c "
 import json, sys
 try:
     data = json.load(sys.stdin)
-    print(data.get('tool_input', {}).get('file_path', ''))
+    fp = data.get('tool_input', {}).get('file_path', '')
+    tn = data.get('tool_name', 'unknown')
+    print(fp, tn)
 except:
-    print('')
+    print(' unknown')
 " 2>/dev/null)
 
 # Check if target is .meta.json
@@ -128,32 +130,33 @@ if [[ "$FILE_PATH" != *".meta.json" ]]; then
 fi
 
 # Log blocked attempt (FR-11)
-log_blocked_attempt "$FILE_PATH"
+log_blocked_attempt "$FILE_PATH" "$TOOL_NAME"
 
-# Deny
-output_block "Direct .meta.json writes are blocked. Use MCP workflow tools instead: transition_phase() to enter a phase, complete_phase() to finish a phase, or init_feature_state() to create a new feature."
+# Deny (inline JSON — no shared output_block helper exists)
+REASON="Direct .meta.json writes are blocked. Use MCP workflow tools instead: transition_phase() to enter a phase, complete_phase() to finish a phase, or init_feature_state() to create a new feature."
+cat <<EOF
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "$(escape_json "$REASON")"
+  }
+}
+EOF
 exit 0
 ```
 
-**`log_blocked_attempt` function:**
+**`log_blocked_attempt` function (single python3 call — both fields extracted above):**
 ```bash
 log_blocked_attempt() {
     local file_path="$1"
+    local tool_name="$2"
     local log_dir="$HOME/.claude/iflow"
     local log_file="$log_dir/meta-json-guard.log"
-    local timestamp tool_name feature_id
+    local timestamp feature_id
 
     mkdir -p "$log_dir"
     timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-
-    # Extract tool name from INPUT (already in scope)
-    tool_name=$(echo "$INPUT" | python3 -c "
-import json, sys
-try:
-    print(json.load(sys.stdin).get('tool_name', 'unknown'))
-except:
-    print('unknown')
-" 2>/dev/null)
 
     # Extract feature_id from path
     if [[ "$file_path" =~ features/([^/]+)/\.meta\.json ]]; then
@@ -187,10 +190,17 @@ except:
 ```python
 def _project_meta_json(
     db: EntityDatabase,
+    engine: WorkflowStateEngine,
     feature_type_id: str,
     feature_dir: str | None = None,
 ) -> str | None:
-    """Regenerate .meta.json from DB state. Returns warning string or None."""
+    """Regenerate .meta.json from DB + engine state. Returns warning string or None.
+
+    Uses engine.get_state() as authoritative source for last_completed_phase
+    and current_phase. Falls back to entity metadata if engine state unavailable.
+    Phase timing details (iterations, reviewerNotes) come from entity metadata
+    only (engine doesn't track these).
+    """
     entity = db.get_entity(feature_type_id)
     if entity is None:
         return f"entity not found: {feature_type_id}"
@@ -198,11 +208,22 @@ def _project_meta_json(
     if feature_dir is None:
         feature_dir = entity.artifact_path
         if not feature_dir:
-            return f"artifact_path not set for entity: {feature_type_id}"
+            # Fallback: derive from entity_id convention
+            slug = feature_type_id.split(":", 1)[1] if ":" in feature_type_id else feature_type_id
+            feature_dir = os.path.join(_artifacts_root, "features", slug)
+            if not os.path.isdir(feature_dir):
+                return f"artifact_path not set and fallback dir not found: {feature_type_id}"
 
     meta_path = os.path.join(feature_dir, ".meta.json")
     metadata = entity.metadata or {}
     phase_timing = metadata.get("phase_timing", {})
+
+    # Get authoritative state from engine (handles migration from existing features)
+    engine_state = engine.get_state(feature_type_id)
+    last_completed = (
+        engine_state.last_completed_phase if engine_state
+        else metadata.get("last_completed_phase")
+    )
 
     # Build .meta.json structure
     meta = {
@@ -220,8 +241,8 @@ def _project_meta_json(
     if metadata.get("backlog_source"):
         meta["backlog_source"] = metadata["backlog_source"]
 
-    # Workflow state
-    meta["lastCompletedPhase"] = metadata.get("last_completed_phase")
+    # Workflow state (engine is authoritative)
+    meta["lastCompletedPhase"] = last_completed
 
     # Phases from phase_timing metadata
     phases = {}
@@ -267,7 +288,7 @@ def _project_meta_json(
         return f"projection failed: {exc}"
 ```
 
-**Caller integration:** Each `_process_*()` function calls `_project_meta_json()` after DB mutation succeeds. If it returns a warning, include it in the MCP response JSON as `"projection_warning": "..."`.
+**Caller integration:** Each `_process_*()` function calls `_project_meta_json(db, engine, ...)` after DB mutation succeeds, using `_engine` module global. If it returns a warning, include it in the MCP response JSON as `"projection_warning": "..."`. For `init_feature_state`, pass `_engine` (may be None if engine not needed for new features — the function handles this gracefully).
 
 ### C3: `init_feature_state` (New MCP Tool)
 
@@ -283,6 +304,7 @@ def _project_meta_json(
 **Internal structure:**
 ```python
 @_with_error_handling
+@_catch_value_error
 def _process_init_feature_state(
     db: EntityDatabase,
     feature_dir: str,
@@ -302,7 +324,7 @@ def _process_init_feature_state(
         "slug": slug,
         "mode": mode,
         "branch": branch,
-        "phase_timing": {},
+        "phase_timing": {"brainstorm": {"started": _iso_now()}} if status == "active" else {},
     }
     if brainstorm_source:
         metadata["brainstorm_source"] = brainstorm_source
@@ -323,7 +345,7 @@ def _process_init_feature_state(
         db.update_entity(feature_type_id, status=status, metadata=metadata)
 
     # Project .meta.json
-    warning = _project_meta_json(db, feature_type_id, feature_dir)
+    warning = _project_meta_json(db, _engine, feature_type_id, feature_dir)
 
     result = {
         "created": True,
@@ -350,6 +372,7 @@ def _process_init_feature_state(
 **Internal structure:**
 ```python
 @_with_error_handling
+@_catch_value_error
 def _process_init_project_state(
     db: EntityDatabase,
     project_dir: str,
@@ -429,7 +452,7 @@ def _process_activate_feature(
 
     db.update_entity(feature_type_id, status="active")
 
-    warning = _project_meta_json(db, feature_type_id)
+    warning = _project_meta_json(db, _engine, feature_type_id)
 
     result = {
         "activated": True,
@@ -485,7 +508,7 @@ def _process_transition_phase(
         db.update_entity(feature_type_id, metadata=metadata)
 
         # Project .meta.json
-        warning = _project_meta_json(db, feature_type_id)
+        warning = _project_meta_json(db, _engine, feature_type_id)
 
     result = {
         "transitioned": transitioned,
@@ -538,19 +561,81 @@ def _process_complete_phase(
     metadata["last_completed_phase"] = phase
 
     # Update terminal status
-    if state.current_phase == phase:  # no next phase = terminal
+    # engine.complete_phase() for "finish" returns current_phase="finish" (terminal)
+    # because _next_phase_value("finish") returns None, and engine sets next_phase=phase
+    if phase == "finish":
         db.update_entity(feature_type_id, status="completed", metadata=metadata)
     else:
         db.update_entity(feature_type_id, metadata=metadata)
 
     # Project .meta.json
-    warning = _project_meta_json(db, feature_type_id)
+    warning = _project_meta_json(db, _engine, feature_type_id)
 
     result = _serialize_state(state)
     result["completed_at"] = phase_timing[phase]["completed"]
     if warning:
         result["projection_warning"] = warning
     return json.dumps(result)
+```
+
+### MCP Tool Wrapper Changes (Required)
+
+The `@mcp.tool()` async wrappers must be updated to pass `_db` to the modified `_process_*` functions:
+
+```python
+# Existing wrappers (lines 493-510) — BEFORE:
+@mcp.tool()
+async def transition_phase(feature_type_id: str, target_phase: str, yolo_active: bool = False) -> str:
+    return _process_transition_phase(_engine, feature_type_id, target_phase, yolo_active)
+
+@mcp.tool()
+async def complete_phase(feature_type_id: str, phase: str) -> str:
+    return _process_complete_phase(_engine, feature_type_id, phase)
+
+# AFTER — add _db param and new params:
+@mcp.tool()
+async def transition_phase(
+    feature_type_id: str, target_phase: str,
+    yolo_active: bool = False, skipped_phases: str | None = None,
+) -> str:
+    if _engine is None or _db is None:
+        return _NOT_INITIALIZED
+    return _process_transition_phase(_engine, _db, feature_type_id, target_phase, yolo_active, skipped_phases)
+
+@mcp.tool()
+async def complete_phase(
+    feature_type_id: str, phase: str,
+    iterations: int | None = None, reviewer_notes: str | None = None,
+) -> str:
+    if _engine is None or _db is None:
+        return _NOT_INITIALIZED
+    return _process_complete_phase(_engine, _db, feature_type_id, phase, iterations, reviewer_notes)
+
+# New tool wrappers:
+@mcp.tool()
+async def init_feature_state(
+    feature_dir: str, feature_id: str, slug: str, mode: str, branch: str,
+    brainstorm_source: str | None = None, backlog_source: str | None = None,
+    status: str = "active",
+) -> str:
+    if _db is None:
+        return _NOT_INITIALIZED
+    return _process_init_feature_state(_db, feature_dir, feature_id, slug, mode, branch, brainstorm_source, backlog_source, status)
+
+@mcp.tool()
+async def init_project_state(
+    project_dir: str, project_id: str, slug: str,
+    features: str, milestones: str, brainstorm_source: str | None = None,
+) -> str:
+    if _db is None:
+        return _NOT_INITIALIZED
+    return _process_init_project_state(_db, project_dir, project_id, slug, features, milestones, brainstorm_source)
+
+@mcp.tool()
+async def activate_feature(feature_type_id: str) -> str:
+    if _db is None:
+        return _NOT_INITIALIZED
+    return _process_activate_feature(_db, feature_type_id)
 ```
 
 ### C8: Shared Utility — `_atomic_json_write()` (New Function)
@@ -744,10 +829,16 @@ Used by: `_project_meta_json()`, `_process_init_project_state()`.
 ```python
 def _project_meta_json(
     db: EntityDatabase,
+    engine: WorkflowStateEngine,
     feature_type_id: str,
     feature_dir: str | None = None,
 ) -> str | None:
-    """Returns None on success, warning string on failure."""
+    """Returns None on success, warning string on failure.
+
+    Uses engine.get_state() for authoritative last_completed_phase.
+    Uses entity metadata for timing details (iterations, reviewerNotes).
+    Falls back to metadata-only if engine state unavailable.
+    """
 ```
 
 Called by: `_process_init_feature_state`, `_process_activate_feature`, `_process_transition_phase`, `_process_complete_phase`.
@@ -767,7 +858,7 @@ Called by: `_project_meta_json`, `_process_init_project_state`.
 
 ```
 1. _atomic_json_write()           — no dependencies
-2. _project_meta_json()           — depends on _atomic_json_write, EntityDatabase
+2. _project_meta_json()           — depends on _atomic_json_write, EntityDatabase, WorkflowStateEngine
 3. meta-json-guard.sh             — depends on lib/common.sh (existing)
 4. init_feature_state             — depends on _project_meta_json
 5. init_project_state             — depends on _atomic_json_write
@@ -787,3 +878,16 @@ Called by: `_project_meta_json`, `_process_init_project_state`.
 - `EntityDatabase` API (existing, no schema changes)
 - `WorkflowStateEngine` API (existing)
 - `tempfile`, `os` stdlib (existing imports in workflow_state_server.py)
+
+### Test File Mapping
+
+| Component | Test File | Action |
+|-----------|-----------|--------|
+| `meta-json-guard.sh` | `hooks/tests/test-hooks.sh` | Extend with deny/allow/log test cases |
+| `_atomic_json_write()` | `mcp/test_workflow_state_server.py` | Add unit tests |
+| `_project_meta_json()` | `mcp/test_workflow_state_server.py` | Add unit tests (mock DB + engine) |
+| `init_feature_state` | `mcp/test_workflow_state_server.py` | Add MCP tool tests |
+| `init_project_state` | `mcp/test_workflow_state_server.py` | Add MCP tool tests |
+| `activate_feature` | `mcp/test_workflow_state_server.py` | Add MCP tool tests |
+| Extended `transition_phase` | `mcp/test_workflow_state_server.py` | Extend existing tests |
+| Extended `complete_phase` | `mcp/test_workflow_state_server.py` | Extend existing tests |
