@@ -310,7 +310,7 @@ All MCP tools that mutate state must regenerate `.meta.json` after DB updates. T
 def _project_meta_json(feature_type_id: str, feature_dir: str | None = None) -> None:
     """Regenerate .meta.json from current DB + entity state.
 
-    Reads: entities table (status, metadata), workflow_phases table (phase, timing)
+    Reads: entities table (status, metadata.phase_timing — Phase 1), workflow_phases table (Phase 2)
     Writes: {feature_dir}/.meta.json (complete file replacement via Python open())
 
     If feature_dir is None, resolves it from db.get_entity(feature_type_id).artifact_path.
