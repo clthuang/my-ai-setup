@@ -125,7 +125,13 @@ def run_backfill(
         backfill_headers(db, artifacts_root)
 
     # Guard: skip entity registration if backfill already completed
-    if db.get_metadata("backfill_complete") == "1":
+    # Backfill version tracks schema changes that require re-scanning
+    # (e.g., name enrichment logic). Bump _BACKFILL_VERSION when scan
+    # logic changes to trigger a one-time re-scan on existing DBs.
+    _BACKFILL_VERSION = "2"  # v2: entity name enrichment (title extraction)
+
+    current_version = db.get_metadata("backfill_version") or "0"
+    if db.get_metadata("backfill_complete") == "1" and current_version >= _BACKFILL_VERSION:
         return
 
     scanners = {
@@ -138,8 +144,16 @@ def run_backfill(
     for entity_type in ENTITY_SCAN_ORDER:
         scanners[entity_type](db, artifacts_root)
 
-    # Mark backfill as complete
+    # Fix orphaned NULL workflow_phase values (e.g. abandoned entities)
+    db._conn.execute(
+        "UPDATE workflow_phases SET workflow_phase = 'finish' "
+        "WHERE workflow_phase IS NULL"
+    )
+    db._conn.commit()
+
+    # Mark backfill as complete with current version
     db.set_metadata("backfill_complete", "1")
+    db.set_metadata("backfill_version", _BACKFILL_VERSION)
 
 
 def backfill_workflow_phases(
@@ -367,11 +381,23 @@ def _scan_backlog(db: EntityDatabase, artifacts_root: str) -> None:
             continue
 
         description = cells[2]
+        if len(description) <= 80:
+            title = description
+        else:
+            truncated = description[:80].rsplit(" ", 1)[0]
+            title = (truncated if truncated != description[:80] else description[:80]) + "\u2026"
+
         db.register_entity(
             entity_type="backlog",
             entity_id=item_id,
-            name=description,
+            name=title,
             artifact_path=backlog_path,
+            metadata={"description": description},
+        )
+        db.update_entity(
+            type_id=f"backlog:{item_id}",
+            name=title,
+            metadata={"description": description},
         )
 
 
@@ -449,7 +475,9 @@ def _scan_features(db: EntityDatabase, artifacts_root: str) -> None:
         feat_id = meta.get("id", "")
         slug = meta.get("slug", "")
         entity_id = f"{feat_id}-{slug}" if slug else feat_id
-        name = meta.get("name", entity_id)
+        name = meta.get("name", "")
+        if not name:
+            name = _humanize_slug(slug or entity_id)
 
         # Build entity metadata from optional fields
         entity_meta: dict | None = None
@@ -463,6 +491,11 @@ def _scan_features(db: EntityDatabase, artifacts_root: str) -> None:
             artifact_path=os.path.dirname(path),
             metadata=entity_meta,
         )
+
+        # Update name if existing entity has a slug-style name (no spaces)
+        existing = db.get_entity(f"feature:{entity_id}")
+        if existing and " " not in existing["name"]:
+            db.update_entity(type_id=f"feature:{entity_id}", name=name)
 
         # Derive and set parent
         parent_type_id = _derive_parent("feature", meta, None)
@@ -618,17 +651,55 @@ def _register_synthetic_for_missing_parent(
 # ---------------------------------------------------------------------------
 
 
+def _humanize_slug(slug: str) -> str:
+    """Strip date prefix and convert slug to human-readable title.
+
+    '20260205-002937-rca-agent' -> 'Rca Agent'
+    '20260205-agent' -> 'Agent'
+    'vast-mixing' -> 'Vast Mixing'
+    '20260227' -> '20260227' (preserved if only a date)
+    """
+    import re
+
+    name = re.sub(r"^\d{8}(-\d{6})?-", "", slug)
+    if not name:  # slug was only a date
+        return slug
+    return name.replace("-", " ").title()
+
+
+def _extract_prd_title(content: str | None, stem: str) -> str:
+    """Extract human-readable title from PRD content, falling back to slug.
+
+    Tries: '# PRD: <title>' heading, then first '# <title>' heading,
+    then humanizes the slug.
+    """
+    import re
+
+    if content:
+        # Try '# PRD: <title>' (use [^\S\n]* to avoid matching across newlines)
+        m = re.search(r"^#\s+PRD:[^\S\n]*(.+)", content, re.MULTILINE)
+        if m and m.group(1).strip():
+            return m.group(1).strip()
+        # Try first '# <title>'
+        m = re.search(r"^#\s+(.+)", content, re.MULTILINE)
+        if m and m.group(1).strip():
+            return m.group(1).strip()
+    return _humanize_slug(stem)
+
+
 def _register_brainstorm(db: EntityDatabase, path: str, stem: str) -> None:
     """Read a brainstorm file, register it, and set its parent if derivable."""
     content = _read_file(path)
+    title = _extract_prd_title(content, stem)
     parent_type_id = _derive_parent("brainstorm", {}, content)
 
     db.register_entity(
         entity_type="brainstorm",
         entity_id=stem,
-        name=stem,
+        name=title,
         artifact_path=path,
     )
+    db.update_entity(type_id=f"brainstorm:{stem}", name=title)
     if parent_type_id:
         _safe_set_parent(db, f"brainstorm:{stem}", parent_type_id)
 

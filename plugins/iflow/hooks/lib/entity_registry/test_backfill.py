@@ -544,7 +544,7 @@ class TestBackfillPartialFailureRecovery:
             # Then the valid feature is registered
             valid = db.get_entity("feature:050-valid")
             assert valid is not None
-            assert valid["name"] == "050-valid"
+            assert valid["name"] == "Valid"
 
             # And the broken feature is skipped
             broken = db.get_entity("feature:051-broken")
@@ -795,6 +795,270 @@ class TestBackfillCompleteMarker:
 
             # Marker should be set
             assert db.get_metadata("backfill_complete") == "1"
+        finally:
+            db.close()
+
+
+# ---------------------------------------------------------------------------
+# Name enrichment: _humanize_slug, _extract_prd_title, backlog truncation
+# ---------------------------------------------------------------------------
+
+from entity_registry.backfill import _humanize_slug, _extract_prd_title
+
+
+class TestHumanizeSlug:
+    """Tests for _humanize_slug helper."""
+
+    def test_strips_date_prefix(self):
+        assert _humanize_slug("20260205-agent") == "Agent"
+
+    def test_strips_datetime_prefix(self):
+        assert _humanize_slug("20260205-002937-rca-agent") == "Rca Agent"
+
+    def test_no_date_prefix(self):
+        assert _humanize_slug("vast-mixing-lerdorf") == "Vast Mixing Lerdorf"
+
+    def test_only_date_preserved(self):
+        assert _humanize_slug("20260227") == "20260227"
+
+    def test_simple_slug(self):
+        assert _humanize_slug("change-workflow-ordering") == "Change Workflow Ordering"
+
+    def test_single_word(self):
+        assert _humanize_slug("agent") == "Agent"
+
+
+class TestExtractPrdTitle:
+    """Tests for _extract_prd_title helper."""
+
+    def test_prd_heading(self):
+        content = "# PRD: My Great Feature\n\nSome content."
+        assert _extract_prd_title(content, "20260207-my-great-feature") == "My Great Feature"
+
+    def test_plain_heading(self):
+        content = "# Structured Problem Solving\n\nSome content."
+        assert _extract_prd_title(content, "20260207-structured-problem-solving") == "Structured Problem Solving"
+
+    def test_empty_prd_heading_falls_back(self):
+        content = "# PRD:\n\nSome content."
+        # Empty title after '# PRD:' → falls through to first '# <title>'
+        # which re-matches '# PRD:' with group(1)='PRD:'
+        assert _extract_prd_title(content, "20260207-my-thing") == "PRD:"
+
+    def test_no_headings_at_all_humanizes(self):
+        content = "Just content, no headings at all."
+        assert _extract_prd_title(content, "20260207-my-thing") == "My Thing"
+
+    def test_no_heading_humanizes_slug(self):
+        content = "Some content without headings."
+        assert _extract_prd_title(content, "20260205-002937-rca") == "Rca"
+
+    def test_none_content_humanizes_slug(self):
+        assert _extract_prd_title(None, "20260227-lineage") == "Lineage"
+
+    def test_prd_heading_with_extra_spaces(self):
+        content = "#   PRD:   Spaced Title  \n\nBody."
+        assert _extract_prd_title(content, "stub") == "Spaced Title"
+
+
+class TestBacklogTitleTruncation:
+    """Tests for backlog title/description splitting in _scan_backlog."""
+
+    def test_short_description_no_truncation(self, tmp_path):
+        """Descriptions ≤ 80 chars are used as-is."""
+        short = "Fix the login bug"
+        backlog_md = (
+            "# Backlog\n\n"
+            "| ID | Timestamp | Description |\n"
+            "|----|-----------|-------------|\n"
+            f"| 00001 | 2026-01-01T00:00:00Z | {short} |\n"
+        )
+        (tmp_path / "brainstorms").mkdir()
+        (tmp_path / "projects").mkdir()
+        (tmp_path / "features").mkdir()
+        (tmp_path / "backlog.md").write_text(backlog_md)
+
+        db = EntityDatabase(str(tmp_path / "test.db"))
+        try:
+            from entity_registry.backfill import run_backfill
+            run_backfill(db, str(tmp_path))
+            entity = db.get_entity("backlog:00001")
+            assert entity["name"] == short
+        finally:
+            db.close()
+
+    def test_long_description_truncated_at_word_boundary(self, tmp_path):
+        """Descriptions > 80 chars are truncated at last space before char 80."""
+        long_desc = "Implement a comprehensive logging framework that captures all API calls and responses for debugging purposes"
+        assert len(long_desc) > 80
+
+        backlog_md = (
+            "# Backlog\n\n"
+            "| ID | Timestamp | Description |\n"
+            "|----|-----------|-------------|\n"
+            f"| 00001 | 2026-01-01T00:00:00Z | {long_desc} |\n"
+        )
+        (tmp_path / "brainstorms").mkdir()
+        (tmp_path / "projects").mkdir()
+        (tmp_path / "features").mkdir()
+        (tmp_path / "backlog.md").write_text(backlog_md)
+
+        db = EntityDatabase(str(tmp_path / "test.db"))
+        try:
+            from entity_registry.backfill import run_backfill
+            run_backfill(db, str(tmp_path))
+            entity = db.get_entity("backlog:00001")
+            assert entity["name"].endswith("\u2026")
+            assert len(entity["name"]) <= 83  # 80 + "…"
+        finally:
+            db.close()
+
+    def test_backlog_metadata_description_full_text(self, tmp_path):
+        """metadata.description contains the full untruncated text."""
+        long_desc = "Implement a comprehensive logging framework that captures all API calls and responses for debugging purposes"
+        backlog_md = (
+            "# Backlog\n\n"
+            "| ID | Timestamp | Description |\n"
+            "|----|-----------|-------------|\n"
+            f"| 00001 | 2026-01-01T00:00:00Z | {long_desc} |\n"
+        )
+        (tmp_path / "brainstorms").mkdir()
+        (tmp_path / "projects").mkdir()
+        (tmp_path / "features").mkdir()
+        (tmp_path / "backlog.md").write_text(backlog_md)
+
+        db = EntityDatabase(str(tmp_path / "test.db"))
+        try:
+            from entity_registry.backfill import run_backfill
+            run_backfill(db, str(tmp_path))
+            entity = db.get_entity("backlog:00001")
+            meta = json.loads(entity["metadata"]) if isinstance(entity["metadata"], str) else entity["metadata"]
+            assert meta["description"] == long_desc
+        finally:
+            db.close()
+
+    def test_backlog_no_spaces_in_first_80(self, tmp_path):
+        """Description with no spaces in first 80 chars truncates at char 80."""
+        no_space = "a" * 100  # 100 chars, no spaces
+        backlog_md = (
+            "# Backlog\n\n"
+            "| ID | Timestamp | Description |\n"
+            "|----|-----------|-------------|\n"
+            f"| 00001 | 2026-01-01T00:00:00Z | {no_space} |\n"
+        )
+        (tmp_path / "brainstorms").mkdir()
+        (tmp_path / "projects").mkdir()
+        (tmp_path / "features").mkdir()
+        (tmp_path / "backlog.md").write_text(backlog_md)
+
+        db = EntityDatabase(str(tmp_path / "test.db"))
+        try:
+            from entity_registry.backfill import run_backfill
+            run_backfill(db, str(tmp_path))
+            entity = db.get_entity("backlog:00001")
+            assert entity["name"] == "a" * 80 + "\u2026"
+        finally:
+            db.close()
+
+
+class TestFeatureNameHumanization:
+    """Tests for feature name humanization in _scan_features."""
+
+    def test_feature_without_meta_name_gets_humanized(self, tmp_path):
+        """Features without name in .meta.json get humanized slug."""
+        (tmp_path / "brainstorms").mkdir()
+        (tmp_path / "projects").mkdir()
+        feat_dir = tmp_path / "features" / "050-valid"
+        feat_dir.mkdir(parents=True)
+        (feat_dir / ".meta.json").write_text(json.dumps({"id": "050", "slug": "valid"}))
+
+        db = EntityDatabase(str(tmp_path / "test.db"))
+        try:
+            from entity_registry.backfill import run_backfill
+            run_backfill(db, str(tmp_path))
+            entity = db.get_entity("feature:050-valid")
+            assert entity["name"] == "Valid"
+        finally:
+            db.close()
+
+    def test_feature_with_meta_name_preserves_it(self, tmp_path):
+        """Features with name in .meta.json keep that name."""
+        (tmp_path / "brainstorms").mkdir()
+        (tmp_path / "projects").mkdir()
+        feat_dir = tmp_path / "features" / "042-extra-fields"
+        feat_dir.mkdir(parents=True)
+        (feat_dir / ".meta.json").write_text(json.dumps({
+            "id": "042", "slug": "extra-fields",
+            "name": "Extra Fields Feature",
+        }))
+
+        db = EntityDatabase(str(tmp_path / "test.db"))
+        try:
+            from entity_registry.backfill import run_backfill
+            run_backfill(db, str(tmp_path))
+            entity = db.get_entity("feature:042-extra-fields")
+            assert entity["name"] == "Extra Fields Feature"
+        finally:
+            db.close()
+
+
+class TestBrainstormTitleExtraction:
+    """Tests for brainstorm title extraction from PRD content during backfill."""
+
+    def test_brainstorm_prd_title_extracted(self, tmp_path):
+        """Brainstorm with PRD heading gets title from it."""
+        (tmp_path / "features").mkdir()
+        (tmp_path / "projects").mkdir()
+        bs_dir = tmp_path / "brainstorms"
+        bs_dir.mkdir()
+        (bs_dir / "20260207-structured-problem-solving.prd.md").write_text(
+            "# PRD: Structured Problem Solving Framework\n\nContent."
+        )
+
+        db = EntityDatabase(str(tmp_path / "test.db"))
+        try:
+            from entity_registry.backfill import run_backfill
+            run_backfill(db, str(tmp_path))
+            entity = db.get_entity("brainstorm:20260207-structured-problem-solving")
+            assert entity["name"] == "Structured Problem Solving Framework"
+        finally:
+            db.close()
+
+    def test_brainstorm_plain_heading_extracted(self, tmp_path):
+        """Brainstorm with plain heading (no PRD:) uses that."""
+        (tmp_path / "features").mkdir()
+        (tmp_path / "projects").mkdir()
+        bs_dir = tmp_path / "brainstorms"
+        bs_dir.mkdir()
+        (bs_dir / "20260210-cool-idea.md").write_text(
+            "# Cool Idea Design\n\nContent."
+        )
+
+        db = EntityDatabase(str(tmp_path / "test.db"))
+        try:
+            from entity_registry.backfill import run_backfill
+            run_backfill(db, str(tmp_path))
+            entity = db.get_entity("brainstorm:20260210-cool-idea")
+            assert entity["name"] == "Cool Idea Design"
+        finally:
+            db.close()
+
+    def test_brainstorm_no_heading_humanizes_slug(self, tmp_path):
+        """Brainstorm with no heading falls back to humanized slug."""
+        (tmp_path / "features").mkdir()
+        (tmp_path / "projects").mkdir()
+        bs_dir = tmp_path / "brainstorms"
+        bs_dir.mkdir()
+        (bs_dir / "20260210-114052-no-heading.md").write_text(
+            "Just content, no heading.\n"
+        )
+
+        db = EntityDatabase(str(tmp_path / "test.db"))
+        try:
+            from entity_registry.backfill import run_backfill
+            run_backfill(db, str(tmp_path))
+            entity = db.get_entity("brainstorm:20260210-114052-no-heading")
+            assert entity["name"] == "No Heading"
         finally:
             db.close()
 

@@ -3116,6 +3116,70 @@ class TestWorkflowPhaseCRUD:
         result = db.list_workflow_phases(kanban_column="completed")
         assert result == []
 
+    # -- LEFT JOIN entity enrichment tests ---------------------------------
+
+    def test_list_wp_returns_entity_name_type_path(self, db: EntityDatabase):
+        """list_workflow_phases returns entity_name, entity_type, entity_artifact_path."""
+        db.register_entity("feature", "f1", "My Feature", artifact_path="/path/f1")
+        db.create_workflow_phase("feature:f1", kanban_column="wip")
+
+        result = db.list_workflow_phases()
+        assert len(result) == 1
+        assert result[0]["entity_name"] == "My Feature"
+        assert result[0]["entity_type"] == "feature"
+        assert result[0]["entity_artifact_path"] == "/path/f1"
+
+    def test_list_wp_null_for_orphan_rows(self, db: EntityDatabase):
+        """LEFT JOIN returns NULL entity fields for orphan workflow_phases rows."""
+        # Manually insert a workflow_phases row without a matching entity
+        db._conn.execute("PRAGMA foreign_keys = OFF")
+        db._conn.execute(
+            "INSERT INTO workflow_phases (type_id, kanban_column, updated_at) VALUES (?, ?, ?)",
+            ("feature:orphan", "backlog", "2026-01-01T00:00:00Z"),
+        )
+        db._conn.commit()
+        db._conn.execute("PRAGMA foreign_keys = ON")
+
+        result = db.list_workflow_phases()
+        assert len(result) == 1
+        assert result[0]["entity_name"] is None
+        assert result[0]["entity_type"] is None
+        assert result[0]["entity_artifact_path"] is None
+
+    def test_list_wp_filter_with_join(self, db: EntityDatabase):
+        """WHERE clauses still work correctly with JOIN."""
+        db.register_entity("feature", "f1", "Feature 1")
+        db.register_entity("feature", "f2", "Feature 2")
+        db.create_workflow_phase("feature:f1", kanban_column="wip", workflow_phase="design")
+        db.create_workflow_phase("feature:f2", kanban_column="backlog", workflow_phase="specify")
+
+        result = db.list_workflow_phases(kanban_column="wip")
+        assert len(result) == 1
+        assert result[0]["entity_name"] == "Feature 1"
+
+    def test_list_wp_all_rows_preserved(self, db: EntityDatabase):
+        """LEFT JOIN does not lose any workflow_phases rows."""
+        db.register_entity("feature", "f1", "Feature 1")
+        db.register_entity("feature", "f2", "Feature 2")
+        db.create_workflow_phase("feature:f1", kanban_column="wip")
+        db.create_workflow_phase("feature:f2", kanban_column="backlog")
+        # Add orphan row (disable FK to allow orphan)
+        db._conn.execute("PRAGMA foreign_keys = OFF")
+        db._conn.execute(
+            "INSERT INTO workflow_phases (type_id, kanban_column, updated_at) VALUES (?, ?, ?)",
+            ("feature:orphan", "backlog", "2026-01-01T00:00:00Z"),
+        )
+        db._conn.commit()
+        db._conn.execute("PRAGMA foreign_keys = ON")
+
+        result = db.list_workflow_phases()
+        assert len(result) == 3
+
+    def test_list_wp_empty_table(self, db: EntityDatabase):
+        """list_workflow_phases on empty table returns empty list."""
+        result = db.list_workflow_phases()
+        assert result == []
+
 
 # ---------------------------------------------------------------------------
 # Phase B Deepened Tests: Workflow Phase CRUD & Migration edge cases
