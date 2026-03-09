@@ -776,7 +776,7 @@ def _process_init_feature_state(
         db.register_entity(
             entity_type="feature",
             entity_id=f"{feature_id}-{slug}",
-            name=slug,
+            name=slug.replace("-", " ").title(),
             artifact_path=feature_dir,
             status=status,
             metadata=metadata,
@@ -863,7 +863,7 @@ def _process_init_project_state(
         db.register_entity(
             entity_type="project",
             entity_id=f"{project_id}-{slug}",
-            name=slug,
+            name=slug.replace("-", " ").title(),
             artifact_path=project_dir,
             status="active",
             metadata=metadata,

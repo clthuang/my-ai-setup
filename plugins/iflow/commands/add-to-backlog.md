@@ -40,13 +40,15 @@ Add an item to the centralized backlog at `{iflow_artifacts_root}/backlog.md`.
    - Append the new row: `| {ID} | {Timestamp} | {Description} |`
 
 6. **Register entity and initialize workflow:**
+   - Derive title: if description > 80 chars, truncate at last word boundary before char 80 and append "…"; otherwise use description as-is
    ```
    register_entity(
      entity_type="backlog",
      entity_id="{5-digit-id}",
-     name="{description}",
+     name="{title}",
      artifact_path="{iflow_artifacts_root}/backlog.md",
-     status="open"
+     status="open",
+     metadata='{"description": "{full-description}"}'
    )
    ```
    ```

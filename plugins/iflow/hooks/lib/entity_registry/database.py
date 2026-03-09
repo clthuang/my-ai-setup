@@ -1458,13 +1458,18 @@ class EntityDatabase:
         params: list = []
 
         if kanban_column is not None:
-            clauses.append("kanban_column = ?")
+            clauses.append("wp.kanban_column = ?")
             params.append(kanban_column)
         if workflow_phase is not None:
-            clauses.append("workflow_phase = ?")
+            clauses.append("wp.workflow_phase = ?")
             params.append(workflow_phase)
 
-        sql = "SELECT * FROM workflow_phases"
+        sql = (
+            "SELECT wp.*, e.name AS entity_name, e.entity_type AS entity_type,"
+            " e.artifact_path AS entity_artifact_path"
+            " FROM workflow_phases wp"
+            " LEFT JOIN entities e ON wp.type_id = e.type_id"
+        )
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
 

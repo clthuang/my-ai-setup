@@ -360,3 +360,94 @@ def test_board_reflects_new_data_on_htmx_refresh(tmp_path):
     r2 = client.get("/", headers={"HX-Request": "true"})
     assert "original" in r2.text
     assert "new-feature" in r2.text
+
+
+# ===========================================================================
+# Entity name display on kanban cards
+# ===========================================================================
+
+
+def _seed_entity_and_workflow_row(
+    db_file, type_id, name, kanban_column="backlog",
+    workflow_phase=None, mode=None,
+):
+    """Insert both an entities row and a workflow_phases row."""
+    import uuid
+    entity_type, entity_id = type_id.split(":", 1)
+    conn = sqlite3.connect(db_file)
+    conn.execute("PRAGMA foreign_keys = OFF")
+    now = "2026-03-08T00:00:00Z"
+    conn.execute(
+        "INSERT OR IGNORE INTO entities "
+        "(uuid, type_id, entity_type, entity_id, name, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (str(uuid.uuid4()), type_id, entity_type, entity_id, name, now, now),
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO workflow_phases "
+        "(type_id, kanban_column, workflow_phase, mode, updated_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (type_id, kanban_column, workflow_phase, mode, now),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_card_renders_entity_name(tmp_path):
+    """Card shows entity_name when available via LEFT JOIN."""
+    db_file = str(tmp_path / "test.db")
+    EntityDatabase(db_file)
+    _seed_entity_and_workflow_row(
+        db_file, "feature:test-slug", name="My Human Readable Feature",
+        kanban_column="wip", workflow_phase="implement", mode="standard",
+    )
+
+    from ui import create_app
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "My Human Readable Feature" in response.text
+
+
+def test_card_fallback_null_entity_name(tmp_path):
+    """Card falls back to type_id segment when entity_name is NULL."""
+    db_file = str(tmp_path / "test.db")
+    EntityDatabase(db_file)
+    # Seed only workflow_phases (no entity row) — entity_name will be NULL
+    _seed_workflow_row(
+        db_file, "feature:fallback-slug",
+        kanban_column="backlog", workflow_phase=None,
+    )
+
+    from ui import create_app
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "fallback-slug" in response.text
+
+
+def test_board_renders_with_join_data(tmp_path):
+    """Board loads successfully with enriched entity data from JOIN."""
+    db_file = str(tmp_path / "test.db")
+    EntityDatabase(db_file)
+    _seed_entity_and_workflow_row(
+        db_file, "feature:f1", name="Feature One",
+        kanban_column="wip", workflow_phase="design", mode="standard",
+    )
+    _seed_entity_and_workflow_row(
+        db_file, "brainstorm:b1", name="Brainstorm Title",
+        kanban_column="backlog",
+    )
+
+    from ui import create_app
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "Feature One" in response.text
+    assert "Brainstorm Title" in response.text
