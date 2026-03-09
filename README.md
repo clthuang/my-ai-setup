@@ -105,6 +105,14 @@ Built-in specialist knowledge for brainstorming and code review:
 - **Crypto/DeFi** — protocol comparison, tokenomics, market strategy, risk assessment
 - **Data science** — methodology assessment, pitfall analysis, modeling approach, DS code review
 
+### Kanban Board (UI Server)
+
+The plugin auto-starts a local Kanban board at `http://localhost:8718/` on every session start. The board shows all features, brainstorms, backlog items, and projects with their workflow phases and lineage in real time. No manual setup required.
+
+Configure via `.claude/iflow.local.md`:
+- `ui_server_enabled: false` — disable auto-start
+- `ui_server_port: 8718` — change the port
+
 ### Specialist Teams
 
 `/iflow:create-specialist-team` assembles ephemeral multi-perspective teams for complex tasks that need diverse expertise.
