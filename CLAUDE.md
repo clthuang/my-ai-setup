@@ -87,13 +87,13 @@ bash plugins/iflow/mcp/test_entity_server.sh
 # Run transition gate tests (gate functions, constants, models — 257 tests)
 plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/transition_gate/ -v
 
-# Run workflow engine tests (state engine, hydration, transitions, degradation — 289 tests)
+# Run workflow engine tests (state engine, hydration, transitions, degradation — 309 tests)
 plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/workflow_engine/ -v
 
-# Run reconciliation module tests (drift detection, apply, frontmatter sync — 103 tests)
+# Run reconciliation module tests (drift detection, apply, frontmatter sync — 118 tests)
 plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/lib/workflow_engine/test_reconciliation.py -v
 
-# Run workflow state MCP server tests (processing + reconciliation integration — 146 tests)
+# Run workflow state MCP server tests (processing + reconciliation integration — 272 tests)
 plugins/iflow/.venv/bin/python -m pytest plugins/iflow/mcp/test_workflow_state_server.py -v
 
 # Run workflow server bootstrap wrapper tests
