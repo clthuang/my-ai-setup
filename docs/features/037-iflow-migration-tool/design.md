@@ -50,7 +50,7 @@
 
 ### Design Decision: migrate_db.py as CLI with subcommands
 
-**Decision:** migrate_db.py exposes argparse subcommands (`backup`, `manifest`, `validate`, `merge`, `verify`, `info`) rather than being a monolithic script called with the same export/import args as migrate.sh.
+**Decision:** migrate_db.py exposes argparse subcommands (`backup`, `manifest`, `validate`, `merge-memory`, `merge-entities`, `verify`, `info`, `check-embeddings`) rather than being a monolithic script called with the same export/import args as migrate.sh.
 
 **Rationale:**
 - Each SQLite operation is independently testable
