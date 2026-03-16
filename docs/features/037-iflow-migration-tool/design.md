@@ -81,7 +81,7 @@
 
 **Impact:** Add to Data Inventory as a fourth store. Bundle gains `projects.txt` at top level.
 
-**Spec discrepancy:** The spec's Data Inventory and bundle format do not include projects.txt. Spec must be updated before implementation to add projects.txt as a fourth data store.
+**Spec alignment:** Spec updated to include projects.txt as a fourth data store in Data Inventory and Bundle Format sections.
 
 ## Components
 
@@ -133,7 +133,7 @@ iflow-export-YYYYMMDD-HHMMSS/
 
 ### TD-1: Staging directory lifecycle
 
-Export creates a temp staging dir (`mktemp -d`), writes all files there, generates manifest, creates tar.gz from it, then removes staging dir. This ensures atomic bundle creation — partial failures leave no artifacts.
+Export creates a temp staging dir (`mktemp -d`), writes all files there, generates manifest, creates tar.gz from it, then removes staging dir. This ensures atomic bundle creation — partial failures leave no artifacts. If `mktemp -d` fails (e.g., TMPDIR full), export aborts with exit 1 and the mktemp error is forwarded to stderr.
 
 ### TD-2: Entity merge via ATTACH + Python UUID generation
 
@@ -233,6 +233,8 @@ def merge_entities_db(src_path, dst_path, dry_run=False):
 - **FK OFF during merge**: Avoids insertion-order issues when child entities appear before parents in the result set. Validity is enforced by the WHERE clause (only type_ids from source that don't exist in destination).
 - **parent_uuid reconstruction**: Phase 4 UPDATE populates parent_uuid by looking up the new UUID via parent_type_id. This preserves UI tree hierarchy (server_helpers.py uses parent_uuid for tree building).
 - **FTS5 rebuild**: Phase 5 rebuilds entities_fts so imported entities appear in search.
+
+**Spec alignment:** Spec AC-5 updated to reflect FK OFF approach. The WHERE clause enforces type_id validity during ATTACH-based batch insert, avoiding insertion-order FK constraint violations.
 
 ### TD-3: Memory merge via ATTACH + source_hash dedup
 
@@ -361,7 +363,7 @@ run_doctor_check() {
 | Large embedding BLOBs slow merge | Export/import takes minutes | Acceptable for typical usage (<500 entries) |
 | projects.txt format changes | Import breaks project list | Simple text file (one path per line); low risk |
 | WAL checkpoint during export | Backup captures partial state | .backup() API handles this atomically |
-| Spec does not include projects.txt | Implementation gap | Flagged for spec update before implementation |
+| projects.txt missing on import | Import skips project registry | Conditional copy: only if file exists in bundle |
 
 ## Interfaces
 
@@ -397,6 +399,8 @@ python migrate_db.py merge-entities <src-db> <dst-db> [--dry-run]
 python migrate_db.py verify <db-path> --expected-count N --table <name>
   stdout: JSON {"ok": true/false, "actual_count": N, "integrity": "ok/..."}
   exit: 0=pass, 1=fail
+  Note: --expected-count 0 means "skip count validation, just return actual_count and integrity".
+  This is used by import_flow to get pre-merge counts before calling merge.
 
 # Read manifest info (for dry-run and embedding check)
 python migrate_db.py info <manifest-path>
@@ -410,6 +414,18 @@ python migrate_db.py check-embeddings <manifest-path> <dst-memory-db>
 ```
 
 All subcommands output JSON to stdout. Errors go to stderr. This enables migrate.sh to parse results with simple `jq`-free JSON extraction (`python3 -c "import json,sys; ..."` or grep for specific fields).
+
+### C1 internal: copy_markdown_files
+
+```bash
+copy_markdown_files(src_dir, dst_dir)
+  # Copies *.md from src_dir to dst_dir
+  # If file exists in dst_dir and --force is NOT set: skip (increment skip count)
+  # If file exists in dst_dir and --force IS set: overwrite
+  # Returns: prints "added N, skipped M" to stderr for progress reporting
+```
+
+Receives the global `$FORCE` flag from migrate.sh argument parsing.
 
 ### C1 → C3: Bundle format
 

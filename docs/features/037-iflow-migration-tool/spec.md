@@ -17,6 +17,7 @@ A `scripts/migrate.sh` script providing `export` and `import` subcommands for mi
 | Semantic memory DB | `~/.claude/iflow/memory/memory.db` | SQLite (WAL) | `sqlite3.Connection.backup()` — hardcoded path |
 | Entity registry DB | `~/.claude/iflow/entities/entities.db` | SQLite (WAL) | `sqlite3.Connection.backup()` — respects `ENTITY_DB_PATH` env override |
 | Memory markdown files | `~/.claude/iflow/memory/*.md` | Markdown | File copy |
+| Project registry | `~/.claude/iflow/projects.txt` | Text | File copy (if exists) |
 
 ## File Structure
 
@@ -64,6 +65,7 @@ scripts/migrate.sh            # (no args) prints help
 ```
 iflow-export-YYYYMMDD-HHMMSS/
   manifest.json
+  projects.txt                # Project registry (if exists)
   memory/
     memory.db                 # SQLite backup (WAL-safe)
     *.md                      # Category markdown files
@@ -140,7 +142,7 @@ Compressed to `iflow-export-YYYYMMDD-HHMMSS.tar.gz`.
 - **When** `scripts/migrate.sh import bundle.tar.gz` is run
 - **Then** memory entries are merged using source_hash deduplication (skip rows where source_hash exists in destination)
 - **And** entity records are merged using `INSERT OR IGNORE` on `type_id` UNIQUE constraint (destination-wins). New UUIDs are generated for inserted rows since `uuid` is the actual PK.
-- **And** `PRAGMA foreign_keys = ON` is set before merging to enforce `workflow_phases.type_id` FK
+- **And** `PRAGMA foreign_keys = OFF` is set during merge to avoid insertion-order issues (child before parent); type_id validity is enforced by the WHERE clause filtering against destination
 - **And** for each newly inserted entity, its `workflow_phases` row is also inserted
 - **And** for skipped entities (type_id conflict), workflow_phases rows are also skipped
 - **And** markdown files are skipped if they already exist (unless `--force`)
@@ -403,13 +405,14 @@ Export complete:
 ### Import Flow (Step-by-Step)
 
 ```
-Step 1/7: Validating bundle... done (schema v1, exported 2026-03-16)
-Step 2/7: Checking for active sessions...
-Step 3/7: Creating directory structure...
-Step 4/7: Restoring semantic memory... done (added 142, skipped 0)
-Step 5/7: Restoring entity registry... done (added 80, skipped 7 conflicts)
-Step 6/7: Copying memory files... done (added 2, skipped 1 existing)
-Step 7/7: Verifying integrity... done
+Step 1/8: Validating bundle... done (schema v1, exported 2026-03-16)
+Step 2/8: Checking for active sessions...
+Step 3/8: Checking embedding compatibility...
+Step 4/8: Creating directory structure...
+Step 5/8: Restoring semantic memory... done (added 142, skipped 0)
+Step 6/8: Restoring entity registry... done (added 80, skipped 7 conflicts)
+Step 7/8: Copying memory files... done (added 2, skipped 1 existing)
+Step 8/8: Verifying integrity... done
 
 Import complete:
   Memory entries: 142 added, 0 skipped
