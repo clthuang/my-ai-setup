@@ -319,20 +319,19 @@ def cmd_merge_entities(args: argparse.Namespace) -> None:
         """)
 
         # Phase 4: Reconstruct parent_uuid for imported entities
+        # Uses parameterized query to avoid SQL injection from type_id values
         if new_type_ids:
-            imported_list = ",".join(
-                f"'{tid}'" for (tid,) in new_type_ids
-            )
-            dst.execute(f"""
-                UPDATE main.entities
-                SET parent_uuid = (
-                    SELECT uuid FROM main.entities AS parent
-                    WHERE parent.type_id = main.entities.parent_type_id
-                )
-                WHERE type_id IN ({imported_list})
-                  AND parent_uuid IS NULL
-                  AND parent_type_id IS NOT NULL
-            """)
+            for (tid,) in new_type_ids:
+                dst.execute("""
+                    UPDATE main.entities
+                    SET parent_uuid = (
+                        SELECT uuid FROM main.entities AS parent
+                        WHERE parent.type_id = main.entities.parent_type_id
+                    )
+                    WHERE type_id = ?
+                      AND parent_uuid IS NULL
+                      AND parent_type_id IS NOT NULL
+                """, (tid,))
 
         # Phase 5: FTS5 rebuild
         try:
@@ -361,29 +360,25 @@ def cmd_merge_entities(args: argparse.Namespace) -> None:
 
 def cmd_verify(args: argparse.Namespace) -> None:
     """Verify row counts in a database table after migration."""
-    conn = sqlite3.connect(args.db_path)
     try:
-        integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+        conn = sqlite3.connect(args.db_path)
+        try:
+            integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+
+            if integrity != "ok":
+                _json_out({"ok": False, "actual_count": 0, "integrity": integrity})
+                sys.exit(1)
+
+            actual_count = conn.execute(
+                f"SELECT count(*) FROM [{args.table}]"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+    except SystemExit:
+        raise
     except Exception as e:
-        conn.close()
         _json_out({"ok": False, "actual_count": 0, "integrity": str(e)})
         sys.exit(1)
-
-    if integrity != "ok":
-        conn.close()
-        _json_out({"ok": False, "actual_count": 0, "integrity": integrity})
-        sys.exit(1)
-
-    try:
-        actual_count = conn.execute(
-            f"SELECT count(*) FROM [{args.table}]"
-        ).fetchone()[0]
-    except Exception as e:
-        conn.close()
-        _json_out({"ok": False, "actual_count": 0, "integrity": str(e)})
-        sys.exit(1)
-    finally:
-        conn.close()
 
     # If expected_count is 0, skip the comparison (count-only mode)
     ok = args.expected_count == 0 or actual_count == args.expected_count

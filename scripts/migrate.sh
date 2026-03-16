@@ -223,6 +223,8 @@ export_flow() {
     local staging
     staging="$(mktemp -d)/${staging_name}"
     mkdir -p "$staging"
+    # Clean up staging dir on exit (covers failures in tar/manifest steps)
+    trap 'rm -rf "$(dirname "$staging")"' EXIT
     ok "  $staging"
 
     local memory_count=0
