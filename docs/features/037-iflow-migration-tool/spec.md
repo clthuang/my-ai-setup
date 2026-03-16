@@ -128,7 +128,7 @@ Compressed to `iflow-export-YYYYMMDD-HHMMSS.tar.gz`.
 - **Then** export proceeds with a warning
 
 ### AC-4: Import on fresh machine (no existing state)
-- **Given** `~/.claude/iflow/` does not exist or is empty
+- **Given** `~/.claude/iflow/` does not exist or is empty, and no active Claude session (or `--force` provided)
 - **When** `scripts/migrate.sh import bundle.tar.gz` is run
 - **Then** directory structure is created
 - **And** database files are copied directly (no merge needed)
@@ -136,7 +136,7 @@ Compressed to `iflow-export-YYYYMMDD-HHMMSS.tar.gz`.
 - **And** post-import verification passes (entry counts match manifest, `PRAGMA integrity_check` OK)
 
 ### AC-5: Import with existing state (merge)
-- **Given** destination already has memory.db and entities.db with data
+- **Given** destination already has memory.db and entities.db with data, and no active Claude session (or `--force` provided)
 - **When** `scripts/migrate.sh import bundle.tar.gz` is run
 - **Then** memory entries are merged using source_hash deduplication (skip rows where source_hash exists in destination)
 - **And** entity records are merged using `INSERT OR IGNORE` on `type_id` UNIQUE constraint (destination-wins). New UUIDs are generated for inserted rows since `uuid` is the actual PK.
@@ -214,9 +214,10 @@ Compressed to `iflow-export-YYYYMMDD-HHMMSS.tar.gz`.
 ### AC-15: Post-import doctor check
 - **Given** import completes successfully
 - **When** verification step runs
-- **Then** script runs basic health checks: both databases respond to `SELECT count(*) FROM {main_table}`, markdown files are readable
+- **Then** if `scripts/doctor.sh` exists, invoke it and report pass/fail. If doctor.sh is unavailable (fresh machine, no dev workspace), fall back to inline health checks: both databases respond to `SELECT count(*) FROM {main_table}`, markdown files are readable.
 - **And** if any check fails, warning is printed but import is not rolled back (data is already committed)
 - **And** output suggests "Run your first Claude session to verify MCP servers can connect"
+- **Note:** doctor.sh is the canonical health check (PRD SC-7). Inline checks are a subset approximation for environments where doctor.sh is not present.
 
 ## Technical Specifications
 
@@ -242,9 +243,13 @@ Note: Pattern should be verified against actual MCP server launch commands durin
 
 **Python invocation:**
 ```bash
+# Try dev workspace venv first, then plugin cache, then system Python
 VENV_PYTHON="$(dirname "$0")/../plugins/iflow/.venv/bin/python"
 if [ ! -x "$VENV_PYTHON" ]; then
-  VENV_PYTHON="python3"  # fallback to system Python
+  VENV_PYTHON="$(ls ~/.claude/plugins/cache/*/iflow*/*/.venv/bin/python 2>/dev/null | head -1)"
+fi
+if [ -z "$VENV_PYTHON" ] || [ ! -x "$VENV_PYTHON" ]; then
+  VENV_PYTHON="python3"  # fallback — acceptable since migrate_db.py uses only stdlib
 fi
 "$VENV_PYTHON" "$(dirname "$0")/migrate_db.py" "$@"
 ```
@@ -272,7 +277,7 @@ def generate_manifest(staging_dir: str, plugin_version: str) -> dict:
     - plugin_version: read from plugins/iflow/plugin.json "version" field
     - embedding_provider/model: read from memory.db _metadata table (keys: embedding_provider, embedding_model)
     - python_version: platform.python_version()
-    - source_platform: platform.platform() (e.g. 'darwin-arm64')
+    - source_platform: f"{sys.platform}-{platform.machine()}" (e.g. 'darwin-arm64')
     - entry_count: SELECT count(*) FROM entries
     - entity_count: SELECT count(*) FROM entities
     - workflow_phases_count: SELECT count(*) FROM workflow_phases
@@ -306,17 +311,22 @@ def merge_memory_db(src_path, dst_path, dry_run=False):
     src = sqlite3.connect(src_path)
     dst = sqlite3.connect(dst_path)
 
+    # Resolve column names (robust against schema evolution)
+    src_cols = [desc[0] for desc in src.execute("SELECT * FROM entries LIMIT 0").description]
+    source_hash_idx = src_cols.index("source_hash")
+
     src_entries = src.execute("SELECT * FROM entries").fetchall()
     dst_hashes = {row[0] for row in dst.execute("SELECT source_hash FROM entries")}
 
     added, skipped = 0, 0
+    dst.execute("BEGIN")
     for entry in src_entries:
-        source_hash = entry[...]  # source_hash column
+        source_hash = entry[source_hash_idx]
         if source_hash in dst_hashes:
             skipped += 1
         else:
             if not dry_run:
-                dst.execute("INSERT INTO entries VALUES (...)", entry)
+                dst.execute(f"INSERT INTO entries VALUES ({','.join('?' * len(entry))})", entry)
             added += 1
 
     if not dry_run:
@@ -343,6 +353,7 @@ def merge_entities_db(src_path, dst_path, dry_run=False):
     dst_type_ids = {row[0] for row in dst.execute("SELECT type_id FROM entities")}
     added, skipped = 0, 0
 
+    dst.execute("BEGIN")
     for entity in src_entities:
         type_id = entity[type_id_idx]
         if type_id in dst_type_ids:
@@ -469,3 +480,4 @@ Tests live in `scripts/test_migrate.py` using pytest + tmp_path fixtures:
 9. **Post-import doctor:** Import → verify health checks run and report readable output
 10. **Fresh machine embedding check:** Import into empty dir (no _metadata) → verify no mismatch warning
 11. **UUID generation on merge:** Import with overlapping entities → verify new uuids generated, type_id dedup works
+12. **Force overwrite:** Create existing markdown files → import with --force → verify files are overwritten with bundle contents
