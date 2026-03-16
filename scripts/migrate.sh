@@ -42,7 +42,14 @@ resolve_python() {
     fi
     return 1
 }
-PYTHON="$(resolve_python)" || die "Python 3 required for SQLite operations. Install Python or run: plugins/iflow/scripts/setup.sh"
+if [ -n "${PYTHON:-}" ]; then
+    # Allow env override for testing
+    if ! "$PYTHON" --version >/dev/null 2>&1; then
+        die "Python 3 required for SQLite operations. Install Python or run: plugins/iflow/scripts/setup.sh"
+    fi
+else
+    PYTHON="$(resolve_python)" || die "Python 3 required for SQLite operations. Install Python or run: plugins/iflow/scripts/setup.sh"
+fi
 
 # Session detection
 check_active_session() {
@@ -132,8 +139,12 @@ FORCE=0
 DRY_RUN=""
 
 main() {
-    local cmd="${1:-help}"
-    shift || true
+    local cmd="${1:-}"
+    if [ -z "$cmd" ]; then
+        echo "Usage: migrate.sh {export|import|help}" >&2
+        exit 1
+    fi
+    shift
 
     # Parse global flags from remaining args
     local positional=()
@@ -267,20 +278,34 @@ import_flow() {
     extract_dir="$(mktemp -d)"
     trap "rm -rf '$extract_dir'" EXIT
 
+    # Pre-extraction path traversal check (inspect tar listing before writing to disk)
+    local traversal_found=0
+    while IFS= read -r entry; do
+        case "$entry" in
+            *../*|..*)
+                traversal_found=1
+                break
+                ;;
+        esac
+    done < <(tar -tzf "$bundle_path" 2>/dev/null || true)
+    if [ "$traversal_found" -eq 1 ]; then
+        die "Path traversal detected in bundle"
+    fi
+
     tar -xzf "$bundle_path" -C "$extract_dir" 2>/dev/null \
         || die "Failed to extract bundle (corrupt or not a tar.gz?)"
 
-    # Path traversal check
+    # Post-extraction path traversal check (belt and suspenders)
     local real_extract
     real_extract="$(cd "$extract_dir" && pwd -P)"
-    find "$extract_dir" -type f | while read -r f; do
+    while IFS= read -r f; do
         local real_f
         real_f="$(cd "$(dirname "$f")" && pwd -P)/$(basename "$f")"
         case "$real_f" in
             "${real_extract}"*) ;; # OK
             *) die "Path traversal detected in bundle" ;;
         esac
-    done
+    done < <(find "$extract_dir" -type f)
 
     # Find the inner bundle directory (e.g., iflow-export-YYYYMMDD-HHMMSS/)
     local bundle_dir
@@ -353,6 +378,7 @@ import_flow() {
     local memory_action="skipped" entity_action="skipped"
     local memory_added=0 memory_skipped=0 entity_added=0 entity_skipped=0
     local md_added=0 md_skipped=0 files_summary=""
+    local import_failures=() import_successes=()
 
     # ── Step 5: Merge/copy memory ────────────────────────────
     step "5/8" "Importing memory data"
@@ -366,10 +392,15 @@ import_flow() {
                 memory_action="would-copy"
                 info "  Dry-run: would copy memory.db ($memory_added entries)"
             else
-                cp "$bundle_dir/memory/memory.db" "$MEMORY_DB"
-                memory_action="copied"
-                memory_added=$manifest_mem_count
-                ok "  Copied memory.db ($memory_added entries)"
+                if cp "$bundle_dir/memory/memory.db" "$MEMORY_DB" 2>/dev/null; then
+                    memory_action="copied"
+                    memory_added=$manifest_mem_count
+                    import_successes+=("memory.db")
+                    ok "  Copied memory.db ($memory_added entries)"
+                else
+                    import_failures+=("memory.db")
+                    warn "  Failed to copy memory.db"
+                fi
             fi
         else
             # Existing state — merge
@@ -418,10 +449,15 @@ import_flow() {
                 entity_action="would-copy"
                 info "  Dry-run: would copy entities.db ($entity_added entities)"
             else
-                cp "$bundle_dir/entities/entities.db" "$ENTITY_DB"
-                entity_action="copied"
-                entity_added=$manifest_ent_count
-                ok "  Copied entities.db ($entity_added entities)"
+                if cp "$bundle_dir/entities/entities.db" "$ENTITY_DB" 2>/dev/null; then
+                    entity_action="copied"
+                    entity_added=$manifest_ent_count
+                    import_successes+=("entities.db")
+                    ok "  Copied entities.db ($entity_added entities)"
+                else
+                    import_failures+=("entities.db")
+                    warn "  Failed to copy entities.db"
+                fi
             fi
         else
             # Existing state — merge
@@ -515,6 +551,15 @@ import_flow() {
                 verify_errors=$((verify_errors + 1))
             fi
         fi
+    fi
+
+    # Check for partial failures
+    if [ ${#import_failures[@]} -gt 0 ]; then
+        echo "" >&2
+        echo -e "${RED}Import partially failed${NC}" >&2
+        echo -e "  Restored: ${import_successes[*]:-none}" >&2
+        echo -e "  Failed: ${import_failures[*]}" >&2
+        exit 1
     fi
 
     # Summary

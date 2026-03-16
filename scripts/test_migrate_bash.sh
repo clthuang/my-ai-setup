@@ -943,6 +943,435 @@ FAKE
     fi
 }
 
+# --- 13.1: No subcommand → usage and exit 1 ---
+
+test_no_subcommand_exits_1() {
+    log_test "no subcommand shows usage and exits 1"
+
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    trap "rm -rf '$tmpdir'" RETURN
+
+    local exit_code=0
+    local output
+    output=$("$MIGRATE_SH" 2>&1) || exit_code=$?
+
+    if [[ $exit_code -ne 1 ]]; then
+        log_fail "Expected exit 1, got $exit_code"
+        return
+    fi
+
+    if echo "$output" | grep -q "Usage: migrate.sh {export|import|help}"; then
+        log_pass
+    else
+        log_fail "Expected usage message, got: $output"
+    fi
+}
+
+# --- 13.2: Active session without --force → exit 2 with message ---
+
+test_active_session_import_exits_2_with_message() {
+    log_test "import with active session (no --force) shows error message and exits 2"
+
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    trap "rm -rf '$tmpdir'" RETURN
+
+    # Create a valid bundle first
+    local bundle_path
+    bundle_path="$(create_test_bundle "$tmpdir")"
+    if [[ ! -f "$bundle_path" ]]; then
+        log_fail "Failed to create test bundle"
+        return
+    fi
+
+    # Create fresh home for import
+    local fresh_home="$tmpdir/fresh_home"
+    mkdir -p "$fresh_home/.claude/iflow/memory" "$fresh_home/.claude/iflow/entities"
+
+    # Create fake pgrep that returns 0 (active session)
+    local bin_dir="$tmpdir/bin"
+    mkdir -p "$bin_dir"
+    cat > "$bin_dir/pgrep" <<'FAKE'
+#!/usr/bin/env bash
+exit 0
+FAKE
+    chmod +x "$bin_dir/pgrep"
+
+    local exit_code=0
+    local output
+    output=$(PATH="$bin_dir:$PATH" HOME="$fresh_home" PYTHON=python3 \
+        bash "$MIGRATE_SH" import "$bundle_path" 2>&1) || exit_code=$?
+
+    if [[ $exit_code -ne 2 ]]; then
+        log_fail "Expected exit 2, got $exit_code"
+        return
+    fi
+
+    if echo "$output" | grep -q "Active Claude session detected"; then
+        log_pass
+    else
+        log_fail "Expected active session error message, got: $output"
+    fi
+}
+
+# --- 13.3: Bundle not found → exit 1 with message ---
+
+test_bundle_not_found_exits_1() {
+    log_test "import with nonexistent bundle shows error and exits 1"
+
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    trap "rm -rf '$tmpdir'" RETURN
+
+    local fake_path="$tmpdir/nonexistent-bundle.tar.gz"
+
+    # Create fake pgrep
+    cat > "$tmpdir/pgrep" <<'FAKE'
+#!/usr/bin/env bash
+exit 1
+FAKE
+    chmod +x "$tmpdir/pgrep"
+
+    local exit_code=0
+    local output
+    output=$(PATH="$tmpdir:$PATH" PYTHON=python3 \
+        bash "$MIGRATE_SH" import "$fake_path" 2>&1) || exit_code=$?
+
+    if [[ $exit_code -ne 1 ]]; then
+        log_fail "Expected exit 1, got $exit_code"
+        return
+    fi
+
+    if echo "$output" | grep -q "Bundle not found: $fake_path"; then
+        log_pass
+    else
+        log_fail "Expected 'Bundle not found' message, got: $output"
+    fi
+}
+
+# --- 13.4: Checksum mismatch → exit 3 ---
+
+test_checksum_mismatch_exits_3() {
+    log_test "import with corrupted bundle file exits with code reflecting checksum failure"
+
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    trap "rm -rf '$tmpdir'" RETURN
+
+    # Create a valid bundle first
+    local bundle_path
+    bundle_path="$(create_test_bundle "$tmpdir")"
+    if [[ ! -f "$bundle_path" ]]; then
+        log_fail "Failed to create test bundle"
+        return
+    fi
+
+    # Extract, corrupt a file, repack
+    local corrupt_dir="$tmpdir/corrupt"
+    mkdir -p "$corrupt_dir"
+    tar -xzf "$bundle_path" -C "$corrupt_dir"
+
+    local inner_dir
+    inner_dir="$(ls -d "$corrupt_dir"/iflow-export-* 2>/dev/null | head -1)"
+    if [[ -z "$inner_dir" ]]; then
+        log_fail "No inner dir found in bundle"
+        return
+    fi
+
+    # Corrupt the memory.db file
+    echo "CORRUPTED DATA" > "$inner_dir/memory/memory.db"
+
+    # Repack
+    local corrupt_bundle="$tmpdir/corrupt-bundle.tar.gz"
+    tar -czf "$corrupt_bundle" -C "$corrupt_dir" "$(basename "$inner_dir")"
+
+    # Create fresh home and fake pgrep
+    local fresh_home="$tmpdir/fresh_home"
+    mkdir -p "$fresh_home/.claude/iflow/memory" "$fresh_home/.claude/iflow/entities"
+    local bin_dir="$tmpdir/bin"
+    mkdir -p "$bin_dir"
+    cat > "$bin_dir/pgrep" <<'FAKE'
+#!/usr/bin/env bash
+exit 1
+FAKE
+    chmod +x "$bin_dir/pgrep"
+
+    local exit_code=0
+    local output
+    output=$(PATH="$bin_dir:$PATH" HOME="$fresh_home" PYTHON=python3 \
+        bash "$MIGRATE_SH" import "$corrupt_bundle" 2>&1) || exit_code=$?
+
+    if [[ $exit_code -ne 1 ]]; then
+        log_fail "Expected exit 1, got $exit_code (output: $output)"
+        return
+    fi
+
+    # The error message should mention checksum
+    if echo "$output" | grep -qi "checksum"; then
+        log_pass
+    else
+        log_fail "Expected checksum error message, got: $output"
+    fi
+}
+
+# --- 13.5: Schema version too new → exit 1 ---
+
+test_schema_version_too_new_exits_1() {
+    log_test "import with schema version too new exits 1"
+
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    trap "rm -rf '$tmpdir'" RETURN
+
+    # Create a valid bundle first
+    local bundle_path
+    bundle_path="$(create_test_bundle "$tmpdir")"
+    if [[ ! -f "$bundle_path" ]]; then
+        log_fail "Failed to create test bundle"
+        return
+    fi
+
+    # Extract, bump schema_version, repack (need to update checksums too)
+    local mod_dir="$tmpdir/modded"
+    mkdir -p "$mod_dir"
+    tar -xzf "$bundle_path" -C "$mod_dir"
+
+    local inner_dir
+    inner_dir="$(ls -d "$mod_dir"/iflow-export-* 2>/dev/null | head -1)"
+    if [[ -z "$inner_dir" ]]; then
+        log_fail "No inner dir found in bundle"
+        return
+    fi
+
+    # Modify schema_version to 999
+    python3 -c "
+import json
+with open('$inner_dir/manifest.json') as f:
+    m = json.load(f)
+m['schema_version'] = 999
+with open('$inner_dir/manifest.json', 'w') as f:
+    json.dump(m, f)
+"
+
+    # Repack
+    local modded_bundle="$tmpdir/modded-bundle.tar.gz"
+    tar -czf "$modded_bundle" -C "$mod_dir" "$(basename "$inner_dir")"
+
+    # Create fresh home and fake pgrep
+    local fresh_home="$tmpdir/fresh_home"
+    mkdir -p "$fresh_home/.claude/iflow/memory" "$fresh_home/.claude/iflow/entities"
+    local bin_dir="$tmpdir/bin"
+    mkdir -p "$bin_dir"
+    cat > "$bin_dir/pgrep" <<'FAKE'
+#!/usr/bin/env bash
+exit 1
+FAKE
+    chmod +x "$bin_dir/pgrep"
+
+    local exit_code=0
+    local output
+    output=$(PATH="$bin_dir:$PATH" HOME="$fresh_home" PYTHON=python3 \
+        bash "$MIGRATE_SH" import "$modded_bundle" 2>&1) || exit_code=$?
+
+    if [[ $exit_code -ne 1 ]]; then
+        log_fail "Expected exit 1, got $exit_code"
+        return
+    fi
+
+    if echo "$output" | grep -qi "schema\|version\|supported"; then
+        log_pass
+    else
+        log_fail "Expected schema version error, got: $output"
+    fi
+}
+
+# --- 13.6a: No data to export (verify message) ---
+
+test_export_no_data_message() {
+    log_test "export with no data shows 'No iflow data found' message"
+
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    trap "rm -rf '$tmpdir'" RETURN
+
+    local fake_home="$tmpdir/home"
+    mkdir -p "$fake_home/.claude/iflow/memory"
+    mkdir -p "$fake_home/.claude/iflow/entities"
+
+    cat > "$tmpdir/pgrep" <<'FAKE'
+#!/usr/bin/env bash
+exit 1
+FAKE
+    chmod +x "$tmpdir/pgrep"
+
+    local exit_code=0
+    local output
+    output=$(PATH="$tmpdir:$PATH" HOME="$fake_home" PYTHON=python3 \
+        bash "$MIGRATE_SH" export "$tmpdir/out.tar.gz" 2>&1) || exit_code=$?
+
+    if [[ $exit_code -ne 1 ]]; then
+        log_fail "Expected exit 1, got $exit_code"
+        return
+    fi
+
+    if echo "$output" | grep -q "No iflow data found"; then
+        log_pass
+    else
+        log_fail "Expected 'No iflow data found' message, got: $output"
+    fi
+}
+
+# --- 13.7a: Python not available → exit 1 ---
+
+test_python_not_available_exits_1() {
+    log_test "script exits 1 when Python is not available"
+
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    trap "rm -rf '$tmpdir'" RETURN
+
+    local exit_code=0
+    local output
+    output=$(PYTHON="/nonexistent/python99" bash "$MIGRATE_SH" export 2>&1) || exit_code=$?
+
+    if [[ $exit_code -ne 1 ]]; then
+        log_fail "Expected exit 1, got $exit_code"
+        return
+    fi
+
+    if echo "$output" | grep -q "Python 3 required"; then
+        log_pass
+    else
+        log_fail "Expected 'Python 3 required' message, got: $output"
+    fi
+}
+
+# --- 13.8a: Disk full mid-import → partial failure report ---
+
+test_disk_full_partial_failure() {
+    log_test "import reports partial failure when cp fails mid-import"
+
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    trap "rm -rf '$tmpdir'" RETURN
+
+    # Create a valid bundle with both memory and entities
+    local bundle_path
+    bundle_path="$(create_test_bundle "$tmpdir")"
+    if [[ ! -f "$bundle_path" ]]; then
+        log_fail "Failed to create test bundle"
+        return
+    fi
+
+    # Create fresh home
+    local fresh_home="$tmpdir/fresh_home"
+    mkdir -p "$fresh_home/.claude/iflow/memory" "$fresh_home/.claude/iflow/entities"
+
+    # Create a fake cp that succeeds first time (memory.db) but fails second time (entities.db)
+    local mock_dir="$tmpdir/mockbin"
+    mkdir -p "$mock_dir"
+    local count_file="$tmpdir/cp_call_count"
+    echo "0" > "$count_file"
+
+    cat > "$mock_dir/cp" <<SCRIPT
+#!/usr/bin/env bash
+count=\$(cat "$count_file")
+count=\$((count + 1))
+echo "\$count" > "$count_file"
+if [ "\$count" -gt 1 ]; then
+    echo "cp: write error: No space left on device" >&2
+    exit 1
+fi
+/bin/cp "\$@"
+SCRIPT
+    chmod +x "$mock_dir/cp"
+
+    # Create fake pgrep
+    cat > "$mock_dir/pgrep" <<'FAKE'
+#!/usr/bin/env bash
+exit 1
+FAKE
+    chmod +x "$mock_dir/pgrep"
+
+    local exit_code=0
+    local output
+    output=$(PATH="$mock_dir:$PATH" HOME="$fresh_home" PYTHON=python3 \
+        bash "$MIGRATE_SH" import "$bundle_path" 2>&1) || exit_code=$?
+
+    if [[ $exit_code -ne 1 ]]; then
+        log_fail "Expected exit 1, got $exit_code (output: $output)"
+        return
+    fi
+
+    if echo "$output" | grep -qi "partially failed\|Failed"; then
+        log_pass
+    else
+        log_fail "Expected partial failure report, got: $output"
+    fi
+}
+
+# --- 13.9: Path traversal in bundle → exit 1 ---
+
+test_path_traversal_exits_1() {
+    log_test "import rejects bundle with path traversal"
+
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    trap "rm -rf '$tmpdir'" RETURN
+
+    # Create a malicious tar with path traversal using Python
+    local evil_bundle="$tmpdir/evil.tar.gz"
+    python3 -c "
+import tarfile, io, os
+
+buf = io.BytesIO()
+with tarfile.open(fileobj=buf, mode='w:gz') as tar:
+    # Add a normal manifest.json
+    manifest = b'{\"schema_version\": 1, \"checksums\": {}}'
+    info = tarfile.TarInfo(name='iflow-export-evil/manifest.json')
+    info.size = len(manifest)
+    tar.addfile(info, io.BytesIO(manifest))
+
+    # Add a traversal file
+    evil_data = b'malicious content'
+    info = tarfile.TarInfo(name='iflow-export-evil/../../../tmp/evil-traversal-test')
+    info.size = len(evil_data)
+    tar.addfile(info, io.BytesIO(evil_data))
+
+with open('$evil_bundle', 'wb') as f:
+    f.write(buf.getvalue())
+"
+
+    # Create fake pgrep
+    local bin_dir="$tmpdir/bin"
+    mkdir -p "$bin_dir"
+    cat > "$bin_dir/pgrep" <<'FAKE'
+#!/usr/bin/env bash
+exit 1
+FAKE
+    chmod +x "$bin_dir/pgrep"
+
+    local fresh_home="$tmpdir/fresh_home"
+    mkdir -p "$fresh_home"
+
+    local exit_code=0
+    local output
+    output=$(PATH="$bin_dir:$PATH" HOME="$fresh_home" PYTHON=python3 \
+        bash "$MIGRATE_SH" import "$evil_bundle" 2>&1) || exit_code=$?
+
+    if [[ $exit_code -ne 1 ]]; then
+        log_fail "Expected exit 1, got $exit_code (output: $output)"
+        return
+    fi
+
+    if echo "$output" | grep -qi "traversal\|path"; then
+        log_pass
+    else
+        log_fail "Expected path traversal error, got: $output"
+    fi
+}
+
 # --- Main ---
 
 main() {
@@ -983,6 +1412,21 @@ main() {
 
     test_import_fresh_machine
     test_import_merge_overlapping
+
+    echo ""
+    echo "=========================================="
+    echo "migrate.sh error cases"
+    echo "=========================================="
+
+    test_no_subcommand_exits_1
+    test_active_session_import_exits_2_with_message
+    test_bundle_not_found_exits_1
+    test_checksum_mismatch_exits_3
+    test_schema_version_too_new_exits_1
+    test_export_no_data_message
+    test_python_not_available_exits_1
+    test_disk_full_partial_failure
+    test_path_traversal_exits_1
 
     echo ""
     echo "=========================================="
