@@ -11,10 +11,12 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import sqlite3
 import sys
 import traceback
 import uuid as uuid_mod
+from datetime import datetime, timezone
 
 SUPPORTED_SCHEMA_VERSION = 1
 
@@ -71,9 +73,93 @@ def cmd_backup(args: argparse.Namespace) -> None:
     })
 
 
-def cmd_manifest(_args: argparse.Namespace) -> None:
+def cmd_manifest(args: argparse.Namespace) -> None:
     """Generate a migration manifest for a staging directory."""
-    _json_stub()
+    staging_dir = args.staging_dir
+
+    # Walk staging dir and compute SHA-256 checksums (exclude manifest.json)
+    checksums: dict[str, str] = {}
+    for root, _dirs, files in os.walk(staging_dir):
+        for fname in sorted(files):
+            fpath = os.path.join(root, fname)
+            rel = os.path.relpath(fpath, staging_dir)
+            if rel == "manifest.json":
+                continue
+            sha = hashlib.sha256()
+            with open(fpath, "rb") as f:
+                for chunk in iter(lambda: f.read(8192), b""):
+                    sha.update(chunk)
+            checksums[rel] = sha.hexdigest()
+
+    # Read entry counts from DBs
+    counts: dict[str, int] = {}
+    memory_db = os.path.join(staging_dir, "memory", "memory.db")
+    if os.path.exists(memory_db):
+        conn = sqlite3.connect(memory_db)
+        try:
+            counts["memory_entries"] = conn.execute(
+                "SELECT count(*) FROM entries"
+            ).fetchone()[0]
+        except sqlite3.OperationalError:
+            counts["memory_entries"] = 0
+        conn.close()
+
+    entities_db = os.path.join(staging_dir, "entities", "entities.db")
+    if os.path.exists(entities_db):
+        conn = sqlite3.connect(entities_db)
+        try:
+            counts["entities"] = conn.execute(
+                "SELECT count(*) FROM entities"
+            ).fetchone()[0]
+        except sqlite3.OperationalError:
+            counts["entities"] = 0
+        try:
+            counts["workflow_phases"] = conn.execute(
+                "SELECT count(*) FROM workflow_phases"
+            ).fetchone()[0]
+        except sqlite3.OperationalError:
+            counts["workflow_phases"] = 0
+        conn.close()
+
+    # Read embedding metadata from memory.db _metadata table
+    embedding_provider = None
+    embedding_model = None
+    if os.path.exists(memory_db):
+        conn = sqlite3.connect(memory_db)
+        try:
+            row = conn.execute(
+                "SELECT value FROM _metadata WHERE key='embedding_provider'"
+            ).fetchone()
+            if row:
+                embedding_provider = row[0]
+            row = conn.execute(
+                "SELECT value FROM _metadata WHERE key='embedding_model'"
+            ).fetchone()
+            if row:
+                embedding_model = row[0]
+        except sqlite3.OperationalError:
+            pass  # _metadata table doesn't exist
+        conn.close()
+
+    manifest = {
+        "schema_version": SUPPORTED_SCHEMA_VERSION,
+        "plugin_version": args.plugin_version,
+        "export_timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "source_platform": f"{sys.platform}-{platform.machine()}",
+        "python_version": platform.python_version(),
+        "embedding_provider": embedding_provider,
+        "embedding_model": embedding_model,
+        "counts": counts,
+        "checksums": checksums,
+    }
+
+    # Write manifest.json to staging dir
+    manifest_path = os.path.join(staging_dir, "manifest.json")
+    with open(manifest_path, "w") as f:
+        json.dump(manifest, f, indent=2)
+
+    # Output to stdout
+    _json_out(manifest)
 
 
 def cmd_validate(_args: argparse.Namespace) -> None:

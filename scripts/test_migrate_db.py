@@ -73,7 +73,7 @@ def test_subcommand_stubs(subcommand: str, args: list[str]) -> None:
     )
     # Allow stubs that still return {} and real implementations that may fail
     # on missing files — but skip validation for stubs that are not yet implemented
-    if subcommand in ("manifest", "validate", "info", "check-embeddings"):
+    if subcommand in ("validate", "info", "check-embeddings"):
         assert result.returncode == 0, (
             f"{subcommand} failed (exit {result.returncode}): {result.stderr}"
         )
@@ -737,3 +737,121 @@ class TestMergeEntities:
         ).fetchall()
         conn.close()
         assert len(rows) == 1
+
+
+# ============================================================
+# Step 3: manifest subcommand tests
+# ============================================================
+
+
+def _create_staging_dir(tmp_path: Path, with_metadata: bool = False,
+                        memory_entries: int = 3, entity_count: int = 2,
+                        workflow_count: int = 1) -> Path:
+    """Create a realistic staging directory for manifest tests.
+
+    Returns the staging_dir Path.
+    """
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    (staging / "memory").mkdir()
+    (staging / "entities").mkdir()
+
+    # Create memory.db with entries
+    mem_db = str(staging / "memory" / "memory.db")
+    entries = [{"source_hash": f"hash-{i}", "name": f"entry-{i}"} for i in range(memory_entries)]
+    create_memory_db(mem_db, entries)
+
+    if with_metadata:
+        conn = sqlite3.connect(mem_db)
+        conn.execute("CREATE TABLE IF NOT EXISTS _metadata (key TEXT PRIMARY KEY, value TEXT)")
+        conn.execute("INSERT INTO _metadata (key, value) VALUES ('embedding_provider', 'openai')")
+        conn.execute("INSERT INTO _metadata (key, value) VALUES ('embedding_model', 'text-embedding-3-small')")
+        conn.commit()
+        conn.close()
+
+    # Create a category markdown file
+    (staging / "memory" / "patterns.md").write_text("# Patterns\n- pattern 1\n")
+
+    # Create entities.db
+    ent_db = str(staging / "entities" / "entities.db")
+    ents = [{"type_id": f"feature:ent-{i:03d}", "name": f"Entity{i}"} for i in range(entity_count)]
+    wps = [{"type_id": f"feature:ent-{i:03d}"} for i in range(workflow_count)]
+    create_entity_db(ent_db, ents, wps)
+
+    # Create projects.txt
+    (staging / "projects.txt").write_text("project-a\nproject-b\n")
+
+    return staging
+
+
+class TestManifest:
+    """Tests for the manifest subcommand."""
+
+    # --- Task 3.1: test_manifest_checksums ---
+    def test_manifest_checksums(self, tmp_path: Path) -> None:
+        """All files in staging dir listed with correct SHA-256 checksums."""
+        staging = _create_staging_dir(tmp_path)
+
+        result = run_cli("manifest", str(staging), "--plugin-version", "4.12.0")
+
+        # Verify checksums section exists
+        assert "checksums" in result
+
+        # Independently compute checksums for all files (excluding manifest.json)
+        for rel_path, expected_sha in result["checksums"].items():
+            full_path = staging / rel_path
+            assert full_path.exists(), f"File {rel_path} in checksums but doesn't exist"
+            actual_sha = hashlib.sha256(full_path.read_bytes()).hexdigest()
+            assert actual_sha == expected_sha, f"Checksum mismatch for {rel_path}"
+
+        # Verify manifest.json itself is NOT in the checksums
+        assert "manifest.json" not in result["checksums"]
+
+        # Verify all non-manifest files are accounted for
+        expected_files = set()
+        for root, _dirs, files in os.walk(str(staging)):
+            for fname in files:
+                fpath = os.path.join(root, fname)
+                rel = os.path.relpath(fpath, str(staging))
+                if rel != "manifest.json":
+                    expected_files.add(rel)
+        assert set(result["checksums"].keys()) == expected_files
+
+    # --- Task 3.2: test_manifest_embedding_metadata ---
+    def test_manifest_embedding_metadata(self, tmp_path: Path) -> None:
+        """Manifest contains embedding_provider and embedding_model from _metadata table."""
+        staging = _create_staging_dir(tmp_path, with_metadata=True)
+
+        result = run_cli("manifest", str(staging), "--plugin-version", "4.12.0")
+
+        assert result["embedding_provider"] == "openai"
+        assert result["embedding_model"] == "text-embedding-3-small"
+
+    # --- Task 3.3: test_manifest_no_metadata ---
+    def test_manifest_no_metadata(self, tmp_path: Path) -> None:
+        """Without _metadata table, embedding fields are null."""
+        staging = _create_staging_dir(tmp_path, with_metadata=False)
+
+        result = run_cli("manifest", str(staging), "--plugin-version", "4.12.0")
+
+        assert result["embedding_provider"] is None
+        assert result["embedding_model"] is None
+
+    # --- Task 3.4: test_manifest_schema_version ---
+    def test_manifest_schema_version(self, tmp_path: Path) -> None:
+        """Manifest schema_version equals SUPPORTED_SCHEMA_VERSION (1)."""
+        staging = _create_staging_dir(tmp_path)
+
+        result = run_cli("manifest", str(staging), "--plugin-version", "4.12.0")
+
+        assert result["schema_version"] == 1
+        assert result["plugin_version"] == "4.12.0"
+        assert "export_timestamp" in result
+        assert result["export_timestamp"].endswith("Z")
+        assert "source_platform" in result
+        assert "python_version" in result
+        # Verify entry counts are present
+        assert "counts" in result
+        assert result["counts"]["memory_entries"] == 3
+        assert result["counts"]["entities"] == 2
+        assert result["counts"]["workflow_phases"] == 1
