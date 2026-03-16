@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.13.0] - 2026-03-16
+
 ### Added
 - `scripts/migrate.sh` and `scripts/migrate_db.py` — robust migration tool to export and import all iflow knowledge, memories, and entity data between machines
 - Migration export creates versioned bundles with SHA-256 checksums and manifest validation
