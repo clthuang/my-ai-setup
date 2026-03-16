@@ -143,7 +143,7 @@
   - **Deps:** 6.1, 6.2, 6.3, 6.4, 6.5
 
 - [ ] **6.7** Write `test_merge_memory_fts_rebuild` — after a no-overlap merge, query `entries_fts` with a known term from a merged entry, assert row returned.
-  - **Done:** Test exists, fails (RED). Passes after 6.6 implementation includes FTS5 rebuild (GREEN).
+  - **Done:** Test passes (verifies FTS5 rebuild behavior from 6.6).
   - **Deps:** 6.6
 
 ### Step 7: merge-entities subcommand
@@ -175,7 +175,7 @@
   - **Deps:** 7.1, 7.2, 7.3, 7.4, 7.5
 
 - [ ] **7.7** Write `test_merge_entities_fts_rebuild` — after a no-overlap merge, query `entities_fts` with a known term from an imported entity, assert row returned.
-  - **Done:** Test exists, fails (RED). Passes after 7.6 implementation includes FTS5 rebuild (GREEN).
+  - **Done:** Test passes (verifies FTS5 rebuild behavior from 7.6).
   - **Deps:** 7.6
 
 ### Step 8: info and check-embeddings subcommands
@@ -350,7 +350,7 @@
   - **Done:** Test from 13.6a passes (GREEN).
   - **Deps:** 13.6a
 
-- [ ] **13.7a** Write test: Python not available — set PATH to exclude python3, run `migrate.sh export`, verify "Error: Python 3 required..." and exit 1.
+- [ ] **13.7a** Write test: Python not available — override Python resolution (set `PYTHON` env var to a nonexistent path, or prepend PATH with a dir containing a `python3` that exits 127), run `migrate.sh export`, verify "Error: Python 3 required..." and exit 1.
   - **Done:** Test exists, fails (RED).
   - **Deps:** 10.2
 
@@ -358,7 +358,7 @@
   - **Done:** Test from 13.7a passes (GREEN).
   - **Deps:** 13.7a
 
-- [ ] **13.8a** Write test: disk-full mid-import — simulate disk-full by creating a mock `cp` wrapper via PATH prepend that fails after N successful copies. Assert exit 1, error message lists restored files and NOT-restored files, DB changes rolled back.
+- [ ] **13.8a** Write test: disk-full mid-import — simulate disk-full by creating a mock `cp` wrapper via PATH prepend that succeeds for exactly the first file and fails on the second. With a 3-file bundle, assert exit 1, error message lists restored=[file1] and not_restored=[file2, file3], DB changes rolled back.
   - **Done:** Test exists, fails (RED).
   - **Deps:** 11.3
 
