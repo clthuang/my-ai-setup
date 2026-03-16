@@ -87,7 +87,10 @@ def cmd_manifest(args: argparse.Namespace) -> None:
                 continue
             sha = hashlib.sha256()
             with open(fpath, "rb") as f:
-                for chunk in iter(lambda: f.read(8192), b""):
+                while True:
+                    chunk = f.read(8192)
+                    if not chunk:
+                        break
                     sha.update(chunk)
             checksums[rel] = sha.hexdigest()
 
