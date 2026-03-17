@@ -8,6 +8,8 @@
 Tasks are ordered by dependency — each task builds on the previous. Tests are written alongside each change (TDD where practical).
 
 ```
+T0: Baseline test run (green check before changes)
+ ↓
 T1: discover_python() + write_sentinel() + log_bootstrap_error()
  ↓
 T2: Update callsites (check_system_python, create_venv, sentinel recovery)
@@ -24,6 +26,16 @@ T7: Extend test suites + regression verification
 ```
 
 ## Tasks
+
+### T0: Baseline test run
+
+**Dependencies:** None (must run first)
+
+Run existing test suites to establish a green baseline before any code changes:
+1. `bash plugins/iflow/mcp/test_bootstrap_venv.sh`
+2. `bash plugins/iflow/hooks/tests/test-hooks.sh`
+
+Record any pre-existing failures to distinguish from regressions introduced by this feature.
 
 ### T1: Add discover_python(), write_sentinel(), log_bootstrap_error() to bootstrap-venv.sh
 
@@ -77,7 +89,7 @@ T7: Extend test suites + regression verification
    - `check_venv_deps python3` → `check_venv_deps "$PYTHON_FOR_VENV"`
    - `export PYTHON=python3` → `export PYTHON="$PYTHON_FOR_VENV"`
    - Add: `write_sentinel "$sentinel" "$PYTHON_FOR_VENV"` on success (needs sentinel path passed or derived)
-   - Note: `check_system_python()` currently takes no args and has no access to sentinel path. Refactor to accept sentinel path as `$1`, or derive from venv_dir pattern.
+   - Approach: set sentinel path as module-level variable `SENTINEL_PATH` at the top of `bootstrap_venv()` (alongside `PYTHON_FOR_VENV`), so `check_system_python()` can read it without a signature change.
 
 2. `create_venv()`:
    - `python3 -m venv "$venv_dir"` → `"$PYTHON_FOR_VENV" -m venv "$venv_dir"`
@@ -106,11 +118,13 @@ T7: Extend test suites + regression verification
 1. `check_python3()`: Change `(( major < 3 || (major == 3 && minor < 10) ))` → `(( major < 3 || (major == 3 && minor < 12) ))`
 2. Update error message: `"python3 version ${version} < 3.10 required"` → `"python3 version ${version} < 3.12 required"`
 
-**Tests:** Manual or scripted:
-- Source doctor.sh, mock python3 returning 3.10 → verify check_python3 fails
-- Mock python3 returning 3.12 → verify check_python3 passes
+**Tests:** Add concrete test script (reuse mock pattern from test_bootstrap_venv.sh):
+- Create mock python3 returning version 3.10 in `$MOCK_DIR`, source doctor.sh, assert `check_python3` returns 1
+- Create mock python3 returning version 3.12, assert `check_python3` returns 0
+- Create mock python3 returning version 3.11, assert `check_python3` returns 1
+- Add these tests to `test_bootstrap_venv.sh` (since doctor.sh has no own test file and the mock pattern exists there)
 
-**Verification:** `bash plugins/iflow/scripts/doctor.sh` (on current system with Python >= 3.12)
+**Verification:** `bash plugins/iflow/mcp/test_bootstrap_venv.sh` and `bash plugins/iflow/scripts/doctor.sh` (on current system)
 
 ### T4: Add check_mcp_health() to session-start.sh
 
@@ -123,10 +137,11 @@ T7: Extend test suites + regression verification
    - Early return if log file doesn't exist → empty string
    - Read log file line by line
    - Parse timestamp from each JSONL line (extract value after `"timestamp":"`)
-   - Convert to epoch: `date -jf '%Y-%m-%dT%H:%M:%SZ' "$ts" +%s 2>/dev/null` (BSD macOS)
+   - Convert to epoch: `date -jf '%Y-%m-%dT%H:%M:%SZ' "$ts" +%s 2>/dev/null` (BSD macOS). Python fallback uses `datetime.strptime(ts, '%Y-%m-%dT%H:%M:%SZ')` (3.9+ compatible — NOT `fromisoformat` which doesn't support timezone suffixes until 3.11).
    - Compare: `current_epoch - entry_epoch < 600` (10 minutes)
    - Collect recent error messages
-   - Truncation: write entries < 1 hour to temp file in `~/.claude/iflow/`, `mv` to replace log. If mv fails, silently skip.
+   - Truncation: write entries < 1 hour to temp file in `~/.claude/iflow/` (same filesystem for atomic mv), then `mv` to replace log. If mv fails, silently skip.
+   - **Error resilience:** Wrap entire function body so failures don't crash session-start (which has `set -euo pipefail`). Pattern: `local result; result=$( ... ) 2>/dev/null || result=""`. Session-start must never fail — a missing health warning is acceptable, a broken hook is not.
    - Return formatted warning text or empty string
 
 2. Update `main()`:
@@ -153,8 +168,8 @@ T7: Extend test suites + regression verification
    - If content present (non-empty interp_path):
      - Check `[ -x "$interp_path" ]`
      - Parse version: `major="${interp_version%%.*}"; minor="${interp_version#*.}"`
-     - Check `[ "$major" -ge 3 ] && [ "$minor" -ge 12 ]` (Bash 3.2 compatible)
-     - Both OK → return 0; either fails → return 1
+     - Check version too low: `[ "$major" -lt 3 ] || { [ "$major" -eq 3 ] && [ "$minor" -lt 12 ]; }` (doctor.sh pattern, Bash 3.2 compatible). This correctly accepts Python 4.0+ (major > 3).
+     - Version OK → return 0; version too low → return 1
    - If content empty (legacy sentinel):
      - Check mtime < 24h: `find "$sentinel_file" -mmin -1440 -print 2>/dev/null`
      - Recent → return 0; stale → return 1
@@ -208,14 +223,16 @@ T7: Extend test suites + regression verification
 ## Dependency Graph
 
 ```
+T0 (baseline) → must run first
+ ↓
 T1 (discover_python + write_sentinel + log_error)
 ├── T2 (callsite updates) → depends on T1
 ├── T4 (session-start health check) → depends on T1 (log format)
 └── T5 (meta-json-guard sentinel) → depends on T1 (sentinel format)
 
-T3 (doctor.sh threshold) → independent
+T3 (doctor.sh threshold) → independent, can run after T0
 
-T6 (first-run detection) → depends on T4 (main() ordering)
+T6 (first-run detection) → depends on T4 (same file, ordering dependency)
 
 T7 (regression) → depends on T1-T6
 ```
@@ -224,4 +241,4 @@ T7 (regression) → depends on T1-T6
 
 - T3 can run in parallel with T1/T2 (independent file)
 - T4 and T5 can run in parallel after T1 (different files, both depend only on T1's formats)
-- T6 must follow T4 (same file, ordering dependency)
+- T4 and T6 must be sequential (both modify session-start.sh, T6 depends on T4's main() ordering)
