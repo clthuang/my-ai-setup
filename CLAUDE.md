@@ -115,6 +115,7 @@ bash plugins/iflow/hooks/tests/test-hooks.sh
 # Release (bumps version, merges develop→main, tags)
 # Uses --ci for non-interactive; BUMP_OVERRIDE=patch|minor|major to force bump type
 bash scripts/release.sh --ci
+# Preconditions: (1) clean working tree — git stash first, (2) CHANGELOG.md needs entries under [Unreleased]
 ```
 
 ## Key References
