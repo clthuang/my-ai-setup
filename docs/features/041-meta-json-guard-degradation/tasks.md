@@ -21,6 +21,8 @@
 **Done when:** `test_meta_json_guard_denies_project_meta` passes using helper pattern.
 
 ### Task 1.4: Add sentinel to 5 existing tests
+> Depends on: Tasks 1.1, 1.2, 1.3
+
 - [ ] In each of the 3 refactored deny tests (1.1-1.3), add after `setup_meta_guard_test`:
   ```bash
   mkdir -p "$META_GUARD_TMPDIR/.claude/plugins/cache/test-org/iflow-test/1.0.0/.venv"
@@ -101,7 +103,6 @@
 **Done when:** Function exists, file parses without errors.
 
 ### Task 2.2: Rename `log_blocked_attempt` to `log_guard_event` with action param AND update deny call site
-> Depends on: Task 2.1
 
 This task is atomic — rename the function and update its call site in the same edit to avoid a broken intermediate state (the old call site would reference a non-existent function).
 

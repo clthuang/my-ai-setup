@@ -62,7 +62,7 @@ Input (stdin JSON)
 | Sentinel check placement | After python3 parse, before log+deny | Minimizes overhead — only runs for confirmed .meta.json targets |
 | Function rename | `log_blocked_attempt` → `log_guard_event` | Semantically covers both deny and permit-degraded events |
 | Action field | Optional parameter, omitted for deny | Backward compatibility — existing deny entries unchanged per R3 |
-| Test sentinel path | `$HOME/.claude/plugins/cache/test-org/iflow-test/1.0/.venv/.bootstrap-complete` | Matches the glob pattern while being clearly synthetic |
+| Test sentinel path | `$HOME/.claude/plugins/cache/test-org/iflow-test/1.0.0/.venv/.bootstrap-complete` | Matches the glob pattern while being clearly synthetic |
 
 ## Risks
 
@@ -169,8 +169,8 @@ All existing tests that use a temp HOME and expect deny behavior must create the
 
 **Sentinel creation (add to setup or before hook invocation):**
 ```bash
-mkdir -p "$META_GUARD_TMPDIR/.claude/plugins/cache/test-org/iflow-test/1.0/.venv"
-touch "$META_GUARD_TMPDIR/.claude/plugins/cache/test-org/iflow-test/1.0/.venv/.bootstrap-complete"
+mkdir -p "$META_GUARD_TMPDIR/.claude/plugins/cache/test-org/iflow-test/1.0.0/.venv"
+touch "$META_GUARD_TMPDIR/.claude/plugins/cache/test-org/iflow-test/1.0.0/.venv/.bootstrap-complete"
 ```
 
 Without sentinel, log tests would hit the degraded-permit path instead of deny, silently changing the log entry schema (adding `"action"` field) and the hook exit decision.
