@@ -13,7 +13,7 @@
 - **test_bootstrap_venv.sh**: Existing mock python3 pattern creates stub scripts in `$MOCK_DIR`, overrides PATH.
 
 ### External Findings
-- **`uv python find`**: uv exposes a command that applies its full resolution algorithm and returns the interpreter path. Can use `uv python find --min-version 3.12` for version-constrained discovery. Available when uv is installed (already preferred in codebase).
+- **`uv python find`**: uv exposes a command that applies its full resolution algorithm and returns the interpreter path. Correct syntax: `uv python find --system '>=3.12' 2>/dev/null` — returns absolute path on stdout. The `--system` flag skips virtual environments, discovering only system-installed interpreters (important for bootstrap where we're creating a new venv).
 - **MCP error handling**: stdout is strictly JSON-RPC. All diagnostics must go to stderr. Fatal startup failures should exit 1 with clear stderr message.
 - **macOS Python pitfall**: `/usr/bin/python3` is often a stub that prompts Xcode CLT install. Homebrew paths (`/opt/homebrew/bin`, `/usr/local/bin`) should be checked first.
 
@@ -110,28 +110,34 @@
 ### `discover_python()` — bootstrap-venv.sh
 
 ```bash
-# Discovers a Python >= 3.12 interpreter and exports PYTHON_FOR_VENV.
+# Discovers a Python >= 3.12 interpreter and sets PYTHON_FOR_VENV (module-level variable).
 # Search order:
-#   1. uv python find (if uv available)
+#   1. uv python find --system '>=3.12' 2>/dev/null (if uv available)
 #   2. python3.14, python3.13, python3.12 in /opt/homebrew/bin
 #   3. python3.14, python3.13, python3.12 in /usr/local/bin
 #   4. Bare python3 from PATH
-# On failure: logs error, exits 1.
-# On success: exports PYTHON_FOR_VENV=<absolute path>
+# For each candidate (tiers 2-4), verify version >= 3.12 via:
+#   $candidate -c "import sys; print('{0}.{1}'.format(...))" and bash arithmetic check.
+# On failure: calls log_bootstrap_error() and exits 1.
+# On success: sets PYTHON_FOR_VENV=<absolute path>
 #
 # Arguments: none
-# Exports: PYTHON_FOR_VENV
+# Sets: PYTHON_FOR_VENV (module-level, NOT exported — only used within bootstrap-venv.sh)
 # Side effects: may call log_bootstrap_error() on failure
+# Requires: SERVER_NAME must be set before calling (for error logging)
 discover_python()
 ```
 
+**Note on PYTHON_FOR_VENV vs PYTHON:** `PYTHON_FOR_VENV` is a module-level variable used only during bootstrap (for venv creation and system-python check). `PYTHON` remains the final exported variable for server scripts — set to either `$PYTHON_FOR_VENV` (system python path) or `$venv_dir/bin/python` (venv python) by `bootstrap_venv()`.
+
 **Replaces:** `check_python_version()` (deleted entirely)
 
-**Callers:** `bootstrap_venv()` Step 1 (was `check_python_version`)
+**Callers:** `bootstrap_venv()` Step 1 (was `check_python_version`). Called BEFORE the fast-path checks (Step 2 system python, Step 3 venv fast-path) so `PYTHON_FOR_VENV` is always available for sentinel writes.
 
 **Downstream updates:**
-- `check_system_python()`: `check_venv_deps python3` → `check_venv_deps "$PYTHON_FOR_VENV"`
+- `check_system_python()`: `check_venv_deps python3` → `check_venv_deps "$PYTHON_FOR_VENV"`. Also: `export PYTHON=python3` → `export PYTHON="$PYTHON_FOR_VENV"`. When system python path succeeds, call `write_sentinel "$sentinel" "$PYTHON_FOR_VENV"` to signal MCP availability to meta-json-guard (sentinel written even without venv).
 - `create_venv()`: `python3 -m venv` → `"$PYTHON_FOR_VENV" -m venv`; `uv venv "$venv_dir"` → `uv venv --python "$PYTHON_FOR_VENV" "$venv_dir"`
+- Sentinel recovery path (Step 3 fast-path): `touch "$sentinel"` → `write_sentinel "$sentinel" "$PYTHON_FOR_VENV"` (safe because `discover_python()` now runs first)
 
 ### `log_bootstrap_error()` — bootstrap-venv.sh
 
@@ -141,13 +147,19 @@ discover_python()
 # All output to stderr (MCP stdio safety).
 #
 # Arguments:
-#   $1 - error_type: one of "python_version", "venv_creation", "dep_install", "lock_timeout"
-#   $2 - message: human-readable error description
-#   $3 - extra_json: optional additional JSON fields (e.g., '"found":"3.9","required":"3.12"')
+#   $1 - server_name: which server failed (e.g., "memory-server", "entity-registry", "workflow-engine")
+#   $2 - error_type: one of "python_version", "venv_creation", "dep_install", "lock_timeout"
+#   $3 - message: human-readable error description
+#   $4 - extra_json: optional additional JSON fields (e.g., '"found":"3.9","required":"3.12"')
+#                    Callers are few and controlled (3 callsites in bootstrap_venv + discover_python).
+#                    Format: pre-escaped key:value pairs separated by commas.
 #
 # Log entry format (JSONL):
 #   {"timestamp":"2026-03-18T12:00:00Z","server":"memory-server","error":"python_version",
 #    "message":"...","found":"3.9","required":"3.12","searched":[...]}
+#
+# Server name values: "memory-server", "entity-registry", "workflow-engine"
+# (matching the server identifiers passed to bootstrap_venv() from run-*.sh)
 log_bootstrap_error()
 ```
 
@@ -173,8 +185,14 @@ write_sentinel()
 # Returns warning text (prepended to additionalContext) or empty string.
 # Truncates entries > 1 hour from the log file on every invocation.
 #
-# Uses epoch arithmetic: current_epoch - entry_epoch < 600
-# Timestamps in UTC ISO-8601.
+# Timestamp parsing: uses BSD date on macOS:
+#   date -jf '%Y-%m-%dT%H:%M:%SZ' "$ts" +%s
+# Falls back to Python one-liner if BSD date fails (Linux compat):
+#   python3 -c "from datetime import datetime; print(int(datetime.fromisoformat('$ts'.replace('Z','+00:00')).timestamp()))"
+#
+# Truncation mechanism: while-read loop filters entries by timestamp,
+# writes recent entries to a temp file, then mv (atomic rename) replaces the log.
+# Runs on every invocation regardless of whether errors were found.
 #
 # Arguments: none
 # Returns: warning text via stdout, or empty string
@@ -193,8 +211,12 @@ check_mcp_health()
 # New behavior:
 #   1. Find sentinel via existing glob
 #   2. Read sentinel content (format: <path>:<version>)
-#   3. If content present: verify interpreter path exists AND version >= 3.12
-#   4. If content empty (legacy): check mtime < 24h
+#   3. If content present:
+#      a. Check interpreter path exists: [ -x "$path" ]
+#      b. Check version >= 3.12: parse major.minor from sentinel content,
+#         compare with bash arithmetic (same pattern as doctor.sh — no Python process spawn)
+#      c. Both OK → return 0; either fails → return 1
+#   4. If content empty (legacy): check mtime < 24h via find -mmin -1440
 #   5. If no sentinel: return 1 (MCP unavailable)
 #
 # Returns: 0 if MCP available, 1 if unavailable
@@ -225,15 +247,19 @@ Session start:
 MCP server launch (per server):
   run-*.sh
     └── bootstrap_venv()
-          ├── discover_python() → exports PYTHON_FOR_VENV
-          │     ├── uv python find (if available)
+          ├── Step 1: discover_python() → sets PYTHON_FOR_VENV
+          │     ├── uv python find --system '>=3.12' (if uv available)
           │     ├── manual search (/opt/homebrew/bin, /usr/local/bin)
           │     └── bare python3 fallback
-          │     └── (on failure) log_bootstrap_error() → exit 1
-          ├── check_system_python() → uses PYTHON_FOR_VENV
-          ├── create_venv() → uses PYTHON_FOR_VENV
-          ├── install_all_deps()
-          └── write_sentinel() → writes path:version
+          │     └── (on failure) log_bootstrap_error(SERVER_NAME, ...) → exit 1
+          ├── Step 2: check_system_python() → uses PYTHON_FOR_VENV
+          │     └── (on success) write_sentinel() + export PYTHON → return 0
+          ├── Step 3: venv fast-path → check deps importable
+          │     └── (on success) write_sentinel() + export PYTHON → return 0
+          ├── Step 4: locked bootstrap
+          │     ├── create_venv() → uses PYTHON_FOR_VENV
+          │     ├── install_all_deps()
+          │     └── write_sentinel() → writes path:version
 
 Hook (meta-json-guard):
   check_mcp_available()
