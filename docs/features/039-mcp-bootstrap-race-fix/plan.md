@@ -177,7 +177,7 @@ All 4 tasks follow the same pattern (I6 template). Each script becomes ~15 lines
 **Required fix (certain breakage):** Existing tests (`test_run_memory_server.sh`, `test_entity_server.sh`, `test_run_workflow_server.sh`) copy only the wrapper script to a temp directory. After refactoring, wrappers source `bootstrap-venv.sh` from `$SCRIPT_DIR`, so the shared library must also be present. Update each test to copy `bootstrap-venv.sh` alongside the wrapper to the temp SCRIPT_DIR.
 
 **Steps:**
-1. Read each test script to identify what it copies and what assertions it makes
+1. Read each test script to identify what it copies and what assertions it makes. Known assertion patterns: Test 1 checks stderr for bootstrap messages (e.g., "bootstrapping venv with uv/pip"), Test 2/3 check exit codes, Test 4 (entity/workflow only) runs the real script in-place and checks exit code 0.
 2. Add `cp bootstrap-venv.sh "$TEMP_DIR/"` (or equivalent) before running the wrapper
 3. Update any assertions that check for old inline bootstrap output patterns (e.g., "bootstrapping venv with uv" messages may now come from bootstrap-venv.sh instead of the wrapper)
 4. Run all updated tests and verify they pass
@@ -201,7 +201,7 @@ All 4 tasks follow the same pattern (I6 template). Each script becomes ~15 lines
 
 2. **Stale lock test (AC-1.3):** Pre-create a lock directory, backdate its mtime with `touch -t 202001010000` (portable format, well in the past, works on both macOS and Linux), launch a bootstrap, assert stale detection removes the lock and bootstrap succeeds.
 
-3. **Missing dep self-heal test (AC-2.4):** Create a venv with all deps, write sentinel, then remove one dep (`pip uninstall numpy`). Launch bootstrap — sentinel exists but deps fail in Step 3. Assert it falls through to locked install (Step 4) and restores all deps.
+3. **Missing dep self-heal test (AC-2.4):** Create a venv with all deps, write sentinel, then remove one dep using `"$venv_dir/bin/pip" uninstall -y numpy` (pip is always present in the venv regardless of whether uv was the original installer). Launch bootstrap — sentinel exists but deps fail in Step 3. Assert it falls through to locked install (Step 4) and restores all deps.
 
 4. **uv-absent fallback test (DC-5):** Run bootstrap in a subshell with `uv` removed from PATH. Assert pip fallback is used and all deps installed.
 
