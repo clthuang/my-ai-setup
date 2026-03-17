@@ -24,7 +24,8 @@ The hook MUST check whether MCP workflow tools are registered in the current ses
 
 - Check if the workflow-engine MCP server bootstrap has completed by testing for the existence of the bootstrap sentinel file at the expected cache path pattern: `~/.claude/plugins/cache/*/iflow*/*/.venv/.bootstrap-complete`
 - **Matching rule:** If ANY path matching the glob exists, MCP tools are considered available → deny as before. If NO path matches → MCP tools are likely unavailable → allow the write (permit).
-- The sentinel check MUST NOT increase hook latency beyond the existing 200ms CI threshold.
+- The sentinel check MUST NOT increase hook latency beyond the existing 200ms CI threshold (applies to both deny and permit-degraded paths; existing fast-path for non-.meta.json input is unaffected).
+- **Implementation idiom:** Use `ls ~/.claude/plugins/cache/*/iflow*/*/.venv/.bootstrap-complete 2>/dev/null` and check exit code, consistent with hook subprocess safety rules (stderr suppression).
 
 **Known limitation:** The sentinel existing does not guarantee the MCP server connected successfully this session. Scenarios where sentinel exists but MCP is broken (e.g., cache version mismatch, server crash) are NOT addressed by this check. These are handled by the existing `workflow-transitions/SKILL.md` degradation logic (lines 116-119, 207-210) once Claude attempts an MCP tool call that returns an error. This is acceptable because the primary deadlock trigger — fresh installs where bootstrap never completed — is the scenario where no sentinel exists.
 
@@ -43,7 +44,9 @@ When the hook denies a write (MCP tools believed available), the deny reason MUS
 When the hook permits a write due to MCP unavailability (degraded mode), it MUST log the event to `~/.claude/iflow/meta-json-guard.log` using the same JSONL schema as existing deny log entries, plus an `"action"` field:
 
 - **Degraded permit entry:** `{"timestamp": "...", "tool": "...", "path": "...", "feature_id": "...", "action": "permit-degraded"}`
+- The `timestamp` field MUST use the same format as existing deny entries: ISO 8601 UTC (`YYYY-MM-DDTHH:MM:SSZ`).
 - **Existing deny entries:** Remain unchanged (no `"action"` field added to preserve backward compatibility with any log consumers).
+- Implementation note: The existing `log_blocked_attempt` function in `meta-json-guard.sh` should be renamed or extended to accept an optional action parameter (default: current deny behavior). The function name should reflect that it covers both deny and permit-degraded events.
 
 ### R4: No changes to existing deny behavior when MCP is available
 
@@ -56,9 +59,9 @@ When MCP tools are detected as available (sentinel exists), the hook MUST contin
 - AC3: The deny message includes `feature_type_id` format guidance: `"feature:{id}-{slug}"`.
 - AC4: The deny message includes the fallback instruction about MCP unavailability.
 - AC5: When a write is permitted due to degradation, a JSONL log entry with `"action": "permit-degraded"` is appended to `~/.claude/iflow/meta-json-guard.log`, including `timestamp`, `tool`, `path`, and `feature_id` fields.
-- AC6: Existing hook deny tests are updated to create a sentinel file in their temp HOME directory (at the expected glob path) so they continue testing the deny path. All updated tests pass (`bash plugins/iflow/hooks/tests/test-hooks.sh`).
+- AC6: Existing hook deny tests are updated to create a sentinel file in their temp HOME directory (e.g., `$TEMP_HOME/.claude/plugins/cache/test-plugin/iflow-test/1.0.0/.venv/.bootstrap-complete` — any path matching the glob `$HOME/.claude/plugins/cache/*/iflow*/*/.venv/.bootstrap-complete`) so they continue testing the deny path. All updated tests pass (`bash plugins/iflow/hooks/tests/test-hooks.sh`).
 - AC7: When the sentinel file exists, the hook behavior is identical to the current implementation (no regression).
-- AC8: New tests cover the degradation path: no sentinel → permit, with correct log entry.
+- AC8: Given no `.bootstrap-complete` sentinel file exists at any matching cache path AND `HOME` is set to a temp directory, when Claude attempts to Write to a `.meta.json` file, then the hook returns a permit decision (`{}`) AND a JSONL entry with `"action": "permit-degraded"` is appended to `$HOME/.claude/iflow/meta-json-guard.log`.
 
 ## Scope
 
@@ -70,8 +73,8 @@ When MCP tools are detected as available (sentinel exists), the hook MUST contin
 - Add new test coverage for the degradation path
 
 ### Out of Scope
-- Bootstrap sentinel reliability improvements (separate feature — Contributing Cause 2)
-- Cache directory version mismatch fix (separate feature — Contributing Cause 3)
+- Bootstrap sentinel reliability improvements (separate feature — Contributing Cause 2, to be added to backlog)
+- Cache directory version mismatch fix (separate feature — Contributing Cause 3, to be added to backlog)
 - Changes to `workflow-transitions/SKILL.md` degradation logic (already correct)
 - Changes to MCP server code
 - Adding `"action": "deny"` to existing deny log entries (backward compatibility)
