@@ -6,8 +6,7 @@
 T0 (baseline)
  ↓
 T1.1 → T1.2 → T1.3 → T1.4  (bootstrap-venv.sh new functions)
- ↓
-T2.1 → T2.2 → T2.3          (bootstrap-venv.sh callsite updates)
+ ├── T2.1 → T2.2 → T2.3     (bootstrap-venv.sh callsite updates)
  │
  ├── T4.1 → T4.2             (session-start.sh health check)
  │    ↓
@@ -15,7 +14,7 @@ T2.1 → T2.2 → T2.3          (bootstrap-venv.sh callsite updates)
  │
  └── T5.1 → T5.2             (meta-json-guard.sh sentinel)
 
-T3.1                          (doctor.sh — independent)
+T3.1                          (doctor.sh — independent, after T0)
 
 T7.1                          (regression — depends on all above)
 ```
@@ -23,7 +22,7 @@ T7.1                          (regression — depends on all above)
 ## Parallel Groups
 
 - **Group A** (after T0): T1.1 and T3.1 can start in parallel
-- **Group B** (after T2.3): T4.1 and T5.1 can start in parallel
+- **Group B** (after T1.4): T2.1, T4.1, and T5.1 can start in parallel (different files; T4/T5 only need T1's log/sentinel formats)
 - **Sequential**: T4 → T6 (same file)
 
 ---
@@ -82,30 +81,29 @@ T7.1                          (regression — depends on all above)
 
 ## T2: Update callsites in bootstrap-venv.sh
 
-### T2.1: Update check_system_python()
-- [ ] Change `check_venv_deps python3` → `check_venv_deps "$PYTHON_FOR_VENV"`
-- [ ] Change `export PYTHON=python3` → `export PYTHON="$PYTHON_FOR_VENV"`
-- [ ] Add `write_sentinel "$SENTINEL_PATH" "$PYTHON_FOR_VENV"` before `return 0`
-- [ ] Note: SENTINEL_PATH set as module-level in bootstrap_venv() (T2.3)
-- [ ] Add test `test_system_python_uses_discovered`: verify PYTHON_FOR_VENV passed to check_venv_deps
-- [ ] Add test `test_sentinel_written_on_system_python`: verify sentinel exists after system python fast-path
-- **Done when:** Both tests pass
-
-### T2.2: Update create_venv()
-- [ ] Change `python3 -m venv "$venv_dir"` → `"$PYTHON_FOR_VENV" -m venv "$venv_dir"`
-- [ ] Change `uv venv "$venv_dir"` → `uv venv --python "$PYTHON_FOR_VENV" "$venv_dir"`
-- [ ] Add test `test_create_venv_uv_uses_python_flag`: verify uv receives --python arg
-- **Done when:** Test passes
-
-### T2.3: Reorder bootstrap_venv() flow and update sentinel writes
-- [ ] Set `SENTINEL_PATH="${venv_dir}/.bootstrap-complete"` at top of bootstrap_venv() (module-level)
-- [ ] Ensure `SERVER_NAME="$server_name"` is set BEFORE `discover_python()` call
+### T2.1: Reorder bootstrap_venv() flow and establish module-level variables
+- [ ] Set `SENTINEL_PATH="${venv_dir}/.bootstrap-complete"` at top of bootstrap_venv() (module-level, available to all functions)
+- [ ] Ensure `SERVER_NAME="$server_name"` is set BEFORE `discover_python()` call (existing line 186, must stay first)
 - [ ] Move `discover_python` to Step 1 (before system python check)
 - [ ] Step 3 (venv fast-path): replace `touch "$sentinel"` with `write_sentinel "$sentinel" "$PYTHON_FOR_VENV"` (sentinel recovery)
 - [ ] Step 4 (locked bootstrap): replace `touch "$sentinel"` at leader path with `write_sentinel "$sentinel" "$PYTHON_FOR_VENV"`
 - [ ] Step 4 (waiter self-heal): replace `touch "$sentinel"` with `write_sentinel "$sentinel" "$PYTHON_FOR_VENV"`
 - [ ] Run full `bash plugins/iflow/mcp/test_bootstrap_venv.sh` — all tests pass
-- **Done when:** All 3 `touch "$sentinel"` calls replaced, full test suite green
+- **Done when:** All 3 `touch "$sentinel"` calls replaced, SENTINEL_PATH available, full test suite green
+
+### T2.2: Update check_system_python()
+- [ ] Change `check_venv_deps python3` → `check_venv_deps "$PYTHON_FOR_VENV"`
+- [ ] Change `export PYTHON=python3` → `export PYTHON="$PYTHON_FOR_VENV"`
+- [ ] Add `write_sentinel "$SENTINEL_PATH" "$PYTHON_FOR_VENV"` before `return 0` (SENTINEL_PATH is now set from T2.1)
+- [ ] Add test `test_system_python_uses_discovered`: verify PYTHON_FOR_VENV passed to check_venv_deps
+- [ ] Add test `test_sentinel_written_on_system_python`: verify sentinel exists after system python fast-path
+- **Done when:** Both tests pass
+
+### T2.3: Update create_venv()
+- [ ] Change `python3 -m venv "$venv_dir"` → `"$PYTHON_FOR_VENV" -m venv "$venv_dir"`
+- [ ] Change `uv venv "$venv_dir"` → `uv venv --python "$PYTHON_FOR_VENV" "$venv_dir"`
+- [ ] Add test `test_create_venv_uv_uses_python_flag`: verify uv receives --python arg
+- **Done when:** Test passes
 
 ---
 
@@ -129,7 +127,7 @@ T7.1                          (regression — depends on all above)
 - [ ] Add to `plugins/iflow/hooks/session-start.sh`
 - [ ] Early return empty string if `~/.claude/iflow/mcp-bootstrap-errors.log` doesn't exist
 - [ ] Wrap body in subshell with `set +e` for error resilience: `check_mcp_health() { ( set +e; ... ) 2>/dev/null || echo ''; }`
-- [ ] Parse timestamps: `date -jf '%Y-%m-%dT%H:%M:%SZ' "$ts" +%s 2>/dev/null` (BSD); fallback `python3 -c "from datetime import datetime; print(int(datetime.strptime('$ts','%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=__import__('datetime').timezone.utc).timestamp()))"`
+- [ ] Parse timestamps: `date -jf '%Y-%m-%dT%H:%M:%SZ' "$ts" +%s 2>/dev/null` (BSD); fallback `python3 -c "import calendar,time; print(calendar.timegm(time.strptime('$ts','%Y-%m-%dT%H:%M:%SZ')))"` (3.9+ compatible, treats as UTC without timezone objects)
 - [ ] Collect entries < 10 min old (epoch diff < 600), extract error messages
 - [ ] Truncation: write entries < 1 hour to temp file in `~/.claude/iflow/`, `mv` to replace. Silently skip if mv fails.
 - [ ] Format warning: `"WARNING: MCP servers failed to start. Workflow tools unavailable.\nError: {message}. Run: bash \"${PLUGIN_ROOT}/scripts/setup.sh\""`
@@ -154,6 +152,7 @@ T7.1                          (regression — depends on all above)
 - [ ] Find sentinel via existing glob, capture path: `sentinel_file=$(ls ... 2>/dev/null | head -1)`
 - [ ] Read content: `IFS=: read -r interp_path interp_version < "$sentinel_file" 2>/dev/null || true`
 - [ ] If content present (non-empty interp_path):
+  - Guard: `[ -n "$minor" ] && [ "$minor" -eq "$minor" ] 2>/dev/null || return 1` (reject non-numeric)
   - Check `[ -x "$interp_path" ]`
   - Parse: `major="${interp_version%%.*}"; minor="${interp_version#*.}"`
   - Version check: `if [ "$major" -lt 3 ] 2>/dev/null || { [ "$major" -eq 3 ] && [ "$minor" -lt 12 ]; } 2>/dev/null; then return 1; fi`
@@ -169,10 +168,14 @@ T7.1                          (regression — depends on all above)
   - No sentinel → returns 1
 - **Done when:** All 6 tests pass
 
-### T5.2: Update log_guard_event() for stale sentinel action
-- [ ] When `check_mcp_available()` returns 1 due to stale/invalid sentinel, call `log_guard_event "$FILE_PATH" "$TOOL_NAME" "permit-degraded-stale-sentinel"`
+### T5.2: Add log_guard_event() calls for stale sentinel paths
+- [ ] In `check_mcp_available()`, add `log_guard_event "$FILE_PATH" "$TOOL_NAME" "permit-degraded-stale-sentinel"` before `return 1` in these branches:
+  - (a) After `[ ! -x "$interp_path" ]` — interpreter removed
+  - (b) After version-too-low check — version changed
+  - (c) After legacy mtime > 24h check — legacy stale sentinel
+- [ ] Do NOT add to the no-sentinel branch (existing "permit-degraded" behavior unchanged)
 - [ ] Verify in existing guard test that the new action appears in the log
-- **Done when:** Log entry with "permit-degraded-stale-sentinel" action verified
+- **Done when:** Log entries with "permit-degraded-stale-sentinel" action verified for all 3 branches
 
 ---
 
@@ -180,7 +183,7 @@ T7.1                          (regression — depends on all above)
 
 ### T6.1: Move and strengthen first-run detection
 - [ ] Move the first-run check from `build_session_context()` to `main()` — evaluate before `build_context()`
-- [ ] Remove old check from `build_session_context()` (lines 272-275)
+- [ ] Remove old check from `build_session_context()` — locate with `grep -n "First run\|iflow/memory" plugins/iflow/hooks/session-start.sh` (the block checking `! -d "$HOME/.claude/iflow/memory"` or `! -x .venv/bin/python`)
 - [ ] New check in `main()`: `if [[ ! -d "$HOME/.claude/iflow/memory" ]] || [[ ! -x "${PLUGIN_ROOT}/.venv/bin/python" ]]; then ...`
 - [ ] Update wording: `"Setup required for MCP workflow tools. Run: bash \"${PLUGIN_ROOT}/scripts/setup.sh\""`
 - [ ] Prepend to `full_context` (same pattern as check_mcp_health)
