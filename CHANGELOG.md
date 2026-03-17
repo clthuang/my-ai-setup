@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.13.4] - 2026-03-18
+
 ### Fixed
 - `complete_phase` MCP tool now projects top-level `completed` timestamp in `.meta.json` for terminal statuses (`completed`, `abandoned`), fixing `validate.sh` CI failures
 
