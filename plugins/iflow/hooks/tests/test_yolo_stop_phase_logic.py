@@ -10,9 +10,11 @@ same logic by importing the same modules and replicating the algorithm.
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 # ---------------------------------------------------------------------------
@@ -23,6 +25,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
 
 import pytest
 
+from yolo_deps import check_feature_deps
 from transition_gate.constants import PHASE_SEQUENCE
 from transition_gate.models import Phase
 from workflow_engine.models import FeatureWorkflowState
@@ -592,3 +595,604 @@ class TestMutationMindset:
         )
         assert result == "finish"
         assert result != ""
+
+
+# ===========================================================================
+# Dimension 6: Dependency Check (Feature 038)
+# ===========================================================================
+
+
+class TestCheckFeatureDeps:
+    """Tests for check_feature_deps() — AC-1 through AC-7, AC-3b."""
+
+    def _write_meta(self, path: Path, data: dict) -> None:
+        """Helper: write .meta.json to a feature directory."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+
+    def test_all_deps_completed(self, tmp_path):
+        """AC-2: All deps completed -> eligible.
+        derived_from: spec:AC-2"""
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["B"]})
+        self._write_meta(features_dir / "B" / ".meta.json",
+                        {"status": "completed"})
+
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        assert eligible is True
+        assert reason is None
+
+    def test_null_deps(self, tmp_path):
+        """AC-3: depends_on_features: null -> eligible.
+        derived_from: spec:AC-3"""
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": None})
+
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        assert eligible is True
+        assert reason is None
+
+    def test_empty_deps(self, tmp_path):
+        """AC-4: depends_on_features: [] -> eligible.
+        derived_from: spec:AC-4"""
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": []})
+
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        assert eligible is True
+        assert reason is None
+
+    def test_no_depends_on_features_key(self, tmp_path):
+        """AC-3b: key missing entirely -> eligible.
+        derived_from: spec:AC-3b"""
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active"})
+
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        assert eligible is True
+        assert reason is None
+
+    def test_unmet_dep(self, tmp_path):
+        """AC-1: dep B blocked -> skip.
+        derived_from: spec:AC-1"""
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["B"]})
+        self._write_meta(features_dir / "B" / ".meta.json",
+                        {"status": "blocked"})
+
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        assert eligible is False
+        assert reason == "B:blocked"
+
+    def test_missing_dep_meta(self, tmp_path):
+        """AC-5: dep doesn't exist -> skip (fail-safe).
+        derived_from: spec:AC-5"""
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["999-nonexistent"]})
+
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        assert eligible is False
+        assert reason == "999-nonexistent:missing"
+
+    def test_malformed_dep_meta(self, tmp_path):
+        """AC-6: invalid JSON in dep -> skip (fail-safe).
+        derived_from: spec:AC-6"""
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["B"]})
+        dep_meta = features_dir / "B" / ".meta.json"
+        dep_meta.parent.mkdir(parents=True, exist_ok=True)
+        dep_meta.write_text("not valid json {{{")
+
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        assert eligible is False
+        assert reason == "B:unreadable"
+
+    def test_multiple_deps_first_unmet(self, tmp_path):
+        """AC-7 variant: first dep unmet -> skip with first dep ref.
+        derived_from: spec:AC-7"""
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["B", "C"]})
+        self._write_meta(features_dir / "B" / ".meta.json",
+                        {"status": "planned"})
+        self._write_meta(features_dir / "C" / ".meta.json",
+                        {"status": "completed"})
+
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        assert eligible is False
+        assert reason == "B:planned"
+
+    def test_multiple_deps_second_unmet(self, tmp_path):
+        """AC-7: first dep met, second unmet -> skip with second dep ref.
+        derived_from: spec:AC-7"""
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["B", "C"]})
+        self._write_meta(features_dir / "B" / ".meta.json",
+                        {"status": "completed"})
+        self._write_meta(features_dir / "C" / ".meta.json",
+                        {"status": "planned"})
+
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        assert eligible is False
+        assert reason == "C:planned"
+
+    def test_non_string_dep_element(self, tmp_path):
+        """R-1 step 6: non-string dep element -> skip (fail-safe).
+        derived_from: spec:R-1"""
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": [42]})
+
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        assert eligible is False
+        assert reason == "42:missing"
+
+    def test_own_meta_unreadable(self, tmp_path):
+        """Edge case: own .meta.json is malformed -> eligible (backward-compatible).
+        derived_from: design:C-1"""
+        features_dir = tmp_path / "features"
+        meta_path = features_dir / "A" / ".meta.json"
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+        meta_path.write_text("not valid json")
+
+        eligible, reason = check_feature_deps(
+            str(meta_path),
+            str(features_dir))
+        assert eligible is True
+        assert reason is None
+
+    # -----------------------------------------------------------------------
+    # Deepened tests: Boundary Values
+    # -----------------------------------------------------------------------
+
+    def test_many_deps_all_completed(self, tmp_path):
+        """10 deps all completed -> eligible.
+        Anticipate: Loop might short-circuit or off-by-one on large dep lists.
+        derived_from: dimension:boundary"""
+        # Given a feature with 10 dependencies, all completed
+        features_dir = tmp_path / "features"
+        dep_names = [f"dep-{i}" for i in range(1, 11)]
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": dep_names})
+        for name in dep_names:
+            self._write_meta(features_dir / name / ".meta.json",
+                            {"status": "completed"})
+        # When checking deps
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        # Then all met
+        assert eligible is True
+        assert reason is None
+
+    def test_many_deps_last_one_unmet(self, tmp_path):
+        """10 deps, first 9 completed, last active -> (False, "dep-10:active").
+        Anticipate: Loop might exit early or not reach the last element.
+        derived_from: dimension:boundary"""
+        # Given 10 deps where the last one is not completed
+        features_dir = tmp_path / "features"
+        dep_names = [f"dep-{i}" for i in range(1, 11)]
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": dep_names})
+        for name in dep_names[:-1]:
+            self._write_meta(features_dir / name / ".meta.json",
+                            {"status": "completed"})
+        self._write_meta(features_dir / "dep-10" / ".meta.json",
+                        {"status": "active"})
+        # When checking deps
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        # Then fails on the last dep
+        assert eligible is False
+        assert reason == "dep-10:active"
+
+    def test_dep_with_status_field_missing(self, tmp_path):
+        """B's meta has no 'status' key -> (False, "B:unknown").
+        Anticipate: .get("status", "unknown") default might be wrong or missing.
+        derived_from: dimension:boundary"""
+        # Given dep B has no status field
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["B"]})
+        self._write_meta(features_dir / "B" / ".meta.json",
+                        {"name": "B"})  # no status key
+        # When checking deps
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        # Then defaults to "unknown" which != "completed"
+        assert eligible is False
+        assert reason == "B:unknown"
+
+    def test_depends_on_features_is_false_boolean(self, tmp_path):
+        """depends_on_features: false -> eligible (falsy, treated as no deps).
+        Anticipate: `or []` might not handle False correctly.
+        derived_from: dimension:boundary"""
+        # Given depends_on_features is boolean false
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": False})
+        # When checking deps
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        # Then falsy value -> `or []` -> empty list -> eligible
+        assert eligible is True
+        assert reason is None
+
+    def test_depends_on_features_is_zero(self, tmp_path):
+        """depends_on_features: 0 -> eligible (falsy, treated as no deps).
+        Anticipate: `or []` might not handle 0 correctly if using `is None` check.
+        derived_from: dimension:boundary"""
+        # Given depends_on_features is 0
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": 0})
+        # When checking deps
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        # Then falsy value -> `or []` -> empty list -> eligible
+        assert eligible is True
+        assert reason is None
+
+    # -----------------------------------------------------------------------
+    # Deepened tests: Adversarial
+    # -----------------------------------------------------------------------
+
+    def test_dep_meta_is_empty_file(self, tmp_path):
+        """B's .meta.json is 0 bytes -> (False, "B:unreadable").
+        Anticipate: Empty file causes JSONDecodeError, must be caught.
+        derived_from: dimension:adversarial"""
+        # Given dep B has empty .meta.json
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["B"]})
+        dep_meta = features_dir / "B" / ".meta.json"
+        dep_meta.parent.mkdir(parents=True, exist_ok=True)
+        dep_meta.write_text("")
+        # When checking deps
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        # Then empty file -> JSONDecodeError -> unreadable
+        assert eligible is False
+        assert reason == "B:unreadable"
+
+    def test_dep_meta_is_json_array(self, tmp_path):
+        """B's .meta.json is [1,2,3] -> no .get method -> unreadable.
+        derived_from: dimension:adversarial"""
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["B"]})
+        dep_meta = features_dir / "B" / ".meta.json"
+        dep_meta.parent.mkdir(parents=True, exist_ok=True)
+        dep_meta.write_text("[1, 2, 3]")
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        assert eligible is False
+        assert reason == "B:unreadable"
+
+    def test_dep_status_is_non_string(self, tmp_path):
+        """B's status is 42 (integer) -> (False, "B:42").
+        Anticipate: Non-string status compared to "completed" is always !=.
+        derived_from: dimension:adversarial"""
+        # Given dep B has integer status
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["B"]})
+        self._write_meta(features_dir / "B" / ".meta.json",
+                        {"status": 42})
+        # When checking deps
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        # Then 42 != "completed" -> ineligible with coerced status
+        assert eligible is False
+        assert reason == "B:42"
+
+    def test_own_meta_file_not_found(self, tmp_path):
+        """meta_path doesn't exist -> (True, None) -- fail open.
+        Anticipate: FileNotFoundError on own meta should be caught gracefully.
+        derived_from: dimension:adversarial"""
+        # Given meta_path points to nonexistent file
+        features_dir = tmp_path / "features"
+        features_dir.mkdir(parents=True)
+        # When checking deps on nonexistent meta
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        # Then fail-open: eligible
+        assert eligible is True
+        assert reason is None
+
+    def test_mixed_string_and_non_string_deps(self, tmp_path):
+        """['B', 42, 'C'] with B completed -> (False, "42:missing").
+        Anticipate: Non-string dep after a valid dep must still be caught.
+        derived_from: dimension:adversarial"""
+        # Given mixed dep types
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["B", 42, "C"]})
+        self._write_meta(features_dir / "B" / ".meta.json",
+                        {"status": "completed"})
+        self._write_meta(features_dir / "C" / ".meta.json",
+                        {"status": "completed"})
+        # When checking deps -- B passes, then 42 is non-string
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        # Then fails on the non-string element
+        assert eligible is False
+        assert reason == "42:missing"
+
+    def test_circular_dependency_both_active(self, tmp_path):
+        """A depends on B, B depends on A, both active -> (False, "B:active").
+        Anticipate: No cycle detection -- just checks B's status linearly.
+        derived_from: dimension:adversarial"""
+        # Given circular dep: A -> B and B -> A
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["B"]})
+        self._write_meta(features_dir / "B" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["A"]})
+        # When checking A's deps
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        # Then B is active (not completed) -> ineligible
+        assert eligible is False
+        assert reason == "B:active"
+
+    def test_dep_ref_with_special_chars(self, tmp_path):
+        """Dep ref 'B-special_chars.v2' with completed status -> eligible.
+        Anticipate: Special chars in dir names might break path joining.
+        derived_from: dimension:adversarial"""
+        # Given a dep with special chars in name
+        features_dir = tmp_path / "features"
+        dep_name = "B-special_chars.v2"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": [dep_name]})
+        self._write_meta(features_dir / dep_name / ".meta.json",
+                        {"status": "completed"})
+        # When checking deps
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        # Then special chars are fine for os.path.join
+        assert eligible is True
+        assert reason is None
+
+    # -----------------------------------------------------------------------
+    # Deepened tests: Error Propagation
+    # -----------------------------------------------------------------------
+
+    def test_features_dir_does_not_exist(self, tmp_path):
+        """Non-existent features_dir -> dep path won't exist -> (False, "B:missing").
+        Anticipate: os.path.join with nonexistent base still produces a path,
+        but open() will raise FileNotFoundError.
+        derived_from: dimension:error_propagation"""
+        # Given features_dir doesn't exist but own meta does
+        features_dir = tmp_path / "features"
+        own_dir = tmp_path / "own"
+        own_dir.mkdir(parents=True)
+        meta_path = own_dir / ".meta.json"
+        meta_path.write_text(json.dumps(
+            {"status": "active", "depends_on_features": ["B"]}))
+        # When checking deps
+        eligible, reason = check_feature_deps(
+            str(meta_path),
+            str(features_dir))
+        # Then dep B's meta not found -> missing
+        assert eligible is False
+        assert reason == "B:missing"
+
+    def test_dep_directory_exists_but_no_meta(self, tmp_path):
+        """Dir exists but no .meta.json -> (False, "B:missing").
+        Anticipate: Directory without .meta.json triggers FileNotFoundError.
+        derived_from: dimension:error_propagation"""
+        # Given dep B directory exists but has no .meta.json
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["B"]})
+        (features_dir / "B").mkdir(parents=True)
+        # When checking deps
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        # Then FileNotFoundError -> missing
+        assert eligible is False
+        assert reason == "B:missing"
+
+    def test_return_type_contract_eligible(self, tmp_path):
+        """Return type is (bool, None) when eligible -- verify exact types.
+        Anticipate: Returning "" instead of None, or 1 instead of True.
+        derived_from: dimension:error_propagation"""
+        # Given no deps
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": []})
+        # When checking deps
+        result = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        # Then exact types
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        assert result[0] is True  # exactly True, not truthy
+        assert result[1] is None  # exactly None, not ""
+
+    def test_return_type_contract_ineligible(self, tmp_path):
+        """Return type is (bool, str) when ineligible -- verify exact types.
+        Anticipate: Returning 0 instead of False, or None instead of string.
+        derived_from: dimension:error_propagation"""
+        # Given unmet dep
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["B"]})
+        self._write_meta(features_dir / "B" / ".meta.json",
+                        {"status": "planned"})
+        # When checking deps
+        result = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        # Then exact types
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        assert result[0] is False  # exactly False, not falsy
+        assert isinstance(result[1], str)
+        assert result[1] is not None
+
+    # -----------------------------------------------------------------------
+    # Deepened tests: Mutation Mindset
+    # -----------------------------------------------------------------------
+
+    def test_completed_status_exact_match(self, tmp_path):
+        """'completed-partial' is NOT 'completed' -> ineligible.
+        Anticipate: Using `startswith` or `in` instead of `==` would match.
+        derived_from: dimension:mutation"""
+        # Given dep B has status that starts with "completed" but isn't exact
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["B"]})
+        self._write_meta(features_dir / "B" / ".meta.json",
+                        {"status": "completed-partial"})
+        # When checking deps
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        # Then not eligible -- exact match required
+        assert eligible is False
+        assert reason == "B:completed-partial"
+
+    def test_eligible_returns_none_not_empty_string(self, tmp_path):
+        """Second value is exactly None, not empty string "".
+        Anticipate: Returning "" instead of None would break callers checking `is None`.
+        derived_from: dimension:mutation"""
+        # Given all deps completed
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["B"]})
+        self._write_meta(features_dir / "B" / ".meta.json",
+                        {"status": "completed"})
+        # When checking deps
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        # Then reason is exactly None
+        assert reason is None
+        assert reason != ""
+
+    def test_ineligible_returns_false_not_falsy(self, tmp_path):
+        """First value is exactly False, not 0 or None or "".
+        Anticipate: Returning 0 or None would be falsy but wrong type.
+        derived_from: dimension:mutation"""
+        # Given unmet dep
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["B"]})
+        self._write_meta(features_dir / "B" / ".meta.json",
+                        {"status": "active"})
+        # When checking deps
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        # Then eligible is exactly False
+        assert eligible is False
+        assert eligible is not None
+        assert eligible != 0 or type(eligible) is bool  # 0 == False but type differs
+
+    def test_reason_format_uses_colon_separator(self, tmp_path):
+        """Reason format is 'dep_ref:status' with exactly one colon.
+        Anticipate: Using space or dash as separator would break parsing.
+        derived_from: dimension:mutation"""
+        # Given unmet dep
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["B"]})
+        self._write_meta(features_dir / "B" / ".meta.json",
+                        {"status": "planned"})
+        # When checking deps
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        # Then reason uses colon separator
+        assert ":" in reason
+        parts = reason.split(":")
+        assert len(parts) == 2
+        assert parts[0] == "B"
+        assert parts[1] == "planned"
+
+    def test_path_traversal_dep_treated_as_missing(self, tmp_path):
+        """A dependency ref with path traversal (e.g., '../../etc') is treated as missing.
+        Guards against reading .meta.json files outside the features directory."""
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["../../etc"]})
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        assert eligible is False
+        assert reason == "../../etc:missing"
+
+    def test_absolute_path_dep_treated_as_missing(self, tmp_path):
+        """A dependency ref with an absolute path is treated as missing.
+        os.path.join discards prior components for absolute paths."""
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "A" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["/etc"]})
+        eligible, reason = check_feature_deps(
+            str(features_dir / "A" / ".meta.json"),
+            str(features_dir))
+        assert eligible is False
+        assert reason == "/etc:missing"
+
+    def test_deps_checked_in_array_order(self, tmp_path):
+        """['Z-last', 'A-first'], Z unmet -> (False, "Z-last:active").
+        Anticipate: If deps were sorted before checking, A-first would fail first.
+        derived_from: dimension:mutation"""
+        # Given deps in specific order where Z comes first
+        features_dir = tmp_path / "features"
+        self._write_meta(features_dir / "X" / ".meta.json",
+                        {"status": "active", "depends_on_features": ["Z-last", "A-first"]})
+        self._write_meta(features_dir / "Z-last" / ".meta.json",
+                        {"status": "active"})
+        self._write_meta(features_dir / "A-first" / ".meta.json",
+                        {"status": "active"})
+        # When checking deps
+        eligible, reason = check_feature_deps(
+            str(features_dir / "X" / ".meta.json"),
+            str(features_dir))
+        # Then first in array order is reported, not alphabetical
+        assert eligible is False
+        assert reason == "Z-last:active"
