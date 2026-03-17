@@ -56,7 +56,7 @@
 - [ ] Use helpers, no sentinel. Invoke hook with `.meta.json` Write input (defensive capture with `|| true`)
 - [ ] Read log file at `$META_GUARD_TMPDIR/.claude/iflow/meta-json-guard.log`
 - [ ] Assert last JSONL line has `"action": "permit-degraded"` via python3 parse
-- [ ] Add function call to the test runner section
+- [ ] Add function call to the test runner section (after `test_meta_json_guard_permits_when_no_sentinel`)
 - [ ] **Red-phase note:** Before Phase 2, the log file will be created with a standard deny entry (no `action` field). The assertion for `"action": "permit-degraded"` is the expected red failure point, not the log file existence check.
 
 **Done when:** Test exists and will pass once Phase 2 adds degraded logging (fails red now — expected).
@@ -66,7 +66,7 @@
 - [ ] Use helpers, create sentinel. Invoke hook with `.meta.json` Write for feature `034-enforced-state-machine`
 - [ ] Capture deny output, parse `permissionDecisionReason`
 - [ ] Assert reason contains `feature:` substring (the `feature:{id}-{slug}` pattern)
-- [ ] Add function call to the test runner section
+- [ ] Add function call to the test runner section (after `test_meta_json_guard_logs_permit_degraded`)
 
 **Done when:** Test exists and will pass once Phase 2 updates REASON string (fails red now — expected).
 
@@ -75,7 +75,7 @@
 - [ ] Use helpers, create sentinel. Invoke hook with `.meta.json` Write
 - [ ] Capture deny output, parse `permissionDecisionReason`
 - [ ] Assert reason contains `fallback` substring
-- [ ] Add function call to the test runner section
+- [ ] Add function call to the test runner section (after `test_meta_json_guard_deny_message_has_feature_type_id`)
 
 **Done when:** Test exists and will pass once Phase 2 updates REASON string (fails red now — expected).
 
@@ -138,6 +138,8 @@ This task is atomic — rename the function and update its call site in the same
 **Done when:** Degraded permit path exists. Hook permits writes when no sentinel found.
 
 ### Task 2.4: Update REASON string
+> No blocking dependency — can run in parallel with Tasks 2.1-2.3
+
 - [ ] Replace the REASON string with:
   ```bash
   REASON="Direct .meta.json writes are blocked. Use MCP workflow tools instead: transition_phase(feature_type_id, target_phase) to enter a phase, complete_phase(feature_type_id, phase) to finish a phase, or init_feature_state(...) to create a new feature. The feature_type_id format is \"feature:{id}-{slug}\" (e.g., \"feature:041-meta-json-guard-degradation\"). If MCP workflow tools are not available in this session, the guard will allow direct writes as a fallback."
