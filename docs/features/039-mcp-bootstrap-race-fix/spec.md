@@ -33,7 +33,7 @@ The venv bootstrap must install ALL dependencies required by ALL 4 servers, not 
 
 **Acceptance Criteria:**
 - AC-2.1: A single canonical dependency list is maintained in one location (not duplicated across scripts). This is the source of truth for all bootstrap paths.
-- AC-2.2: After bootstrap completes, all packages in the canonical dependency list are importable in the venv Python. The canonical list is defined in the single source file per AC-2.1; verification must use that file, not a hardcoded subset. The canonical list must include both the pip install name and the Python import name for each dependency, since they may differ. Current known deps: `mcp`→`mcp`, `numpy`→`numpy`, `python-dotenv`→`dotenv`, `fastapi`→`fastapi`, `uvicorn`→`uvicorn`, `jinja2`→`jinja2`.
+- AC-2.2: After bootstrap completes, all packages in the canonical dependency list are importable in the venv Python. The canonical list is defined in the single source file per AC-2.1; verification must use that file, not a hardcoded subset. The canonical list must include both the pip install name and the Python import name for each dependency, since they may differ. Current known deps: `mcp`→`mcp`, `numpy`→`numpy`, `python-dotenv`→`dotenv`, `fastapi`→`fastapi`, `uvicorn`→`uvicorn`, `jinja2`→`jinja2`, `pydantic`→`pydantic`, `pydantic-settings`→`pydantic_settings`.
 - AC-2.3: The fast-path (venv exists) must verify that all canonical deps are importable, not just that `bin/python` exists. Run a Python import check against the canonical list. The import check overhead on the fast-path is acceptable (expected < 1 second).
 - AC-2.4: If any canonical dep is missing from an existing venv, the server must install all deps from the canonical list before proceeding (self-healing).
 
@@ -78,7 +78,7 @@ Bootstrap scripts must verify the Python version before creating a venv or runni
 
 ## Design Notes
 
-- The existing "system python3" fallback path (Step 2 in current scripts, which skips venv if system python has all deps) is preserved as-is. It runs before venv bootstrap and does not participate in the locking protocol.
+- The existing "system python3" fallback path is unified to check ALL canonical deps (not per-server subsets). This eliminates the RC-2 dependency gap at the system-python level. The path runs before venv bootstrap and does not participate in the locking protocol.
 - The bootstrap path must attempt `uv` first; if `uv` is not available, fall back to `pip`. This check happens once per bootstrap invocation.
 
 ## Open Questions
