@@ -35,7 +35,7 @@
 **Depends on:** 1.1b (test file exists)
 **Files:** `plugins/iflow/mcp/test_bootstrap_venv.sh`
 
-- [ ] Write both sub-tests as a single sequential test block (not two separate isolated subshells) so the venv path is shared. Create a real venv in `$TMP_DIR`, install all 8 canonical deps from design.md I7 (`fastapi`, `jinja2`, `mcp`, `numpy`, `pydantic`, `pydantic-settings`, `python-dotenv`, `uvicorn`), call `check_venv_deps "$venv/bin/python"`, assert returns 0. Note: this test is slow (~30-60s for venv creation + pip install)
+- [ ] Write both sub-tests as a single sequential test block (not two separate isolated subshells) so the venv path is shared. Create a real venv in `$TMP_DIR`, install all 8 canonical deps from design.md I7 (`fastapi`, `jinja2`, `mcp`, `numpy`, `pydantic`, `pydantic-settings`, `python-dotenv`, `uvicorn`), call `check_venv_deps "$venv/bin/python"`, assert returns 0. Note: this test is intentionally slow (~30-60s for venv creation + pip install) — mark with a comment in the test file. The venv can be reused by Phase 3 integration tests if placed at a known path under `$TMP_DIR`
 - [ ] Then immediately in the same block: `"$venv/bin/pip" uninstall -y numpy` to remove one dep, call `check_venv_deps`, assert returns 1. This reuses the venv from the first assertion and avoids a second venv creation
 
 **Done when:** Both tests run and fail against stub (RED).
@@ -155,7 +155,7 @@
 - [ ] Waiter path (acquire_lock returns 1): re-check deps via check_venv_deps, self-heal if needed, export PYTHON
 - [ ] All paths: `export PYTHON=...` (not just set)
 
-**Done when:** `bash plugins/iflow/mcp/test_bootstrap_venv.sh` — output shows PASS=7 FAIL=0 (GREEN). Note: the empty lock invariant test (1.1g) passing against the stub is expected and correct.
+**Done when:** `bash plugins/iflow/mcp/test_bootstrap_venv.sh` — output shows FAIL=0 (GREEN). Do not pin PASS count since sub-test counting depends on helper implementation. Note: the empty lock invariant test (1.1g) passing against the stub is expected and correct.
 
 ---
 
