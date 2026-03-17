@@ -22,7 +22,7 @@
 **Files:** `plugins/iflow/mcp/test_bootstrap_venv.sh`
 
 - [ ] Create test file with `#!/bin/bash`, `set -euo pipefail`, counters (`PASS=0`, `FAIL=0`), test helper functions (`assert_eq`, `assert_contains`, `assert_exit_code`)
-- [ ] Write test: create argument-aware mock `python3` in `$MOCK_DIR` that outputs `3.10` when called with `-c "import sys; ..."` (matching the exact invocation from design I2), and for all other invocations delegates to real python3 via `exec /usr/bin/python3 "$@"` to prevent intercepting unrelated calls
+- [ ] Write test: resolve real python3 path via `REAL_PYTHON3="$(which python3)"` before creating mock. Create argument-aware mock `python3` in `$MOCK_DIR` that outputs `3.10` when called with `-c "import sys; ..."` (matching the exact invocation from design I2), and for all other invocations delegates to the resolved real python3 via `exec "$REAL_PYTHON3" "$@"` (path embedded at mock creation time for portability)
 - [ ] Source bootstrap-venv.sh function definitions, call `check_python_version` in subshell with mock on PATH: `(PATH="$MOCK_DIR:$PATH"; check_python_version 2>"$STDERR_FILE")`
 - [ ] Assert exit code 1, stderr contains "3.12" (required) and "3.10" (detected)
 
@@ -35,8 +35,8 @@
 **Depends on:** 1.1b (test file exists)
 **Files:** `plugins/iflow/mcp/test_bootstrap_venv.sh`
 
-- [ ] Write test "all deps present": create a real venv in `$TMP_DIR`, install all 8 canonical deps from design.md I7 (`fastapi`, `jinja2`, `mcp`, `numpy`, `pydantic`, `pydantic-settings`, `python-dotenv`, `uvicorn`), call `check_venv_deps "$venv/bin/python"`, assert returns 0. Note: this test is slow (~30-60s for venv creation + pip install)
-- [ ] Write test "missing dep": reuse the venv from "all deps present" test, then `"$venv/bin/pip" uninstall -y numpy` to remove one dep, call `check_venv_deps`, assert returns 1. This avoids a second venv creation and network round-trip
+- [ ] Write both sub-tests as a single sequential test block (not two separate isolated subshells) so the venv path is shared. Create a real venv in `$TMP_DIR`, install all 8 canonical deps from design.md I7 (`fastapi`, `jinja2`, `mcp`, `numpy`, `pydantic`, `pydantic-settings`, `python-dotenv`, `uvicorn`), call `check_venv_deps "$venv/bin/python"`, assert returns 0. Note: this test is slow (~30-60s for venv creation + pip install)
+- [ ] Then immediately in the same block: `"$venv/bin/pip" uninstall -y numpy` to remove one dep, call `check_venv_deps`, assert returns 1. This reuses the venv from the first assertion and avoids a second venv creation
 
 **Done when:** Both tests run and fail against stub (RED).
 
@@ -137,7 +137,7 @@
 **Depends on:** 1.2c
 **Files:** `plugins/iflow/mcp/bootstrap-venv.sh`
 
-- [ ] Implement `acquire_lock` per I5: Phase 1 mkdir, Phase 2a stale check via `find -mmin +2` then `rmdir "$lock_dir" 2>/dev/null` (NOT rm -rf — preserves the empty-dir invariant; if rmdir fails because dir is non-empty, log warning to stderr and fall through to Phase 2b spin-wait rather than silently failing) + retry mkdir once, Phase 2b spin-wait on sentinel (1s intervals, `$BOOTSTRAP_TIMEOUT` iterations), return 1 if sentinel appears, exit 1 if timeout
+- [ ] Implement `acquire_lock` per I5: Phase 1 mkdir, Phase 2a stale check via `find -mmin +2` then `rmdir "$lock_dir" 2>/dev/null` (NOT rm -rf — preserves the empty-dir invariant; if rmdir fails because dir is non-empty, log warning to stderr and fall through to Phase 2b spin-wait — this intentionally degrades to the full timeout path since we cannot know if another process is writing into the lock dir; add inline comment explaining this) + retry mkdir once, Phase 2b spin-wait on sentinel (1s intervals, `$BOOTSTRAP_TIMEOUT` iterations), return 1 if sentinel appears, exit 1 if timeout
 - [ ] Implement `release_lock`: `rmdir "$lock_dir" 2>/dev/null || true`
 - [ ] Ensure lock dir constraint: never write files into lock dir, use rmdir exclusively (not rm -rf)
 
@@ -155,7 +155,7 @@
 - [ ] Waiter path (acquire_lock returns 1): re-check deps via check_venv_deps, self-heal if needed, export PYTHON
 - [ ] All paths: `export PYTHON=...` (not just set)
 
-**Done when:** `bash plugins/iflow/mcp/test_bootstrap_venv.sh` — all unit tests (1-7) pass (GREEN). Run and confirm.
+**Done when:** `bash plugins/iflow/mcp/test_bootstrap_venv.sh` — output shows PASS=7 FAIL=0 (GREEN). Note: the empty lock invariant test (1.1g) passing against the stub is expected and correct.
 
 ---
 
