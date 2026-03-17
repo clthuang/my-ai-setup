@@ -49,7 +49,7 @@
 - [ ] Use `with open(...)` context managers (not bare `open()`)
 - [ ] Imports: `json`, `os` only (stdlib)
 - **Done when:** File exists, ~25 lines, function signature matches `def check_feature_deps(meta_path: str, features_dir: str) -> tuple[bool, str | None]`
-- **Depends on:** nothing (parallel with Phase 1)
+- **Depends on:** Task 1.1 (module can be written in parallel, but TDD ordering requires test skeleton to exist so GREEN verification in Task 2.2 is meaningful)
 
 ### Task 2.2: Verify GREEN phase
 - [ ] Run `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/tests/test_yolo_stop_phase_logic.py::TestCheckFeatureDeps -v`
@@ -106,7 +106,7 @@
   - Feature dirs: `X-blocked` (active, depends on `Z-dep`), `Y-eligible` (active, depends on `W-dep`)
   - Dep dirs: `Z-dep` (status: blocked), `W-dep` (status: completed)
 - [ ] Invoke hook: `cd "$tmp" && echo '{}' | bash "$HOOKS_DIR/yolo-stop.sh"` (pipe stdin JSON)
-- [ ] Verify: stdout JSON references Y-eligible, stderr contains `Skipped X-blocked`
+- [ ] Verify: stdout JSON references Y-eligible, stderr matches `[YOLO_MODE] Skipped X-blocked: depends on Z-dep (status: blocked).`
 - **Done when:** Test passes, correctly selects eligible feature and skips blocked one
 - **Depends on:** Task 3.5
 
