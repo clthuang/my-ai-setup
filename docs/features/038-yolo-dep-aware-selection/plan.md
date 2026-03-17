@@ -24,8 +24,8 @@ Step 5: Verify existing tests pass (regression check)
 **Dependencies:** None (tests written first, will fail until Step 2)
 
 **Details:**
-- Import `check_feature_deps` from `yolo_deps` (add `sys.path.insert` if not already present for `hooks/lib/`)
-- 10 test methods using `tmp_path` fixture:
+- Import `check_feature_deps` from `yolo_deps` (note: `sys.path.insert(0, ...)` for `hooks/lib/` already exists at line 22 of the test file — no additional path manipulation needed)
+- 11 test methods using `tmp_path` fixture:
   1. `test_all_deps_completed` — AC-2: dep B completed → `(True, None)`
   2. `test_null_deps` — AC-3: `depends_on_features: null` → `(True, None)`
   3. `test_empty_deps` — AC-4: `depends_on_features: []` → `(True, None)`
@@ -67,9 +67,14 @@ Step 5: Verify existing tests pass (regression check)
 ## Step 3: Integrate into `yolo-stop.sh`
 
 **File:** `plugins/iflow/hooks/yolo-stop.sh`
-**Action:** Replace lines 84-103 with dependency-aware selection loop
+**Action:** Modify the feature selection loop (lines 84-103) and insert an all-skipped check block
 
 **Dependencies:** Step 2 (yolo_deps.py exists and works)
+
+**Scope clarification:**
+- Lines 84-103 (the `for` loop and its body): Modified in-place — Python call replaced, dep-check logic added
+- Lines 105-107 (existing empty check: `if [[ -z "$ACTIVE_META" ]]; then exit 0; fi`): **Preserved unchanged**
+- New all-skipped block: **Inserted between** the loop end (line ~103) and the existing empty check (line 105)
 
 **Details:**
 1. Add `declare -a SKIP_REASONS=()` before the loop (line ~83)
@@ -80,8 +85,9 @@ Step 5: Verify existing tests pass (regression check)
 3. Inside the `status == "active"` block, add dep_result check per design I-4:
    - If `SKIP:*` → parse dep_ref/dep_status, add to SKIP_REASONS, `continue`
    - Otherwise → existing mtime logic unchanged
-4. After loop, add all-skipped check per design I-4:
+4. After loop (before existing line 105), insert all-skipped check per design I-4:
    - If `ACTIVE_META` empty AND `SKIP_REASONS` non-empty → emit diagnostics to stderr, `exit 0`
+   - This runs before the existing empty check at line 105, which still handles the no-active-features case
 
 **Verification:**
 - Existing tests still pass: `plugins/iflow/.venv/bin/python -m pytest plugins/iflow/hooks/tests/test_yolo_stop_phase_logic.py -v`
@@ -96,12 +102,21 @@ Step 5: Verify existing tests pass (regression check)
 
 **Details:**
 1. `test_yolo_stop_skips_blocked_dep` — AC-8:
-   - Create temp features dir with two active features (X has unmet dep, Y has all deps met)
-   - Set up mock `.meta.json` files
-   - Invoke yolo-stop.sh with mock config pointing to temp dir
-   - Verify: output JSON selects Y (not X), stderr contains skip diagnostic for X
+   - Create temp dir with mock project structure:
+     ```
+     tmp/
+     ├── .claude/iflow.local.md          # artifacts_root: "docs"
+     ├── docs/features/
+     │   ├── X-blocked/.meta.json        # status: active, depends_on_features: ["Z-dep"]
+     │   ├── Y-eligible/.meta.json       # status: active, depends_on_features: ["W-dep"]
+     │   ├── Z-dep/.meta.json            # status: blocked (unmet)
+     │   └── W-dep/.meta.json            # status: completed (met)
+     └── .claude/yolo-state.json         # stop_hook_active: false, stop_count: 0
+     ```
+   - Invoke yolo-stop.sh with `PROJECT_ROOT` pointing to temp dir
+   - Verify: output JSON selects Y-eligible (not X-blocked), stderr contains skip diagnostic for X-blocked
 2. `test_yolo_stop_all_deps_unmet_allows_stop` — AC-9:
-   - All active features have unmet deps
+   - Same mock structure but all active features have unmet deps (no W-dep completed)
    - Verify: exit code 0, no JSON output, stderr contains diagnostics
 
 **Verification:** `bash plugins/iflow/hooks/tests/test-hooks.sh` — all tests pass including new ones.
@@ -126,3 +141,4 @@ Step 5: Verify existing tests pass (regression check)
 | Shell path with special chars | 3 | sys.argv, not interpolation (blocker fix from design review) |
 | Existing tests break | 5 | Explicit regression check step |
 | Pipe delimiter in status/ref | 3 | Documented: status values and feature refs never contain `|` |
+| Python subprocess crashes (segfault, OOM) | 3 | `2>/dev/null` suppresses stderr; `IFS='|' read -r` gets empty strings → both `status` and `dep_result` empty → feature skipped (safe default, documented in design I-4) |
