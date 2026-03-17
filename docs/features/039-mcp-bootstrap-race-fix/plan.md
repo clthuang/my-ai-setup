@@ -31,7 +31,9 @@ Phase 4: Spec Amendment (no deps — documentation only)
 
 **File:** `plugins/iflow/mcp/test_bootstrap_venv.sh`
 
-**Unit test cases to write first:**
+**Sub-step (a): Create stub `bootstrap-venv.sh`** — Before writing any tests, create a minimal stub at `plugins/iflow/mcp/bootstrap-venv.sh` with empty function bodies (all functions `return 1`). Functions to stub: `check_python_version`, `check_system_python`, `check_venv_deps`, `create_venv`, `install_all_deps`, `acquire_lock`, `release_lock`, `bootstrap_venv`. Also declare empty `DEP_PIP_NAMES` and `DEP_IMPORT_NAMES` arrays. This ensures tests can `source bootstrap-venv.sh` and fail on assertions rather than file-not-found. Task 1.2 replaces the stub with the real implementation.
+
+**Sub-step (b): Write unit test cases:**
 
 1. **check_python_version test:** Create an argument-aware mock `python3` script that, when called with `-c "import sys; ..."`, outputs `3.10`. Source only the function definitions from bootstrap-venv.sh, then call `check_python_version` in a subshell with the mock on PATH: `(PATH="$MOCK_DIR:$PATH"; check_python_version 2>"$STDERR_FILE")`. Assert exit 1 and stderr contains both "3.12" (required) and "3.10" (detected).
 
@@ -52,8 +54,6 @@ Phase 4: Spec Amendment (no deps — documentation only)
 7. **Empty lock directory invariant test:** Create lock dir, put a file inside it. Call `release_lock`. Assert rmdir fails (lock dir still exists because non-empty). This enforces the constraint that lock dir must remain empty — prevents future changes from breaking rmdir-based cleanup.
 
 All tests run in subshells for isolation. Each test uses `(subshell)` to prevent PATH/env leaks between tests.
-
-**Stub for RED phase:** Create a minimal `bootstrap-venv.sh` stub with empty function bodies (all functions `return 1`) so tests can source it and fail on assertions rather than on file-not-found. Task 1.2 replaces the stub with the real implementation.
 
 **Expected runtime:** ~15-20 seconds (lock timeout tests use shortened `BOOTSTRAP_TIMEOUT=3`).
 
@@ -143,7 +143,7 @@ All tests run in subshells for isolation. Each test uses `(subshell)` to prevent
 
 **Goal:** Replace inline bootstrap logic in all 4 scripts with `source bootstrap-venv.sh`.
 
-**Dependency:** Phase 1 must complete first.
+**Dependency:** Requires Task 1.2 (real `bootstrap-venv.sh` implementation) — not just Task 1.1 (stub + tests). The thin wrappers `source bootstrap-venv.sh` and call its functions, so the real implementation must exist.
 
 All 4 tasks follow the same pattern (I6 template). Each script becomes ~15 lines:
 
@@ -185,9 +185,9 @@ All 4 tasks follow the same pattern (I6 template). Each script becomes ~15 lines
 **Note on Test 4 (server starts without crash):** Tests in entity/workflow scripts that run the real wrapper in-place (not a temp copy) will now exercise `bootstrap-venv.sh` with the real venv. No changes needed — this validates end-to-end behavior, which is desirable.
 
 **Files to update and run:**
-- `plugins/iflow/mcp/test_run_memory_server.sh`
-- `plugins/iflow/mcp/test_run_workflow_server.sh`
-- `plugins/iflow/mcp/test_entity_server.sh`
+- `plugins/iflow/mcp/test_run_memory_server.sh` → `bash plugins/iflow/mcp/test_run_memory_server.sh`
+- `plugins/iflow/mcp/test_run_workflow_server.sh` → `bash plugins/iflow/mcp/test_run_workflow_server.sh`
+- `plugins/iflow/mcp/test_entity_server.sh` → `bash plugins/iflow/mcp/test_entity_server.sh`
 
 ## Phase 3: Integration Tests
 
