@@ -239,6 +239,9 @@ If the bootstrap leader is killed with SIGKILL (not trappable), the trap won't f
 # Sets PYTHON to the resolved interpreter path.
 # Exits with code 1 on fatal errors (Python version, lock timeout).
 # All output to stderr (DC-1).
+# Sentinel write: After install_all_deps succeeds, writes .bootstrap-complete
+# before calling release_lock. This ensures waiters see the sentinel immediately
+# after the lock is released.
 #
 # Arguments:
 #   $1 - VENV_DIR: absolute path to the shared venv directory
@@ -331,6 +334,7 @@ install_all_deps() {
 #   Phase 2: If mkdir fails (lock exists):
 #     a. Check stale: find "$lock_dir" -maxdepth 0 -mmin +2
 #        If stale → rm -rf "$lock_dir", retry mkdir once.
+#        If retry mkdir also fails → fall through to Phase 2b (spin-wait).
 #     b. Spin-wait on SENTINEL file (not lock re-acquisition):
 #        for i in 1..120: if sentinel exists, return 1 (meaning
 #        "another process completed bootstrap, skip to fast-path").
