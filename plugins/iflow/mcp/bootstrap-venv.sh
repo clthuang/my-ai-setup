@@ -48,8 +48,8 @@ check_venv_deps() {
     "$python_path" -c "$imports" 2>/dev/null
 }
 
-# Legacy alias — check_system_python uses check_venv_deps with system python3.
-# Kept as a named function so tests and callers referencing it still work.
+# System python3 check — uses check_venv_deps with system python3.
+# If all canonical deps are importable globally, we can skip venv bootstrap entirely.
 check_system_python() {
     if check_venv_deps python3; then
         export PYTHON=python3
@@ -127,11 +127,7 @@ acquire_lock() {
     # If the lock dir's mtime is >2 minutes old, it's from a crashed previous bootstrap.
     if [ -d "$lock_dir" ] && [ -n "$(find "$lock_dir" -maxdepth 0 -mmin +2 2>/dev/null)" ]; then
         echo "${server_name}: detected stale lock, removing..." >&2
-        # Use rmdir (NOT rm -rf) to preserve the empty-dir invariant.
-        # If rmdir fails (dir is non-empty), another process may be writing into it.
-        # In that case, log a warning and fall through to Phase 2b spin-wait.
-        # This intentionally degrades to the full timeout path since we cannot know
-        # if another process is actively using the lock dir.
+        # rmdir (not rm -rf): preserves empty-dir invariant; falls through to spin-wait if non-empty
         if rmdir "$lock_dir" 2>/dev/null; then
             # Retry mkdir once after stale cleanup
             if mkdir "$lock_dir" 2>/dev/null; then
@@ -253,7 +249,8 @@ bootstrap_venv() {
             return 0
         fi
 
-        # Self-heal: deps missing after another process supposedly finished
+        # Self-heal: deps missing after another process supposedly finished.
+        # Race is acceptable: concurrent pip/uv installs of identical packages are idempotent
         echo "${server_name}: WARNING: deps incomplete after peer bootstrap, self-healing..." >&2
         if [ ! -x "$venv_dir/bin/python" ]; then
             create_venv "$venv_dir" "$server_name"

@@ -1,10 +1,5 @@
 #!/bin/bash
-# Unit tests for bootstrap-venv.sh shared library.
-# Tasks 1.1b-1.1g: RED state tests against stub implementation.
-#
-# Expected runtime: ~30-60s (dominated by 1.1c venv creation + pip install).
-# Most tests FAIL against the stub -- that is the expected RED state.
-# Exceptions: 1.1e (bash compat) and 1.1g (lock invariant) may pass against stub.
+# Unit and integration tests for bootstrap-venv.sh. Expected runtime: ~2-5 minutes (integration tests create real venvs).
 #
 # Note: top-level uses set -uo (no -e) so subshell failures do not abort the
 # entire script. Each test subshell is invoked with `|| true` to ensure all
