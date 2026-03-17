@@ -12,6 +12,8 @@ All 4 bootstrap scripts share `$PLUGIN_DIR/.venv` and must participate in the fi
 - `plugins/iflow/mcp/run-workflow-server.sh` — launched by plugin.json (MCP)
 - `plugins/iflow/mcp/run-ui-server.sh` — launched by SessionStart hook (concurrent with MCP servers)
 
+Note: The PRD (RCA report) identified 3 MCP servers. The 4th server (`run-ui-server.sh`) shares the same `.venv` directory and launches concurrently via SessionStart hook, making it subject to the identical race condition and dependency gap. It is included in scope because the root cause (shared venv + concurrent bootstrap) applies equally.
+
 ## Requirements
 
 ### FR-1: Serialized Venv Bootstrap
@@ -21,7 +23,7 @@ All 4 server bootstrap scripts must coordinate venv creation so that only one pr
 **Acceptance Criteria:**
 - AC-1.1: When 4 servers start concurrently on a fresh install, exactly one creates the venv; the other three wait and reuse it.
 - AC-1.2: The coordination mechanism must use `mkdir` as an atomic lock on all platforms (macOS and Linux) for implementation simplicity. Do not use `flock` even where available.
-- AC-1.3: If the bootstrap process crashes mid-venv-creation, the lock must not permanently block other servers. Staleness detection: if the lock directory exists and its mtime is older than 120 seconds, remove it and retry acquisition once.
+- AC-1.3: If the bootstrap process crashes mid-venv-creation, the lock must not permanently block other servers. Staleness detection: if the lock directory exists and its mtime is older than 120 seconds, remove it and retry acquisition once. Mtime check must use a portable method (e.g., `find <lockdir> -mmin +2` or a Python one-liner) that works on both macOS and Linux without GNU coreutils.
 - AC-1.4: The coordination mechanism itself must not add more than 5 seconds of overhead beyond the time needed for venv creation and pip/uv install.
 - AC-1.5: If a waiting server cannot acquire the lock within 120 seconds, it logs an error to stderr and exits with code 1.
 
@@ -31,8 +33,8 @@ The venv bootstrap must install ALL dependencies required by ALL 4 servers, not 
 
 **Acceptance Criteria:**
 - AC-2.1: A single canonical dependency list is maintained in one location (not duplicated across scripts). This is the source of truth for all bootstrap paths.
-- AC-2.2: After bootstrap completes, all packages in the canonical dependency list are importable in the venv Python (e.g., `import mcp.server.fastmcp; import numpy; import dotenv; import fastapi; import uvicorn`).
-- AC-2.3: The fast-path (venv exists) must verify that all canonical deps are importable, not just that `bin/python` exists. Run a Python import check against the canonical list.
+- AC-2.2: After bootstrap completes, all packages in the canonical dependency list are importable in the venv Python. The canonical list is defined in the single source file per AC-2.1; verification must use that file, not a hardcoded subset. Note: pip package names may differ from import names (e.g., `python-dotenv` installs as `dotenv`).
+- AC-2.3: The fast-path (venv exists) must verify that all canonical deps are importable, not just that `bin/python` exists. Run a Python import check against the canonical list. The import check overhead on the fast-path is acceptable (expected < 1 second).
 - AC-2.4: If any canonical dep is missing from an existing venv, the server must install all deps from the canonical list before proceeding (self-healing).
 
 ### FR-3: Python Version Guard
@@ -72,6 +74,11 @@ Bootstrap scripts must verify the Python version before creating a venv or runni
 3. Concurrent launch: no race conditions or partial venv states.
 4. Missing deps: self-healing — server installs missing deps before starting.
 5. Python < 3.12: clear error message, no silent failure.
+
+## Design Notes
+
+- The existing "system python3" fallback path (Step 2 in current scripts, which skips venv if system python has all deps) is preserved as-is. It runs before venv bootstrap and does not participate in the locking protocol.
+- The bootstrap path must attempt `uv` first; if `uv` is not available, fall back to `pip`. This check happens once per bootstrap invocation.
 
 ## Open Questions
 
