@@ -33,7 +33,7 @@ The venv bootstrap must install ALL dependencies required by ALL 4 servers, not 
 
 **Acceptance Criteria:**
 - AC-2.1: A single canonical dependency list is maintained in one location (not duplicated across scripts). This is the source of truth for all bootstrap paths.
-- AC-2.2: After bootstrap completes, all packages in the canonical dependency list are importable in the venv Python. The canonical list is defined in the single source file per AC-2.1; verification must use that file, not a hardcoded subset. Note: pip package names may differ from import names (e.g., `python-dotenv` installs as `dotenv`).
+- AC-2.2: After bootstrap completes, all packages in the canonical dependency list are importable in the venv Python. The canonical list is defined in the single source file per AC-2.1; verification must use that file, not a hardcoded subset. The canonical list must include both the pip install name and the Python import name for each dependency, since they may differ. Current known deps: `mcp`→`mcp`, `numpy`→`numpy`, `python-dotenv`→`dotenv`, `fastapi`→`fastapi`, `uvicorn`→`uvicorn`, `jinja2`→`jinja2`.
 - AC-2.3: The fast-path (venv exists) must verify that all canonical deps are importable, not just that `bin/python` exists. Run a Python import check against the canonical list. The import check overhead on the fast-path is acceptable (expected < 1 second).
 - AC-2.4: If any canonical dep is missing from an existing venv, the server must install all deps from the canonical list before proceeding (self-healing).
 
@@ -66,6 +66,7 @@ Bootstrap scripts must verify the Python version before creating a venv or runni
 - **Stale lock test:** Pre-create a lock directory with an old mtime (>120s), launch a server, assert it detects staleness, removes the lock, and bootstraps successfully.
 - **Missing dep test:** Create a venv with only `mcp` installed, launch memory-server, assert it detects missing `numpy` and self-heals by installing all canonical deps.
 - **Python version test:** Mock `python3 --version` to report 3.10, assert exit code 1 and error message on stderr.
+- **uv-absent fallback test:** Remove `uv` from PATH, launch any server on a fresh install, assert pip fallback is used and bootstrap succeeds with all deps installed.
 
 ## Success Criteria
 
