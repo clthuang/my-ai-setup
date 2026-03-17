@@ -1,0 +1,19 @@
+{
+  "id": "039",
+  "slug": "mcp-bootstrap-race-fix",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-03-17T04:28:42.631529+00:00",
+  "branch": "feature/039-mcp-bootstrap-race-fix",
+  "lastCompletedPhase": "specify",
+  "phases": {
+    "brainstorm": {
+      "started": "2026-03-17T04:28:42.631469+00:00"
+    },
+    "specify": {
+      "started": "2026-03-17T04:29:32.310835+00:00",
+      "completed": "2026-03-17T04:41:31.269162+00:00",
+      "iterations": 6
+    }
+  }
+}
