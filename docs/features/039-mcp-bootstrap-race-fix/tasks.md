@@ -22,7 +22,7 @@
 **Files:** `plugins/iflow/mcp/test_bootstrap_venv.sh`
 
 - [ ] Create test file with `#!/bin/bash`, `set -euo pipefail`, counters (`PASS=0`, `FAIL=0`), test helper functions (`assert_eq`, `assert_contains`, `assert_exit_code`)
-- [ ] Write test: create argument-aware mock `python3` in `$MOCK_DIR` that outputs `3.10` when called with `-c "import sys; ..."`
+- [ ] Write test: create argument-aware mock `python3` in `$MOCK_DIR` that outputs `3.10` when called with `-c "import sys; ..."` (matching the exact invocation from design I2), and for all other invocations delegates to real python3 via `exec /usr/bin/python3 "$@"` to prevent intercepting unrelated calls
 - [ ] Source bootstrap-venv.sh function definitions, call `check_python_version` in subshell with mock on PATH: `(PATH="$MOCK_DIR:$PATH"; check_python_version 2>"$STDERR_FILE")`
 - [ ] Assert exit code 1, stderr contains "3.12" (required) and "3.10" (detected)
 
@@ -35,8 +35,8 @@
 **Depends on:** 1.1b (test file exists)
 **Files:** `plugins/iflow/mcp/test_bootstrap_venv.sh`
 
-- [ ] Write test "all deps present": create a real venv in `$TMP_DIR`, install all 8 canonical deps from design.md I7 (`fastapi`, `jinja2`, `mcp`, `numpy`, `pydantic`, `pydantic-settings`, `python-dotenv`, `uvicorn`), call `check_venv_deps "$venv/bin/python"`, assert returns 0
-- [ ] Write test "missing dep": create a venv with only `mcp` installed, call `check_venv_deps`, assert returns 1
+- [ ] Write test "all deps present": create a real venv in `$TMP_DIR`, install all 8 canonical deps from design.md I7 (`fastapi`, `jinja2`, `mcp`, `numpy`, `pydantic`, `pydantic-settings`, `python-dotenv`, `uvicorn`), call `check_venv_deps "$venv/bin/python"`, assert returns 0. Note: this test is slow (~30-60s for venv creation + pip install)
+- [ ] Write test "missing dep": reuse the venv from "all deps present" test, then `"$venv/bin/pip" uninstall -y numpy` to remove one dep, call `check_venv_deps`, assert returns 1. This avoids a second venv creation and network round-trip
 
 **Done when:** Both tests run and fail against stub (RED).
 
@@ -137,7 +137,7 @@
 **Depends on:** 1.2c
 **Files:** `plugins/iflow/mcp/bootstrap-venv.sh`
 
-- [ ] Implement `acquire_lock` per I5: Phase 1 mkdir, Phase 2a stale check via `find -mmin +2` then `rmdir` + retry mkdir, Phase 2b spin-wait on sentinel (1s intervals, `$BOOTSTRAP_TIMEOUT` iterations), return 1 if sentinel appears, exit 1 if timeout
+- [ ] Implement `acquire_lock` per I5: Phase 1 mkdir, Phase 2a stale check via `find -mmin +2` then `rmdir "$lock_dir" 2>/dev/null` (NOT rm -rf — preserves the empty-dir invariant; if rmdir fails because dir is non-empty, log warning to stderr and fall through to Phase 2b spin-wait rather than silently failing) + retry mkdir once, Phase 2b spin-wait on sentinel (1s intervals, `$BOOTSTRAP_TIMEOUT` iterations), return 1 if sentinel appears, exit 1 if timeout
 - [ ] Implement `release_lock`: `rmdir "$lock_dir" 2>/dev/null || true`
 - [ ] Ensure lock dir constraint: never write files into lock dir, use rmdir exclusively (not rm -rf)
 
@@ -222,7 +222,7 @@
 **Files:** `plugins/iflow/mcp/test_run_memory_server.sh`, `plugins/iflow/mcp/test_run_workflow_server.sh`, `plugins/iflow/mcp/test_entity_server.sh`
 
 - [ ] Read each test script to identify copy steps and assertion patterns. Known: Test 1 checks stderr for bootstrap messages, Test 2/3 check exit codes, Test 4 (entity/workflow) runs in-place and checks exit 0
-- [ ] In each test, add `cp "$SCRIPT_DIR/bootstrap-venv.sh" "$TEMP_DIR/"` (or equivalent) alongside the wrapper copy
+- [ ] In each test that copies the wrapper to a temp dir (tests 1-4 in memory, tests 3/5/6 in entity/workflow), add `cp "$SCRIPT_DIR/bootstrap-venv.sh" "$T/plugin/mcp/"` immediately after the existing `cp "$WRAPPER" "$T/plugin/mcp/run-*-server.sh"` line. The bootstrap-venv.sh must land in the same directory as the wrapper because the wrapper sources it via `source "$SCRIPT_DIR/bootstrap-venv.sh"` where SCRIPT_DIR resolves relative to the wrapper copy
 - [ ] Update any assertions checking for old inline bootstrap messages that now come from bootstrap-venv.sh
 - [ ] Run: `bash plugins/iflow/mcp/test_run_memory_server.sh`
 - [ ] Run: `bash plugins/iflow/mcp/test_run_workflow_server.sh`
