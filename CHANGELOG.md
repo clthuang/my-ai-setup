@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Dependency-aware feature selection in YOLO mode — `yolo-stop.sh` checks `depends_on_features` in `.meta.json` and skips features with unmet dependencies
+- `yolo_deps.py` library module for dependency checking with path traversal protection
+- Skip diagnostics emitted to stderr when features are skipped in YOLO mode
+
 ## [4.13.1] - 2026-03-16
 
 ### Fixed
