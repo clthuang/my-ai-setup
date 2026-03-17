@@ -67,7 +67,7 @@ def check_feature_deps(meta_path: str, features_dir: str) -> tuple[bool, str | N
     """
 ```
 
-**Location:** New file `plugins/iflow/hooks/lib/yolo_deps.py` — keeps hook lib modular and avoids growing `common.sh`. The function is called from `yolo-stop.sh` via inline Python that imports it.
+**Location:** New file `plugins/iflow/hooks/lib/yolo_deps.py` — keeps hook lib modular and avoids growing `common.sh`. The function is called from `yolo-stop.sh` via inline Python that imports it. The inline Python block must add the lib directory to `sys.path` before importing (e.g., `sys.path.insert(0, os.path.join(SCRIPT_DIR, "lib"))` where `SCRIPT_DIR` is resolved from `$0`).
 
 ### R-4: Interaction with Existing Controls
 
@@ -115,7 +115,7 @@ def check_feature_deps(meta_path: str, features_dir: str) -> tuple[bool, str | N
 - Given: Feature A has `depends_on_features: ["B"]`
 - And: `features/B/.meta.json` contains invalid JSON
 - When: `check_feature_deps()` is called
-- Then: Returns `(False, "B:missing")`
+- Then: Returns `(False, "B:unreadable")`
 
 ### AC-7: Multiple Deps — First Unmet Causes Skip
 - Given: Feature A has `depends_on_features: ["B", "C"]`
