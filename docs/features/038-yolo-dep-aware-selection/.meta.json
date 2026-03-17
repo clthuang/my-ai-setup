@@ -1,0 +1,15 @@
+{
+  "id": "038",
+  "slug": "yolo-dep-aware-selection",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-03-17T02:36:47.157941+00:00",
+  "branch": "feature/038-yolo-dep-aware-selection",
+  "brainstorm_source": "docs/brainstorms/20260317-103037-yolo-dependency-aware-feature-selection.prd.md",
+  "lastCompletedPhase": null,
+  "phases": {
+    "brainstorm": {
+      "started": "2026-03-17T02:36:47.157885+00:00"
+    }
+  }
+}
