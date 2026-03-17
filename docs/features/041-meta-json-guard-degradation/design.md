@@ -110,6 +110,8 @@ log_guard_event "$FILE_PATH" "$TOOL_NAME"
 
 ### C2: `log_guard_event(file_path, tool_name [, action])`
 
+`escape_json` is an existing helper from `plugins/iflow/hooks/lib/common.sh`, already sourced by `meta-json-guard.sh` (line 8). No new dependency.
+
 ```bash
 # Logs a guard event to ~/.claude/iflow/meta-json-guard.log
 # $1: file_path being guarded
