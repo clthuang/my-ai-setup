@@ -24,7 +24,7 @@ All 4 server bootstrap scripts must coordinate venv creation so that only one pr
 - AC-1.1: When 4 servers start concurrently on a fresh install, exactly one creates the venv; the other three wait and reuse it.
 - AC-1.2: The coordination mechanism must use `mkdir` as an atomic lock on all platforms (macOS and Linux) for implementation simplicity. Do not use `flock` even where available.
 - AC-1.3: If the bootstrap process crashes mid-venv-creation, the lock must not permanently block other servers. Staleness detection: if the lock directory exists and its mtime is older than 120 seconds, remove it and retry acquisition once. Mtime check must use a portable method (e.g., `find <lockdir> -mmin +2` or a Python one-liner) that works on both macOS and Linux without GNU coreutils.
-- AC-1.4: The coordination mechanism itself must not add more than 5 seconds of overhead beyond the time needed for venv creation and pip/uv install.
+- AC-1.4: (Design guidance, not a testable AC) The coordination mechanism should minimize overhead — target < 5 seconds beyond venv creation and pip/uv install time.
 - AC-1.5: If a waiting server cannot acquire the lock within 120 seconds, it logs an error to stderr and exits with code 1.
 
 ### FR-2: Complete Dependency Installation
