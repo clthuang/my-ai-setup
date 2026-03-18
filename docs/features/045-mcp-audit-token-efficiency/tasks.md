@@ -124,7 +124,7 @@
 - **Steps:**
   1. Write unit tests in `test_feature_lifecycle.py` for each function: happy path and error cases
   2. Create `feature_lifecycle.py` — mechanical extraction of `_process_init_feature_state`, `_process_init_project_state`, `_process_activate_feature`; replace globals with params
-  3. In `workflow_state_server.py`: replace `_process_*` functions with thin wrappers. Wrapper pattern: `result = feature_lifecycle.init_feature_state(...); _project_meta_json(db, engine, result["feature_type_id"]); return json.dumps(result)`. Library functions must return dicts containing `feature_type_id` — verify this key is present before wiring the post-step. Same pattern for `activate_feature`. `init_project_state` wrapper calls `_project_meta_json(db, engine, result["project_type_id"])`.
+  3. In `workflow_state_server.py`: replace `_process_*` functions with thin wrappers. Per-wrapper patterns: **init_feature_state:** `result = feature_lifecycle.init_feature_state(...); _project_meta_json(db, engine, result["feature_type_id"]); return json.dumps(result)`. **init_project_state:** `result = feature_lifecycle.init_project_state(...); _project_meta_json(db, engine, result["project_type_id"]); return json.dumps(result)`. **activate_feature:** `result = feature_lifecycle.activate_feature(...); _project_meta_json(db, engine, result["feature_type_id"]); return json.dumps(result)`. Verify each library function returns the expected key before wiring.
   4. Library signature: `features` and `milestones` are required `str` params in `init_project_state` (matching source, not optional)
   5. Run all workflow state server tests — pass
   6. Run new feature lifecycle unit tests — pass
@@ -135,7 +135,7 @@
 - **Plan item:** 11 (P2-C4)
 - **Files:** `plugins/iflow/hooks/lib/entity_registry/server_helpers.py`, `plugins/iflow/mcp/entity_server.py`
 - **Steps:**
-  1. Add `_process_set_parent(db, type_id, parent_type_id)` to `server_helpers.py` — calls only `db.set_parent(type_id, parent_type_id)` and returns `f"Parent set: {type_id} → {parent_type_id}"`. The intermediate `db.get_entity()` UUID lookups from the original handler are already removed by Task 1.3.
+  1. **Pre-condition:** Verify Task 1.3 is complete — confirm `set_parent` handler no longer contains UUID lookup calls (`child_uuid`, `child`, `parent` variables). If still present, complete Task 1.3 first. Then add `_process_set_parent(db, type_id, parent_type_id)` to `server_helpers.py` — calls only `db.set_parent(type_id, parent_type_id)` and returns `f"Parent set: {type_id} → {parent_type_id}"`.
   2. Update `entity_server.py` `set_parent` handler to delegate to `server_helpers._process_set_parent`
   3. Run entity registry tests — all pass
 - **Acceptance:** `set_parent` MCP handler delegates to `server_helpers._process_set_parent`; behavior identical
