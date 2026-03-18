@@ -66,10 +66,10 @@
 - **Plan item:** 6 (P1-C6)
 - **Files:** `plugins/iflow/mcp/workflow_state_server.py`, `plugins/iflow/mcp/test_workflow_state_server.py`
 - **Steps:**
-  1. Update existing `reconcile_frontmatter` test assertions to expect new output format: `{"total_scanned": N, "drifted_count": M, "reports": [...only drifted...]}`
-  2. Modify `_process_reconcile_frontmatter`: filter out `in_sync` reports, wrap in new envelope
+  1. Update existing `reconcile_frontmatter` test assertions to expect new output format: `{"total_scanned": N, "drifted_count": M, "reports": [...only drifted...]}`. Remove assertions that check for `summary` key — the new envelope replaces `summary` with `total_scanned` and `drifted_count` as top-level integers. Update `summary`-related test helpers if any.
+  2. Modify `_process_reconcile_frontmatter`: filter out `in_sync` reports, drop old `summary` key, wrap in new envelope with `total_scanned`, `drifted_count`, `reports`
   3. Run workflow state server tests — all pass
-- **Acceptance:** Default output only contains drifted reports; `total_scanned` reflects all scanned; `drifted_count` matches filtered list length
+- **Acceptance:** Default output only contains drifted reports; no `summary` key; `total_scanned` reflects all scanned; `drifted_count` matches filtered list length
 - **Depends on:** Nothing
 
 ## Stage 3: Token Efficiency — Memory Server (Parallel Group C)
@@ -79,12 +79,12 @@
 - **Files:** `plugins/iflow/mcp/memory_server.py`, memory server tests
 - **Steps:**
   1. Add test: `search_memory(query="...", category="patterns")` returns only pattern entries
-  2. Add test: `search_memory(query="...", brief=True)` returns only `name` + `confidence`
+  2. Add test: `search_memory(query="...", brief=True)` returns plain-text output with `- {name} ({confidence})` per line
   3. Add test: non-matching category returns empty results (not error)
-  4. Add `category` and `brief` params to `search_memory` MCP tool and `_process_search_memory`
-  5. Implement: category filter applied BEFORE ranking (after `db.get_all_entries()`, before `ranking_engine.rank()`); brief mode returns `name + confidence` only
+  4. Update `_process_search_memory` signature to: `def _process_search_memory(db, provider, config, query, limit, category=None, brief=False)`. Update `search_memory` MCP tool to forward `category` and `brief` params.
+  5. Implement: category filter applies to `all_entries` after `db.get_all_entries()` but before building `entries_by_id` / `ranking_engine.rank()`. Brief mode returns plain-text lines (`"\n".join(lines)`) not JSON, format: `"Found {n} entries:\n- {name} ({confidence})\n..."`.
   6. Run memory server tests — all pass
-- **Acceptance:** Category filters candidates pre-ranking; brief returns name+confidence only; zero-match category returns empty (not error)
+- **Acceptance:** Category filters candidates pre-ranking; brief returns plain-text (not JSON), one line per entry: `- {name} ({confidence})`; zero-match category returns empty (not error)
 - **Depends on:** Nothing
 
 ## Stage 4: Library Extraction — EntityDatabase Method (Foundation)
@@ -107,7 +107,7 @@
 - **Steps:**
   1. Write unit tests in `test_entity_lifecycle.py`: valid transition, invalid transition rejected, forward updates `last_completed_phase`, backward preserves it, `entities.status` updated, init idempotent, feature/project types rejected
   2. Create `entity_lifecycle.py` with `ENTITY_MACHINES` (exact copy from workflow_state_server.py), `init_entity_workflow()`, `transition_entity_phase()`
-  3. In `workflow_state_server.py`: replace `_process_init_entity_workflow` and `_process_transition_entity_phase` with thin wrappers delegating to `entity_lifecycle` functions; retain `@_with_error_handling`/`@_catch_entity_value_error` decorators
+  3. In `workflow_state_server.py`: replace `_process_init_entity_workflow` and `_process_transition_entity_phase` with thin wrappers. Wrapper pattern: `return json.dumps(entity_lifecycle.init_entity_workflow(_db, type_id, workflow_phase, kanban_column))`. Library returns dict, wrapper serializes to JSON string. Retain `@_with_error_handling`/`@_catch_entity_value_error` decorators — they catch `ValueError` from library and return structured error JSON.
   4. Add re-export: `from entity_registry.entity_lifecycle import ENTITY_MACHINES` in `workflow_state_server.py` (test import compat)
   5. Run all workflow state server tests (276+) — pass
   6. Run new entity lifecycle unit tests — pass
@@ -124,7 +124,7 @@
 - **Steps:**
   1. Write unit tests in `test_feature_lifecycle.py` for each function: happy path and error cases
   2. Create `feature_lifecycle.py` — mechanical extraction of `_process_init_feature_state`, `_process_init_project_state`, `_process_activate_feature`; replace globals with params
-  3. In `workflow_state_server.py`: replace `_process_*` functions with thin wrappers that call library + `_project_meta_json` post-step
+  3. In `workflow_state_server.py`: replace `_process_*` functions with thin wrappers. Wrapper pattern: `result = feature_lifecycle.init_feature_state(...); _project_meta_json(db, engine, result["feature_type_id"]); return json.dumps(result)`. Library functions must return dicts containing `feature_type_id` — verify this key is present before wiring the post-step. Same pattern for `activate_feature`. `init_project_state` wrapper calls `_project_meta_json(db, engine, result["project_type_id"])`.
   4. Library signature: `features` and `milestones` are required `str` params in `init_project_state` (matching source, not optional)
   5. Run all workflow state server tests — pass
   6. Run new feature lifecycle unit tests — pass
@@ -135,11 +135,11 @@
 - **Plan item:** 11 (P2-C4)
 - **Files:** `plugins/iflow/hooks/lib/entity_registry/server_helpers.py`, `plugins/iflow/mcp/entity_server.py`
 - **Steps:**
-  1. Add `_process_set_parent(db, type_id, parent_type_id)` to `server_helpers.py` — calls `db.set_parent()`, returns confirmation string
+  1. Add `_process_set_parent(db, type_id, parent_type_id)` to `server_helpers.py` — calls only `db.set_parent(type_id, parent_type_id)` and returns `f"Parent set: {type_id} → {parent_type_id}"`. The intermediate `db.get_entity()` UUID lookups from the original handler are already removed by Task 1.3.
   2. Update `entity_server.py` `set_parent` handler to delegate to `server_helpers._process_set_parent`
   3. Run entity registry tests — all pass
 - **Acceptance:** `set_parent` MCP handler delegates to `server_helpers._process_set_parent`; behavior identical
-- **Depends on:** Nothing
+- **Depends on:** Task 1.3 (confirmation format change must be done first)
 
 ### Task 6.3: Remove `direction` param from `reconcile_apply` MCP tool
 - **Plan item:** 12 (P2-C5)
@@ -162,8 +162,13 @@ Parallel Group B (Stage 2): [2.1] [2.2] [2.3]
 Parallel Group C (Stage 3): [3.1]
 Foundation (Stage 4):       [4.1]
 Sequential (Stage 5):       [4.1] → [5.1]
-Parallel Group D (Stage 6): [6.1] [6.2] [6.3]
+Parallel Group D (Stage 6): [6.1] [6.3]  (parallel)
+Sequential in Group D:      [1.3] → [6.2]
 ```
+
+**Explicit dependencies:**
+- Task 5.1 depends on Task 4.1 (needs `upsert_workflow_phase`)
+- Task 6.2 depends on Task 1.3 (confirmation format change must precede extraction)
 
 **File concurrency constraints:**
 - `entity_server.py`: Tasks 1.1, 1.2, 1.3, 6.2 — serialize within file
