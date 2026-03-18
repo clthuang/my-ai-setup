@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Auto-run `apply_workflow_reconciliation()` at session start — syncs `.meta.json` workflow state to DB, fixing stale state after mid-session DB degradation
+
 ## [4.13.8] - 2026-03-18
 
 ### Fixed
