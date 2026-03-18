@@ -39,7 +39,7 @@
    - **Deliverable:** `plugins/iflow/hooks/lib/reconciliation_orchestrator/brainstorm_registry.py` with `sync_brainstorm_entities(db, full_artifacts_path)` function
    - **Complexity:** Simple — directory listing, entity existence check, register if missing
    - **Files:** `brainstorm_registry.py`, `test_brainstorm_registry.py`
-   - **Implementation note:** Design C3 pseudocode has a variable name bug (`artifacts_root` vs `full_artifacts_path`). Use `full_artifacts_path` consistently. Store `artifact_path` as relative path (e.g., `docs/brainstorms/filename.prd.md`) matching existing entity conventions.
+   - **Implementation note:** Design C3 pseudocode has a variable name bug (`artifacts_root` vs `full_artifacts_path`). The function signature must accept BOTH `full_artifacts_path` (for directory scanning) AND `artifacts_root` (relative, for storing artifact_path). Updated signature: `sync_brainstorm_entities(db, full_artifacts_path, artifacts_root)`. Scan uses `os.path.join(full_artifacts_path, "brainstorms")`. Stored artifact_path uses `os.path.join(artifacts_root, "brainstorms", filename)` to match existing entity conventions.
    - **Verification:** Unit tests pass: unregistered file registered with correct entity_id/type/status="active", already-registered skipped, .gitkeep ignored, non-.prd.md files ignored
 
 3. **KB Import Wrapper module** — C4: MarkdownImporter wrapper for session-start
@@ -97,7 +97,7 @@
    - **Deliverable:** Modified `plugins/iflow/commands/show-status.md` with MCP-based data retrieval, client-side status filtering, `Source: entity-registry` / `Source: filesystem` footer, preserved fallback for MCP unavailability
    - **Complexity:** Complex — significant rewrite of data retrieval logic, MCP tool call orchestration, client-side filtering, fallback path preservation
    - **Files:** `plugins/iflow/commands/show-status.md`
-   - **Pre-implementation check:** Verify `search_entities` MCP tool accepts `entity_type` parameter by checking tool registration in `plugins/iflow/mcp/entity_server.py`. The tool uses `db.search_entities(query, entity_type=None, limit=20)` — `entity_type` filter is supported.
+   - **Pre-implementation check:** Use `export_entities(entity_type="feature")` and `export_entities(entity_type="brainstorm")` to list all entities of a type (NOT `search_entities`, which requires a query string). Also evaluate `list_features_by_status` from workflow state server for phase-enriched feature data. Document tool selection decisions during implementation.
    - **Verification:** Test: MCP available → output shows features/brainstorms from entity registry with `Source: entity-registry` footer. Test: promoted brainstorm excluded from "Open Brainstorms". Test: MCP unavailable → falls back to filesystem scan with `Source: filesystem` footer. Test: output format matches current show-status output (no regressions).
 
 ## Dependency Graph
