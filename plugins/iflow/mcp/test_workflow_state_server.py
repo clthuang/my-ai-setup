@@ -2392,7 +2392,7 @@ class TestProcessReconcileFrontmatter:
     """Processing function for frontmatter drift detection."""
 
     def test_single_feature_with_frontmatter(self, db, tmp_path):
-        """Single feature with valid frontmatter returns drift reports (AC-11)."""
+        """Single in_sync feature is filtered out of reports (AC-11)."""
         # Register entity in DB
         db.register_entity("feature", "011-fm", "FM Test", status="active")
 
@@ -2410,9 +2410,12 @@ class TestProcessReconcileFrontmatter:
         result = _process_reconcile_frontmatter(db, str(tmp_path), "feature:011-fm")
         data = json.loads(result)
         assert "error" not in data
-        assert len(data["reports"]) >= 1
-        assert data["reports"][0]["status"] == "in_sync"
-        assert data["summary"]["in_sync"] >= 1
+        # New envelope format
+        assert "summary" not in data
+        assert data["total_scanned"] >= 1
+        # in_sync reports are filtered out
+        assert data["drifted_count"] == 0
+        assert len(data["reports"]) == 0
 
     def test_no_frontmatter(self, db, tmp_path):
         """Feature with no frontmatter in files returns db_only reports (AC-12)."""
@@ -2426,12 +2429,14 @@ class TestProcessReconcileFrontmatter:
         result = _process_reconcile_frontmatter(db, str(tmp_path), "feature:011-nofm")
         data = json.loads(result)
         assert "error" not in data
+        # db_only is drifted -> included in reports
+        assert data["total_scanned"] >= 1
+        assert data["drifted_count"] >= 1
         assert len(data["reports"]) >= 1
-        # With type_id passed, detect_drift returns db_only for no-header files
         assert data["reports"][0]["status"] == "db_only"
 
     def test_bulk_scan(self, db, tmp_path):
-        """Bulk scan via scan_all returns aggregate summary (AC-13)."""
+        """Bulk scan via scan_all returns envelope with total_scanned/drifted_count (AC-13)."""
         # Register entity
         db.register_entity("feature", "011-bulk", "Bulk Test", status="active")
         entity = db.get_entity("feature:011-bulk")
@@ -2452,8 +2457,12 @@ class TestProcessReconcileFrontmatter:
         result = _process_reconcile_frontmatter(db, str(tmp_path), None)
         data = json.loads(result)
         assert "error" not in data
-        assert "summary" in data
-        assert isinstance(data["summary"], dict)
+        assert "summary" not in data
+        assert "total_scanned" in data
+        assert "drifted_count" in data
+        assert isinstance(data["total_scanned"], int)
+        assert isinstance(data["drifted_count"], int)
+        assert isinstance(data["reports"], list)
 
     def test_nonexistent_directory_returns_empty(self, db, tmp_path):
         """Non-existent feature directory returns empty reports."""
@@ -2463,8 +2472,9 @@ class TestProcessReconcileFrontmatter:
         data = json.loads(result)
         assert "error" not in data
         # No artifact files in the dir -> empty reports
+        assert data["total_scanned"] == 0
+        assert data["drifted_count"] == 0
         assert len(data["reports"]) == 0
-        assert all(v == 0 for v in data["summary"].values())
 
     def test_nonexistent_slug_returns_feature_not_found(self, db, tmp_path):
         """Non-existent slug -> feature_not_found (AC-18)."""
@@ -2791,11 +2801,13 @@ class TestReconciliationEndToEnd:
         )
         data = json.loads(result)
         assert "error" not in data
-        assert len(data["reports"]) == 2
-        statuses = [r["status"] for r in data["reports"]]
-        assert "in_sync" in statuses
+        # 2 files scanned total (spec.md + design.md)
+        assert data["total_scanned"] == 2
+        # Only drifted reports included (in_sync filtered out)
+        assert data["drifted_count"] == 1
+        assert len(data["reports"]) == 1
         # design.md has no header but type_id was passed -> db_only
-        assert "db_only" in statuses
+        assert data["reports"][0]["status"] == "db_only"
 
     def test_error_uninitialized_guard(self):
         """Uninitialized engine/db returns not_initialized error (AC-16)."""

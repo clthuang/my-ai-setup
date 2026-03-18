@@ -229,7 +229,7 @@ def _process_register_entity(
         Never raises exceptions.
     """
     try:
-        entity_uuid = db.register_entity(
+        db.register_entity(
             entity_type=entity_type,
             entity_id=entity_id,
             name=name,
@@ -239,7 +239,7 @@ def _process_register_entity(
             metadata=metadata,
         )
         type_id = f"{entity_type}:{entity_id}"
-        return f"Registered entity: {entity_uuid} ({type_id})"
+        return f"Registered: {type_id}"
     except Exception as exc:
         return f"Error registering entity: {exc}"
 

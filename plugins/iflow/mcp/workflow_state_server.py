@@ -732,11 +732,11 @@ def _process_reconcile_frontmatter(
                     report = detect_drift(db, filepath, type_id=feature_type_id)
                     reports.append(report)
 
-    summary = _build_frontmatter_summary(reports)
-
+    drifted = [r for r in reports if r.status != "in_sync"]
     return json.dumps({
-        "reports": [_serialize_drift_report(r) for r in reports],
-        "summary": summary,
+        "total_scanned": len(reports),
+        "drifted_count": len(drifted),
+        "reports": [_serialize_drift_report(r) for r in drifted],
     })
 
 

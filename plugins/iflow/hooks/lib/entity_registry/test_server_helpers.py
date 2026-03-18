@@ -859,12 +859,11 @@ class TestRegisterEntityDualIdentityMessage:
     derived_from: spec:R28, spec:R34
     """
 
-    def test_register_message_contains_uuid_and_type_id(
+    def test_register_message_concise_type_id_only(
         self, db: EntityDatabase,
     ):
-        """_process_register_entity returns message with both UUID and type_id.
-        Anticipate: If message format omits UUID, callers would not get the
-        canonical identifier. If it omits type_id, human-readable context is lost.
+        """_process_register_entity returns concise message with only type_id.
+        derived_from: feature:045-mcp-audit-token-efficiency P1-C3
         """
         # Given a database
         # When registering an entity
@@ -873,22 +872,17 @@ class TestRegisterEntityDualIdentityMessage:
             artifact_path=None, status="active",
             parent_type_id=None, metadata=None,
         )
-        # Then the message contains both UUID and type_id
-        assert "project:p1" in result
-        assert _UUID_V4_SEARCH_RE.search(result), (
-            f"Expected UUID in message, got: {result}"
+        # Then the message contains only type_id, no UUID
+        assert result == "Registered: project:p1"
+        assert not _UUID_V4_SEARCH_RE.search(result), (
+            f"UUID found in message, should be type_id only: {result}"
         )
-        # And the format matches spec R28: "Registered entity: {uuid} ({type_id})"
-        assert "Registered entity:" in result
 
-    def test_register_existing_entity_message_still_dual_identity(
+    def test_register_existing_entity_message_still_concise(
         self, db: EntityDatabase,
     ):
-        """Re-registering shows existing UUID (not a new one).
-        Anticipate: If duplicate registration generates a new UUID and
-        returns it in the message, the displayed UUID wouldn't match
-        the stored UUID.
-        derived_from: spec:AC-15a
+        """Re-registering returns same concise format.
+        derived_from: feature:045-mcp-audit-token-efficiency P1-C3
         """
         # Given an already-registered entity
         first_result = _process_register_entity(
@@ -896,19 +890,15 @@ class TestRegisterEntityDualIdentityMessage:
             artifact_path=None, status=None,
             parent_type_id=None, metadata=None,
         )
-        first_uuid_match = _UUID_V4_SEARCH_RE.search(first_result)
-        assert first_uuid_match
-        first_uuid = first_uuid_match.group()
+        assert first_result == "Registered: feature:f1"
         # When registering again
         second_result = _process_register_entity(
             db, "feature", "f1", "Feature One Updated",
             artifact_path=None, status=None,
             parent_type_id=None, metadata=None,
         )
-        second_uuid_match = _UUID_V4_SEARCH_RE.search(second_result)
-        assert second_uuid_match
-        # Then the same UUID appears in both messages
-        assert second_uuid_match.group() == first_uuid
+        # Then the same concise format with type_id only
+        assert second_result == "Registered: feature:f1"
 
 
 class TestRenderTreeUuidKeying:

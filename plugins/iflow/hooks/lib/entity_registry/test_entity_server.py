@@ -31,34 +31,35 @@ def db(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_set_parent_handler_dual_identity_message(db):
-    """set_parent handler response contains both UUID and type_id for child and parent."""
+async def test_set_parent_handler_concise_message(db):
+    """set_parent handler returns concise message with only type_ids, no UUIDs.
+    derived_from: feature:045-mcp-audit-token-efficiency P1-C3
+    """
     parent_uuid = db.register_entity("project", "parent", "Parent Project", status="active")
     child_uuid = db.register_entity("feature", "child", "Child Feature")
 
     result = await entity_server.set_parent("feature:child", "project:parent")
 
     assert isinstance(result, str)
-    # Should contain child UUID and type_id
-    assert child_uuid in result
-    assert "feature:child" in result
-    # Should contain parent UUID and type_id
-    assert parent_uuid in result
-    assert "project:parent" in result
+    assert result == "Parent set: feature:child \u2192 project:parent"
+    # UUIDs must NOT appear in confirmation messages
+    assert child_uuid not in result
+    assert parent_uuid not in result
 
 
 @pytest.mark.asyncio
-async def test_update_entity_handler_dual_identity_message(db):
-    """update_entity handler response contains both UUID and type_id."""
+async def test_update_entity_handler_concise_message(db):
+    """update_entity handler returns concise message with only type_id, no UUID.
+    derived_from: feature:045-mcp-audit-token-efficiency P1-C3
+    """
     entity_uuid = db.register_entity("feature", "f1", "Feature One", status="active")
 
     result = await entity_server.update_entity("feature:f1", status="completed")
 
     assert isinstance(result, str)
-    # Should contain UUID
-    assert _UUID_V4_RE.search(result)
-    # Should contain type_id
-    assert "feature:f1" in result
+    assert result == "Updated: feature:f1"
+    # UUID must NOT appear in confirmation message
+    assert entity_uuid not in result
 
 
 # ---------------------------------------------------------------------------
@@ -67,11 +68,9 @@ async def test_update_entity_handler_dual_identity_message(db):
 
 
 @pytest.mark.asyncio
-async def test_register_entity_handler_dual_identity_message(db):
-    """register_entity handler response contains both UUID and type_id.
-    Anticipate: If the handler only returns type_id (pre-migration behavior),
-    the UUID would be missing from the response.
-    derived_from: spec:R28, spec:R34
+async def test_register_entity_handler_concise_message(db):
+    """register_entity handler returns concise message with only type_id, no UUID.
+    derived_from: feature:045-mcp-audit-token-efficiency P1-C3
     """
     result = await entity_server.register_entity(
         entity_type="feature",
@@ -79,12 +78,9 @@ async def test_register_entity_handler_dual_identity_message(db):
         name="Registration Test",
     )
     assert isinstance(result, str)
-    # Should contain UUID
-    assert _UUID_V4_RE.search(result), f"Expected UUID in: {result}"
-    # Should contain type_id
-    assert "feature:reg-test" in result
-    # Should match format "Registered entity: {uuid} ({type_id})"
-    assert "Registered entity:" in result
+    assert result == "Registered: feature:reg-test"
+    # UUID must NOT appear in confirmation message
+    assert not _UUID_V4_RE.search(result), f"UUID found in message: {result}"
 
 
 @pytest.mark.asyncio
@@ -101,9 +97,8 @@ async def test_set_parent_handler_uses_uuid_identifiers(db):
     assert isinstance(result, str)
     # Should not contain "Error"
     assert "Error" not in result
-    # Should contain both UUIDs and type_ids
-    assert child_uuid in result
-    assert parent_uuid in result
+    # Concise message uses type_ids only
+    assert "Parent set:" in result
 
 
 @pytest.mark.asyncio
