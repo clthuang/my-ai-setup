@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.13.7] - 2026-03-18
+
 ### Added
 - Session-start reconciliation orchestrator — syncs entity registry status with `.meta.json`, registers brainstorm entities, and imports markdown KB entries to semantic DB
 - `/iflow:abandon-feature` command — transitions features to abandoned status with entity registry update
