@@ -130,7 +130,12 @@ def sync_entity_statuses(db, full_artifacts_path):
                     pass  # entity not in registry, skip
                 continue
 
-            meta = json.load(open(meta_path))
+            try:
+                with open(meta_path) as f:
+                    meta = json.load(f)
+            except (json.JSONDecodeError, OSError) as e:
+                results["warnings"].append(f"Failed to read {meta_path}: {e}")
+                continue
             meta_status = meta.get("status")
 
             if meta_status not in STATUS_MAP:
@@ -196,16 +201,17 @@ def sync_brainstorm_entities(db, artifacts_root):
 
 **Algorithm:**
 ```python
-def sync_knowledge_bank(memory_db, project_root, artifacts_root):
+def sync_knowledge_bank(memory_db, project_root, artifacts_root, global_store_path):
     """
     Args:
         memory_db: MemoryDatabase instance (connected to memory.db)
         project_root: absolute repo root (e.g., /Users/terry/projects/my-ai-setup)
         artifacts_root: relative sub-path (e.g., "docs")
+        global_store_path: directory containing memory.db (e.g., ~/.claude/iflow/memory)
+                          Derived by orchestrator __main__.py from os.path.dirname(args.memory_db)
     """
     from semantic_memory.importer import MarkdownImporter
 
-    global_store_path = os.path.dirname(memory_db.db_path)  # e.g., ~/.claude/iflow/memory
     importer = MarkdownImporter(db=memory_db, artifacts_root=artifacts_root)
     result = importer.import_all(
         project_root=project_root,       # absolute repo root
@@ -377,7 +383,8 @@ def sync_brainstorm_entities(
 def sync_knowledge_bank(
     memory_db: MemoryDatabase,
     project_root: str,
-    artifacts_root: str
+    artifacts_root: str,
+    global_store_path: str
 ) -> dict:
     """
     Run MarkdownImporter to sync markdown KB entries to semantic memory DB.
@@ -386,6 +393,7 @@ def sync_knowledge_bank(
         memory_db: MemoryDatabase instance
         project_root: absolute repo root
         artifacts_root: relative sub-path (e.g., "docs")
+        global_store_path: directory containing memory.db (derived from args.memory_db)
 
     Returns:
         {"imported": int, "skipped": int}
@@ -439,7 +447,9 @@ run_reconciliation() {
 
 **Flow:**
 1. Resolve feature (arg or active)
-2. Read `.meta.json`, verify status is "active"
+2. Read `.meta.json`, verify status is "active" or "planned" (valid starting states for abandonment)
+   - If status is "completed": error "Feature already completed. Cannot abandon."
+   - If status is "abandoned": error "Feature already abandoned."
 3. Confirm: "Abandon feature {id}-{slug}? This cannot be undone." (skip in YOLO mode)
 4. Write `.meta.json` with `status: "abandoned"`
 5. Call `update_entity(type_id="feature:{id}-{slug}", status="abandoned")` MCP tool
@@ -450,6 +460,8 @@ run_reconciliation() {
 - Call `complete_phase` or modify `workflow_phases`
 - Run retro, merge, or cleanup
 - Delete the feature branch or folder
+
+**Output includes:** `Branch feature/{id}-{slug} left intact. Delete manually with 'git branch -D feature/{id}-{slug}' if no longer needed.`
 
 ### I7: cleanup-brainstorms.md modification
 
