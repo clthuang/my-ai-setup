@@ -51,12 +51,6 @@ def parse_args(argv=None):
         required=True,
         help="Path to the semantic memory SQLite DB file.",
     )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        default=False,
-        help="Write debug logs to ~/.claude/iflow/reconciliation.log.",
-    )
     return parser.parse_args(argv)
 
 

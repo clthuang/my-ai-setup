@@ -170,8 +170,7 @@ class TestPerTaskErrorIsolation:
                     artifacts_root="docs",
                     entity_db=entity_db_path,
                     memory_db=memory_db_path,
-                    verbose=False,
-                )
+                        )
                 written_chunks = []
                 mock_stdout.write = lambda s: written_chunks.append(s)
 
@@ -211,8 +210,7 @@ class TestPerTaskErrorIsolation:
                 artifacts_root="docs",
                 entity_db=entity_db_path,
                 memory_db=memory_db_path,
-                verbose=False,
-            )
+                )
             written_chunks = []
 
             def fake_exit(code):
@@ -252,7 +250,6 @@ class TestDbConnectionsClosed:
             artifacts_root="docs",
             entity_db=entity_db_path,
             memory_db=memory_db_path,
-            verbose=False,
         )
 
         real_entity_db = EntityDatabase(entity_db_path)
@@ -303,7 +300,6 @@ class TestDbConnectionsClosed:
             artifacts_root="docs",
             entity_db=entity_db_path,
             memory_db=memory_db_path,
-            verbose=False,
         )
 
         real_entity_db = EntityDatabase(entity_db_path)
@@ -360,25 +356,6 @@ class TestCliArgsParsed:
             f"CLI failed with returncode {result.returncode}. stderr: {result.stderr}"
         )
 
-    def test_verbose_flag_accepted(self, tmp_path):
-        """--verbose flag is accepted without error."""
-        entity_db_path = str(tmp_path / "entities.db")
-        memory_db_path = str(tmp_path / "memory.db")
-        _make_entity_db(entity_db_path)
-        _make_memory_db(memory_db_path)
-
-        result = _run_cli(
-            project_root=str(tmp_path),
-            artifacts_root="docs",
-            entity_db=entity_db_path,
-            memory_db=memory_db_path,
-            extra_args=["--verbose"],
-        )
-
-        assert result.returncode == 0, (
-            f"--verbose flag caused failure. stderr: {result.stderr}"
-        )
-
     def test_missing_required_arg_exits_nonzero(self, tmp_path):
         """Omitting a required arg causes argparse to exit with code 2."""
         # Missing --memory-db
@@ -412,21 +389,6 @@ class TestCliArgsParsed:
         assert args.artifacts_root == "my_docs"
         assert args.entity_db == "/some/entities.db"
         assert args.memory_db == "/some/memory.db"
-        assert args.verbose is False
-
-    def test_verbose_flag_sets_true(self):
-        """--verbose sets args.verbose to True."""
-        import reconciliation_orchestrator.__main__ as orch_main
-
-        args = orch_main.parse_args([
-            "--project-root", "/r",
-            "--artifacts-root", "docs",
-            "--entity-db", "/e.db",
-            "--memory-db", "/m.db",
-            "--verbose",
-        ])
-
-        assert args.verbose is True
 
 
 class TestExitCodeAlwaysZero:
