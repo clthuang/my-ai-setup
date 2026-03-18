@@ -32,7 +32,7 @@
   1. Update test assertions that check confirmation messages for `register_entity`, `update_entity`, `set_parent`
   2. In `server_helpers._process_register_entity`: change return to `f"Registered: {type_id}"`
   3. In `entity_server.py` `update_entity` handler: change return to `f"Updated: {type_id}"`
-  4. In `entity_server.py` `set_parent` handler: change return to `f"Parent set: {type_id} → {parent_type_id}"`
+  4. In `entity_server.py` `set_parent` handler: replace the entire try-block body with `_db.set_parent(type_id, parent_type_id)` then `return f"Parent set: {type_id} → {parent_type_id}"` — remove the `db.get_entity()` UUID lookup calls (`child_uuid`, `child`, `parent` variables are no longer needed)
   5. Run entity registry tests — all pass
 - **Acceptance:** No UUID appears in any confirmation message; only `type_id` used
 - **Depends on:** Nothing
