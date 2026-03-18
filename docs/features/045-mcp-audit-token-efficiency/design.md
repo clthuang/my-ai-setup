@@ -515,7 +515,9 @@ def activate_feature(db: EntityDatabase, engine: WorkflowStateEngine,
     ...
 ```
 
-**Implementation note:** These extractions are mechanical — copy the function body from the `_process_*` function, replace `_db`/`_engine`/`_artifacts_root` globals with function parameters. No logic changes. The `_project_meta_json` call stays in the MCP server (called after the library function returns) since it depends on the server's internal `_project_meta_json` helper. Alternatively, pass `_project_meta_json` as a callback parameter.
+**Implementation notes:**
+- These extractions are mechanical — copy the function body from the `_process_*` function, replace `_db`/`_engine`/`_artifacts_root` globals with function parameters. No logic changes.
+- **`_project_meta_json` coupling:** The library functions return data dicts. The MCP handler calls `_project_meta_json(db, engine, feature_type_id)` after the library function returns. This keeps `.meta.json` projection in the MCP server where it belongs (it depends on the server's internal helpers and DB/engine globals). The library functions do NOT call `_project_meta_json` — they return the entity state and the MCP handler handles projection as a post-step.
 
 ### P2-C4: set_parent Extraction
 
@@ -589,7 +591,12 @@ Library function keeps the param unchanged.
 **Likelihood:** Low — callers are LLM agents following command instructions.
 **Mitigation:** If all fields in `fields` are invalid, return an error message listing valid field names.
 
-### R-3: upsert_workflow_phase SQL injection surface
+### R-3: workflow_phases CHECK constraint compatibility
+**Risk:** The workflow_phases.workflow_phase CHECK constraint might not accept entity lifecycle values (draft, reviewing, promoted, etc.).
+**Likelihood:** None — migration 5 (database.py:427-457) already expanded the CHECK constraint to include all entity lifecycle phases: `'draft','reviewing','promoted','abandoned','open','triaged','dropped'`. The original migration 3 had the narrow constraint; migration 5 recreated the table with the expanded one.
+**Mitigation:** Already addressed. Verified at database.py:432-437.
+
+### R-4: upsert_workflow_phase SQL injection surface
 **Risk:** New public method constructs SQL dynamically from kwargs keys.
 **Likelihood:** Very low — keys are hardcoded in callers, not user input.
 **Mitigation:** Validate kwargs keys against an allowlist of column names.
