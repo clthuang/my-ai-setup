@@ -288,6 +288,7 @@ async def export_entities(
     status: str | None = None,
     output_path: str | None = None,
     include_lineage: bool = True,
+    fields: str | None = None,
 ) -> str:
     """Export all entities (or a filtered subset) as structured JSON.
 
@@ -301,13 +302,17 @@ async def export_entities(
         Write to file; if None, return as string.
     include_lineage:
         Include parent/child relationships (default True).
+    fields:
+        Comma-separated field names to include per entity (e.g.
+        'type_id,name,status'). If omitted, all fields returned.
 
     Returns JSON string or file-write confirmation.
     """
     if _db is None:
         return "Error: database not initialized (server not started)"
     return _process_export_entities(
-        _db, entity_type, status, output_path, include_lineage, _artifacts_root
+        _db, entity_type, status, output_path, include_lineage, _artifacts_root,
+        fields=fields,
     )
 
 

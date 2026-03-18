@@ -1430,3 +1430,153 @@ class TestProcessExportEntitiesDeepened:
         parsed = json_mod.loads(result)
         child = [e for e in parsed["entities"] if e["type_id"] == "feature:f1"][0]
         assert child["parent_type_id"] == "project:p1"
+
+
+# ---------------------------------------------------------------------------
+# _process_export_entities fields parameter tests (P1-C1)
+# ---------------------------------------------------------------------------
+
+
+class TestProcessExportEntitiesFields:
+    """TDD tests for the `fields` parameter of _process_export_entities().
+
+    Tests cover: field projection, backward compat (fields=None),
+    and all-invalid-fields error with valid field listing.
+    """
+
+    def test_fields_returns_only_specified_fields(self, db: EntityDatabase):
+        """When fields='type_id,name,status', only those 3 keys appear per entity."""
+        import json as json_mod
+
+        db.register_entity("feature", "001", "Feature One", status="active")
+        db.register_entity("feature", "002", "Feature Two", status="draft")
+        result = _process_export_entities(
+            db,
+            entity_type=None,
+            status=None,
+            output_path=None,
+            include_lineage=True,
+            artifacts_root="/tmp",
+            fields="type_id,name,status",
+        )
+        parsed = json_mod.loads(result)
+        assert parsed["entity_count"] >= 2
+        for entity in parsed["entities"]:
+            assert set(entity.keys()) == {"type_id", "name", "status"}
+
+    def test_fields_none_returns_all_fields(self, db: EntityDatabase):
+        """When fields=None (default), all entity fields are returned (backward compat)."""
+        import json as json_mod
+
+        db.register_entity("feature", "001", "Feature One", status="active")
+        result = _process_export_entities(
+            db,
+            entity_type=None,
+            status=None,
+            output_path=None,
+            include_lineage=True,
+            artifacts_root="/tmp",
+            fields=None,
+        )
+        parsed = json_mod.loads(result)
+        assert len(parsed["entities"]) >= 1
+        entity = parsed["entities"][0]
+        # Must have standard entity fields (not just a subset)
+        assert "uuid" in entity
+        assert "type_id" in entity
+        assert "name" in entity
+        assert "status" in entity
+        assert "entity_type" in entity
+
+    def test_all_invalid_fields_returns_error(self, db: EntityDatabase):
+        """When every field name is invalid, returns error listing valid field names."""
+        db.register_entity("feature", "001", "Feature One", status="active")
+        result = _process_export_entities(
+            db,
+            entity_type=None,
+            status=None,
+            output_path=None,
+            include_lineage=True,
+            artifacts_root="/tmp",
+            fields="bogus,fake,invalid",
+        )
+        assert "Error" in result
+        # Error message should list valid field names
+        assert "type_id" in result
+        assert "name" in result
+        assert "status" in result
+
+    def test_partial_valid_fields_returns_only_valid(self, db: EntityDatabase):
+        """When some fields are valid and some invalid, returns only valid ones (no error)."""
+        import json as json_mod
+
+        db.register_entity("feature", "001", "Feature One", status="active")
+        result = _process_export_entities(
+            db,
+            entity_type=None,
+            status=None,
+            output_path=None,
+            include_lineage=True,
+            artifacts_root="/tmp",
+            fields="type_id,bogus_field,name",
+        )
+        parsed = json_mod.loads(result)
+        for entity in parsed["entities"]:
+            assert set(entity.keys()) == {"type_id", "name"}
+
+    def test_fields_with_whitespace_stripped(self, db: EntityDatabase):
+        """Field names with surrounding whitespace are trimmed."""
+        import json as json_mod
+
+        db.register_entity("feature", "001", "Feature One", status="active")
+        result = _process_export_entities(
+            db,
+            entity_type=None,
+            status=None,
+            output_path=None,
+            include_lineage=True,
+            artifacts_root="/tmp",
+            fields=" type_id , name ",
+        )
+        parsed = json_mod.loads(result)
+        for entity in parsed["entities"]:
+            assert set(entity.keys()) == {"type_id", "name"}
+
+    def test_fields_with_empty_entity_list_returns_normally(self, db: EntityDatabase):
+        """When no entities match, fields param doesn't cause error (empty list)."""
+        import json as json_mod
+
+        # Don't register any entities — export returns empty list
+        result = _process_export_entities(
+            db,
+            entity_type="brainstorm",
+            status=None,
+            output_path=None,
+            include_lineage=True,
+            artifacts_root="/tmp",
+            fields="type_id,name",
+        )
+        parsed = json_mod.loads(result)
+        assert parsed["entities"] == []
+        assert parsed["entity_count"] == 0
+
+    def test_fields_works_with_file_output(self, db: EntityDatabase, tmp_path):
+        """Field projection applies before writing to file."""
+        import json as json_mod
+
+        db.register_entity("feature", "001", "Feature One", status="active")
+        out_file = str(tmp_path / "export.json")
+        result = _process_export_entities(
+            db,
+            entity_type=None,
+            status=None,
+            output_path=out_file,
+            include_lineage=True,
+            artifacts_root=str(tmp_path),
+            fields="type_id,status",
+        )
+        assert "Exported" in result
+        with open(out_file, encoding="utf-8") as f:
+            data = json_mod.load(f)
+        for entity in data["entities"]:
+            assert set(entity.keys()) == {"type_id", "status"}

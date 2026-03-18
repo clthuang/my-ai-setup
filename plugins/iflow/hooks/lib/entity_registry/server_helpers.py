@@ -296,6 +296,7 @@ def _process_export_entities(
     output_path: str | None,
     include_lineage: bool,
     artifacts_root: str,
+    fields: str | None = None,
 ) -> str:
     """Export entities as JSON, optionally writing to a file.
 
@@ -313,6 +314,9 @@ def _process_export_entities(
         Include parent_type_id in entity dicts.
     artifacts_root : str
         Root directory for path containment check.
+    fields : str or None
+        Comma-separated field names to include per entity (projection).
+        None returns all fields (backward compatible).
 
     Returns
     -------
@@ -324,6 +328,19 @@ def _process_export_entities(
         data = db.export_entities_json(entity_type, status, include_lineage)
     except ValueError as exc:
         return f"Error: {exc}"
+
+    if fields is not None:
+        field_set = {f.strip() for f in fields.split(",")}
+        entities = data["entities"]
+        # Validate: if entities exist and ALL requested fields are invalid, return error
+        if entities:
+            valid_fields = set(entities[0].keys())
+            if not field_set & valid_fields:
+                return f"Error: no valid fields in '{fields}'. Valid fields: {', '.join(sorted(valid_fields))}"
+        data["entities"] = [
+            {k: v for k, v in entity.items() if k in field_set}
+            for entity in entities
+        ]
 
     if output_path is not None:
         resolved = resolve_output_path(output_path, artifacts_root)
