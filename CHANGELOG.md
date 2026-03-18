@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.13.6] - 2026-03-18
+
 ### Added
 - Intelligent Python discovery in MCP bootstrap — searches `uv python find`, versioned interpreters in `/opt/homebrew/bin` and `/usr/local/bin`, before falling back to bare `python3`
 - Structured JSONL error logging for bootstrap failures at `~/.claude/iflow/mcp-bootstrap-errors.log`
