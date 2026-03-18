@@ -197,7 +197,7 @@ check_mcp_health() {
             entry_epoch=$(TZ=UTC date -jf '%Y-%m-%dT%H:%M:%SZ' "$ts" +%s 2>/dev/null) || true
             # Python fallback
             if [[ -z "$entry_epoch" ]]; then
-                entry_epoch=$(python3 -c "import calendar,time; print(calendar.timegm(time.strptime('$ts','%Y-%m-%dT%H:%M:%SZ')))" 2>/dev/null) || true
+                entry_epoch=$(python3 -c "import calendar,time,sys; print(calendar.timegm(time.strptime(sys.argv[1],'%Y-%m-%dT%H:%M:%SZ')))" "$ts" 2>/dev/null) || true
             fi
             [[ -z "$entry_epoch" ]] && continue
 
@@ -237,7 +237,7 @@ ${line}"
 
         # Output warning if recent errors found
         if [[ -n "$recent_errors" ]]; then
-            echo "WARNING: MCP servers failed to start. Workflow tools (transition_phase, store_memory, etc.) are unavailable.\nError: ${recent_errors}. Run: bash \"${PLUGIN_ROOT}/scripts/setup.sh\""
+            printf "WARNING: MCP servers failed to start. Workflow tools (transition_phase, store_memory, etc.) are unavailable.\nError: %s. Run: bash \"%s/scripts/setup.sh\"" "$recent_errors" "$PLUGIN_ROOT"
         fi
     ) 2>/dev/null || echo ""
 }
