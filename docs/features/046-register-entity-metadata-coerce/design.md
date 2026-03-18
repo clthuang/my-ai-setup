@@ -39,6 +39,17 @@ if isinstance(metadata, dict):
 
 Same pattern for `update_entity` (line 224).
 
+**Docstring updates:** Both tools' docstrings must be updated:
+- `register_entity` line 137: `"Optional JSON string of additional metadata."` → `"Optional metadata — pass a dict (preferred) or a JSON string; dicts are auto-coerced to JSON."`
+- `update_entity` line 239: `"JSON string of metadata to shallow-merge."` → `"Metadata to shallow-merge — pass a dict (preferred) or a JSON string; dicts are auto-coerced. Empty dict '{}' clears."`
+
+**Test plan:** Add tests to `test_entity_server.py`:
+- `test_register_entity_metadata_dict` — pass dict, verify entity registered with JSON string in DB
+- `test_register_entity_metadata_string` — pass JSON string, verify passthrough (regression)
+- `test_register_entity_metadata_none` — pass None, verify no metadata (regression)
+- `test_update_entity_metadata_dict` — pass dict to update, verify stored as JSON string
+- `test_register_entity_metadata_invalid_json_string` — pass `"{bad}"`, verify graceful error handling
+
 **Rationale:** Coercion at the MCP boundary (not in `parse_metadata`) because:
 - `parse_metadata` is shared and its string-only contract is intentional
 - The MCP tool is the entry point where LLM-provided types vary
@@ -89,7 +100,7 @@ metadata={"description": "{full-description}"}
 ### R-1: FastMCP schema generation for union types
 **Risk:** `str | dict | None` may produce an unexpected JSON Schema via FastMCP/Pydantic.
 **Likelihood:** Low — Pydantic 2.x handles union types cleanly with `anyOf`.
-**Mitigation:** Verify the generated schema includes both `string` and `object` types after implementation.
+**Mitigation:** After implementation, inspect the generated JSON Schema by reading the FastMCP tool listing. Confirm `metadata` parameter includes `anyOf: [{type: string}, {type: object}, {type: null}]`. If FastMCP collapses the union, fall back to `metadata: Any = None` with manual isinstance checks.
 
 ## Interfaces
 
@@ -99,6 +110,6 @@ No new interfaces. Existing `register_entity` and `update_entity` signatures gai
 
 ```
 C1 (entity_server.py coercion) — standalone, no dependencies
-C2 (add-to-backlog.md template) — depends on C1 (dict must be accepted first)
+C2 (add-to-backlog.md template) — semantically coupled to C1 (dict literal only meaningful post-C1)
 C3 (CLAUDE.md gotcha) — standalone, no dependencies
 ```
