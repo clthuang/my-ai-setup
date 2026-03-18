@@ -79,9 +79,9 @@ iflow's 3 MCP servers (entity-registry, workflow-engine, memory) have 25 tools w
 - Extract `init_entity_workflow` + `transition_entity_phase` to `hooks/lib/entity_registry/entity_lifecycle.py`
 - Extract `init_feature_state` / `init_project_state` / `activate_feature` to `hooks/lib/workflow_engine/feature_lifecycle.py`
 - Replace `db._conn` private access with new `EntityDatabase` public methods
-- Remove dead `direction` param from `reconcile_apply` MCP tool (library function keeps param, MCP hardcodes `"meta_json_to_db"`)
+- Remove vestigial `direction` param from `reconcile_apply` MCP tool (only one value supported) MCP tool (library function keeps param, MCP hardcodes `"meta_json_to_db"`)
 
-**Phase 1 and Phase 2 are independent and can be implemented in any order.** Phase 1 should be completed first as it delivers the highest impact with lowest risk.
+**Phase 1 and Phase 2 have no technical dependencies.** Recommended order: Phase 1 first (highest impact, lowest risk).
 
 ### Out of Scope
 - Adding pagination to list tools (separate feature)
@@ -156,9 +156,9 @@ iflow's 3 MCP servers (entity-registry, workflow-engine, memory) have 25 tools w
 - Given the extracted entity_lifecycle.py functions
 - When they interact with workflow_phases table
 - Then they use new `EntityDatabase` public methods (not `db._conn`):
-  - `db.get_workflow_phase(type_id) -> dict | None` (already exists as `get_workflow_phase`)
-  - `db.upsert_workflow_phase(type_id, **kwargs)` (already exists as `upsert_workflow_phase`)
-  - `db.update_workflow_phase(type_id, **kwargs)` (already exists as `update_workflow_phase`)
+  - `db.get_workflow_phase(type_id) -> dict | None` (exists at database.py:1320)
+  - `db.update_workflow_phase(type_id, **kwargs)` (exists at database.py:1330)
+  - Note: `upsert_workflow_phase` does NOT exist — the inline code uses `INSERT OR IGNORE` + `UPDATE`. A new `db.upsert_workflow_phase(type_id, phase, column)` method must be added to `EntityDatabase` as part of this feature to replace the raw SQL.
 
 ### AC-13: Existing tests pass
 - Given all refactoring is complete
