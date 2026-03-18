@@ -1,6 +1,7 @@
 """Tests for entity_server MCP handler dual-identity messages."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -106,14 +107,24 @@ async def test_set_parent_handler_uses_uuid_identifiers(db):
 
 
 @pytest.mark.asyncio
-async def test_get_entity_handler_returns_uuid_field(db):
-    """get_entity handler response includes uuid field.
-    Anticipate: If get_entity dict conversion drops uuid column,
-    the response would be missing the canonical identifier.
-    derived_from: spec:AC-17, spec:R28
+async def test_get_entity_handler_compact_output(db):
+    """get_entity handler returns compact JSON without uuid, entity_id, parent_uuid.
+    These internal fields are stripped for token efficiency — callers already
+    know the type_id they queried with, and uuid/parent_uuid are internal.
+    derived_from: feature:045-mcp-audit-token-efficiency P1-C2
     """
-    entity_uuid = db.register_entity("feature", "get-test", "Get Test")
+    db.register_entity("feature", "get-test", "Get Test", status="active")
     result = await entity_server.get_entity("feature:get-test")
     assert isinstance(result, str)
-    # Should contain the UUID somewhere in the response
-    assert entity_uuid in result or _UUID_V4_RE.search(result)
+    parsed = json.loads(result)
+    # Excluded fields
+    assert "uuid" not in parsed
+    assert "entity_id" not in parsed
+    assert "parent_uuid" not in parsed
+    # Retained fields
+    assert parsed["type_id"] == "feature:get-test"
+    assert parsed["name"] == "Get Test"
+    assert parsed["status"] == "active"
+    # Compact JSON: no indentation, minimal separators
+    assert "\n" not in result
+    assert ": " not in result  # compact separators use ':' not ': '

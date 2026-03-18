@@ -189,7 +189,9 @@ async def get_entity(type_id: str) -> str:
     entity = _db.get_entity(type_id)
     if entity is None:
         return f"Entity not found: {type_id}"
-    return json.dumps(entity, indent=2)
+    for key in ("uuid", "entity_id", "parent_uuid"):
+        entity.pop(key, None)
+    return json.dumps(entity, separators=(",", ":"))
 
 
 @mcp.tool()
