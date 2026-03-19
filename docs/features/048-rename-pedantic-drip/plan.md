@@ -126,14 +126,14 @@ Step 7: Cache sync & verify           ← depends on Step 6
 | AC | Verified in Step |
 |----|-----------------|
 | AC-1 (validate.sh) | Step 4.1 |
-| AC-2 (test suites) | Step 4.2-4.8 |
-| AC-3 (plugin.json name) | Step 4.9 |
+| AC-2 (test suites) | Step 4.2-4.16 |
+| AC-3 (plugin.json name) | Step 4.17 |
 | AC-4 (no iflow in plugins/pd/) | Step 3 |
 | AC-5 (/pd:show-status) | Step 7.3 |
-| AC-6 (MCP servers) | Step 4.4-4.5 |
-| AC-7 (pd.local.md) | Step 4.8 (hook tests) |
+| AC-6 (MCP servers) | Step 4.10-4.12 |
+| AC-7 (pd.local.md) | Step 4.16 (hook tests) |
 | AC-8 (repo name) | Step 6.3 |
 | AC-9 (CLAUDE.md clean) | Step 3 |
 | AC-10 (remote URL) | Step 6.2 |
-| AC-11 (JSON valid) | Step 4.9 |
+| AC-11 (JSON valid) | Step 4.17 |
 | AC-12 (scripts clean) | Step 3 |
