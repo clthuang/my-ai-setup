@@ -1,6 +1,6 @@
 # Hook Development Guide
 
-Guidelines for developing hooks in the my-ai-setup plugin.
+Guidelines for developing hooks in the pedantic-drip plugin.
 
 ## Critical Concept: PLUGIN_ROOT vs PROJECT_ROOT
 

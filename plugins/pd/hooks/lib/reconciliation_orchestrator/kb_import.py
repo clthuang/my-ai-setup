@@ -8,7 +8,7 @@ def sync_knowledge_bank(memory_db, project_root, artifacts_root, global_store_pa
 
     Args:
         memory_db: MemoryDatabase instance (connected to memory.db)
-        project_root: absolute repo root (e.g., /Users/terry/projects/my-ai-setup)
+        project_root: absolute repo root (e.g., /Users/terry/projects/pedantic-drip)
         artifacts_root: relative sub-path (e.g., "docs")
         global_store_path: directory containing memory.db (e.g., ~/.claude/pd/memory)
 

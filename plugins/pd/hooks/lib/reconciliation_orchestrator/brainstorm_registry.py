@@ -18,7 +18,7 @@ def sync_brainstorm_entities(
     Args:
         db: EntityDatabase instance (open connection).
         full_artifacts_path: Absolute path to the artifacts root directory
-            (e.g., /Users/terry/projects/my-ai-setup/docs).
+            (e.g., /Users/terry/projects/pedantic-drip/docs).
         artifacts_root: Relative sub-path used to build the stored artifact_path
             (e.g., "docs").
 

@@ -21,7 +21,7 @@ Optional: `rsync` and `gtimeout` (macOS: `brew install coreutils`).
 ### Install
 
 ```bash
-/plugin marketplace add clthuang/my-ai-setup
+/plugin marketplace add clthuang/pedantic-drip
 /plugin install pd@my-local-plugins
 ```
 

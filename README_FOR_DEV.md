@@ -77,8 +77,8 @@ From the develop branch with a clean working tree:
 Clone the repository and install the development plugin:
 
 ```bash
-git clone https://github.com/clthuang/my-ai-setup.git
-cd my-ai-setup
+git clone https://github.com/clthuang/pedantic-drip.git
+cd pedantic-drip
 claude
 ```
 
@@ -100,7 +100,7 @@ After making changes to plugin files, sync the cache:
 To install the released version:
 
 ```
-/plugin marketplace add clthuang/my-ai-setup
+/plugin marketplace add clthuang/pedantic-drip
 /plugin install pd
 ```
 

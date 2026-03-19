@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}iflow{% endblock %}</title>
+    <title>{% block title %}pd{% endblock %}</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
     <!-- DaisyUI v5 CSS (must be before Tailwind CSS v4) -->
     <link href="https://cdn.jsdelivr.net/npm/daisyui@5/daisyui.css" rel="stylesheet">
@@ -19,7 +19,7 @@
 <body class="min-h-screen bg-base-200">
     <div class="navbar bg-base-100 shadow-lg">
         <div class="flex-1">
-            <span class="text-xl font-bold px-4">iflow</span>
+            <span class="text-xl font-bold px-4">pd</span>
             <div class="flex gap-1">
                 <a href="/" class="btn btn-sm btn-ghost {{ 'btn-active' if active_page|default('') == 'board' else '' }}">Board</a>
                 <a href="/entities" class="btn btn-sm btn-ghost {{ 'btn-active' if active_page|default('') == 'entities' else '' }}">Entities</a>
