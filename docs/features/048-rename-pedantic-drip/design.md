@@ -50,23 +50,45 @@ fi
 echo "=== Phase 1: Directory rename ==="
 git mv plugins/iflow plugins/pd
 
-echo "=== Phase 2: Config file rename ==="
+echo "=== Phase 2: Config and directory renames ==="
 if [[ -f .claude/iflow.local.md ]]; then
   git mv .claude/iflow.local.md .claude/pd.local.md
 fi
 if [[ -f docs/iflow-audit-findings.md ]]; then
   git mv docs/iflow-audit-findings.md docs/pd-audit-findings.md
 fi
+# Rename global data directory (~/.claude/iflow/ → ~/.claude/pd/)
+if [[ -d "$HOME/.claude/iflow" ]]; then
+  mv "$HOME/.claude/iflow" "$HOME/.claude/pd"
+  echo "Renamed ~/.claude/iflow/ -> ~/.claude/pd/"
+elif [[ -d "$HOME/.claude/pd" ]]; then
+  echo "~/.claude/pd/ already exists — skipping"
+else
+  echo "~/.claude/iflow/ not found — skipping"
+fi
 
 echo "=== Phase 3: Bulk text replacement ==="
 # Ordered replacements (most specific first per spec rules 1-7)
 REPLACEMENTS=(
+  # Rule 1-5: Template variables (most specific first)
   "iflow_artifacts_root:pd_artifacts_root"
   "iflow_base_branch:pd_base_branch"
   "iflow_release_script:pd_release_script"
   "iflow_doc_tiers:pd_doc_tiers"
   "iflow_plugin_root:pd_plugin_root"
+  # Rule 6: Bash variable names
+  "IFLOW_CONFIG:PD_CONFIG"
+  # Rule 7: Config filename in code references
+  "iflow.local.md:pd.local.md"
+  # Rule 8: Global data directory
+  "iflow/memory:pd/memory"
+  "iflow/entities:pd/entities"
+  "iflow/ui-server:pd/ui-server"
+  "iflow/mcp-bootstrap:pd/mcp-bootstrap"
+  ".claude/iflow:/.claude/pd"
+  # Rule 9: Plugin paths
   "plugins/iflow:plugins/pd"
+  # Rule 10: Command/skill/agent prefixes
   "iflow::pd:"
 )
 
@@ -136,21 +158,32 @@ fi
 cd plugins/pd
 if [[ -f pyproject.toml ]]; then
   uv venv .venv
-  uv pip install -e ".[dev]" 2>/dev/null || uv pip install -e . 2>/dev/null || echo "Note: pip install skipped (no installable package)"
+  uv sync || { echo "ERROR: uv sync failed — tests will fail without dependencies"; exit 1; }
   echo "Recreated .venv"
 else
   echo "No pyproject.toml — skipping venv creation"
 fi
 cd "$REPO_ROOT"
 
-echo "=== Phase 3b: Remaining iflow references ==="
-# Catch any remaining 'iflow' in glob pattern references (*/iflow*/)
+echo "=== Phase 3b: Fix glob patterns (*/iflow*/) ==="
+# Catch glob patterns like */iflow*/ used for plugin cache discovery
 find plugins/pd -type f \( -name "*.md" -o -name "*.py" -o -name "*.sh" \) \
   ! -path "*/__pycache__/*" ! -path "*/.venv/*" \
-  -exec grep -l 'iflow' {} + 2>/dev/null | while read -r f; do
-  # Only replace glob patterns like */iflow*/ and string "iflow"
-  sed -i '' 's|/iflow\*/|/pd*/|g; s|/iflow/|/pd/|g' "$f"
-done
+  -exec sed -i '' 's|/iflow\*/|/pd*/|g' {} +
+
+echo "=== Phase 3c: Verify no remaining iflow references ==="
+REMAINING=$(grep -ri 'iflow' plugins/pd/ scripts/ validate.sh README.md README_FOR_DEV.md CLAUDE.md .claude/ \
+  --include='*.md' --include='*.py' --include='*.sh' --include='*.json' \
+  --exclude-dir=__pycache__ --exclude-dir=.venv 2>/dev/null | wc -l)
+if [[ "$REMAINING" -gt 0 ]]; then
+  echo "WARNING: $REMAINING remaining iflow references found:"
+  grep -rn 'iflow' plugins/pd/ scripts/ validate.sh README.md README_FOR_DEV.md CLAUDE.md .claude/ \
+    --include='*.md' --include='*.py' --include='*.sh' --include='*.json' \
+    --exclude-dir=__pycache__ --exclude-dir=.venv 2>/dev/null | head -20
+  echo "Review and fix manually before committing."
+else
+  echo "No remaining iflow references — clean rename."
+fi
 
 echo "=== Done ==="
 echo "Next steps:"
@@ -181,6 +214,8 @@ These cannot be scripted into the rename script because they affect external sys
 | Venv handling | Delete + recreate | Venvs have hardcoded absolute paths; patching is unreliable |
 | GitHub rename timing | After code changes committed | Rename URL before code is pushed would break push |
 | Glob pattern `*/iflow*/` | Separate pass (Phase 3b) | These have different sed patterns than the prefix replacements |
+| `~/.claude/iflow/` directory | Rename to `~/.claude/pd/` | Code references and directory must match; data stays intact |
+| `IFLOW_CONFIG` variable | Rename to `PD_CONFIG` | Variable name must match new config filename |
 
 ## Risks
 
