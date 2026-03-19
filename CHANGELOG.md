@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.13.15] - 2026-03-19
+
 ### Fixed
 - Embedding SDK auto-install not triggering — shell wrapper now reads `memory_embedding_provider` from `.claude/pd.local.md` and defaults to `gemini`
 
