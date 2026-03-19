@@ -74,7 +74,7 @@ The embedding provider SDKs (e.g., `google-genai`) are declared as optional depe
 **Config key:** `memory_embedding_provider` — already exists in `embedding.py:create_provider()` (read from the `config` dict). Valid values: `gemini`, `openai`, `voyage`, `ollama` (matching the `[project.optional-dependencies]` groups in `pyproject.toml`). The value is passed to MCP servers via their config dict at startup.
 
 **Acceptance criteria:**
-- AC-6.1: `run-memory-server.sh` reads `MEMORY_EMBEDDING_PROVIDER` and passes `--extra {provider}` to `bootstrap-venv.sh`, which runs `uv sync --extra {provider}` (e.g., `uv sync --extra gemini` when `MEMORY_EMBEDDING_PROVIDER=gemini`)
+- AC-6.1: `run-memory-server.sh` reads `MEMORY_EMBEDDING_PROVIDER` from env, and after `bootstrap_venv` completes, runs `uv pip install {provider-pkg}` if the SDK is not already importable (e.g., `uv pip install "google-genai>=1.0,<2"` when `MEMORY_EMBEDDING_PROVIDER=gemini`)
 - AC-6.2: If no provider is configured, base deps only (no change from current behavior)
 - AC-6.3: Given a fresh venv (no `google-genai` installed), `MEMORY_EMBEDDING_PROVIDER=gemini`, and `GEMINI_API_KEY` set, after running `run-memory-server.sh` bootstrap sequence, `import google.genai` succeeds and `create_provider()` returns a non-None provider
 
@@ -116,16 +116,15 @@ In `run-memory-server.sh` (primary fix):
 
 ### Embedding SDK bootstrap (R6)
 
-**Call chain:** `run-memory-server.sh` reads `MEMORY_EMBEDDING_PROVIDER` from env → passes `--extra {provider}` arg to `bootstrap_venv` → `bootstrap-venv.sh` forwards `--extra` to `uv sync`.
+**Call chain:** `run-memory-server.sh` reads `MEMORY_EMBEDDING_PROVIDER` from env → after `bootstrap_venv` completes → checks if SDK is importable → if not, runs `uv pip install {pkg}`.
 
 In `run-memory-server.sh`:
 1. Read `MEMORY_EMBEDDING_PROVIDER` from environment (set by MCP server config or `.env`)
-2. If provider is set and matches a known optional group (`gemini`, `openai`, `voyage`, `ollama`), pass `--extra {provider}` argument to `bootstrap_venv` call
-3. If provider is empty or unknown, call `bootstrap_venv` without `--extra` (current behavior)
+2. After `bootstrap_venv` completes, if provider is set and matches a known provider, check if the SDK is importable
+3. If not importable, run `uv pip install {pkg}` (e.g., `"google-genai>=1.0,<2"` for gemini)
+4. If provider is empty or unknown, skip (current behavior)
 
-In `bootstrap-venv.sh`:
-1. Accept optional `--extra {group}` argument
-2. If provided, use `uv sync --extra {group}` instead of plain `uv sync`
+`bootstrap-venv.sh` is NOT modified — it remains generic shared infrastructure.
 
 ## Files to Modify
 
@@ -133,8 +132,7 @@ In `bootstrap-venv.sh`:
 |------|--------|
 | `plugins/pd/hooks/lib/semantic_memory/database.py` | Add `_sanitize_fts5_query()`, update `fts5_search()` |
 | `plugins/pd/hooks/lib/semantic_memory/embedding.py` | Update `_load_dotenv_once()` with cwd fallback |
-| `plugins/pd/mcp/run-memory-server.sh` | Source `.env`, export API keys, pass `--extra` to bootstrap |
-| `plugins/pd/mcp/bootstrap-venv.sh` | Accept optional `--extra` argument for provider SDK |
+| `plugins/pd/mcp/run-memory-server.sh` | Source `.env`, export API keys, install provider SDK post-bootstrap |
 | `plugins/pd/hooks/lib/semantic_memory/test_database.py` | Add tests for sanitizer and OR semantics (existing file — 829+ lines of FTS5 tests already present) |
 | `plugins/pd/mcp/test_memory_server.py` | Add integration tests for multi-word and special char queries |
 
