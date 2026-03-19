@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.13.13] - 2026-03-19
+
 ### Changed
 - Renamed plugin package `iflow-dev-hooks` → `pd-dev-hooks` in pyproject.toml
 - Updated UI template titles and navbar branding from `iflow` to `pd`
