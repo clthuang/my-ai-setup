@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.13.12] - 2026-03-19
+
 ### Added
 - `delete_entity` method on EntityDatabase — deletes entity, FTS index, and workflow_phases in a single atomic transaction
 - `delete_entry` method on MemoryDatabase — deletes memory entry (FTS auto-cleaned by trigger)
