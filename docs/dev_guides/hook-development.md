@@ -67,7 +67,7 @@ Escapes special characters for JSON output: newlines, tabs, quotes, backslashes.
 
 Located at `hooks/lib/memory.py`:
 
-Python module used by `session-start.sh` to inject knowledge bank entries into session context. Parses entries from project-local (`docs/knowledge-bank/`) and global (`~/.claude/iflow/memory/`) stores, deduplicates by content hash, selects top entries by priority, and outputs formatted markdown.
+Python module used by `session-start.sh` to inject knowledge bank entries into session context. Parses entries from project-local (`docs/knowledge-bank/`) and global (`~/.claude/pd/memory/`) stores, deduplicates by content hash, selects top entries by priority, and outputs formatted markdown.
 
 ## Testing Hooks
 
