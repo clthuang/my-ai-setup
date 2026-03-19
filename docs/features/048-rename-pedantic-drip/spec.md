@@ -14,9 +14,9 @@ The repository is named `my-ai-setup` (a generic working title) and the plugin i
 - Delete and recreate `.venv` after rename (venvs contain hardcoded absolute paths in pyvenv.cfg)
 
 **R2: Plugin identity rename**
-- `plugin.json` name: `"iflow"` → `"pd"`
-- `marketplace.json` name: `"iflow"` → `"pd"`
-- Plugin cache path pattern references: `*/iflow*/` → `*/pd*/`
+- `plugins/pd/.claude-plugin/plugin.json` name: `"iflow"` → `"pd"`
+- `.claude-plugin/marketplace.json` (root): `plugins[0].name` `"iflow"` → `"pd"`, `plugins[0].source` `"./plugins/iflow"` → `"./plugins/pd"`. Top-level marketplace name `"my-local-plugins"` stays unchanged (it's the marketplace name, not the plugin name).
+- Plugin cache path pattern references in command/skill bodies: `*/iflow*/` → `*/pd*/`
 
 **R3: Command/skill/agent prefix rename**
 - All `iflow:` prefixes in command names → `pd:` (29 commands)
@@ -37,6 +37,7 @@ The repository is named `my-ai-setup` (a generic working title) and the plugin i
 
 **R5: Hook script updates**
 - All 13 hook `.sh` scripts under `plugins/pd/hooks/` referencing `iflow` paths or config keys
+- 5 test scripts under `plugins/pd/hooks/tests/` with heavy `iflow` references (test-hooks.sh alone has ~93 occurrences)
 - Note: `hooks.json` uses `${CLAUDE_PLUGIN_ROOT}` for paths and event names for matchers — no `iflow` string present, no changes needed to hooks.json
 
 **R6: Python source files**
@@ -44,7 +45,6 @@ The repository is named `my-ai-setup` (a generic working title) and the plugin i
 - MCP bootstrap scripts: `run-entity-server.sh`, `run-memory-server.sh`, `run-workflow-server.sh`
 - Hooks lib Python: `config.py`, `memory.py`, `backfill.py` — any `iflow` path references
 - UI Python files under `plugins/pd/ui/`
-- `.mcp.json` server entry paths update from `plugins/iflow/` to `plugins/pd/`
 
 **R7: Scripts directory**
 - `scripts/release.sh` — plugin path references
@@ -97,12 +97,19 @@ The repository is named `my-ai-setup` (a generic working title) and the plugin i
 - `validate.sh`
 - `README.md`, `README_FOR_DEV.md`, `CLAUDE.md`
 - `.claude/*.local.md`
-- `.mcp.json`
 - `.claude-plugin/marketplace.json`
+- `docs/dev_guides/*.md`
+- `docs/backlog.md`
+- `docs/ecc-comparison-improvements.md`
+- `docs/iflow-audit-findings.md` (rename file to `docs/pd-audit-findings.md`)
 
 **Exclude from bulk replace:**
 - `docs/features/*/` (historical artifacts — spec.md, design.md, retro.md, etc.)
 - `docs/knowledge-bank/` (archival entries)
+- `docs/brainstorms/` (archival PRDs)
+- `docs/retrospectives/` (archival retros)
+- `docs/rca/` (archival RCA reports)
+- `docs/projects/` (archival project decompositions)
 - `.git/` (immutable history)
 - `__pycache__/` (regenerated)
 - `.venv/` (deleted and recreated)
@@ -116,12 +123,12 @@ The repository is named `my-ai-setup` (a generic working title) and the plugin i
 5. `iflow_plugin_root` → `pd_plugin_root`
 6. `plugins/iflow` → `plugins/pd` (paths)
 7. `iflow:` → `pd:` (command/skill/agent prefixes)
-8. `"iflow"` → `"pd"` (JSON name fields — targeted in plugin.json/marketplace.json only)
+8. `"iflow"` → `"pd"` (JSON name fields — targeted in `plugins/pd/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` only. Note: marketplace `source` field handled by rule #6)
 
 ## Acceptance Criteria
 
 - **AC-1**: `./validate.sh` passes with 0 errors
-- **AC-2**: All test suites pass: entity_registry, semantic_memory, MCP servers, hook integration
+- **AC-2**: All test suites listed in CLAUDE.md Commands section pass (entity_registry, semantic_memory, transition_gate, workflow_engine, reconciliation, MCP servers, UI, migration, hook integration)
 - **AC-3**: `plugin.json` and `marketplace.json` show name `"pd"`
 - **AC-4**: `grep -ri 'iflow' plugins/pd/` returns zero results (excluding `__pycache__/`)
 - **AC-5**: `/pd:show-status` works (commands use `pd:` prefix)
