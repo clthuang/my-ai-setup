@@ -85,7 +85,7 @@ REPLACEMENTS=(
   "iflow/entities:pd/entities"
   "iflow/ui-server:pd/ui-server"
   "iflow/mcp-bootstrap:pd/mcp-bootstrap"
-  ".claude/iflow:/.claude/pd"
+  ".claude/iflow:.claude/pd"
   # Rule 9: Plugin paths
   "plugins/iflow:plugins/pd"
   # Rule 10: Command/skill/agent prefixes
@@ -169,7 +169,7 @@ echo "=== Phase 3b: Fix glob patterns (*/iflow*/) ==="
 # Catch glob patterns like */iflow*/ used for plugin cache discovery
 find plugins/pd -type f \( -name "*.md" -o -name "*.py" -o -name "*.sh" \) \
   ! -path "*/__pycache__/*" ! -path "*/.venv/*" \
-  -exec sed -i '' 's|/iflow\*/|/pd*/|g' {} +
+  -exec sed -i '' 's|\*/iflow\*/|*/pd*/|g' {} +
 
 echo "=== Phase 3c: Verify no remaining iflow references ==="
 REMAINING=$(grep -ri 'iflow' plugins/pd/ scripts/ validate.sh README.md README_FOR_DEV.md CLAUDE.md .claude/ \
