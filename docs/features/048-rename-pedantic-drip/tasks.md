@@ -5,7 +5,7 @@
 ### Task 1.1: Create rename script
 - **File:** `scripts/rename-to-pd.sh`
 - **Implementation:** Write the full rename script from design.md C1 — Phases 1-5 plus 3b/3c verification. Include all 10 replacement rules, directory renames, JSON edits via Python, venv recreate, glob pattern fix, and verification grep.
-- **Done when:** Script exists, is executable, passes `bash -n scripts/rename-to-pd.sh` (syntax check)
+- **Done when:** Script exists, is executable, passes `shellcheck scripts/rename-to-pd.sh` (or `bash -n` if shellcheck unavailable)
 - **Depends on:** nothing
 
 ## Phase 2: Execute Rename
@@ -13,7 +13,7 @@
 ### Task 2.1: Run rename script
 - **Preconditions:** Clean working tree (`git status` shows clean or stash first). No other Claude Code sessions active.
 - **Implementation:** Run `bash scripts/rename-to-pd.sh`. Review Phase 3c output for remaining references.
-- **Done when:** Script exits 0, `plugins/pd/` exists, `plugins/iflow/` does not, `~/.claude/pd/` exists
+- **Done when:** Script exits 0, `plugins/pd/` exists, `plugins/iflow/` does not. `~/.claude/pd/` exists OR `~/.claude/iflow/` did not exist pre-rename (skip is valid)
 - **Depends on:** Task 1.1
 
 ### Task 2.2: Fix remaining iflow references
@@ -78,5 +78,5 @@
   1. `rm -rf ~/.claude/plugins/cache/*/iflow*`
   2. `bash plugins/pd/hooks/sync-cache.sh`
   3. Start new Claude Code session, run `/pd:show-status`
-- **Done when:** Cache synced, `/pd:show-status` works (AC-5)
+- **Done when:** Cache synced, `/pd:show-status` outputs dashboard without 'command not found' errors (AC-5)
 - **Depends on:** Task 4.2
