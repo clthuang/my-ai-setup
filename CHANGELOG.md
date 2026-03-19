@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Memory search (`search_memory` MCP tool) returning no results for all queries — FTS5 query sanitization now uses OR semantics, quotes hyphenated terms, and strips metacharacters
+- FTS5 `OperationalError` silently swallowed — now logged to stderr with query context
+- Vector embedding path unable to load API keys when running from plugin cache — added cwd `.env` fallback and shell-level key export
+- Fresh installs missing embedding SDK — `run-memory-server.sh` now auto-installs configured provider's SDK package
+
 ## [4.13.13] - 2026-03-19
 
 ### Changed
