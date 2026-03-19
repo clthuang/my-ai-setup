@@ -4,6 +4,7 @@
 
 ### Task 1.1: Write EntityDatabase.delete_entity tests
 - **File:** `plugins/iflow/hooks/lib/entity_registry/test_database.py`
+- **Fixture:** Use existing `db` fixture from conftest.py (`EntityDatabase(":memory:")`). Register test entities with `db.register_entity()` before each delete test. For FTS verification: `db._conn.execute("SELECT * FROM entities_fts WHERE entities_fts MATCH ?", (name,))`.
 - **Tests:** test_delete_entity_not_found (AC-1), test_delete_entity_success (AC-2), test_delete_entity_with_children_rejected (AC-3), test_delete_entity_fts_cleaned (AC-4), test_delete_entity_no_workflow_phases (AC-13), test_delete_entity_rollback_on_error (AC-12), test_delete_entity_corrupted_metadata_still_deletes
 - **Done when:** All 7 tests exist and fail (RED phase)
 - **Depends on:** nothing
@@ -17,6 +18,7 @@
 
 ### Task 1.3: Write MemoryDatabase.delete_entry tests
 - **File:** `plugins/iflow/hooks/lib/semantic_memory/test_database.py`
+- **Fixture:** Use existing `db` fixture (`MemoryDatabase(":memory:")`). Insert test entries with `db.upsert_entry()` before delete. For FTS verification: `db._conn.execute("SELECT * FROM entries_fts WHERE entries_fts MATCH ?", (name,))` — assert zero results after delete.
 - **Tests:** test_delete_entry_not_found (AC-5), test_delete_entry_success (AC-6), test_delete_entry_fts_cleaned (AC-7)
 - **Done when:** All 3 tests exist and fail (RED phase)
 - **Depends on:** nothing
@@ -42,7 +44,7 @@
 - **Done when:** All 3 tests from Task 2.1 pass (GREEN phase)
 - **Depends on:** Task 2.1
 
-## Phase 3: MCP Tools (parallel)
+## Phase 3: MCP Tools (two parallel tracks: 3.1→3.2 and 3.3→3.4)
 
 ### Task 3.1: Write MCP delete_entity tests
 - **File:** `plugins/iflow/mcp/test_search_mcp.py`
