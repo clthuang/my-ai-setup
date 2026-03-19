@@ -1,0 +1,17 @@
+{
+  "id": "049",
+  "slug": "fix-memory-search-fts5",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-03-19T09:57:18.425145+00:00",
+  "branch": "feature/049-fix-memory-search-fts5",
+  "lastCompletedPhase": null,
+  "phases": {
+    "brainstorm": {
+      "started": "2026-03-19T09:57:18.424818+00:00"
+    },
+    "specify": {
+      "started": "2026-03-19T09:58:10.259416+00:00"
+    }
+  }
+}
