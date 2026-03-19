@@ -26,7 +26,7 @@ The MCP `search_memory` tool returns "No matching memories found" for virtually 
 **Acceptance criteria:**
 - AC-1.1: `fts5_search("firebase firestore typescript")` returns entries matching any of the three terms. Tests use a controlled test database with known entries and assert exact match counts.
 - AC-1.2: Single-word queries continue to work unchanged
-- AC-1.3: `fts5_search()` still uses BM25 ranking (`ORDER BY rank`). Verified via test: given two entries where one matches 2/3 query terms and the other matches 1/3 (with comparable term frequencies), the multi-match entry appears first.
+- AC-1.3: `fts5_search()` still uses BM25 ranking (`ORDER BY rank`). Verified via test: Entry A contains terms X and Y, Entry B contains only term X. Query `"X Y"` returns Entry A ranked above Entry B.
 
 ### R2: FTS5 hyphenated terms are quoted
 
@@ -34,7 +34,7 @@ Hyphenated terms in queries must be double-quoted before being passed to FTS5 MA
 
 **Acceptance criteria:**
 - AC-2.1: `fts5_search("anti-patterns")` returns matches instead of silently failing. Tests use controlled test data with a known entry containing "anti-patterns".
-- AC-2.2: `fts5_search("create-tasks git-flow")` returns matches for both terms
+- AC-2.2: `fts5_search("create-tasks git-flow")` returns results including at least one entry matching `create-tasks` AND at least one entry matching `git-flow`, using controlled test data with known entries for each term
 - AC-2.3: Non-hyphenated terms in the same query are not affected
 
 ### R3: FTS5 special characters are stripped or escaped
@@ -74,9 +74,9 @@ The embedding provider SDKs (e.g., `google-genai`) are declared as optional depe
 **Config key:** `memory_embedding_provider` — already exists in `embedding.py:create_provider()` (read from the `config` dict). Valid values: `gemini`, `openai`, `voyage`, `ollama` (matching the `[project.optional-dependencies]` groups in `pyproject.toml`). The value is passed to MCP servers via their config dict at startup.
 
 **Acceptance criteria:**
-- AC-6.1: `run-memory-server.sh` (or `bootstrap-venv.sh`) installs the embedding optional dependency group matching the configured provider (e.g., `uv sync --extra gemini` when `MEMORY_EMBEDDING_PROVIDER=gemini`)
+- AC-6.1: `run-memory-server.sh` reads `MEMORY_EMBEDDING_PROVIDER` and passes `--extra {provider}` to `bootstrap-venv.sh`, which runs `uv sync --extra {provider}` (e.g., `uv sync --extra gemini` when `MEMORY_EMBEDDING_PROVIDER=gemini`)
 - AC-6.2: If no provider is configured, base deps only (no change from current behavior)
-- AC-6.3: A new user with `GEMINI_API_KEY` set and `memory_embedding_provider: gemini` in config gets a working vector path after first server launch
+- AC-6.3: Given a fresh venv (no `google-genai` installed), `MEMORY_EMBEDDING_PROVIDER=gemini`, and `GEMINI_API_KEY` set, after running `run-memory-server.sh` bootstrap sequence, `import google.genai` succeeds and `create_provider()` returns a non-None provider
 
 ## Technical Approach
 
@@ -85,7 +85,7 @@ The embedding provider SDKs (e.g., `google-genai`) are declared as optional depe
 Add a `_sanitize_fts5_query(raw: str) -> str` function in `database.py`.
 
 **Pipeline order (explicit):**
-1. Strip FTS5 metacharacters: `.` `/` `:` `#` `>` `*` `^` `~` `(` `)` `+` `"` and standalone `-`
+1. Strip FTS5 metacharacters: `.` `/` `:` `#` `>` `*` `^` `~` `(` `)` `+` `"` and standalone `-` (a `-` token not embedded within a word; intra-word hyphens like `anti-patterns` are preserved and handled in step 4)
 2. Tokenize on whitespace
 3. Drop empty tokens
 4. Double-quote tokens containing hyphens (e.g., `anti-patterns` → `"anti-patterns"`)
@@ -116,10 +116,16 @@ In `run-memory-server.sh` (primary fix):
 
 ### Embedding SDK bootstrap (R6)
 
+**Call chain:** `run-memory-server.sh` reads `MEMORY_EMBEDDING_PROVIDER` from env → passes `--extra {provider}` arg to `bootstrap_venv` → `bootstrap-venv.sh` forwards `--extra` to `uv sync`.
+
 In `run-memory-server.sh`:
 1. Read `MEMORY_EMBEDDING_PROVIDER` from environment (set by MCP server config or `.env`)
-2. If provider is set and matches a known optional group (`gemini`, `openai`, `voyage`, `ollama`), pass `--extra {provider}` to the bootstrap/sync call
-3. If provider is empty or unknown, use base deps only (current behavior)
+2. If provider is set and matches a known optional group (`gemini`, `openai`, `voyage`, `ollama`), pass `--extra {provider}` argument to `bootstrap_venv` call
+3. If provider is empty or unknown, call `bootstrap_venv` without `--extra` (current behavior)
+
+In `bootstrap-venv.sh`:
+1. Accept optional `--extra {group}` argument
+2. If provided, use `uv sync --extra {group}` instead of plain `uv sync`
 
 ## Files to Modify
 
