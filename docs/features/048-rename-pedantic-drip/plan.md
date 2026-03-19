@@ -34,6 +34,8 @@ Step 7: Cache sync & verify           ← depends on Step 6
 **Why this item:** Executes the bulk rename — directory moves, text replacements, JSON edits, venv recreate.
 **Why this order:** Depends on Step 1.
 
+**Preconditions:** Ensure clean working tree (`git stash` if needed) so `git checkout -- .` can revert sed changes if script fails. Ensure no other Claude Code sessions are active (script renames `~/.claude/iflow/`).
+
 **Implementation:**
 1. Run `bash scripts/rename-to-pd.sh`
 2. Review output — check Phase 3c verification for remaining references
@@ -47,7 +49,7 @@ Step 7: Cache sync & verify           ← depends on Step 6
 **Why this order:** Depends on Step 2 (script must run first to see what's left).
 
 **Implementation:**
-1. Run `grep -ri 'iflow' plugins/pd/ scripts/ validate.sh README.md README_FOR_DEV.md CLAUDE.md .claude/ docs/dev_guides/ docs/backlog.md --include='*.md' --include='*.py' --include='*.sh' --include='*.json' --exclude-dir=__pycache__ --exclude-dir=.venv`
+1. Run `grep -ri 'iflow' plugins/pd/ scripts/ validate.sh README.md README_FOR_DEV.md CLAUDE.md .claude/ .claude-plugin/ docs/dev_guides/ docs/backlog.md --include='*.md' --include='*.py' --include='*.sh' --include='*.json' --exclude-dir=__pycache__ --exclude-dir=.venv`
 2. For each remaining reference, manually fix with targeted sed or edit
 3. Repeat grep until zero results
 
@@ -58,18 +60,28 @@ Step 7: Cache sync & verify           ← depends on Step 6
 **Why this item:** Verify the rename didn't break anything.
 **Why this order:** Depends on Step 3 (all references fixed first).
 
+**Preconditions:** Ensure no other Claude Code sessions are active (global data directory was renamed).
+
 **Implementation:**
 1. `./validate.sh` — must report 0 errors
-2. `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/ -v` — entity registry tests
-3. `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/semantic_memory/ -v` — semantic memory tests
-4. `plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_memory_server.py -v` — MCP memory tests
-5. `plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_search_mcp.py -v` — MCP entity tests
-6. `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/workflow_engine/ -v` — workflow engine tests
-7. `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/transition_gate/ -v` — transition gate tests
-8. `bash plugins/pd/hooks/tests/test-hooks.sh` — hook integration tests
-9. Verify JSON files parse: `python3 -m json.tool plugins/pd/.claude-plugin/plugin.json && python3 -m json.tool .claude-plugin/marketplace.json`
+2. `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/ -v`
+3. `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/semantic_memory/ -v`
+4. `plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_memory_server.py -v`
+5. `plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_search_mcp.py -v`
+6. `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/workflow_engine/ -v`
+7. `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/transition_gate/ -v`
+8. `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/workflow_engine/test_reconciliation.py -v`
+9. `plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_workflow_state_server.py -v`
+10. `bash plugins/pd/mcp/test_run_memory_server.sh`
+11. `bash plugins/pd/mcp/test_run_workflow_server.sh`
+12. `bash plugins/pd/mcp/test_entity_server.sh`
+13. `PYTHONPATH="plugins/pd/hooks/lib:plugins/pd" plugins/pd/.venv/bin/python -m pytest plugins/pd/ui/tests/ -v`
+14. `python3 -m pytest scripts/test_migrate_db.py scripts/test_migrate_e2e.py scripts/test_migrate_deepened.py -v`
+15. `bash scripts/test_migrate_bash.sh`
+16. `bash plugins/pd/hooks/tests/test-hooks.sh`
+17. Verify JSON: `python3 -m json.tool plugins/pd/.claude-plugin/plugin.json && python3 -m json.tool .claude-plugin/marketplace.json`
 
-**Done when:** All suites pass, validate.sh reports 0 errors, JSON files parse
+**Done when:** All 17 checks pass
 
 ## Step 5: Commit & push
 
@@ -87,6 +99,8 @@ Step 7: Cache sync & verify           ← depends on Step 6
 
 **Why this item:** Rename the GitHub repository itself (design C2 step 1-2).
 **Why this order:** After code is committed and pushed — renaming before push would break the remote URL.
+
+**Preconditions:** Verify Step 5 push succeeded: `git log origin/feature/048-rename-pedantic-drip --oneline -1`
 
 **Implementation:**
 1. `gh repo rename pedantic-drip --yes`
