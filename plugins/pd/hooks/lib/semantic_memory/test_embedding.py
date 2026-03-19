@@ -792,3 +792,131 @@ class TestCreateProvider:
         }
         result = create_provider(config)
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _load_dotenv_once tests
+# ---------------------------------------------------------------------------
+
+
+from semantic_memory.embedding import _load_dotenv_once
+
+
+class TestLoadDotenvOnce:
+    """Tests for _load_dotenv_once() .env loading behavior."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_singleton(self):
+        """Reset the _done flag before each test so the function re-runs."""
+        _load_dotenv_once._done = False  # type: ignore[attr-defined]
+        yield
+        _load_dotenv_once._done = False  # type: ignore[attr-defined]
+
+    def test_dotenv_skipped_when_key_in_env(self):
+        """When a known API key is already in env, dotenv should not be called."""
+        mock_load = MagicMock()
+        with patch("semantic_memory.embedding.load_dotenv", mock_load):
+            with patch.dict(os.environ, {"GEMINI_API_KEY": "already-set"}, clear=False):
+                _load_dotenv_once()
+        mock_load.assert_not_called()
+
+    def test_dotenv_loads_from_cwd(self, tmp_path):
+        """When cwd has a .env file, it should be loaded."""
+        env_file = tmp_path / ".env"
+        env_file.write_text("GEMINI_API_KEY=from-cwd\n")
+
+        mock_load = MagicMock()
+        # Remove known keys so fast-path doesn't trigger
+        env_clean = {k: v for k, v in os.environ.items()
+                     if k not in ("GEMINI_API_KEY", "OPENAI_API_KEY", "VOYAGE_API_KEY")}
+        with patch("semantic_memory.embedding.load_dotenv", mock_load):
+            with patch.dict(os.environ, env_clean, clear=True):
+                with patch("os.getcwd", return_value=str(tmp_path)):
+                    _load_dotenv_once()
+
+        # cwd .env should have been passed to load_dotenv
+        calls = mock_load.call_args_list
+        cwd_called = any(str(env_file) == str(c[0][0]) for c in calls if c[0])
+        assert cwd_called, f"Expected load_dotenv called with {env_file}, got {calls}"
+
+    def test_dotenv_git_walkup_fallback(self, tmp_path):
+        """.git walk-up should still work as fallback."""
+        # Create a fake git repo structure
+        git_dir = tmp_path / "repo"
+        git_dir.mkdir()
+        (git_dir / ".git").mkdir()
+        env_file = git_dir / ".env"
+        env_file.write_text("GEMINI_API_KEY=from-git\n")
+
+        # Simulate __file__ being inside the repo
+        fake_file = git_dir / "lib" / "semantic_memory" / "embedding.py"
+        fake_file.parent.mkdir(parents=True)
+        fake_file.touch()
+
+        mock_load = MagicMock()
+        env_clean = {k: v for k, v in os.environ.items()
+                     if k not in ("GEMINI_API_KEY", "OPENAI_API_KEY", "VOYAGE_API_KEY")}
+
+        import semantic_memory.embedding as emb_mod
+        old_file = emb_mod.__file__
+        emb_mod.__file__ = str(fake_file)  # type: ignore[misc]
+        try:
+            with patch("semantic_memory.embedding.load_dotenv", mock_load):
+                with patch.dict(os.environ, env_clean, clear=True):
+                    with patch("os.getcwd", return_value=str(tmp_path)):
+                        _load_dotenv_once()
+        finally:
+            emb_mod.__file__ = old_file  # type: ignore[misc]
+
+        # .git walk-up should find repo/.env
+        git_called = any(
+            str(env_file) == str(c[0][0])
+            for c in mock_load.call_args_list if c[0]
+        )
+        assert git_called, (
+            f"Expected load_dotenv called with {env_file}, "
+            f"got {mock_load.call_args_list}"
+        )
+
+    def test_dotenv_additive_cwd_and_git(self, tmp_path):
+        """Both cwd .env and .git .env should be loaded (additive, no early return)."""
+        # Set up cwd with .env (missing the API key we need)
+        cwd_dir = tmp_path / "project"
+        cwd_dir.mkdir()
+        cwd_env = cwd_dir / ".env"
+        cwd_env.write_text("SOME_OTHER_VAR=hello\n")
+
+        # Set up git repo with .env containing the key
+        git_dir = tmp_path / "repo"
+        git_dir.mkdir()
+        (git_dir / ".git").mkdir()
+        git_env = git_dir / ".env"
+        git_env.write_text("GEMINI_API_KEY=from-git\n")
+
+        fake_file = git_dir / "lib" / "semantic_memory" / "embedding.py"
+        fake_file.parent.mkdir(parents=True)
+        fake_file.touch()
+
+        mock_load = MagicMock()
+        env_clean = {k: v for k, v in os.environ.items()
+                     if k not in ("GEMINI_API_KEY", "OPENAI_API_KEY", "VOYAGE_API_KEY")}
+
+        import semantic_memory.embedding as emb_mod
+        old_file = emb_mod.__file__
+        emb_mod.__file__ = str(fake_file)  # type: ignore[misc]
+        try:
+            with patch("semantic_memory.embedding.load_dotenv", mock_load):
+                with patch.dict(os.environ, env_clean, clear=True):
+                    with patch("os.getcwd", return_value=str(cwd_dir)):
+                        _load_dotenv_once()
+        finally:
+            emb_mod.__file__ = old_file  # type: ignore[misc]
+
+        # Both .env files should have been loaded
+        loaded_paths = [str(c[0][0]) for c in mock_load.call_args_list if c[0]]
+        assert str(cwd_env) in loaded_paths, (
+            f"cwd .env not loaded. Loaded: {loaded_paths}"
+        )
+        assert str(git_env) in loaded_paths, (
+            f"git .env not loaded. Loaded: {loaded_paths}"
+        )

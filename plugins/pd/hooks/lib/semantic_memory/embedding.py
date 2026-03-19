@@ -45,10 +45,34 @@ from semantic_memory import EmbeddingError
 
 
 def _load_dotenv_once() -> None:
-    """Load .env from project root (walk up to find .git dir). Runs once."""
+    """Load .env — checks env vars first, then cwd, then .git walk-up.
+
+    Process-lifetime singleton — re-loading not expected in normal MCP
+    server lifecycle.
+
+    Tries multiple strategies to find API keys:
+    1. If any known key already in env, skip (already available)
+    2. Try .env in cwd (MCP servers launched with cwd = project root)
+    3. Walk up from __file__ looking for .git (dev workspace)
+
+    Both cwd and .git walk-up run (load_dotenv with override=False is
+    additive and idempotent), maximizing chances of finding the key.
+    """
     if load_dotenv is None or getattr(_load_dotenv_once, "_done", False):
         return
     _load_dotenv_once._done = True  # type: ignore[attr-defined]
+
+    # Fast path: if any known API key is already in env, skip dotenv
+    known_keys = ("GEMINI_API_KEY", "OPENAI_API_KEY", "VOYAGE_API_KEY")
+    if any(os.environ.get(k) for k in known_keys):
+        return
+
+    # Try cwd first (MCP servers launched with cwd = project root)
+    cwd_env = Path(os.getcwd()) / ".env"
+    if cwd_env.is_file():
+        load_dotenv(cwd_env, override=False)
+
+    # Also try .git walk-up (additive — override=False won't overwrite)
     d = Path(__file__).resolve().parent
     while d != d.parent:
         if (d / ".git").exists():
