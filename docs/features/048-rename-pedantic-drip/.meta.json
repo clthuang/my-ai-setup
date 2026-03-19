@@ -1,0 +1,18 @@
+{
+  "id": "048",
+  "slug": "rename-pedantic-drip",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-03-19T04:42:19.144505+00:00",
+  "branch": "feature/048-rename-pedantic-drip",
+  "backlog_source": "00020",
+  "lastCompletedPhase": null,
+  "phases": {
+    "brainstorm": {
+      "started": "2026-03-19T04:42:19.144450+00:00"
+    },
+    "specify": {
+      "started": "2026-03-19T04:43:01.480938+00:00"
+    }
+  }
+}
