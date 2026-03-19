@@ -75,9 +75,12 @@ def delete_entity(self, type_id: str) -> None:
             raise ValueError(f"Cannot delete entity with children: {type_id}")
 
         # 3. FTS5 external-content delete (before row deletion)
-        metadata_text = flatten_metadata(
-            json.loads(row["metadata"]) if row["metadata"] else None
-        )
+        try:
+            metadata_text = flatten_metadata(
+                json.loads(row["metadata"]) if row["metadata"] else None
+            )
+        except (json.JSONDecodeError, TypeError):
+            metadata_text = ""  # corrupted metadata — use empty for FTS delete
         self._conn.execute(
             "INSERT INTO entities_fts(entities_fts, rowid, name, entity_id, "
             "entity_type, status, metadata_text) "
