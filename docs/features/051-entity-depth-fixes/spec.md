@@ -1,0 +1,87 @@
+# Spec: Entity Depth Fixes
+
+Four targeted fixes for entity consistency depth bugs across `entity_registry` and `workflow_engine` reconciliation subsystems.
+
+Origin: These fixes were identified through code inspection of depth-guard inconsistencies. No PRD/brainstorm exists — this is a targeted bug-fix batch.
+
+## Background
+
+The entity registry enforces a depth guard (AC-14) at 10 hops for lineage traversal (`get_lineage`), but this constraint is inconsistently applied across related operations. Several code paths bypass or omit depth checks, creating potential for unbounded queries, inconsistent state, and misleading diagnostics.
+
+## Requirements
+
+### R1: Depth-guard `set_parent()` circular reference check
+
+**Problem:** `database.py:703-716` — the circular reference detection CTE in `set_parent()` has no depth limit. While `_lineage_up()` and `_lineage_down()` both use `WHERE a.depth < ?` with `max_depth=10`, the `set_parent()` CTE recurses without bound. In deeply nested hierarchies, this can cause runaway queries.
+
+**Fix:** Add a `depth` counter column and `WHERE depth < ?` guard to the `set_parent()` ancestor CTE, consistent with `_lineage_up()`. Use the same default max_depth (10). If the depth limit is reached without finding a cycle, allow the operation.
+
+**Known limitation:** Cycles beyond 10 hops from the child node will not be detected. This is accepted because well-formed trees in this system do not exceed 10 levels (enforced by AC-14 in `get_lineage`).
+
+**Acceptance criteria:**
+- AC-1.1: `set_parent()` CTE includes `depth < max_depth` guard matching `_lineage_up()` pattern
+- AC-1.2: Existing circular reference detection still works for chains ≤10 hops
+- AC-1.3: Chains >10 hops do not cause unbounded recursion — operation succeeds (no cycle found within depth limit)
+- AC-1.4: New test: 11-hop chain with no cycle → `set_parent()` succeeds without hanging
+
+### R2: `_derive_expected_kanban()` status-awareness
+
+**Problem:** `reconciliation.py:175-190` — `_derive_expected_kanban()` maps `workflow_phase` → kanban column but ignores feature `status`. Features with `status="completed"` or `status="abandoned"` that don't have matching phase state get incorrect kanban derivation. The `_check_single_feature()` function reads `meta.get("status")` into the report but never uses it for kanban logic.
+
+**Fix:** Extend `_derive_expected_kanban()` to accept an optional `status` parameter. When `status == "completed"`, return `"completed"` regardless of phase. When `status == "abandoned"`, also return `"completed"` — both are terminal states and the `kanban_column` DB CHECK constraint only includes `"completed"` as a terminal column (not `"abandoned"`). In `_check_single_feature()`, pass `meta.get("status")` (already available at line 223) to `_derive_expected_kanban()`. In `_reconcile_single_feature()`, read `report.meta_json["status"]` and pass to `_derive_expected_kanban()` — no new function parameters needed since status is already in the meta_json dict.
+
+**Note:** The `kanban_column` CHECK constraint (`database.py:299-303, 440-443`) allows: `backlog, prioritised, wip, agent_review, human_review, blocked, documenting, completed`. Adding `"abandoned"` as a kanban column value would require a schema migration, which is out of scope. Both completed and abandoned features map to the `"completed"` kanban column.
+
+**Acceptance criteria:**
+- AC-2.1: `_derive_expected_kanban(workflow_phase="implement", ..., status="completed")` returns `"completed"`
+- AC-2.2: `_derive_expected_kanban(workflow_phase="implement", ..., status="abandoned")` returns `"completed"` (terminal kanban column for all terminal statuses)
+- AC-2.3: `_derive_expected_kanban(workflow_phase="implement", ..., status="active")` unchanged (existing behavior)
+- AC-2.4: Given a feature with `status="completed"` and DB `kanban_column="wip"`, when `_check_single_feature()` runs, then mismatches includes `WorkflowMismatch(field="kanban_column", meta_json_value="completed", db_value="wip")`
+- AC-2.5: Given a `WorkflowDriftReport` with `status="meta_json_ahead"` where `meta_json["status"]="completed"`, when `_reconcile_single_feature()` runs with `dry_run=False`, then `db.update_workflow_phase()` is called with `kanban_column="completed"`
+
+### R3: Artifact path verification in entity reconciliation
+
+**Problem:** During entity reconciliation and drift detection (`_check_single_feature()` in `reconciliation.py`), artifact paths referenced in entity records are assumed to exist on disk. Deep hierarchies with missing intermediate artifacts can produce orphaned entity records or misleading drift reports.
+
+**Fix:** Add an `artifact_dir` parameter to `_check_single_feature()` (computed by the caller `check_workflow_drift()` which already receives `artifacts_root` as an existing parameter — see `reconciliation.py:451-454`). Compute as `os.path.join(artifacts_root, "features", slug)`. Check `os.path.exists(artifact_dir)` before drift comparison. When the artifact path doesn't exist, set `artifact_missing=True` on the drift report. When `artifact_missing=True`, still perform DB comparison (do not short-circuit) so downstream consumers get both the missing-artifact flag and any drift mismatches.
+
+**Acceptance criteria:**
+- AC-3.1: `WorkflowDriftReport` gains an `artifact_missing: bool = False` field
+- AC-3.2: `_check_single_feature()` sets `artifact_missing=True` when the feature's artifact directory doesn't exist on disk
+- AC-3.3: Missing artifacts don't cause reconciliation to crash or hang
+- AC-3.4: `WorkflowDriftResult.summary` dict includes `artifact_missing_count` key, computed as `sum(1 for r in reports if r.artifact_missing)` in `_build_drift_result()`, separate from the status-based counting loop
+
+### R4: Depth context in reconciliation reporting
+
+**Problem:** `WorkflowDriftReport` (frozen dataclass at `reconciliation.py:37-45`) doesn't include entity depth or hierarchy context. When diagnosing drift in deeply nested features, the report lacks information about where the entity sits in the hierarchy.
+
+**Fix:** Add optional `depth` and `parent_type_id` fields to `WorkflowDriftReport` with `default=None` so existing call sites and test constructors continue to work without changes. Populate from entity registry DB when available within `_check_single_feature()`. Include in human-readable reconciliation output.
+
+**Acceptance criteria:**
+- AC-4.1: `WorkflowDriftReport` includes `depth: int | None = None` field
+- AC-4.2: `WorkflowDriftReport` includes `parent_type_id: str | None = None` field
+- AC-4.3: When `depth` is not None, `_check_single_feature()` appends depth and parent_type_id context to `WorkflowDriftReport.message` (e.g., `"depth: 3, parent: project:001-my-project"`). When depth is None, message remains unchanged from current behavior.
+- AC-4.4: Fields are None when entity has no parent (root entities)
+- AC-4.5: Existing test constructors of `WorkflowDriftReport` compile without changes (default=None)
+
+## Scope Boundaries
+
+**In scope:**
+- The four fixes listed above
+- Tests for each fix
+- Updating existing tests that break due to signature changes
+
+**Out of scope:**
+- Changing the max_depth constant (stays at 10)
+- Adding configurable depth limits
+- Refactoring entity registry architecture
+- UI changes to display depth information
+- Frontmatter validation changes (reviewed: `validate_header()` is a pure schema validator with no parent/DB lookups)
+- Degraded-mode changes (reviewed: degraded mode deals with phase transitions, not entity parent relationships)
+
+## Technical Notes
+
+- Key files: `plugins/pd/hooks/lib/entity_registry/database.py`, `plugins/pd/hooks/lib/workflow_engine/reconciliation.py`
+- Test commands: see CLAUDE.md for entity registry and workflow engine test commands
+- All fixes must maintain backward compatibility with existing entity DB schema (no migrations)
+- New fields on frozen dataclasses use `default=None` to maintain backward compatibility with existing constructors

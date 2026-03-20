@@ -737,7 +737,7 @@ class TestCheckWorkflowDrift:
 
         result = check_workflow_drift(engine, db, str(tmp_path))
 
-        expected_keys = {"in_sync", "meta_json_ahead", "db_ahead", "meta_json_only", "db_only", "error"}
+        expected_keys = {"in_sync", "meta_json_ahead", "db_ahead", "meta_json_only", "db_only", "error", "artifact_missing_count"}
         assert set(result.summary.keys()) == expected_keys
         # Empty scan -> all zeros
         for key in expected_keys:
@@ -1945,10 +1945,10 @@ class TestErrorPropagationReconciliation:
         import workflow_engine.reconciliation as recon_mod
         original = recon_mod._check_single_feature
 
-        def selective_check(eng, database, ftype_id, meta):
+        def selective_check(eng, database, ftype_id, meta, **kwargs):
             if "002-bad" in ftype_id:
                 raise RuntimeError("check exploded")
-            return original(eng, database, ftype_id, meta)
+            return original(eng, database, ftype_id, meta, **kwargs)
 
         monkeypatch.setattr(recon_mod, "_check_single_feature", selective_check)
 
@@ -2559,3 +2559,339 @@ class TestKanbanDriftDetectionDeepened:
         )
         assert kanban_mismatches[0].meta_json_value == "completed"
         assert kanban_mismatches[0].db_value == "documenting"
+
+
+# ===========================================================================
+# Feature 051, Task 2.1: Kanban status-awareness tests (R2)
+# ===========================================================================
+
+
+class TestDeriveExpectedKanbanStatusAwareness:
+    """Tests for _derive_expected_kanban with terminal status override (AC-2.1..AC-2.3)."""
+
+    def test_derive_kanban_completed_status(self):
+        """AC-2.1: status='completed' overrides phase-based kanban to 'completed'."""
+        result = _derive_expected_kanban(
+            workflow_phase="implement",
+            last_completed_phase=None,
+            status="completed",
+        )
+        assert result == "completed"
+
+    def test_derive_kanban_abandoned_status(self):
+        """AC-2.2: status='abandoned' also maps to 'completed' kanban column."""
+        result = _derive_expected_kanban(
+            workflow_phase="implement",
+            last_completed_phase=None,
+            status="abandoned",
+        )
+        assert result == "completed"
+
+    def test_derive_kanban_active_unchanged(self):
+        """AC-2.3: status='active' does not override — uses phase-based lookup."""
+        # implement phase -> 'wip' (from FEATURE_PHASE_TO_KANBAN)
+        result_with_status = _derive_expected_kanban(
+            workflow_phase="implement",
+            last_completed_phase=None,
+            status="active",
+        )
+        result_without_status = _derive_expected_kanban(
+            workflow_phase="implement",
+            last_completed_phase=None,
+        )
+        assert result_with_status == result_without_status == "wip"
+
+
+class TestKanbanDriftTerminalStatus:
+    """Kanban drift detection and reconciliation for terminal statuses (AC-2.4, AC-2.5)."""
+
+    def test_check_feature_kanban_drift_terminal_status(self, tmp_path):
+        """AC-2.4: feature with status='completed' and DB kanban='wip' -> mismatch.
+
+        The expected kanban for a completed feature is 'completed' regardless
+        of the workflow_phase. If DB has 'wip', drift should be detected with
+        meta_json_value='completed'.
+        """
+        # Setup: feature at implement phase but status='completed', DB kanban='wip'
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            slug="051-terminal",
+            workflow_phase="implement",
+            last_completed_phase="create-tasks",
+            mode="standard",
+            kanban_column="wip",
+        )
+        # Meta: completed status overrides phase-based kanban
+        meta = {
+            "status": "completed",
+            "mode": "standard",
+            "lastCompletedPhase": "create-tasks",
+        }
+
+        report = _check_single_feature(engine, db, type_id, meta)
+
+        kanban_mismatches = [m for m in report.mismatches if m.field == "kanban_column"]
+        assert len(kanban_mismatches) == 1, (
+            f"Expected 1 kanban_column mismatch, got {len(kanban_mismatches)}. "
+            f"All mismatches: {report.mismatches}"
+        )
+        assert kanban_mismatches[0].meta_json_value == "completed"
+        assert kanban_mismatches[0].db_value == "wip"
+
+    def test_reconcile_terminal_status_kanban(self, tmp_path):
+        """AC-2.5: reconciliation with status='completed' updates DB kanban to 'completed'.
+
+        Given a meta_json_ahead drift report where meta_json status='completed',
+        reconciliation should derive kanban='completed' and update the DB.
+        """
+        _, db, type_id = _setup_engine(
+            tmp_path,
+            slug="051-terminal-recon",
+            workflow_phase="implement",
+            last_completed_phase="create-tasks",
+            mode="standard",
+            kanban_column="wip",
+        )
+
+        report = WorkflowDriftReport(
+            feature_type_id=type_id,
+            status="meta_json_ahead",
+            meta_json={
+                "workflow_phase": "implement",
+                "last_completed_phase": "create-tasks",
+                "mode": "standard",
+                "status": "completed",
+            },
+            db={
+                "workflow_phase": "implement",
+                "last_completed_phase": "create-tasks",
+                "mode": "standard",
+                "kanban_column": "wip",
+            },
+            mismatches=(
+                WorkflowMismatch(
+                    field="kanban_column",
+                    meta_json_value="completed",
+                    db_value="wip",
+                ),
+            ),
+        )
+
+        _reconcile_single_feature(db, report, dry_run=False)
+
+        row = db.get_workflow_phase(type_id)
+        assert row is not None
+        assert row["kanban_column"] == "completed", (
+            f"Expected kanban_column='completed' after reconcile, got '{row['kanban_column']}'"
+        )
+
+
+# ===========================================================================
+# Task 3.1a: Artifact path verification tests (R3)
+# ===========================================================================
+
+
+class TestArtifactPathVerification:
+    """Tests for artifact_missing flag on WorkflowDriftReport (AC-3.1--AC-3.4)."""
+
+    def test_artifact_missing_flag(self, tmp_path):
+        """AC-3.1/AC-3.2: feature with non-existent artifact dir -> artifact_missing=True."""
+        db = _make_db()
+        slug = "099-nonexistent"
+        type_id = _register_feature(db, slug)
+        db.create_workflow_phase(
+            type_id,
+            workflow_phase="design",
+            last_completed_phase="specify",
+            mode="standard",
+            kanban_column="wip",
+        )
+        # Create .meta.json but in a DIFFERENT slug dir so the artifact_dir
+        # computed by check_workflow_drift won't match. Actually, we need the
+        # .meta.json to exist for the engine to find it, but the artifact_dir
+        # check is separate. The simplest approach: use _check_single_feature
+        # directly with an explicit non-existent artifact_dir.
+        meta = {
+            "workflow_phase": "design",
+            "last_completed_phase": "specify",
+            "mode": "standard",
+            "status": "active",
+        }
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        nonexistent_dir = str(tmp_path / "features" / slug)
+        # Directory does NOT exist on disk
+
+        report = _check_single_feature(engine, db, type_id, meta, artifact_dir=nonexistent_dir)
+
+        assert report.artifact_missing is True
+
+    def test_artifact_missing_no_short_circuit(self, tmp_path):
+        """AC-3.3/TD-3: missing artifact AND DB drift -> artifact_missing=True AND mismatches non-empty."""
+        db = _make_db()
+        slug = "099-drifted"
+        type_id = _register_feature(db, slug)
+        # DB has older state than meta
+        db.create_workflow_phase(
+            type_id,
+            workflow_phase="specify",
+            last_completed_phase=None,
+            mode="standard",
+            kanban_column="backlog",
+        )
+        # .meta.json is ahead
+        meta = {
+            "workflow_phase": "design",
+            "last_completed_phase": "specify",
+            "mode": "standard",
+            "status": "active",
+        }
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        nonexistent_dir = str(tmp_path / "features" / slug)
+
+        report = _check_single_feature(engine, db, type_id, meta, artifact_dir=nonexistent_dir)
+
+        assert report.artifact_missing is True, "artifact_missing should be True for non-existent dir"
+        assert len(report.mismatches) > 0, "Drift mismatches should still be detected (no short-circuit)"
+
+    def test_artifact_missing_count_summary(self, tmp_path):
+        """AC-3.4: drift result summary has artifact_missing_count key with correct count."""
+        from workflow_engine.reconciliation import _build_drift_result
+
+        # Two reports: one with artifact_missing=True, one without
+        report_missing = WorkflowDriftReport(
+            feature_type_id="feature:099-missing",
+            status="in_sync",
+            meta_json={"workflow_phase": "design", "last_completed_phase": "specify", "mode": "standard", "status": "active"},
+            db={"workflow_phase": "design", "last_completed_phase": "specify", "mode": "standard", "kanban_column": "wip"},
+            mismatches=(),
+            artifact_missing=True,
+        )
+        report_present = WorkflowDriftReport(
+            feature_type_id="feature:099-present",
+            status="in_sync",
+            meta_json={"workflow_phase": "design", "last_completed_phase": "specify", "mode": "standard", "status": "active"},
+            db={"workflow_phase": "design", "last_completed_phase": "specify", "mode": "standard", "kanban_column": "wip"},
+            mismatches=(),
+            artifact_missing=False,
+        )
+
+        result = _build_drift_result([report_missing, report_present])
+
+        assert "artifact_missing_count" in result.summary, "summary must have artifact_missing_count key"
+        assert result.summary["artifact_missing_count"] == 1, (
+            f"Expected 1 artifact_missing, got {result.summary['artifact_missing_count']}"
+        )
+
+
+class TestDepthContextReporting:
+    """Tests for depth/parent_type_id fields on WorkflowDriftReport (AC-4.1--AC-4.5)."""
+
+    def test_drift_report_depth_context(self, tmp_path):
+        """AC-4.1/AC-4.2/AC-4.3: entity with parent -> report.depth is int, parent_type_id is str, message contains depth/parent."""
+        db = _make_db()
+        # Register parent entity
+        parent_slug = "070-parent"
+        parent_tid = f"feature:{parent_slug}"
+        db.register_entity(
+            entity_type="feature",
+            entity_id=parent_slug,
+            name="Parent Feature",
+            status="active",
+        )
+        # Register child entity with parent
+        child_slug = "071-child"
+        child_tid = f"feature:{child_slug}"
+        db.register_entity(
+            entity_type="feature",
+            entity_id=child_slug,
+            name="Child Feature",
+            status="active",
+        )
+        db.set_parent(child_tid, parent_tid)
+
+        # Create workflow phase rows for both
+        db.create_workflow_phase(
+            child_tid,
+            workflow_phase="design",
+            last_completed_phase="specify",
+            mode="standard",
+            kanban_column="wip",
+        )
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        meta = {
+            "workflow_phase": "design",
+            "last_completed_phase": "specify",
+            "mode": "standard",
+            "status": "active",
+        }
+
+        report = _check_single_feature(engine, db, child_tid, meta)
+
+        assert isinstance(report.depth, int), f"Expected int depth, got {type(report.depth)}"
+        assert isinstance(report.parent_type_id, str), f"Expected str parent_type_id, got {type(report.parent_type_id)}"
+        assert "depth:" in report.message, f"Expected 'depth:' in message, got: {report.message!r}"
+        assert "parent:" in report.message, f"Expected 'parent:' in message, got: {report.message!r}"
+
+    def test_drift_report_root_entity_no_depth(self, tmp_path):
+        """AC-4.4: root entity -> depth is None, parent_type_id is None, message is empty."""
+        db = _make_db()
+        slug = "072-root"
+        type_id = _register_feature(db, slug)
+        db.create_workflow_phase(
+            type_id,
+            workflow_phase="design",
+            last_completed_phase="specify",
+            mode="standard",
+            kanban_column="wip",
+        )
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        meta = {
+            "workflow_phase": "design",
+            "last_completed_phase": "specify",
+            "mode": "standard",
+            "status": "active",
+        }
+
+        report = _check_single_feature(engine, db, type_id, meta)
+
+        assert report.depth is None, f"Expected None depth for root entity, got {report.depth}"
+        assert report.parent_type_id is None, f"Expected None parent_type_id for root, got {report.parent_type_id}"
+        assert report.message == "", f"Expected empty message for root entity, got {report.message!r}"
+
+    def test_drift_report_depth_value_multi_level(self, tmp_path):
+        """AC-4.1: 3-level hierarchy (root->parent->child), child depth == 2."""
+        db = _make_db()
+        # Create 3-level hierarchy: root -> parent -> child
+        root_slug = "080-root"
+        root_tid = f"feature:{root_slug}"
+        db.register_entity(entity_type="feature", entity_id=root_slug, name="Root", status="active")
+
+        parent_slug = "081-parent"
+        parent_tid = f"feature:{parent_slug}"
+        db.register_entity(entity_type="feature", entity_id=parent_slug, name="Parent", status="active")
+        db.set_parent(parent_tid, root_tid)
+
+        child_slug = "082-child"
+        child_tid = f"feature:{child_slug}"
+        db.register_entity(entity_type="feature", entity_id=child_slug, name="Child", status="active")
+        db.set_parent(child_tid, parent_tid)
+
+        # Create workflow phase for child
+        db.create_workflow_phase(
+            child_tid,
+            workflow_phase="design",
+            last_completed_phase="specify",
+            mode="standard",
+            kanban_column="wip",
+        )
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        meta = {
+            "workflow_phase": "design",
+            "last_completed_phase": "specify",
+            "mode": "standard",
+            "status": "active",
+        }
+
+        report = _check_single_feature(engine, db, child_tid, meta)
+
+        assert report.depth == 2, f"Expected depth=2 for child in 3-level hierarchy, got {report.depth}"

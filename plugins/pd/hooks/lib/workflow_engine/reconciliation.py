@@ -43,6 +43,9 @@ class WorkflowDriftReport:
     db: dict | None  # {workflow_phase, last_completed_phase, mode, kanban_column}
     mismatches: tuple[WorkflowMismatch, ...]
     message: str = ""  # human-readable context for error/edge cases
+    artifact_missing: bool = False  # R3: artifact dir does not exist on disk
+    depth: int | None = None  # R4: entity tree depth (None for root/unknown)
+    parent_type_id: str | None = None  # R4: immediate parent type_id
 
 
 @dataclass(frozen=True)
@@ -172,17 +175,25 @@ def _read_single_meta_json(
         return None
 
 
+_TERMINAL_STATUSES: frozenset[str] = frozenset({"completed", "abandoned"})
+
+
 def _derive_expected_kanban(
     workflow_phase: str | None,
     last_completed_phase: str | None,
+    status: str | None = None,
 ) -> str | None:
     """Derive the expected kanban column from workflow phase.
 
+    Terminal statuses (completed, abandoned) always map to 'completed'
+    kanban column regardless of phase -- both are absorbing states.
     Special case: finish phase with finish as last_completed means the
     feature completed all phases -> 'completed' column.
     Otherwise, look up the phase in FEATURE_PHASE_TO_KANBAN.
     Returns None for unknown or None phases.
     """
+    if status in _TERMINAL_STATUSES:
+        return "completed"
     if workflow_phase is None:
         return None
     if workflow_phase == "finish" and last_completed_phase == "finish":
@@ -195,6 +206,7 @@ def _check_single_feature(
     db: EntityDatabase,
     feature_type_id: str,
     meta: dict,
+    artifact_dir: str | None = None,
 ) -> WorkflowDriftReport:
     """Build drift report for one feature given its .meta.json dict and DB state.
 
@@ -203,6 +215,9 @@ def _check_single_feature(
     - state.last_completed_phase -> last_completed_phase
     - state.mode -> mode
     """
+    # R3: Check artifact directory existence
+    artifact_missing = artifact_dir is not None and not os.path.exists(artifact_dir)
+
     # Derive state from meta
     state = engine._derive_state_from_meta(meta, feature_type_id)
     if state is None:
@@ -233,6 +248,7 @@ def _check_single_feature(
             meta_json=meta_dict,
             db=None,
             mismatches=(),
+            artifact_missing=artifact_missing,
         )
 
     # Build DB output dict
@@ -277,7 +293,8 @@ def _check_single_feature(
 
     # Kanban column drift detection
     expected_kanban = _derive_expected_kanban(
-        state.current_phase, state.last_completed_phase
+        state.current_phase, state.last_completed_phase,
+        status=meta.get("status"),
     )
     if expected_kanban is not None and expected_kanban != row["kanban_column"]:
         mismatches.append(WorkflowMismatch(
@@ -286,12 +303,31 @@ def _check_single_feature(
             db_value=row["kanban_column"],
         ))
 
+    # R4: Depth context
+    # Performance: +1 get_entity + conditional get_lineage per feature. OK for <100 features.
+    depth = None
+    parent_tid = None
+    msg = ""
+    entity = db.get_entity(feature_type_id)
+    if entity is not None:
+        parent_tid = entity.get("parent_type_id")
+        if parent_tid is not None:
+            ancestors = db.get_lineage(feature_type_id, direction="up")
+            # len - 1: get_lineage includes self (depth 0), so subtract 1 for tree depth
+            depth = (len(ancestors) - 1) if ancestors else None
+    if depth is not None:
+        msg = f"depth: {depth}, parent: {parent_tid}"
+
     return WorkflowDriftReport(
         feature_type_id=feature_type_id,
         status=status,
         meta_json=meta_dict,
         db=db_dict,
         mismatches=tuple(mismatches),
+        message=msg,
+        artifact_missing=artifact_missing,
+        depth=depth,
+        parent_type_id=parent_tid,
     )
 
 
@@ -324,7 +360,8 @@ def _reconcile_single_feature(
                 )
             try:
                 expected_kanban = _derive_expected_kanban(
-                    meta["workflow_phase"], meta["last_completed_phase"]
+                    meta["workflow_phase"], meta["last_completed_phase"],
+                    status=meta.get("status"),
                 )
                 kwargs = dict(
                     workflow_phase=meta["workflow_phase"],
@@ -483,7 +520,9 @@ def check_workflow_drift(
         meta = _read_single_meta_json(engine, artifacts_root, feature_type_id)
         if meta is not None:
             try:
-                report = _check_single_feature(engine, db, feature_type_id, meta)
+                slug = engine._extract_slug(feature_type_id)
+                artifact_dir = os.path.join(artifacts_root, "features", slug)
+                report = _check_single_feature(engine, db, feature_type_id, meta, artifact_dir=artifact_dir)
                 reports.append(report)
             except Exception as exc:
                 reports.append(WorkflowDriftReport(
@@ -526,7 +565,9 @@ def check_workflow_drift(
         for ftype_id, meta in engine._iter_meta_jsons():
             meta_type_ids.add(ftype_id)
             try:
-                report = _check_single_feature(engine, db, ftype_id, meta)
+                slug = engine._extract_slug(ftype_id)
+                artifact_dir = os.path.join(artifacts_root, "features", slug)
+                report = _check_single_feature(engine, db, ftype_id, meta, artifact_dir=artifact_dir)
                 reports.append(report)
             except Exception as exc:
                 reports.append(WorkflowDriftReport(
@@ -638,6 +679,8 @@ def _build_drift_result(reports: list[WorkflowDriftReport]) -> WorkflowDriftResu
             summary[report.status] += 1
         else:
             summary["error"] += 1
+
+    summary["artifact_missing_count"] = sum(1 for r in reports if r.artifact_missing)
 
     return WorkflowDriftResult(features=tuple(reports), summary=summary)
 
