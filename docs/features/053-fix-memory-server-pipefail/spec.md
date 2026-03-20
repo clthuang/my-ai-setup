@@ -86,4 +86,4 @@ except Exception as exc:
 2. **Automated regression (R3):** Run existing memory server tests: `plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_memory_server.py -v`
 3. **Automated regression (R3):** Run embedding tests: `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/semantic_memory/ -v -k embedding`
 4. **Automated regression (R1, R2):** Run bootstrap wrapper test: `bash plugins/pd/mcp/test_run_memory_server.sh`
-5. **Manual verification (R3):** Confirm stderr output from `create_provider` contains specific error when SDK or key is missing (checked during smoke test in step 1).
+5. **Manual verification (R3):** Run server with a missing SDK or bad config, confirm stderr contains the provider name and exception text (e.g., `create_provider failed for gemini: ...`). Pass criterion: stderr includes both provider name and exception message.
