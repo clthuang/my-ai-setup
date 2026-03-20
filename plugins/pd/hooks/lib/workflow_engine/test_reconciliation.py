@@ -2781,3 +2781,117 @@ class TestArtifactPathVerification:
         assert result.summary["artifact_missing_count"] == 1, (
             f"Expected 1 artifact_missing, got {result.summary['artifact_missing_count']}"
         )
+
+
+class TestDepthContextReporting:
+    """Tests for depth/parent_type_id fields on WorkflowDriftReport (AC-4.1--AC-4.5)."""
+
+    def test_drift_report_depth_context(self, tmp_path):
+        """AC-4.1/AC-4.2/AC-4.3: entity with parent -> report.depth is int, parent_type_id is str, message contains depth/parent."""
+        db = _make_db()
+        # Register parent entity
+        parent_slug = "070-parent"
+        parent_tid = f"feature:{parent_slug}"
+        db.register_entity(
+            entity_type="feature",
+            entity_id=parent_slug,
+            name="Parent Feature",
+            status="active",
+        )
+        # Register child entity with parent
+        child_slug = "071-child"
+        child_tid = f"feature:{child_slug}"
+        db.register_entity(
+            entity_type="feature",
+            entity_id=child_slug,
+            name="Child Feature",
+            status="active",
+        )
+        db.set_parent(child_tid, parent_tid)
+
+        # Create workflow phase rows for both
+        db.create_workflow_phase(
+            child_tid,
+            workflow_phase="design",
+            last_completed_phase="specify",
+            mode="standard",
+            kanban_column="wip",
+        )
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        meta = {
+            "workflow_phase": "design",
+            "last_completed_phase": "specify",
+            "mode": "standard",
+            "status": "active",
+        }
+
+        report = _check_single_feature(engine, db, child_tid, meta)
+
+        assert isinstance(report.depth, int), f"Expected int depth, got {type(report.depth)}"
+        assert isinstance(report.parent_type_id, str), f"Expected str parent_type_id, got {type(report.parent_type_id)}"
+        assert "depth:" in report.message, f"Expected 'depth:' in message, got: {report.message!r}"
+        assert "parent:" in report.message, f"Expected 'parent:' in message, got: {report.message!r}"
+
+    def test_drift_report_root_entity_no_depth(self, tmp_path):
+        """AC-4.4: root entity -> depth is None, parent_type_id is None, message is empty."""
+        db = _make_db()
+        slug = "072-root"
+        type_id = _register_feature(db, slug)
+        db.create_workflow_phase(
+            type_id,
+            workflow_phase="design",
+            last_completed_phase="specify",
+            mode="standard",
+            kanban_column="wip",
+        )
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        meta = {
+            "workflow_phase": "design",
+            "last_completed_phase": "specify",
+            "mode": "standard",
+            "status": "active",
+        }
+
+        report = _check_single_feature(engine, db, type_id, meta)
+
+        assert report.depth is None, f"Expected None depth for root entity, got {report.depth}"
+        assert report.parent_type_id is None, f"Expected None parent_type_id for root, got {report.parent_type_id}"
+        assert report.message == "", f"Expected empty message for root entity, got {report.message!r}"
+
+    def test_drift_report_depth_value_multi_level(self, tmp_path):
+        """AC-4.1: 3-level hierarchy (root->parent->child), child depth == 2."""
+        db = _make_db()
+        # Create 3-level hierarchy: root -> parent -> child
+        root_slug = "080-root"
+        root_tid = f"feature:{root_slug}"
+        db.register_entity(entity_type="feature", entity_id=root_slug, name="Root", status="active")
+
+        parent_slug = "081-parent"
+        parent_tid = f"feature:{parent_slug}"
+        db.register_entity(entity_type="feature", entity_id=parent_slug, name="Parent", status="active")
+        db.set_parent(parent_tid, root_tid)
+
+        child_slug = "082-child"
+        child_tid = f"feature:{child_slug}"
+        db.register_entity(entity_type="feature", entity_id=child_slug, name="Child", status="active")
+        db.set_parent(child_tid, parent_tid)
+
+        # Create workflow phase for child
+        db.create_workflow_phase(
+            child_tid,
+            workflow_phase="design",
+            last_completed_phase="specify",
+            mode="standard",
+            kanban_column="wip",
+        )
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        meta = {
+            "workflow_phase": "design",
+            "last_completed_phase": "specify",
+            "mode": "standard",
+            "status": "active",
+        }
+
+        report = _check_single_feature(engine, db, child_tid, meta)
+
+        assert report.depth == 2, f"Expected depth=2 for child in 3-level hierarchy, got {report.depth}"

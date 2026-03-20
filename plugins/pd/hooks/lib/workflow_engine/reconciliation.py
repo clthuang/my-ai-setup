@@ -44,6 +44,8 @@ class WorkflowDriftReport:
     mismatches: tuple[WorkflowMismatch, ...]
     message: str = ""  # human-readable context for error/edge cases
     artifact_missing: bool = False  # R3: artifact dir does not exist on disk
+    depth: int | None = None  # R4: entity tree depth (None for root/unknown)
+    parent_type_id: str | None = None  # R4: immediate parent type_id
 
 
 @dataclass(frozen=True)
@@ -300,13 +302,31 @@ def _check_single_feature(
             db_value=row["kanban_column"],
         ))
 
+    # R4: Depth context
+    # Performance: +1 get_entity + conditional get_lineage per feature. OK for <100 features.
+    depth = None
+    parent_tid = None
+    msg = ""
+    entity = db.get_entity(feature_type_id)
+    if entity is not None:
+        parent_tid = entity.get("parent_type_id")
+        if parent_tid is not None:
+            ancestors = db.get_lineage(feature_type_id, direction="up")
+            # len - 1: get_lineage includes self (depth 0), so subtract 1 for tree depth
+            depth = (len(ancestors) - 1) if ancestors else None
+    if depth is not None:
+        msg = f"depth: {depth}, parent: {parent_tid}"
+
     return WorkflowDriftReport(
         feature_type_id=feature_type_id,
         status=status,
         meta_json=meta_dict,
         db=db_dict,
         mismatches=tuple(mismatches),
+        message=msg,
         artifact_missing=artifact_missing,
+        depth=depth,
+        parent_type_id=parent_tid,
     )
 
 
