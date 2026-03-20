@@ -246,7 +246,11 @@ Passed to `WorkflowDriftReport(... message=msg, depth=depth, parent_type_id=pare
 - Entity not in registry: `get_entity()` returns None → depth/parent remain None
 - Entity has parent but `get_lineage()` returns empty list (broken reference): `depth = None` (defensive guard), `parent_type_id` still set
 
-**Scale note:** One extra `get_entity()` + conditional `get_lineage()` per feature. Acceptable for expected scale (<100 features per project). Drift checks are already I/O-bound.
+**Scale note:** One extra `get_entity()` + conditional `get_lineage()` per feature. Acceptable for expected scale (<100 features per project). Drift checks are already I/O-bound. Add a comment near the new DB calls noting this performance boundary for future maintainers.
+
+**Verified:** `get_lineage(direction="up")` includes the entity itself at depth 0 — confirmed via `_lineage_up()` CTE seed at `database.py:809` (`SELECT ?, 0`) and existing test `test_traversal_depth_at_exactly_ten_hops_no_loop`. The `len - 1` adjustment is correct.
+
+**Implementation note for plan:** The `message` field is SET (not appended) on the success path. The spec's AC-4.3 wording "appends" is imprecise — on the success path, `message` defaults to `""` so there is nothing to append to. Implementer should follow the design, not the spec wording.
 
 ### Test Impact
 
