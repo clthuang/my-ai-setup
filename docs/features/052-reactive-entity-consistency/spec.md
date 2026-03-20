@@ -228,7 +228,7 @@ WEIGHT_TEMPLATES = {
 4. Proposes: type, weight, parent linkage, circle tags
 5. On user confirmation, dispatches the appropriate create command with parent linkage
 
-**Mode detection heuristic:** Action verbs (need, want, build, add, create, fix, set up) → CREATE. Question words (how, what, status, progress, where) → QUERY. Continuation words (next, resume, continue, what's ready) → CONTINUE. Ambiguous → secretary asks for clarification.
+**Mode detection heuristic:** Context overrides keywords. If on a feature branch, default to CONTINUE unless explicitly creating a new entity. Otherwise: action verbs (need, want, build, add, create, fix, set up) → CREATE. Question words (how, what, status, progress, where) → QUERY. Continuation words (next, resume, continue, what's ready) → CONTINUE. If ambiguous after context check → ask for clarification.
 
 **Verification:**
 - Given registry contains `key_result:001-p0-incidents`, When user says "We need better observability", Then secretary proposes type=project, weight=standard, parent_candidate=key_result:001-p0-incidents.
@@ -301,7 +301,7 @@ Notification types with default thresholds (configurable via `pd.local.md`):
 **When** user describes expanding scope to secretary (mentions cross-team impact, auth/payment changes, or scope exceeding original description)
 **Then** secretary recommends upgrading weight: "This is growing beyond light weight. Upgrade to standard?"
 
-**Upgrading weight** means: entity's `mode` metadata updated from `light` to `standard`, active template expanded (new phases become available but already-completed phases are preserved). No new entity created — same uuid, updated template.
+**Upgrading weight** means: entity's `mode` metadata updated from `light` to `standard`, active template expanded. Phases before the current position that were not in the original template are marked as `skipped` (not retroactively gated). The entity continues from its current phase. No new entity created — same uuid, updated template.
 
 **Verification:** Light feature in implement phase. User says "this now needs a design review." Secretary recommends upgrade to standard. On confirmation, template expands to include design phase.
 
@@ -319,7 +319,9 @@ Notification types with default thresholds (configurable via `pd.local.md`):
 
 Opt-in: simple tasks stay as markdown. Tasks are promoted to entities via `promote_task` MCP tool or `/pd:promote-task` command. Promotion creates an entity and marks the task in tasks.md as entity-tracked.
 
-**Verification:** Feature with 5 tasks in tasks.md. Promote 3 via `promote_task(feature_uuid, task_index)` → 3 task entities created with parent=feature uuid. 2 remain markdown-only.
+**Task identification:** Tasks are identified by heading text content (not fragile index). `promote_task(feature_uuid, task_heading)` fuzzy-matches against task headings in tasks.md. If ambiguous, returns candidates for user selection.
+
+**Verification:** Feature with 5 tasks in tasks.md. Promote 3 via `promote_task(feature_uuid, "Add structured log fields")` → task entity created with parent=feature uuid. Ambiguous heading → returns candidates.
 
 ### AC-24: Agent-Executable Task Query
 
@@ -496,6 +498,8 @@ Deliver phase mapping by entity type: features = `implement`, 5D entities = `del
 **When** querying the initiative's progress
 **Then** recursive rollup computes: initiative progress from objectives, objective scores from KRs, KR scores from projects/features, project progress from features, feature progress from tasks.
 
+**Computation model:** Rollup is maintained eagerly — each entity stores its computed progress. When a task completes, parent feature progress is recomputed and stored, which triggers parent project recompute and store, up the chain. AC-37 queries read pre-computed progress, not recompute recursively.
+
 **Verification:** Create full hierarchy: initiative → objective → KR → project → 2 features → 4 tasks. Complete all tasks → features complete → project complete → KR score = 1.0 → objective score updates → initiative progress reflects all completions.
 
 ---
@@ -521,7 +525,11 @@ Deliver phase mapping by entity type: features = `implement`, 5D entities = `del
 - Migration supports `--dry-run` mode
 - Rollback = restore backup file
 
-### NFR-5: Existing Entity Preservation
+### NFR-5: Concurrency
+- All cascading operations (completion → unblock → rollup) use `BEGIN IMMEDIATE` transactions within SQLite WAL mode
+- Preserves existing concurrency model from `database.py`
+
+### NFR-6: Existing Entity Preservation
 - Existing entities retain their current type_ids (no forced rename)
 - New entities use standardised format
 - `parent_type_id` retained as denormalised display field alongside canonical `parent_uuid`
