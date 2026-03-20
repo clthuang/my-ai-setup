@@ -68,7 +68,7 @@
 - **Verify (focused):** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/workflow_engine/test_reconciliation.py -v -k "artifact"`
 - **Verify (regression):** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/workflow_engine/test_reconciliation.py -v`
 
-## Phase 4: R4 — Depth context in reporting (depends on Phase 3)
+## Phase 4: R4 — Depth context in reporting (BLOCKED by Phase 3 — must complete 3.1b first)
 
 ### Task 4.1a: Write depth context tests (red)
 - **File:** `plugins/pd/hooks/lib/workflow_engine/test_reconciliation.py`
