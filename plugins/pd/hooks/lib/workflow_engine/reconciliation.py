@@ -248,6 +248,7 @@ def _check_single_feature(
             meta_json=meta_dict,
             db=None,
             mismatches=(),
+            artifact_missing=artifact_missing,
         )
 
     # Build DB output dict
