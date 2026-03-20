@@ -6,7 +6,7 @@
 - **File:** `plugins/pd/hooks/lib/entity_registry/test_database.py`
 - **Do:** Add `test_set_parent_depth_guard_11_hops_no_cycle` — create 11-entity chain (no cycle), call `set_parent()` to link 12th entity, assert success without hang or exception
 - **Do:** Add `test_set_parent_cycle_within_10_hops` — create chain with cycle at hop 5, call `set_parent()`, assert `ValueError` raised
-- **Done when:** Both tests exist and fail (red phase — CTE has no depth guard yet)
+- **Done when:** Both tests exist. `test_set_parent_depth_guard_11_hops_no_cycle` fails (red — no depth guard). `test_set_parent_cycle_within_10_hops` may already pass since the existing CTE detects short cycles — this is expected.
 - **Spec:** AC-1.2, AC-1.3, AC-1.4
 
 ### Task 1.2: Add depth guard to set_parent() CTE
@@ -72,7 +72,7 @@
 
 ### Task 4.1a: Write depth context tests (red)
 - **File:** `plugins/pd/hooks/lib/workflow_engine/test_reconciliation.py`
-- **Note:** Depends on Task 3.1b (artifact_missing field must exist first).
+- **Depends on:** Task 3.1b (WorkflowDriftReport must have `artifact_missing` field before adding `depth`/`parent_type_id` after it)
 - **Do:** Add 3 tests (will fail until 4.1b implements the fields):
   - `test_drift_report_depth_context`: entity with parent → `report.depth` is int, `report.parent_type_id` is str, `report.message` contains `"depth:"` and `"parent:"`
   - `test_drift_report_root_entity_no_depth`: root entity → `report.depth is None`, `report.parent_type_id is None`, `report.message == ""`
