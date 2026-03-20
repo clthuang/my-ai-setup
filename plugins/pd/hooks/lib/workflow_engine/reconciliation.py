@@ -443,6 +443,38 @@ def _reconcile_single_feature(
         )
 
     if report.status == "in_sync":
+        # Check for kanban-only drift (phases match but kanban column is wrong)
+        kanban_mismatches = tuple(
+            m for m in report.mismatches if m.field == "kanban_column"
+        )
+        if kanban_mismatches:
+            if not dry_run:
+                try:
+                    meta = report.meta_json
+                    if meta is not None:
+                        expected_kanban = _derive_expected_kanban(
+                            meta["workflow_phase"], meta["last_completed_phase"],
+                            status=meta.get("status"),
+                        )
+                        if expected_kanban is not None:
+                            db.update_workflow_phase(
+                                feature_type_id, kanban_column=expected_kanban,
+                            )
+                except ValueError as exc:
+                    return ReconcileAction(
+                        feature_type_id=feature_type_id,
+                        action="error",
+                        direction=direction,
+                        changes=(),
+                        message=f"Kanban fix failed: {exc}",
+                    )
+            return ReconcileAction(
+                feature_type_id=feature_type_id,
+                action="reconciled",
+                direction=direction,
+                changes=kanban_mismatches,
+                message="Fixed kanban column drift",
+            )
         return ReconcileAction(
             feature_type_id=feature_type_id,
             action="skipped",
@@ -695,13 +727,47 @@ def _build_reconciliation_result(
         "skipped": 0,
         "error": 0,
         "dry_run": 0,
+        "kanban_fixed": 0,
     }
     for action in actions:
         if action.action in summary:
             summary[action.action] += 1
+        # Count features that had kanban_column in their changes
+        if action.action in ("reconciled", "created"):
+            for change in action.changes:
+                if change.field == "kanban_column":
+                    summary["kanban_fixed"] += 1
+                    break  # one kanban fix per feature max
 
     if dry_run:
         # dry_run count = total non-error, non-skipped actions
         summary["dry_run"] = summary["reconciled"] + summary["created"]
 
     return ReconciliationResult(actions=tuple(actions), summary=summary)
+
+
+def format_reconciliation_summary(summary: dict) -> str:
+    """Format reconciliation summary for human display.
+
+    Returns a single-line summary string, or empty string when zero changes
+    (silent-when-zero per AC-6).
+
+    Parameters
+    ----------
+    summary : dict
+        The .summary dict from ReconciliationResult.
+
+    Returns
+    -------
+    str
+        "Reconciled: {n} features synced, {n} kanban fixed, {n} warnings"
+        or "" when no changes.
+    """
+    features_synced = summary.get("reconciled", 0) + summary.get("created", 0)
+    kanban_fixed = summary.get("kanban_fixed", 0)
+    warnings = summary.get("error", 0)
+
+    if features_synced == 0 and kanban_fixed == 0 and warnings == 0:
+        return ""
+
+    return f"Reconciled: {features_synced} features synced, {kanban_fixed} kanban fixed, {warnings} warnings"

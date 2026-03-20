@@ -413,7 +413,7 @@ build_memory_context() {
 }
 
 # Run reconciliation orchestrator: sync entity statuses, brainstorm registry, and KB
-# Runs silently for side effects (DB reconciliation). Does not contribute to full_context.
+# Returns reconciliation summary line via stdout (empty if no changes).
 run_reconciliation() {
     local python_cmd="$PLUGIN_ROOT/.venv/bin/python"
     local result
@@ -442,6 +442,24 @@ run_reconciliation() {
     # stderr is suppressed to prevent JSON corruption.
     # For debugging, run the orchestrator manually with --verbose flag
     # which writes to a log file instead of stderr.
+
+    # Extract workflow_reconcile summary and format for display (AC-6)
+    # Silent when zero changes.
+    if [[ -n "$result" ]]; then
+        python3 -c "
+import json, sys
+try:
+    data = json.loads(sys.argv[1])
+    wr = data.get('workflow_reconcile') or {}
+    synced = wr.get('reconciled', 0) + wr.get('created', 0)
+    kanban = wr.get('kanban_fixed', 0)
+    warnings = wr.get('error', 0)
+    if synced or kanban or warnings:
+        print(f'Reconciled: {synced} features synced, {kanban} kanban fixed, {warnings} warnings')
+except Exception:
+    pass
+" "$result" 2>/dev/null
+    fi
 }
 
 # Main
@@ -482,7 +500,8 @@ EOF
     local memory_context=""
     memory_context=$(build_memory_context)
 
-    run_reconciliation
+    local recon_summary=""
+    recon_summary=$(run_reconciliation)
 
     local context
     context=$(build_context)
@@ -497,6 +516,14 @@ EOF
             full_context="${full_context}\n\n${first_run_warning}"
         else
             full_context="${first_run_warning}"
+        fi
+    fi
+    # AC-6: Surface reconciliation summary (silent when zero changes)
+    if [[ -n "$recon_summary" ]]; then
+        if [[ -n "$full_context" ]]; then
+            full_context="${full_context}\n\n${recon_summary}"
+        else
+            full_context="${recon_summary}"
         fi
     fi
     if [[ -n "$memory_context" ]]; then
