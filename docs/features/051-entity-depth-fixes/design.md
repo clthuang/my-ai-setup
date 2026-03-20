@@ -96,6 +96,8 @@ Parameters: `{"parent_uuid": parent_uuid, "child_uuid": child_uuid}` (unchanged)
 
 No signature change to `set_parent()`.
 
+**Seed depth convention:** `depth = 0` at the seed row, consistent with `_lineage_up()` (database.py:809) and `_lineage_down()` (database.py:831). With `a.depth < 10`, the CTE traverses up to 10 ancestor hops (depth values 0-9).
+
 ### R2: `_derive_expected_kanban()` signature change
 
 **Before:**
@@ -135,13 +137,13 @@ expected_kanban = _derive_expected_kanban(
 )
 ```
 
-`_reconcile_single_feature()` at line 326:
+`_reconcile_single_feature()` at line 326 — note: `meta` here is the local variable assigned from `report.meta_json` at line 316:
 ```python
 # Before
 expected_kanban = _derive_expected_kanban(
     meta["workflow_phase"], meta["last_completed_phase"]
 )
-# After
+# After (meta = report.meta_json, status key guaranteed present from line 223)
 expected_kanban = _derive_expected_kanban(
     meta["workflow_phase"], meta["last_completed_phase"],
     status=meta.get("status"),
@@ -167,12 +169,23 @@ class WorkflowDriftReport:
 
 New fields use defaults — all existing constructors continue to work.
 
-**`check_workflow_drift()` change:**
+**`check_workflow_drift()` change — both paths:**
+
+Single-feature path (line 486):
 ```python
-# After resolving meta and before calling _check_single_feature:
 slug = engine._extract_slug(feature_type_id)
 artifact_dir = os.path.join(artifacts_root, "features", slug)
 report = _check_single_feature(engine, db, feature_type_id, meta, artifact_dir)
+```
+
+Bulk scan path (line 529):
+```python
+for ftype_id, meta in engine._iter_meta_jsons():
+    meta_type_ids.add(ftype_id)
+    try:
+        slug = engine._extract_slug(ftype_id)
+        artifact_dir = os.path.join(artifacts_root, "features", slug)
+        report = _check_single_feature(engine, db, ftype_id, meta, artifact_dir)
 ```
 
 **`_check_single_feature()` signature:**
@@ -202,6 +215,8 @@ Added after the status-counting loop.
 
 ### R4: Depth/parent population in `_check_single_feature()`
 
+**Location:** Only the main success path (final return at line 289) is modified. Early-return paths (state=None at line 209, row=None at line 230) already set their own `message` values and do not reach this code — depth/parent remain None on those paths.
+
 **After DB row lookup and before building the return WorkflowDriftReport:**
 ```python
 # R4: Depth context
@@ -212,9 +227,9 @@ if entity is not None:
     parent_tid = entity.get("parent_type_id")
     if parent_tid is not None:
         ancestors = db.get_lineage(feature_type_id, direction="up")
-        depth = len(ancestors)
+        depth = len(ancestors) if ancestors else None  # None if broken parent ref
 
-# Build message with depth context
+# Set (not append) message — on the success path, message defaults to ""
 msg = ""
 if depth is not None:
     msg = f"depth: {depth}, parent: {parent_tid}"
@@ -222,7 +237,14 @@ if depth is not None:
 
 Passed to `WorkflowDriftReport(... message=msg, depth=depth, parent_type_id=parent_tid)`.
 
-**Edge case:** When `_check_single_feature()` returns early (error, meta_json_only), depth/parent remain None — these paths don't have entity context.
+**Note:** The `message` field is SET, not appended. On the success path (line 289), `message` currently defaults to `""`, so there is no existing content to append to. The spec's AC-4.3 wording "appends" should be read as "sets" in this context — no existing message to concatenate with.
+
+**Edge cases:**
+- Early returns (error, meta_json_only): depth/parent remain None, existing message values preserved
+- Entity not in registry: `get_entity()` returns None → depth/parent remain None
+- Entity has parent but `get_lineage()` returns empty list (broken reference): `depth = None` (defensive guard), `parent_type_id` still set
+
+**Scale note:** One extra `get_entity()` + conditional `get_lineage()` per feature. Acceptable for expected scale (<100 features per project). Drift checks are already I/O-bound.
 
 ### Test Impact
 
