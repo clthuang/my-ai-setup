@@ -189,6 +189,7 @@ def generate_entity_id(db: EntityDatabase, entity_type: str, name: str) -> str:
 5. Create `entity_dependencies` table with UNIQUE(entity_uuid, blocked_by_uuid)
 6. Create `entity_okr_alignment` table
 7. Add `next_seq_{type}` entries to `_metadata` for existing entity types (bootstrapped from max existing ID)
+8. Add `uuid` column to `workflow_phases` table; backfill from parent entity uuid; update FK references from `workflow_phases.type_id` to `workflow_phases.uuid` as canonical key
 
 **Backup:** `entities.db.bak.{ISO_timestamp}` created before migration starts.
 **Dry-run:** `--dry-run` flag simulates migration on in-memory copy, reports changes.
@@ -335,7 +336,12 @@ def compute_okr_score(kr: Entity, children: list[Entity]) -> float:
     return 0.0
 
 def rollup_parent(db: EntityDatabase, child_uuid: str) -> None:
-    """Synchronously recompute parent's progress up the ancestor chain."""
+    """Synchronously recompute parent's progress up the ancestor chain.
+
+    Note: update_entity() with metadata kwarg performs a dict MERGE (not replace)
+    — existing metadata keys are preserved, only provided keys are updated.
+    Verified: database.py:908-914 shallow-merges metadata.
+    """
     entity = db.get_entity_by_uuid(child_uuid)
     parent_uuid = entity.parent_uuid
     while parent_uuid:
@@ -361,6 +367,7 @@ class Notification:
     entity_type_id: str
     message: str
     timestamp: str
+    project_root: str  # scoping: which project generated this notification
 
 class NotificationQueue:
     """File-backed notification queue. Notifications surfaced at interaction boundaries."""
@@ -372,14 +379,24 @@ class NotificationQueue:
         with open(self._path, "a") as f:
             f.write(json.dumps(asdict(notification)) + "\n")
 
-    def drain(self) -> list[Notification]:
-        """Read and clear all pending notifications."""
+    def drain(self, project_root: str | None = None) -> list[Notification]:
+        """Read pending notifications, optionally filtered by project. Clears drained entries."""
         if not self._path.exists():
             return []
         with open(self._path) as f:
-            notifications = [Notification(**json.loads(line)) for line in f]
+            all_notifs = [Notification(**json.loads(line)) for line in f]
+        if project_root:
+            matched = [n for n in all_notifs if n.project_root == project_root]
+            remaining = [n for n in all_notifs if n.project_root != project_root]
+            if remaining:
+                with open(self._path, "w") as f:
+                    for n in remaining:
+                        f.write(json.dumps(asdict(n)) + "\n")
+            else:
+                self._path.unlink()
+            return matched
         self._path.unlink()
-        return notifications
+        return all_notifs
 ```
 
 **Delivery channels:**
@@ -419,6 +436,7 @@ ELSE → ask clarification
 def get_entity_by_uuid(self, uuid: str) -> Entity | None
 def resolve_ref(self, ref: str) -> str  # uuid or type_id → uuid
 def search_by_type_id_prefix(self, prefix: str) -> list[Entity]
+def begin_immediate(self) -> ContextManager  # wraps BEGIN IMMEDIATE / COMMIT / ROLLBACK
 
 # Phase 3 (needed by rollup and task queries)
 def get_children_by_uuid(self, parent_uuid: str) -> list[Entity]
@@ -437,10 +455,6 @@ def query_by_tag(self, tag: str) -> list[Entity]
 def add_dependency(entity_ref: str, blocked_by_ref: str) -> dict
 @mcp_tool
 def remove_dependency(entity_ref: str, blocked_by_ref: str) -> dict
-@mcp_tool
-def add_entity_tag(entity_ref: str, tag: str) -> dict
-@mcp_tool
-def get_entity_tags(entity_ref: str) -> dict
 
 # Phase 3
 @mcp_tool
@@ -458,7 +472,17 @@ def update_kr_score(kr_ref: str, score: float) -> dict
 
 # Phase 2
 @mcp_tool
-def get_notifications() -> dict
+def get_notifications(project_root: str | None = None) -> dict
+
+# Phase 6
+@mcp_tool
+def add_entity_tag(entity_ref: str, tag: str) -> dict
+@mcp_tool
+def get_entity_tags(entity_ref: str) -> dict
+@mcp_tool
+def add_okr_alignment(entity_ref: str, kr_ref: str) -> dict
+@mcp_tool
+def get_okr_alignments(entity_ref: str) -> dict
 ```
 
 ### I3: EntityWorkflowEngine Interface
