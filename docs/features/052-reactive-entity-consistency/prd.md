@@ -31,6 +31,58 @@ Every successful multi-level management framework uses the **same lifecycle at e
 
 pd already has the lifecycle engine, entity registry, AI-reviewed quality gates, and knowledge bank. **Don't build four different systems — apply the same engine at every level with level-appropriate configuration.**
 
+### Theoretical Foundation: Viable System Model (VSM)
+
+Stafford Beer's Viable System Model (1972) is pd's theoretical foundation. VSM models organisations as recursive fractal structures where every viable system contains the same five subsystems at every level — the principle of recursion means "all viable systems look the same" regardless of scale.
+
+**VSM mapping to pd:**
+
+| VSM System | pd Equivalent | Function |
+|-----------|---------------|----------|
+| **S1: Operations** | L3/L4 features + tasks | Primary value-producing units (teams/agents executing work) |
+| **S2: Coordination** | Secretary + entity engine | Prevents conflict between S1 units (routing, dedup, dependency tracking) |
+| **S3: Optimisation** | Quality gates + reviewers | Optimises current operations (AI reviewers, transition guards) |
+| **S3*: Audit** | Reconciliation + anomaly detection | Sporadic direct investigation bypassing normal reporting |
+| **S4: Intelligence** | L1 strategic layer + advisors | Scans external environment, models future (brainstorming, research agents) |
+| **S5: Policy** | OKRs + initiative governance | Defines identity, balances S3-S4 tension, ultimate authority |
+
+**Algedonic signals** — VSM's pain/pleasure alerts that escalate through recursion levels with timeouts — are exactly pd's "anomaly propagation." When operational reality deviates from capability, feedback escalates through levels until resolved.
+
+**Critical design constraint from VSM:** S2-S5 must NOT become viable systems themselves (Kerr, 2022). When coordination/governance functions prioritise self-preservation over serving S1 operations, organisational health deteriorates. pd must ensure the secretary, quality gates, and OKR framework serve feature execution, not the other way around.
+
+**Implementations:** Open-source Elixir implementation (github.com/viable-systems) with Actor Model and Event Sourcing. Project Cybersyn (Chile, 1971-73) demonstrated VSM viability at national scale. Academic VSMod tool (University of Valladolid, since 2003).
+
+### Architectural Precedents
+
+**OpenProject's "work package" model** is the closest existing software to pd's unified entity approach — all work items (tasks, features, bugs, milestones, epics) are the same entity type with different "types" as configuration, each with its own workflow (status transitions based on type + role). This validates pd's "same lifecycle engine, different gate stringency per type."
+
+**C2SIM (SISO-STD-019-2020)** — NATO-standard ontology for hierarchical command and control. Intent flows down through orders that decompose at each echelon while preserving commander's intent. Status flows up through reporting. Both share the same data model — exactly pd's bidirectional feedback pattern.
+
+**Magentic-One (Microsoft, 2024)** — dual-ledger architecture: Task Ledger (strategic plan + facts) and Progress Ledger (execution monitoring with stall detection and re-planning triggers). The closest published model to pd's "decompose → execute → feedback" loop.
+
+### Agent Decomposition Principles
+
+From AOP (ICLR 2025) — three principles for multi-agent task decomposition that pd's Design phase must satisfy:
+1. **Solvability** — each sub-task must be independently solvable by at least one agent
+2. **Completeness** — decomposition must include all relevant information from the parent
+3. **Non-redundancy** — sub-tasks must be unique and necessary
+
+From Anthropic's multi-agent research: encode "good heuristics rather than rigid rules" for decomposition. Rigid task specs are counterproductive due to emergent behaviours. Token usage explains 80% of performance variance.
+
+### What's Novel in pd (No Existing Precedent)
+
+1. **Multi-level decomposition in one system** — no framework handles Strategic → Program → Feature → Task → Agent as a first-class hierarchy. Existing tools operate at 1-2 levels.
+2. **OKRs as first-class work items** sharing the same entity registry as features and tasks — every existing tool (WorkBoard, Viva Goals) treats OKRs and execution as separate systems connected by integrations.
+3. **Purely event-driven organisational governance** — no existing tool eliminates scheduled ceremonies entirely. All Hoshin Kanri/OKR tools use scheduled reviews.
+4. **Persistent entity lineage across sessions and projects** — most agent frameworks treat each run as stateless.
+
+### Design Risks the Literature Warns About
+
+1. **Event-driven-only is uncharted** — every real implementation uses some scheduled forcing functions. pd's optional `target_date` metadata partially addresses this.
+2. **VSM criticism: variety is hard to measure** — the framework is more interpretive than testable. pd should focus on structural patterns (recursion, algedonic signals), not measurement theory.
+3. **S2 (coordination) is most commonly under-specified** in VSM implementations — pd's secretary needs extra design attention.
+4. **Double-loop learning blockers** (Argyris) — organisations resist changing governing variables even when operational feedback demands it. pd can surface anomalies but can't force strategic reassessment.
+
 ---
 
 ## The 5D Fractal Lifecycle
@@ -839,10 +891,37 @@ L1/L2 value in pd is **execution tracking and cross-level linkage**, not replaci
 - [Pipeline Quality Gates](https://www.infoq.com/articles/pipeline-quality-gates/)
 - [Spotify Top Devs](https://techcrunch.com/2026/02/12/spotify-says-its-best-developers-havent-written-a-line-of-code-since-december-thanks-to-ai/)
 
+### Viable System Model & Recursive Governance
+- [Stafford Beer, "Brain of the Firm" (1972)](https://metaphorum.org/staffords-work/viable-system-model) — Foundational VSM text, pd's theoretical basis
+- [Patrick Hoverstadt, "The Fractal Organization" (2008)](https://onlinelibrary.wiley.com/doi/book/10.1002/9781119208884) — Practical VSM application to organisations
+- [Bresser, "Fractal Governance" (2026, SSRN)](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=6011775) — Recent academic validation of fractal governance at scale
+- [VSM and Software Teams (Kerr, 2022)](https://jessitron.com/2022/08/28/the-viable-systems-model-and-where-my-team-fits/) — S2-S5 must not become viable systems themselves
+- [Agentic Coding VSM (Kellogg, 2026)](https://timkellogg.me/blog/2026/01/20/agentic-coding-vsm) — VSM mapped to AI agent architecture with algedonic signals
+- [VSM for Enterprise Agentic Systems](https://medium.com/@magorelkin/stafford-beers-viable-system-model-for-building-enterprise-agentic-systems-81982d6f59c0) — S1-S5 mapped to multi-agent enterprise architectures
+- [Viable Systems (Elixir implementation)](https://github.com/viable-systems) — Open-source VSM with Actor Model and Event Sourcing
+- [Double-Loop Learning (Argyris)](https://infed.org/dir/welcome/chris-argyris-theories-of-action-double-loop-learning-and-organizational-learning/) — Operational anomalies triggering strategic reassessment
+- [Wardley Mapping + VSM](https://www.wardleyleadershipstrategies.com/blog/ai-and-leadership/cybernetic-ai-leadership-with-the-viable-system-model) — Strategy mapping combined with recursive governance
+
 ### Organisational Frameworks
 - [Sociocracy 3.0 Fractal Organization](https://patterns.sociocracy30.org/fractal-organization.html)
 - [SAFe Analysis (PMI)](https://www.pmi.org/disciplined-agile/da-flex-toc/the-good-the-bad-and-the-ugly-of-safe)
 - [PMI Strategy-Execution Gap 2025](https://www.pmi.org/about/press-media/2025/new-pmi-research-reveals-strategy-execution-gap-is-undermining-transformation-and-how-to-close-it)
+- [Team Topologies](https://teamtopologies.com/key-concepts) — Stream-aligned teams as S1, platform teams as S2
+- [OpenProject Work Packages](https://www.openproject.org/docs/user-guide/work-packages/) — Unified entity types with per-type workflows
+
+### Military Command & Control
+- [C2SIM Standard (SISO-STD-019-2020)](https://cdn.ymaws.com/www.sisostandards.org/resource/resmgr/standards_products/siso-std-019-2020_c2sim.pdf) — NATO standard for bidirectional intent/status data model
+- [US Army C2 Concept 2028](https://api.army.mil/e2/c/downloads/2021/10/06/ffd892d0/afc-concept-for-command-and-control-2028-pursuing-decision-dominance-oct21.pdf) — Decision dominance through standardised data schemas
+- [JADC2 and Mission Command](https://www.hudson.org/national-security-defense/do-d-s-jadc2-strategy-should-empower-mission-command) — Adaptive command relationships outperform fixed hierarchy
+
+### Agent Orchestration & Decomposition
+- [Anthropic Multi-Agent Research System](https://www.anthropic.com/engineering/multi-agent-research-system) — Orchestrator-worker, 90.2% improvement over single-agent
+- [Anthropic Building Effective Agents](https://www.anthropic.com/research/building-effective-agents) — 5 composable patterns: chaining, routing, parallelisation, orchestrator-workers, evaluator-optimizer
+- [Magentic-One (Microsoft)](https://arxiv.org/html/2411.04468v1) — Dual-ledger task decomposition with stall detection and re-planning
+- [Agent-Oriented Planning (ICLR 2025)](https://arxiv.org/abs/2410.02189) — Solvability, completeness, non-redundancy principles
+- [TDAG: Dynamic Task Decomposition](https://arxiv.org/abs/2402.10178) — Dynamic agent generation per subtask at runtime
+- [Martin Fowler: Humans and Agents](https://martinfowler.com/articles/exploring-gen-ai/humans-and-agents.html) — Human-on-the-loop, agentic flywheel
+- [Agent Harness Engineering (2026)](https://aakashgupta.medium.com/2025-was-agents-2026-is-agent-harnesses-heres-why-that-changes-everything-073e9877655e) — "2025 was agents, 2026 is agent harnesses"
 
 ### Codebase Analysis (pd current state)
 - 4 entity types, 28 skills, 28 agents, 29 commands
