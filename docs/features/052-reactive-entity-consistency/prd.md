@@ -450,6 +450,7 @@ OKRs have no fixed cadence. The entity engine provides continuous, real-time sta
 - **OKRs are created when needed:** When strategic intent crystallises, not at quarter boundaries.
 - **OKRs are scored when complete:** When all children finish or when the owner decides to score.
 - **Review happens on state change:** When a rollup score drops below threshold, the notification is queued and surfaced at next session start or secretary query. Threshold alerting for target-metric KRs requires manual score updates to trigger.
+- **Un-scored KRs:** Target-metric KRs without manual score updates default to 0.0. Objective score is computed as weighted average including defaults. Secretary warns: "Objective includes 2 un-scored KRs — scores may be understated."
 
 ### Anti-Patterns pd Must Prevent
 
@@ -505,7 +506,7 @@ Every node is a **Work Item** in the entity registry — same schema, same workf
 pd currently has a `uuid` PRIMARY KEY column that's barely used — everything references `type_id` (a human-readable natural key) instead. This conflates identity with display, making entities un-renamable and cross-references fragile. The fix: **uuid is identity, type_id is display.**
 
 **System ID (uuid) — source of truth:**
-- Generated: UUIDv4 (already exists in schema) or time-ordered ULID/UUIDv7 for sortability
+- Generated: UUIDv4 (already exists in schema, no changes needed; sortability via `created_at`)
 - Immutable: never changes after creation
 - Carries no meaning: opaque identifier
 - Used for: ALL internal references — parent linkage, junction tables (dependencies, tags, OKR alignment), foreign keys, workflow_phases primary key
@@ -584,7 +585,11 @@ The PRD's data model changes require **destructive migrations** (table rebuild w
 
 6. **Workflow engine generalisation:** The current `WorkflowStateEngine` is deeply coupled to features: `_extract_slug` hardcodes `features/` path, `_get_existing_artifacts` uses feature-specific `HARD_PREREQUISITES`, `_evaluate_gates` uses feature-specific guard IDs, `complete_phase` validates against the 7-phase `_PHASE_VALUES`, `_iter_meta_jsons` globs `features/*/.meta.json`. Requires a new `EntityWorkflowEngine` class (strategy pattern) with type-specific backends. Existing `WorkflowStateEngine` frozen for L3 features. Phased across implementation.
 
-7. **Transition gate compatibility with light weight:** Light-weight features (`["specify", "implement", "finish"]`) skip phases that existing HARD_PREREQUISITES and soft prerequisite guards expect. Gate system parameterised by entity's active template — a phase not in the template is not a prerequisite.
+7. **Transition gate compatibility with light weight:** Light-weight features (`["specify", "implement", "finish"]`) skip phases that existing HARD_PREREQUISITES and soft prerequisite guards expect. Gate system parameterised by entity's active template — HARD_PREREQUISITES for a phase filters to only artifacts produced by phases in the active template. Example: for light features, `implement` requires only `spec.md` (from `specify`); `design.md`, `plan.md`, and `tasks.md` are not required because `design`, `create-plan`, and `create-tasks` are not in the template.
+
+8. **Testing strategy for new entity types:** Each new type (initiative, objective, key_result, task) needs: unit tests for registration/lifecycle, integration tests for parent-child across levels, workflow engine tests for 5D phase transitions, gate tests for non-feature phases, and reconciliation tests. Existing 1100+ tests validate L3; new types need proportional coverage. EntityWorkflowEngine design is deferred to the design phase — key open questions: strategy interface, per-type gate configuration, artifact prerequisite model for non-feature entities.
+
+9. **Data backup:** Migration scripts automatically back up the DB file (`entities.db.bak.{timestamp}`) before any destructive operation. Rollback = restore backup file. `.meta.json` files are tracked in git — `git stash` before migration provides filesystem rollback.
 
 ### Entity Engine Responsibilities
 
@@ -604,7 +609,11 @@ The entity engine is the **connective tissue** that makes circles coherent:
 
 ## What Changes for pd
 
+Each phase is independently shippable with standalone value. Later phases are not required — they are unlocked, not mandated.
+
 ### Phase 1a: Depth Fixes (Zero Schema Changes)
+
+**Standalone value:** Existing users get quality fixes immediately — cleaner kanban, honest health checks, session-start summaries.
 
 Fix 6 depth bugs — immediately shippable, no migration risk:
 1. **Field validation** — `init_feature_state()` rejects empty identity fields with ValueError
@@ -615,6 +624,8 @@ Fix 6 depth bugs — immediately shippable, no migration risk:
 6. **Reconciliation reporting** — surface session-start reconciliation summary
 
 ### Phase 1b: Schema Foundation
+
+**Standalone value:** Enables all future entity types. UUID-based references make entities renamable. Junction tables enable dependency tracking. Gate parameterisation enables light-weight features (bugfix mode).
 
 Two-ID system:
 - Migrate all internal references from `type_id` to `uuid` (parent linkage, workflow_phases FK)
@@ -634,7 +645,9 @@ Destructive migrations (combined into single migration to minimise rebuilds):
 
 ### Phase 2: Secretary + Universal Work Creation
 
-Transform secretary into organisational router:
+**Standalone value:** Users describe what they need in natural language instead of picking commands. Secretary finds parents, detects duplicates, recommends weight.
+
+Transform secretary into organisational router (incremental extension of existing 7-step pipeline):
 - Level detection from request scope and user context
 - Parent candidate search via entity registry
 - Duplicate/overlap detection
@@ -648,6 +661,8 @@ Universal work creation flow:
 
 ### Phase 3: L4 Operational — Tasks as Work Items
 
+**Standalone value:** AI agents can query ready tasks and execute autonomously. Task dependencies are enforced. Task completion updates feature progress.
+
 Elevate tasks from flat markdown to first-class entities:
 - Each task in tasks.md registered as entity with `type=task`, `parent=feature:{id}`
 - Mini-lifecycle per weight: light = deliver only; standard = define → deliver → debrief
@@ -656,6 +671,8 @@ Elevate tasks from flat markdown to first-class entities:
 - Opt-in: simple tasks stay as markdown. Only promoted tasks get entity lifecycle.
 
 ### Phase 4: L2 Program — Living Projects
+
+**Standalone value:** Projects track real progress, milestones are checkpoints not metadata, dependencies are enforced, traffic-light status answers "are we on track?"
 
 Make projects living entities instead of write-once containers:
 - Projects get their own 5D lifecycle (discover through debrief)
@@ -667,6 +684,8 @@ Make projects living entities instead of write-once containers:
 
 ### Phase 5: L1 Strategic — Initiatives & OKRs
 
+**Standalone value:** Strategic intent is captured and linked to execution. OKR scores computed from child completion. "Are we achieving our objectives?" is answerable.
+
 Add the strategic layer:
 - **Initiatives** — strategic bets with 5D lifecycle, Amazon-style narrative documents
 - **Objectives** — created when strategic intent crystallises
@@ -677,6 +696,8 @@ Add the strategic layer:
 - Strategic advisors: reuse existing advisory framework at L1
 
 ### Phase 6: Cross-Topology Intelligence
+
+**Standalone value:** The full loop — completing work at any level ripples through the topology. Anomalies propagate. The organisation is queryable as one coherent system.
 
 - **Hoshin Kanri catchball** — when creating children, show parent intent; when completing children, update parent progress
 - **Cascade unblock** — completing a work item unblocks dependents within and across circles
@@ -690,7 +711,7 @@ Add the strategic layer:
 ## What Does NOT Change
 
 - **L3 tactical behaviour** — the existing 7-phase feature lifecycle behaviour is preserved: same phase names, same gates, same artifacts, same test suite passing. Implementation will change (tables rebuilt, engine refactored into `EntityWorkflowEngine` with L3-specific backend), but observable behaviour is identical. "No backward compatibility" (CLAUDE.md) applies to internal implementation; L3 user-facing behaviour is frozen.
-- **Entity lineage model** — same `parent_type_id` mechanism, extended with tags for cross-circle membership
+- **Entity lineage model** — same parent-child tree concept, migrated from `parent_type_id` to `parent_uuid` as canonical reference, extended with tags for cross-circle membership
 - **Agent/reviewer architecture** — same dispatch pattern, extended with level-appropriate reviewers
 - **Knowledge bank** — same structure, extended with level and circle tags
 - **Plugin portability** — no hardcoded paths, same two-location glob pattern
@@ -708,6 +729,16 @@ A new user has zero entities, zero circles, zero OKRs. Secretary's intelligence 
 4. **Circles are tags, not setup:** Circles don't need to be "created" — they emerge when entities are tagged. Tagging is optional metadata, not a required step.
 
 The principle: **pd works immediately with zero configuration. Intelligence improves as entities accumulate.**
+
+## Migration for Existing Users
+
+Existing pd users have features, projects, brainstorms, and backlog items in their entity DB. The migration path:
+
+1. **Phase 1a (bugfixes):** Zero schema changes. Existing users get quality improvements automatically. No migration needed.
+2. **Phase 1b (schema):** Automatic, tested migration. The migration script: (a) backs up the DB file before modifying, (b) runs against a copy first to verify, (c) preserves all existing entity data and type_ids, (d) adds new columns/tables without affecting existing rows. Existing entities retain their current format — no forced rename.
+3. **New entity types are invisible:** `initiative`, `objective`, `key_result`, `task` types exist in the schema but no entities of those types appear unless the user explicitly creates them.
+4. **Secretary behaves identically** until L2+ entities exist in the registry. With zero initiatives/objectives/KRs, the CREATE/QUERY/CONTINUE modes reduce to current routing behaviour.
+5. **All existing commands work unchanged.** No command is removed or renamed.
 
 ## L1/L2 Practicality in a CLI Tool
 
@@ -727,7 +758,7 @@ L1/L2 value in pd is **execution tracking and cross-level linkage**, not replaci
 
 **Dependency cycle detection:** Parent-child lineage uses depth-guarded recursive CTEs (depth < 10) for cycle prevention. `blocked_by` forms a separate DAG that needs its own cycle detection — a `blocked_by` cycle (A blocked by B blocked by C blocked by A) would deadlock. Cycle detection must validate the full `blocked_by` graph on every update, not just the parent chain.
 
-**Cascading rollup fan-out:** Completing one entity triggers parent recalculation, which may trigger grandparent recalculation. With large entity graphs, this cascades. Mitigation: use dirty-flag marking — mark parent as "needs recalculation" on child completion, batch-evaluate dirty parents once per interaction boundary (before secretary response or session end), not immediately per child.
+**Cascading rollup fan-out:** Completing one entity triggers parent recalculation up the ancestor chain. For a 6-level hierarchy this is at most 5 recalculations, each a simple aggregate query. This is bounded and fast for CLI-scale entity counts.
 
 **Orphan handling on parent abandonment:** When a parent entity is abandoned, its children need a defined policy. Decision: **guard by default, cascade on explicit request**. Abandoning an entity with active children is blocked unless `--cascade` flag is provided, which cascade-abandons all descendants in a single transaction. This preserves pd's guard philosophy while providing a practical escape hatch for cleanup.
 
@@ -745,7 +776,7 @@ L1/L2 value in pd is **execution tracking and cross-level linkage**, not replaci
 | Cross-level coordination becomes status theatre | Medium | High | Follow Netflix: context not control. Catchball not cascade. Event-driven not ceremony-driven. |
 | Secretary becomes bottleneck | Low | High | Direct commands remain as bypass. Secretary is recommended, not required. |
 | Workflow engine generalisation is massive | High | High | Phase 1 is depth fixes only (no engine changes). Engine generalisation is phased across Phases 3-5 with type-specific parameterisation, not a big-bang rewrite. |
-| Cascading rollup creates performance issues | Medium | Medium | Dirty-flag marking + batch evaluation at interaction boundaries. No immediate cascading. |
+| Cascading rollup creates performance issues | Low | Medium | Synchronous rollup bounded at 5 ancestor levels. Simple aggregate queries. Dirty-flag batching added later if needed. |
 | Destructive schema migrations corrupt data | Low | Critical | Each migration tested against DB copy. Backup before applying. Rollback documented. All 1100+ tests must pass. |
 
 ---
