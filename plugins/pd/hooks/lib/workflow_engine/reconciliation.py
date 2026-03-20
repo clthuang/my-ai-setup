@@ -172,17 +172,25 @@ def _read_single_meta_json(
         return None
 
 
+_TERMINAL_STATUSES: frozenset[str] = frozenset({"completed", "abandoned"})
+
+
 def _derive_expected_kanban(
     workflow_phase: str | None,
     last_completed_phase: str | None,
+    status: str | None = None,
 ) -> str | None:
     """Derive the expected kanban column from workflow phase.
 
+    Terminal statuses (completed, abandoned) always map to 'completed'
+    kanban column regardless of phase -- both are absorbing states.
     Special case: finish phase with finish as last_completed means the
     feature completed all phases -> 'completed' column.
     Otherwise, look up the phase in FEATURE_PHASE_TO_KANBAN.
     Returns None for unknown or None phases.
     """
+    if status in _TERMINAL_STATUSES:
+        return "completed"
     if workflow_phase is None:
         return None
     if workflow_phase == "finish" and last_completed_phase == "finish":
@@ -277,7 +285,8 @@ def _check_single_feature(
 
     # Kanban column drift detection
     expected_kanban = _derive_expected_kanban(
-        state.current_phase, state.last_completed_phase
+        state.current_phase, state.last_completed_phase,
+        status=meta.get("status"),
     )
     if expected_kanban is not None and expected_kanban != row["kanban_column"]:
         mismatches.append(WorkflowMismatch(
@@ -324,7 +333,8 @@ def _reconcile_single_feature(
                 )
             try:
                 expected_kanban = _derive_expected_kanban(
-                    meta["workflow_phase"], meta["last_completed_phase"]
+                    meta["workflow_phase"], meta["last_completed_phase"],
+                    status=meta.get("status"),
                 )
                 kwargs = dict(
                     workflow_phase=meta["workflow_phase"],

@@ -2559,3 +2559,128 @@ class TestKanbanDriftDetectionDeepened:
         )
         assert kanban_mismatches[0].meta_json_value == "completed"
         assert kanban_mismatches[0].db_value == "documenting"
+
+
+# ===========================================================================
+# Feature 051, Task 2.1: Kanban status-awareness tests (R2)
+# ===========================================================================
+
+
+class TestDeriveExpectedKanbanStatusAwareness:
+    """Tests for _derive_expected_kanban with terminal status override (AC-2.1..AC-2.3)."""
+
+    def test_derive_kanban_completed_status(self):
+        """AC-2.1: status='completed' overrides phase-based kanban to 'completed'."""
+        result = _derive_expected_kanban(
+            workflow_phase="implement",
+            last_completed_phase=None,
+            status="completed",
+        )
+        assert result == "completed"
+
+    def test_derive_kanban_abandoned_status(self):
+        """AC-2.2: status='abandoned' also maps to 'completed' kanban column."""
+        result = _derive_expected_kanban(
+            workflow_phase="implement",
+            last_completed_phase=None,
+            status="abandoned",
+        )
+        assert result == "completed"
+
+    def test_derive_kanban_active_unchanged(self):
+        """AC-2.3: status='active' does not override — uses phase-based lookup."""
+        # implement phase -> 'wip' (from FEATURE_PHASE_TO_KANBAN)
+        result_with_status = _derive_expected_kanban(
+            workflow_phase="implement",
+            last_completed_phase=None,
+            status="active",
+        )
+        result_without_status = _derive_expected_kanban(
+            workflow_phase="implement",
+            last_completed_phase=None,
+        )
+        assert result_with_status == result_without_status == "wip"
+
+
+class TestKanbanDriftTerminalStatus:
+    """Kanban drift detection and reconciliation for terminal statuses (AC-2.4, AC-2.5)."""
+
+    def test_check_feature_kanban_drift_terminal_status(self, tmp_path):
+        """AC-2.4: feature with status='completed' and DB kanban='wip' -> mismatch.
+
+        The expected kanban for a completed feature is 'completed' regardless
+        of the workflow_phase. If DB has 'wip', drift should be detected with
+        meta_json_value='completed'.
+        """
+        # Setup: feature at implement phase but status='completed', DB kanban='wip'
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            slug="051-terminal",
+            workflow_phase="implement",
+            last_completed_phase="create-tasks",
+            mode="standard",
+            kanban_column="wip",
+        )
+        # Meta: completed status overrides phase-based kanban
+        meta = {
+            "status": "completed",
+            "mode": "standard",
+            "lastCompletedPhase": "create-tasks",
+        }
+
+        report = _check_single_feature(engine, db, type_id, meta)
+
+        kanban_mismatches = [m for m in report.mismatches if m.field == "kanban_column"]
+        assert len(kanban_mismatches) == 1, (
+            f"Expected 1 kanban_column mismatch, got {len(kanban_mismatches)}. "
+            f"All mismatches: {report.mismatches}"
+        )
+        assert kanban_mismatches[0].meta_json_value == "completed"
+        assert kanban_mismatches[0].db_value == "wip"
+
+    def test_reconcile_terminal_status_kanban(self, tmp_path):
+        """AC-2.5: reconciliation with status='completed' updates DB kanban to 'completed'.
+
+        Given a meta_json_ahead drift report where meta_json status='completed',
+        reconciliation should derive kanban='completed' and update the DB.
+        """
+        _, db, type_id = _setup_engine(
+            tmp_path,
+            slug="051-terminal-recon",
+            workflow_phase="implement",
+            last_completed_phase="create-tasks",
+            mode="standard",
+            kanban_column="wip",
+        )
+
+        report = WorkflowDriftReport(
+            feature_type_id=type_id,
+            status="meta_json_ahead",
+            meta_json={
+                "workflow_phase": "implement",
+                "last_completed_phase": "create-tasks",
+                "mode": "standard",
+                "status": "completed",
+            },
+            db={
+                "workflow_phase": "implement",
+                "last_completed_phase": "create-tasks",
+                "mode": "standard",
+                "kanban_column": "wip",
+            },
+            mismatches=(
+                WorkflowMismatch(
+                    field="kanban_column",
+                    meta_json_value="completed",
+                    db_value="wip",
+                ),
+            ),
+        )
+
+        _reconcile_single_feature(db, report, dry_run=False)
+
+        row = db.get_workflow_phase(type_id)
+        assert row is not None
+        assert row["kanban_column"] == "completed", (
+            f"Expected kanban_column='completed' after reconcile, got '{row['kanban_column']}'"
+        )
