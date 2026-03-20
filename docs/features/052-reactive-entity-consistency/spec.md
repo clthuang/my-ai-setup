@@ -12,6 +12,8 @@ Transform pd from a tactical feature development engine into a fractal organisat
 
 ## Phase 1a: Depth Fixes
 
+**Relationship to feature 051 (entity-depth-fixes, completed):** Feature 051 addressed entity depth/parent lineage concerns. Phase 1a addresses different depth bugs: field validation, frontmatter health check removal, maintenance mode, kanban derivation consolidation, artifact completeness warnings, and reconciliation reporting. No overlap.
+
 ### AC-1: Field Validation on Feature Creation
 
 **Given** `init_feature_state()` is called
@@ -43,6 +45,18 @@ Transform pd from a tactical feature development engine into a fractal organisat
 **Then** `kanban_column` equals `derive_kanban(status, workflow_phase)` — never set independently.
 
 ```python
+# Unified phase-to-kanban mapping covering both 7-phase and 5D phases
+PHASE_TO_KANBAN = {
+    # L3 feature phases (existing)
+    "brainstorm": "backlog", "specify": "backlog",
+    "design": "prioritised", "create-plan": "prioritised", "create-tasks": "prioritised",
+    "implement": "wip", "finish": "documenting",
+    # 5D phases (L1/L2/L4)
+    "discover": "backlog", "define": "backlog",
+    "deliver": "wip", "debrief": "documenting",
+    # "design" is shared between both — already mapped above
+}
+
 def derive_kanban(status: str, workflow_phase: str | None) -> str:
     if status in ("completed", "abandoned"):
         return "completed"
@@ -50,10 +64,10 @@ def derive_kanban(status: str, workflow_phase: str | None) -> str:
         return "blocked"
     if status == "planned":
         return "backlog"
-    return FEATURE_PHASE_TO_KANBAN.get(workflow_phase, "backlog")
+    return PHASE_TO_KANBAN.get(workflow_phase, "backlog")
 ```
 
-**Verification:** All existing kanban-setting code paths replaced with `derive_kanban()` calls. After any state mutation, `kanban_column == derive_kanban(status, workflow_phase)`.
+**Verification:** All existing kanban-setting code paths replaced with `derive_kanban()` calls. After any state mutation, `kanban_column == derive_kanban(status, workflow_phase)`. Covers both 7-phase and 5D phase names.
 
 ### AC-5: Artifact Completeness Warning
 
@@ -90,9 +104,12 @@ def derive_kanban(status: str, workflow_phase: str | None) -> str:
 
 **`type_id`** remains as human-readable display identity: `{type}:{seq}-{slug}`. Mutable slug — renaming an entity's slug does not break any internal references.
 
+**Partial match resolution:** Partial type_id (e.g., `feature:052`) uses prefix search. If multiple entities match, MCP tool returns error listing all matches. Exact match (full type_id or uuid) required for mutations; partial match allowed for read-only queries.
+
 **Verification:**
 1. Create entity A. Create entity B with parent=A. Rename A's slug. Assert B's parent relationship is intact (via uuid, not type_id).
 2. All MCP tools accept both uuid and type_id as input, resolve to uuid internally.
+3. `get_entity(ref="feature:05")` with 3 matches → returns error listing feature:050, feature:051, feature:052.
 
 ### AC-8: Standardised Human ID Format
 
@@ -211,7 +228,12 @@ WEIGHT_TEMPLATES = {
 4. Proposes: type, weight, parent linkage, circle tags
 5. On user confirmation, dispatches the appropriate create command with parent linkage
 
-**Verification:** "We need better observability" → secretary proposes L2 project, finds parent KR if exists, suggests tags.
+**Mode detection heuristic:** Action verbs (need, want, build, add, create, fix, set up) → CREATE. Question words (how, what, status, progress, where) → QUERY. Continuation words (next, resume, continue, what's ready) → CONTINUE. Ambiguous → secretary asks for clarification.
+
+**Verification:**
+- Given registry contains `key_result:001-p0-incidents`, When user says "We need better observability", Then secretary proposes type=project, weight=standard, parent_candidate=key_result:001-p0-incidents.
+- Given empty registry, When user says "We need better observability", Then secretary proposes type=project, weight=standard, no parent (standalone).
+- When user says "Improve things", Then secretary asks for clarification (ambiguous scope).
 
 ### AC-18: Secretary QUERY Mode
 
@@ -219,7 +241,12 @@ WEIGHT_TEMPLATES = {
 **When** secretary processes the request
 **Then** secretary queries entity engine and presents topology-aware view including: entity status, lifecycle phase, children progress, OKR scores (if applicable), blockers.
 
-**Verification:** "How are we doing on reliability?" → secretary finds matching objective, computes score from children, surfaces blockers.
+**Matching algorithm:** FTS5 search on entity name and entity_id fields. If multiple results, present ranked list. If zero results, respond "No matching entities found."
+
+**Verification:**
+- Given objective:001-reliability exists with 2 child KRs, When "How are we doing on reliability?", Then secretary shows objective score, KR scores, and blockers.
+- Given no entities match "reliability", When queried, Then "No matching entities found."
+- Given 3 entities match "auth", When queried, Then secretary lists all 3 with type and status.
 
 ### AC-19: Secretary CONTINUE Mode
 
@@ -250,9 +277,13 @@ WEIGHT_TEMPLATES = {
 2. Secretary query responses (appended when relevant)
 3. MCP tool polling (for external dashboards)
 
-Notification types: threshold crossed, completion ripple, anomaly escalation, stale work (no phase transition for >N days).
+Notification types with default thresholds (configurable via `pd.local.md`):
+- **Threshold crossed:** OKR score drops below 0.4 (Red zone)
+- **Completion ripple:** any entity completes (always fires)
+- **Anomaly escalation:** retro finding tagged as "systemic" in metadata
+- **Stale work:** no phase transition for >7 days (default `stale_work_days=7`)
 
-**Verification:** Complete a feature → notification queued: "Feature X completed. Project Y: 67%." Next secretary query includes the notification.
+**Verification:** Complete a feature → notification queued: "Feature X completed. Project Y: 67%." Next secretary query includes the notification. Feature with no transition for 8 days → stale work notification queued.
 
 ### AC-22: Backlog as Organisational Inbox
 
@@ -263,6 +294,16 @@ Notification types: threshold crossed, completion ripple, anomaly escalation, st
 **Then** secretary can promote backlog item: identify type/weight/circle/parent → register as work item → remove from backlog (status=promoted).
 
 **Verification:** Add to backlog → entity created. Triage via secretary → promoted to feature with parent linkage.
+
+### AC-22a: Weight Escalation
+
+**Given** a light-weight work item in progress
+**When** user describes expanding scope to secretary (mentions cross-team impact, auth/payment changes, or scope exceeding original description)
+**Then** secretary recommends upgrading weight: "This is growing beyond light weight. Upgrade to standard?"
+
+**Upgrading weight** means: entity's `mode` metadata updated from `light` to `standard`, active template expanded (new phases become available but already-completed phases are preserved). No new entity created — same uuid, updated template.
+
+**Verification:** Light feature in implement phase. User says "this now needs a design review." Secretary recommends upgrade to standard. On confirmation, template expands to include design phase.
 
 ---
 
@@ -276,9 +317,9 @@ Notification types: threshold crossed, completion ripple, anomaly escalation, st
 - `status="planned"`, template from weight
 - Dependencies between tasks stored in `entity_dependencies`
 
-Opt-in: simple tasks stay as markdown. Tasks are promoted to entities when the implementing agent or user explicitly promotes them.
+Opt-in: simple tasks stay as markdown. Tasks are promoted to entities via `promote_task` MCP tool or `/pd:promote-task` command. Promotion creates an entity and marks the task in tasks.md as entity-tracked.
 
-**Verification:** Feature with 5 tasks in tasks.md. Promote 3 → 3 task entities created with parent=feature uuid. 2 remain markdown-only.
+**Verification:** Feature with 5 tasks in tasks.md. Promote 3 via `promote_task(feature_uuid, task_index)` → 3 task entities created with parent=feature uuid. 2 remain markdown-only.
 
 ### AC-24: Agent-Executable Task Query
 
@@ -310,14 +351,23 @@ Opt-in: simple tasks stay as markdown. Tasks are promoted to entities when the i
 
 The existing `WorkflowStateEngine` remains frozen for L3 features.
 
-**Verification:** Create project. Transition through discover → define → design → deliver → debrief. Each transition validated by EntityWorkflowEngine.
+**EntityWorkflowEngine interface contract:**
+- `get_template(entity_type, weight) → phase_sequence` — returns the active template
+- `transition_phase(entity_uuid, target_phase) → result` — validates against active template, evaluates type-specific gates
+- `complete_phase(entity_uuid, phase) → result` — advances to next phase in template, triggers rollup
+- Backend selection: by `entity_type`. L3 features delegate to existing frozen `WorkflowStateEngine`. All other types use 5D backends.
+
+**Detailed design** of per-type gate configuration and artifact prerequisites is deferred to the design phase.
+
+**Verification:** Create project. Transition through discover → define → design → deliver → debrief. Each transition validated by EntityWorkflowEngine. Attempt transition to phase not in template → rejected.
 
 ### AC-27: Project Progress Derivation
 
 **Given** a project with child features
 **Then** project progress is derived synchronously from children:
-- Weighted: completed=1.0, implement=0.7, design=0.3, specify=0.1, planned=0.0
-- Traffic light: GREEN (≥0.7), YELLOW (0.4-0.6), RED (<0.4)
+- For feature children (7-phase): completed=1.0, implement=0.7, design/create-plan/create-tasks=0.3, specify=0.1, brainstorm/planned=0.0
+- For 5D children: completed=1.0, deliver=0.7, design=0.3, define=0.1, discover/planned=0.0
+- Traffic light: RED (<0.4), YELLOW (0.4 to <0.7), GREEN (>=0.7)
 
 **Verification:** Project with 3 features (1 completed, 1 in implement, 1 in design). Progress = (1.0+0.7+0.3)/3 = 0.67 → YELLOW.
 
@@ -326,6 +376,8 @@ The existing `WorkflowStateEngine` remains frozen for L3 features.
 **Given** a feature with `blocked_by` entries in `entity_dependencies`
 **When** attempting to transition to `implement` (Deliver)
 **Then** transition is blocked if any `blocked_by` sibling is not completed.
+
+Deliver phase mapping by entity type: features = `implement`, 5D entities = `deliver`.
 
 **Verification:** Feature B blocked by Feature A. Attempt implement on B → rejected. Complete A → B's blocked_by cleared → implement succeeds.
 
@@ -374,6 +426,8 @@ The existing `WorkflowStateEngine` remains frozen for L3 features.
 - baseline: 1.0 if measured (manual), else 0.0
 - target: manual score update only (no external metrics integration)
 
+**Binary KR distinction:** Binary KRs with children use all-complete check (1.0 if all children complete, else 0.0). Binary KRs without children require manual score update (0.0 or 1.0, e.g., "Achieved SOC2 certification").
+
 **Un-scored KRs** default to 0.0. Secretary warns "Objective includes N un-scored KRs."
 
 **Verification:** KR with 3 child features (2 complete, 1 active). milestone score = 2/3 = 0.67. Objective score = weighted avg of KR scores.
@@ -393,7 +447,7 @@ The existing `WorkflowStateEngine` remains frozen for L3 features.
 
 **Given** a KR score changes (child completes or manual update)
 **Then** parent objective score recomputed synchronously as weighted average of all KR scores.
-**Then** colour coding applied: Green (0.7-1.0), Yellow (0.4-0.6), Red (0.0-0.3).
+**Then** colour coding applied: Red (<0.4), Yellow (0.4 to <0.7), Green (>=0.7). Contiguous ranges, no gaps.
 
 **Verification:** Objective with 3 KRs scoring 0.8, 0.5, 1.0. Objective score = 0.77 → Green.
 
@@ -408,6 +462,25 @@ The existing `WorkflowStateEngine` remains frozen for L3 features.
 **Then** the anomaly is recorded in parent entity's metadata: `{anomalies: [{description, source_type_id, timestamp}]}`.
 
 **Verification:** Feature retro flags "auth middleware fundamentally broken." Parent project metadata includes the anomaly. Secretary surfaces it on next parent query.
+
+### AC-35a: Catchball — Parent Intent on Creation
+
+**Given** a work item is being created with a parent
+**When** the creation flow runs
+**Then** parent entity's name, current phase, and score/progress (if applicable) are displayed to the user as context before confirming creation. This is the "downward intent" half of Hoshin Kanri catchball.
+
+**Verification:** Create feature under project:003-observability → user sees "Parent: project:003-observability (deliver phase, progress 67%). Creating child feature aligned to this project."
+
+### AC-35b: Entity Tagging
+
+**Given** an entity exists
+**When** user adds tag via `add_entity_tag` MCP tool or secretary
+**Then** `entity_tags` row created with (entity_uuid, tag). Tags are freeform: lowercase, hyphens, max 50 chars.
+
+**When** querying tags for an entity
+**Then** returns all tags for that entity.
+
+**Verification:** Tag feature:052 with "security" and "platform" → 2 rows in entity_tags. Query tags for feature:052 → ["security", "platform"].
 
 ### AC-36: Circle-Aware Queries
 
