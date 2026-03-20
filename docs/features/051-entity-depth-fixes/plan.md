@@ -54,6 +54,10 @@ R3 and R4 both add fields to `WorkflowDriftReport`. R3 should be done first so R
 
 **Files:** `plugins/pd/hooks/lib/workflow_engine/reconciliation.py`, `plugins/pd/hooks/lib/workflow_engine/test_reconciliation.py`
 
+**TDD note:** Tests in sub-step 1 reference `artifact_missing` field which doesn't exist yet — they will fail to compile until sub-step 2 adds the field. This is expected red-green TDD. Run tests after sub-step 7, not sub-step 1.
+
+**Intentional exclusion:** Error-path and db_only-path `WorkflowDriftReport` constructors in `check_workflow_drift()` (lines 488-496, 507-513, 531-539) are left unchanged — `artifact_missing` defaults to `False`. These paths represent error/edge conditions, not missing artifacts.
+
 **TDD order:**
 1. Write tests:
    - `test_artifact_missing_flag` — feature with non-existent artifact dir → `report.artifact_missing == True`
@@ -76,6 +80,8 @@ R3 and R4 both add fields to `WorkflowDriftReport`. R3 should be done first so R
 **Files:** `plugins/pd/hooks/lib/workflow_engine/reconciliation.py`, `plugins/pd/hooks/lib/workflow_engine/test_reconciliation.py`
 
 **Depends on:** Step 3 (R3 adds `artifact_missing` field to `WorkflowDriftReport`; R4 adds `depth` and `parent_type_id` after it)
+
+**TDD note:** Tests in sub-step 1 reference `depth`/`parent_type_id` fields which don't exist yet. Expected to fail until sub-step 2. Run tests after sub-step 5.
 
 **TDD order:**
 1. Write tests:
@@ -100,10 +106,12 @@ R3 and R4 both add fields to `WorkflowDriftReport`. R3 should be done first so R
 Run full test suites for both affected modules to catch any interactions:
 
 ```bash
-plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_database.py -v
+plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/ -v
 plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/workflow_engine/test_reconciliation.py -v
 plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_workflow_state_server.py -v
 ```
+
+The full entity_registry suite (710+ tests) catches regressions beyond just `test_database.py`.
 
 The MCP server tests exercise reconciliation through the MCP layer and will catch any serialization issues with the new dataclass fields.
 
