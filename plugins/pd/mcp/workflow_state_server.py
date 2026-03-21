@@ -792,9 +792,11 @@ def _process_reconcile_status(
 
     fm_summary = _build_frontmatter_summary(frontmatter_reports)
 
-    # Healthy: workflow drift only (frontmatter drift excluded per AC-2)
+    # Healthy: workflow drift only (frontmatter drift excluded per AC-2,
+    # artifact_missing_count excluded — informational, not a health issue)
+    _HEALTH_EXCLUDED = {"in_sync", "artifact_missing_count"}
     wf_healthy = all(
-        v == 0 for k, v in workflow_result.summary.items() if k != "in_sync"
+        v == 0 for k, v in workflow_result.summary.items() if k not in _HEALTH_EXCLUDED
     )
     healthy = wf_healthy
 
