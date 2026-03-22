@@ -453,10 +453,49 @@ def cmd_migrate(args: argparse.Namespace) -> None:
     4. Report pre/post schema versions and row counts
     """
     db_path = args.db_path
+    dry_run = getattr(args, "dry_run", False)
 
     if not os.path.exists(db_path):
         _json_out({"ok": False, "error": f"Database not found: {db_path}"})
         sys.exit(1)
+
+    # Dry-run: copy to tempfile, run migration on copy, report, delete copy
+    if dry_run:
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp_path = tmp.name
+        shutil.copy2(db_path, tmp_path)
+        try:
+            sys.path.insert(0, os.path.join(
+                os.path.dirname(__file__), "..", "plugins", "pd", "hooks", "lib"
+            ))
+            from entity_registry.database import EntityDatabase
+            pre_conn = sqlite3.connect(tmp_path)
+            try:
+                pre_ver = pre_conn.execute(
+                    "SELECT value FROM _metadata WHERE key='schema_version'"
+                ).fetchone()
+                pre_version = int(pre_ver[0]) if pre_ver else 0
+            except sqlite3.OperationalError:
+                pre_version = 0
+            pre_conn.close()
+
+            db = EntityDatabase(tmp_path)
+            post_version = db.get_schema_version()
+            post_count = len(db.list_entities())
+            db.close()
+
+            _json_out({
+                "ok": True,
+                "dry_run": True,
+                "pre_version": pre_version,
+                "post_version": int(post_version),
+                "entity_count": post_count,
+                "message": "Dry run complete — original DB unchanged",
+            })
+        finally:
+            os.unlink(tmp_path)
+        return
 
     # Read pre-migration state
     conn = sqlite3.connect(db_path)
@@ -643,6 +682,7 @@ def build_parser() -> argparse.ArgumentParser:
         "migrate", help="Run schema migration on entity database"
     )
     p_migrate.add_argument("db_path", help="Path to entities.db")
+    p_migrate.add_argument("--dry-run", action="store_true", help="Run migration on a copy, report results, leave original unchanged")
     p_migrate.set_defaults(func=cmd_migrate)
 
     return parser

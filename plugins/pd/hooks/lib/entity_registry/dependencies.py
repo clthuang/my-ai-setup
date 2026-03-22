@@ -146,6 +146,7 @@ class DependencyManager:
         db._conn.commit()
 
         # Check which affected entities are now fully unblocked
+        # and update their status from 'blocked' to 'planned' (per design C4/AC-29)
         fully_unblocked = []
         for uid in affected_uuids:
             remaining = db._conn.execute(
@@ -154,6 +155,10 @@ class DependencyManager:
             ).fetchone()
             if remaining is None:
                 fully_unblocked.append(uid)
+                # Update status: blocked → planned
+                entity = db.get_entity_by_uuid(uid)
+                if entity and entity.get("status") == "blocked":
+                    db.update_entity(entity["type_id"], status="planned")
 
         return fully_unblocked
 
