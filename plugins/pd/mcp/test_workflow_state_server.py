@@ -57,6 +57,8 @@ from workflow_state_server import (
     _serialize_state,
     _serialize_workflow_drift_report,
     _validate_feature_type_id,
+    _check_artifact_completeness,
+    _EXPECTED_ARTIFACTS,
 )
 
 
@@ -2890,7 +2892,7 @@ class TestReconciliationBoundaryValues:
         data = json.loads(result)
         # Then summary has all 5 keys, all zero
         assert "error" not in data
-        expected_keys = {"reconciled", "created", "skipped", "error", "dry_run"}
+        expected_keys = {"reconciled", "created", "skipped", "error", "dry_run", "kanban_fixed"}
         assert set(data["summary"].keys()) == expected_keys
         assert all(v == 0 for v in data["summary"].values())
 
@@ -4204,9 +4206,10 @@ class TestInitFeatureState:
 
     # -- Kanban column lifecycle tests (AC-6) --------------------------------
 
-    def test_init_feature_state_active_sets_kanban_wip(self, db, tmp_path):
-        """Active feature init must set kanban_column to 'wip'.
-        derived_from: spec:AC-6
+    def test_init_feature_state_active_sets_kanban_from_phase(self, db, tmp_path):
+        """Active feature init sets kanban_column from phase via derive_kanban.
+        Initial phase is brainstorm -> kanban_column = 'backlog'.
+        derived_from: spec:AC-6, feature:052 AC-4
         """
         engine = WorkflowStateEngine(db=db, artifacts_root=str(tmp_path))
 
@@ -4221,7 +4224,7 @@ class TestInitFeatureState:
 
         wp = db.get_workflow_phase("feature:099-test")
         assert wp is not None, "workflow_phase row should exist after init"
-        assert wp["kanban_column"] == "wip"
+        assert wp["kanban_column"] == "backlog"
 
     def test_init_feature_state_planned_sets_kanban_backlog(self, db, tmp_path):
         """Planned feature init must set kanban_column to 'backlog'.
@@ -6077,7 +6080,7 @@ class TestKanbanColumnLifecycleDeepened:
     def test_init_feature_state_completed_status_sets_kanban_completed(self, db, tmp_path):
         """Init with status='completed' should set kanban_column to 'completed'.
 
-        Anticipate: If STATUS_TO_KANBAN is missing the 'completed' key or
+        Anticipate: If derive_kanban doesn't handle 'completed' status or
         the update_workflow_phase call is skipped, kanban stays at default 'backlog'.
         derived_from: spec:AC-6 (init-time kanban from status)
         """
@@ -6102,7 +6105,7 @@ class TestKanbanColumnLifecycleDeepened:
     def test_init_feature_state_abandoned_status_sets_kanban_completed(self, db, tmp_path):
         """Init with status='abandoned' should set kanban_column to 'completed'.
 
-        Anticipate: 'abandoned' maps to 'completed' in STATUS_TO_KANBAN.
+        Anticipate: 'abandoned' maps to 'completed' via derive_kanban.
         If the mapping is missing, kanban would stay at 'backlog'.
         derived_from: spec:AC-6 (init-time kanban from status)
         """
@@ -6129,9 +6132,9 @@ class TestKanbanColumnLifecycleDeepened:
     def test_complete_finish_kanban_is_completed_not_documenting(self, db, tmp_path):
         """Completing finish must set kanban to 'completed', not 'documenting'.
 
-        Anticipate: If complete_phase uses FEATURE_PHASE_TO_KANBAN[state.current_phase]
-        instead of the special-case 'completed' for finish, kanban would be
-        'documenting' (the map value for 'finish').
+        Anticipate: If complete_phase uses derive_kanban with 'active' status
+        instead of 'completed' for finish, kanban would be
+        'documenting' (the phase mapping for 'finish').
         derived_from: dimension:mutation_mindset (arithmetic swap)
         """
         # Given a feature at finish phase with kanban='documenting'
@@ -6159,7 +6162,7 @@ class TestKanbanColumnLifecycleDeepened:
     def test_transition_uses_target_phase_not_current_phase(self, db, tmp_path):
         """Transition kanban must come from the TARGET phase, not the source.
 
-        Anticipate: If code uses current_phase for FEATURE_PHASE_TO_KANBAN lookup
+        Anticipate: If code uses current_phase for derive_kanban lookup
         instead of target_phase, kanban would stay 'backlog' (specify's column)
         instead of becoming 'prioritised' (design's column).
         derived_from: dimension:mutation_mindset (return value mutation)
@@ -6221,6 +6224,88 @@ class TestKanbanColumnLifecycleDeepened:
         assert wp is not None
         assert wp["kanban_column"] == "prioritised", (
             f"Expected 'prioritised' from new current_phase, got '{wp['kanban_column']}'"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Feature 052: derive_kanban integration (AC-4)
+# ---------------------------------------------------------------------------
+
+
+class TestCompletePhaseKanbanMatchesDeriveKanban:
+    """Integration test: complete_phase kanban_column must match derive_kanban output.
+
+    Verifies the single source of truth for kanban derivation after
+    replacing FEATURE_PHASE_TO_KANBAN and STATUS_TO_KANBAN with derive_kanban().
+    derived_from: feature:052, AC-4
+    """
+
+    def _setup_feature(self, db, tmp_path, feat_num, slug, phase, kanban="backlog"):
+        """Helper: register entity + workflow row at given phase."""
+        type_id = f"feature:{feat_num}-{slug}"
+        feat_dir = os.path.join(str(tmp_path), "features", f"{feat_num}-{slug}")
+        os.makedirs(feat_dir, exist_ok=True)
+        db.register_entity(
+            entity_type="feature",
+            entity_id=f"{feat_num}-{slug}",
+            name=slug,
+            artifact_path=feat_dir,
+            status="active",
+            metadata={
+                "id": str(feat_num), "slug": slug, "mode": "standard",
+                "branch": "", "phase_timing": {},
+            },
+        )
+        db.create_workflow_phase(type_id, workflow_phase=phase, kanban_column=kanban)
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        return engine, type_id
+
+    def test_complete_specify_kanban_matches_derive_kanban(self, db, tmp_path):
+        """Completing specify advances to design; kanban must match derive_kanban('active', 'design').
+
+        derived_from: feature:052, AC-4 (single source of truth)
+        """
+        from workflow_engine.kanban import derive_kanban
+
+        engine, type_id = self._setup_feature(
+            db, tmp_path, 400, "dk-specify", "specify", kanban="backlog",
+        )
+
+        result = _process_complete_phase(
+            engine, type_id, "specify",
+            db=db, iterations=None, reviewer_notes=None,
+        )
+        data = json.loads(result)
+        assert data["current_phase"] == "design"
+
+        wp = db.get_workflow_phase(type_id)
+        expected = derive_kanban("active", "design")
+        assert wp["kanban_column"] == expected, (
+            f"Expected kanban '{expected}' from derive_kanban, got '{wp['kanban_column']}'"
+        )
+
+    def test_complete_finish_kanban_matches_derive_kanban(self, db, tmp_path):
+        """Completing finish sets status completed; kanban must match derive_kanban('completed', 'finish').
+
+        derived_from: feature:052, AC-4 (single source of truth)
+        """
+        from workflow_engine.kanban import derive_kanban
+
+        engine, type_id = self._setup_feature(
+            db, tmp_path, 401, "dk-finish", "finish", kanban="documenting",
+        )
+
+        result = _process_complete_phase(
+            engine, type_id, "finish",
+            db=db, iterations=None, reviewer_notes=None,
+        )
+        data = json.loads(result)
+        assert "error" not in data
+
+        wp = db.get_workflow_phase(type_id)
+        expected = derive_kanban("completed", "finish")
+        assert wp["kanban_column"] == expected, (
+            f"Expected kanban '{expected}' from derive_kanban, got '{wp['kanban_column']}'"
         )
 
 
@@ -6427,16 +6512,14 @@ class TestReconcileStatusHealthyWithFrontmatterDriftDeepened:
                   dimension:mutation_mindset
     """
 
-    def test_reconcile_status_healthy_false_when_only_frontmatter_drift(
+    def test_reconcile_status_healthy_true_despite_frontmatter_drift(
         self, db, tmp_path
     ):
-        """healthy must be False even if workflow is in sync but frontmatter drifts.
-        derived_from: spec:AC-14, dimension:mutation_mindset
+        """healthy excludes frontmatter drift (AC-2).
+        derived_from: spec:AC-2, dimension:mutation_mindset
 
-        Anticipate: If the healthy check only considers workflow_drift (AND
-        ignores frontmatter_drift), or uses OR instead of AND, this test
-        catches it. The mutation `healthy = wf_healthy` (dropping fm_healthy)
-        would make this test pass when it shouldn't.
+        Frontmatter drift is still reported in frontmatter_drift_count but
+        does NOT affect the healthy boolean. Only workflow drift matters.
         """
         # Given a feature with workflow IN SYNC but frontmatter DRIFTED
         db.register_entity("feature", "fm-only-drift", "FM Only Drift", status="active")
@@ -6465,8 +6548,332 @@ class TestReconcileStatusHealthyWithFrontmatterDriftDeepened:
         # When checking reconcile status
         result = _process_reconcile_status(engine, db, str(tmp_path))
         data = json.loads(result)
-        # Then healthy is False because frontmatter drift exists
-        assert data["healthy"] is False, (
-            "healthy should be False when frontmatter drift exists, "
-            "even if workflow is in sync"
+        # Then healthy is True because frontmatter drift is excluded (AC-2)
+        assert data["healthy"] is True, (
+            "healthy should be True when only frontmatter drift exists "
+            "(frontmatter excluded from health check per AC-2)"
         )
+
+
+# ---------------------------------------------------------------------------
+# Artifact completeness warning tests (AC-5, Task 1a.6)
+# ---------------------------------------------------------------------------
+
+
+class TestCheckArtifactCompleteness:
+    """Unit tests for _check_artifact_completeness helper."""
+
+    def test_standard_mode_all_present_no_warnings(self, db, tmp_path):
+        """Standard mode with all expected artifacts produces no warnings."""
+        feat_dir = os.path.join(str(tmp_path), "features", "200-complete")
+        os.makedirs(feat_dir, exist_ok=True)
+        for name in _EXPECTED_ARTIFACTS["standard"]:
+            with open(os.path.join(feat_dir, name), "w") as f:
+                f.write("content")
+
+        db.register_entity(
+            "feature", "200-complete", "complete",
+            artifact_path=feat_dir,
+            metadata={"id": "200", "slug": "complete", "mode": "standard"},
+        )
+        db.create_workflow_phase(
+            "feature:200-complete", workflow_phase="finish", mode="standard",
+        )
+
+        warnings = _check_artifact_completeness(db, "feature:200-complete")
+        assert warnings == []
+
+    def test_standard_mode_missing_retro_warns(self, db, tmp_path):
+        """Standard mode missing retro.md produces warning (AC-5 verification)."""
+        feat_dir = os.path.join(str(tmp_path), "features", "201-noretro")
+        os.makedirs(feat_dir, exist_ok=True)
+        # Create all except retro.md
+        for name in ["spec.md", "tasks.md"]:
+            with open(os.path.join(feat_dir, name), "w") as f:
+                f.write("content")
+
+        db.register_entity(
+            "feature", "201-noretro", "noretro",
+            artifact_path=feat_dir,
+            metadata={"id": "201", "slug": "noretro", "mode": "standard"},
+        )
+        db.create_workflow_phase(
+            "feature:201-noretro", workflow_phase="finish", mode="standard",
+        )
+
+        warnings = _check_artifact_completeness(db, "feature:201-noretro")
+        assert len(warnings) == 1
+        assert "retro.md" in warnings[0]
+
+    def test_full_mode_missing_design_and_plan_warns(self, db, tmp_path):
+        """Full mode missing design.md and plan.md produces two warnings."""
+        feat_dir = os.path.join(str(tmp_path), "features", "202-partial")
+        os.makedirs(feat_dir, exist_ok=True)
+        for name in ["spec.md", "tasks.md", "retro.md"]:
+            with open(os.path.join(feat_dir, name), "w") as f:
+                f.write("content")
+
+        db.register_entity(
+            "feature", "202-partial", "partial",
+            artifact_path=feat_dir,
+            metadata={"id": "202", "slug": "partial", "mode": "full"},
+        )
+        db.create_workflow_phase(
+            "feature:202-partial", workflow_phase="finish", mode="full",
+        )
+
+        warnings = _check_artifact_completeness(db, "feature:202-partial")
+        assert len(warnings) == 2
+        assert any("design.md" in w for w in warnings)
+        assert any("plan.md" in w for w in warnings)
+
+    def test_full_mode_all_present_no_warnings(self, db, tmp_path):
+        """Full mode with all expected artifacts produces no warnings."""
+        feat_dir = os.path.join(str(tmp_path), "features", "203-allfull")
+        os.makedirs(feat_dir, exist_ok=True)
+        for name in _EXPECTED_ARTIFACTS["full"]:
+            with open(os.path.join(feat_dir, name), "w") as f:
+                f.write("content")
+
+        db.register_entity(
+            "feature", "203-allfull", "allfull",
+            artifact_path=feat_dir,
+            metadata={"id": "203", "slug": "allfull", "mode": "full"},
+        )
+        db.create_workflow_phase(
+            "feature:203-allfull", workflow_phase="finish", mode="full",
+        )
+
+        warnings = _check_artifact_completeness(db, "feature:203-allfull")
+        assert warnings == []
+
+    def test_no_workflow_phase_defaults_standard(self, db, tmp_path):
+        """When no workflow_phases row exists, defaults to standard mode."""
+        feat_dir = os.path.join(str(tmp_path), "features", "204-norow")
+        os.makedirs(feat_dir, exist_ok=True)
+        # Only spec.md present — standard expects spec.md, tasks.md, retro.md
+        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+            f.write("content")
+
+        db.register_entity(
+            "feature", "204-norow", "norow",
+            artifact_path=feat_dir,
+            metadata={"id": "204", "slug": "norow", "mode": "standard"},
+        )
+        # No create_workflow_phase — mode should default to standard
+
+        warnings = _check_artifact_completeness(db, "feature:204-norow")
+        assert len(warnings) == 2
+        assert any("tasks.md" in w for w in warnings)
+        assert any("retro.md" in w for w in warnings)
+
+    def test_nonexistent_entity_returns_empty(self, db):
+        """Non-existent entity returns no warnings (graceful)."""
+        warnings = _check_artifact_completeness(db, "feature:999-nonexistent")
+        assert warnings == []
+
+    def test_no_artifact_path_returns_empty(self, db):
+        """Entity without artifact_path returns no warnings (graceful)."""
+        db.register_entity(
+            "feature", "205-nopath", "nopath",
+            metadata={"id": "205", "slug": "nopath", "mode": "standard"},
+        )
+        warnings = _check_artifact_completeness(db, "feature:205-nopath")
+        assert warnings == []
+
+    def test_unknown_mode_no_warnings(self, db, tmp_path):
+        """Truly unknown mode (not standard/full/light) produces no warnings.
+
+        This test verifies the code path where mode is not in _EXPECTED_ARTIFACTS.
+        """
+        feat_dir = os.path.join(str(tmp_path), "features", "206-unknown")
+        os.makedirs(feat_dir, exist_ok=True)
+        # No artifacts at all
+
+        db.register_entity(
+            "feature", "206-unknown", "unknown",
+            artifact_path=feat_dir,
+            metadata={"id": "206", "slug": "unknown", "mode": "standard"},
+        )
+        # Verify a truly unknown mode returns None from the dict
+        assert _EXPECTED_ARTIFACTS.get("experimental") is None, (
+            "unknown modes should not be in _EXPECTED_ARTIFACTS"
+        )
+
+    def test_light_mode_with_spec_no_warnings(self, db, tmp_path):
+        """Light mode with spec.md present -> no warnings (AC-15, Task 1b.10)."""
+        feat_dir = os.path.join(str(tmp_path), "features", "207-light-ok")
+        os.makedirs(feat_dir, exist_ok=True)
+        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+            f.write("content")
+
+        db.register_entity(
+            "feature", "207-light-ok", "light-ok",
+            artifact_path=feat_dir,
+            metadata={"id": "207", "slug": "light-ok", "mode": "light"},
+        )
+        db.create_workflow_phase(
+            "feature:207-light-ok", workflow_phase="finish", mode="light",
+        )
+
+        warnings = _check_artifact_completeness(db, "feature:207-light-ok")
+        assert warnings == []
+
+    def test_light_mode_missing_spec_warns(self, db, tmp_path):
+        """Light mode without spec.md -> warning (AC-15, Task 1b.10)."""
+        feat_dir = os.path.join(str(tmp_path), "features", "208-light-nospec")
+        os.makedirs(feat_dir, exist_ok=True)
+        # No spec.md
+
+        db.register_entity(
+            "feature", "208-light-nospec", "light-nospec",
+            artifact_path=feat_dir,
+            metadata={"id": "208", "slug": "light-nospec", "mode": "light"},
+        )
+        db.create_workflow_phase(
+            "feature:208-light-nospec", workflow_phase="finish", mode="light",
+        )
+
+        warnings = _check_artifact_completeness(db, "feature:208-light-nospec")
+        assert len(warnings) == 1
+        assert "spec.md" in warnings[0]
+
+    def test_light_mode_expected_artifacts_entry(self):
+        """Light mode is registered in _EXPECTED_ARTIFACTS with only spec.md."""
+        assert _EXPECTED_ARTIFACTS.get("light") == ["spec.md"]
+
+
+class TestCompletePhaseArtifactWarnings:
+    """Integration tests: _process_complete_phase includes artifact_warnings on finish."""
+
+    def test_finish_with_missing_retro_has_artifact_warnings(self, db, tmp_path):
+        """AC-5 verification: complete standard feature missing retro.md
+        succeeds with warning in response JSON."""
+        feat_dir = os.path.join(str(tmp_path), "features", "210-warn")
+        os.makedirs(feat_dir, exist_ok=True)
+        with open(os.path.join(feat_dir, ".meta.json"), "w") as f:
+            f.write('{"id": "210", "slug": "warn", "status": "active", "mode": "standard"}')
+        # Create spec.md and tasks.md but NOT retro.md
+        for name in ["spec.md", "tasks.md"]:
+            with open(os.path.join(feat_dir, name), "w") as f:
+                f.write("content")
+
+        db.register_entity(
+            "feature", "210-warn", "warn", status="active",
+            artifact_path=feat_dir,
+            metadata={
+                "id": "210", "slug": "warn", "mode": "standard",
+                "branch": "", "phase_timing": {},
+            },
+        )
+        db.create_workflow_phase(
+            "feature:210-warn", workflow_phase="finish", mode="standard",
+        )
+        engine = WorkflowStateEngine(db, str(tmp_path))
+
+        result = _process_complete_phase(
+            engine, "feature:210-warn", "finish",
+            db=db, iterations=None, reviewer_notes=None,
+        )
+        data = json.loads(result)
+
+        # Completion should succeed
+        assert "error" not in data
+        # Artifact warnings should be present
+        assert "artifact_warnings" in data
+        assert len(data["artifact_warnings"]) == 1
+        assert "retro.md" in data["artifact_warnings"][0]
+
+    def test_finish_with_all_artifacts_no_warnings(self, db, tmp_path):
+        """Complete with all artifacts present — no artifact_warnings key."""
+        feat_dir = os.path.join(str(tmp_path), "features", "211-ok")
+        os.makedirs(feat_dir, exist_ok=True)
+        with open(os.path.join(feat_dir, ".meta.json"), "w") as f:
+            f.write('{"id": "211", "slug": "ok", "status": "active", "mode": "standard"}')
+        for name in _EXPECTED_ARTIFACTS["standard"]:
+            with open(os.path.join(feat_dir, name), "w") as f:
+                f.write("content")
+
+        db.register_entity(
+            "feature", "211-ok", "ok", status="active",
+            artifact_path=feat_dir,
+            metadata={
+                "id": "211", "slug": "ok", "mode": "standard",
+                "branch": "", "phase_timing": {},
+            },
+        )
+        db.create_workflow_phase(
+            "feature:211-ok", workflow_phase="finish", mode="standard",
+        )
+        engine = WorkflowStateEngine(db, str(tmp_path))
+
+        result = _process_complete_phase(
+            engine, "feature:211-ok", "finish",
+            db=db, iterations=None, reviewer_notes=None,
+        )
+        data = json.loads(result)
+
+        assert "error" not in data
+        assert "artifact_warnings" not in data
+
+    def test_non_finish_phase_no_artifact_warnings(self, db, tmp_path):
+        """Non-finish phase completion should not include artifact_warnings."""
+        feat_dir = os.path.join(str(tmp_path), "features", "212-specify")
+        os.makedirs(feat_dir, exist_ok=True)
+
+        db.register_entity(
+            "feature", "212-specify", "specify", status="active",
+            artifact_path=feat_dir,
+            metadata={
+                "id": "212", "slug": "specify", "mode": "standard",
+                "branch": "", "phase_timing": {},
+            },
+        )
+        db.create_workflow_phase(
+            "feature:212-specify", workflow_phase="specify", mode="standard",
+        )
+        engine = WorkflowStateEngine(db, str(tmp_path))
+
+        result = _process_complete_phase(
+            engine, "feature:212-specify", "specify",
+            db=db, iterations=None, reviewer_notes=None,
+        )
+        data = json.loads(result)
+
+        assert "error" not in data
+        assert "artifact_warnings" not in data
+
+    def test_finish_completion_not_blocked_by_missing_artifacts(self, db, tmp_path):
+        """AC-5: completion is NOT blocked by missing artifacts — status is completed."""
+        feat_dir = os.path.join(str(tmp_path), "features", "213-notblocked")
+        os.makedirs(feat_dir, exist_ok=True)
+        with open(os.path.join(feat_dir, ".meta.json"), "w") as f:
+            f.write('{"id": "213", "slug": "notblocked", "status": "active", "mode": "standard"}')
+        # No artifacts at all
+
+        db.register_entity(
+            "feature", "213-notblocked", "notblocked", status="active",
+            artifact_path=feat_dir,
+            metadata={
+                "id": "213", "slug": "notblocked", "mode": "standard",
+                "branch": "", "phase_timing": {},
+            },
+        )
+        db.create_workflow_phase(
+            "feature:213-notblocked", workflow_phase="finish", mode="standard",
+        )
+        engine = WorkflowStateEngine(db, str(tmp_path))
+
+        result = _process_complete_phase(
+            engine, "feature:213-notblocked", "finish",
+            db=db, iterations=None, reviewer_notes=None,
+        )
+        data = json.loads(result)
+
+        # Completion succeeds despite missing artifacts
+        assert "error" not in data
+        entity = db.get_entity("feature:213-notblocked")
+        assert entity["status"] == "completed"
+        # But warnings are present
+        assert "artifact_warnings" in data
+        assert len(data["artifact_warnings"]) == 3  # spec.md, tasks.md, retro.md

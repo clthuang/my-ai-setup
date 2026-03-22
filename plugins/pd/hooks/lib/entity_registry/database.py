@@ -6,11 +6,15 @@ import re
 import sqlite3
 import uuid as uuid_mod
 from collections.abc import Callable
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 _UUID_V4_RE = re.compile(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
 )
+
+# Tag format: lowercase letters, digits, hyphens. 1-50 chars. No leading/trailing hyphens.
+_TAG_RE = re.compile(r'^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$')
 
 
 def flatten_metadata(metadata: dict | None) -> str:
@@ -507,6 +511,389 @@ def _expand_workflow_phase_check(conn: sqlite3.Connection) -> None:
         )
 
 
+def _schema_expansion_v6(conn: sqlite3.Connection) -> None:
+    """Migration 6: Entity type expansion, 5D phases, light mode, junction tables.
+
+    14-step DDL sequence:
+    1. PRAGMA foreign_keys=OFF
+    2. BEGIN IMMEDIATE
+    3. Rebuild entities table (drop entity_type CHECK constraint)
+    4. Rebuild workflow_phases (expand CHECK, add uuid column with backfill)
+    5. Rebuild entities_fts virtual table
+    6. CREATE entity_tags table
+    7. CREATE entity_dependencies table
+    8. CREATE entity_okr_alignment table
+    9. INSERT next_seq_{type} entries into _metadata
+    10. PRAGMA foreign_key_check
+    11. Data integrity check A: backfill orphaned parent_uuid
+    12. Data integrity check B: check orphaned workflow_phases / NULL uuids
+    13. COMMIT
+    14. PRAGMA foreign_keys=ON
+
+    Self-managed transaction (BEGIN IMMEDIATE / COMMIT / ROLLBACK).
+    """
+    # --- Step 1: PRAGMA foreign_keys=OFF ---
+    conn.execute("PRAGMA foreign_keys = OFF")
+    fk_status = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+    if fk_status != 0:
+        raise RuntimeError(
+            "PRAGMA foreign_keys = OFF did not take effect — aborting migration"
+        )
+    try:
+        # --- Step 2: BEGIN IMMEDIATE ---
+        conn.execute("BEGIN IMMEDIATE")
+
+        # Pre-migration FK check
+        fk_violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if fk_violations:
+            raise RuntimeError(
+                f"FK violations found before migration: {fk_violations}"
+            )
+
+        # --- Step 3: Rebuild entities table (drop entity_type CHECK) ---
+        conn.execute("""
+            CREATE TABLE entities_new (
+                uuid           TEXT NOT NULL PRIMARY KEY,
+                type_id        TEXT NOT NULL UNIQUE,
+                entity_type    TEXT NOT NULL,
+                entity_id      TEXT NOT NULL,
+                name           TEXT NOT NULL,
+                status         TEXT,
+                parent_type_id TEXT REFERENCES entities_new(type_id),
+                parent_uuid    TEXT REFERENCES entities_new(uuid),
+                artifact_path  TEXT,
+                created_at     TEXT NOT NULL,
+                updated_at     TEXT NOT NULL,
+                metadata       TEXT
+            )
+        """)
+
+        conn.execute(
+            "INSERT INTO entities_new "
+            "SELECT uuid, type_id, entity_type, entity_id, name, status, "
+            "parent_type_id, parent_uuid, artifact_path, created_at, "
+            "updated_at, metadata FROM entities"
+        )
+
+        conn.execute("DROP TABLE entities")
+        conn.execute("PRAGMA legacy_alter_table = OFF")
+        conn.execute("ALTER TABLE entities_new RENAME TO entities")
+
+        # Recreate all 8 triggers on entities
+        conn.execute("""
+            CREATE TRIGGER enforce_immutable_type_id
+            BEFORE UPDATE OF type_id ON entities
+            BEGIN SELECT RAISE(ABORT, 'type_id is immutable'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER enforce_immutable_entity_type
+            BEFORE UPDATE OF entity_type ON entities
+            BEGIN SELECT RAISE(ABORT, 'entity_type is immutable'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER enforce_immutable_created_at
+            BEFORE UPDATE OF created_at ON entities
+            BEGIN SELECT RAISE(ABORT, 'created_at is immutable'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER enforce_no_self_parent
+            BEFORE INSERT ON entities
+            WHEN NEW.parent_type_id IS NOT NULL
+                 AND NEW.parent_type_id = NEW.type_id
+            BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER enforce_no_self_parent_update
+            BEFORE UPDATE OF parent_type_id ON entities
+            WHEN NEW.parent_type_id IS NOT NULL
+                 AND NEW.parent_type_id = NEW.type_id
+            BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER enforce_immutable_uuid
+            BEFORE UPDATE OF uuid ON entities
+            BEGIN SELECT RAISE(ABORT, 'uuid is immutable'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER enforce_no_self_parent_uuid_insert
+            BEFORE INSERT ON entities
+            WHEN NEW.parent_uuid IS NOT NULL AND NEW.parent_uuid = NEW.uuid
+            BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER enforce_no_self_parent_uuid_update
+            BEFORE UPDATE OF parent_uuid ON entities
+            WHEN NEW.parent_uuid IS NOT NULL AND NEW.parent_uuid = NEW.uuid
+            BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent'); END
+        """)
+
+        # Recreate indexes on entities
+        conn.execute(
+            "CREATE INDEX idx_entity_type ON entities(entity_type)"
+        )
+        conn.execute("CREATE INDEX idx_status ON entities(status)")
+        conn.execute(
+            "CREATE INDEX idx_parent_type_id ON entities(parent_type_id)"
+        )
+        conn.execute(
+            "CREATE INDEX idx_parent_uuid ON entities(parent_uuid)"
+        )
+
+        # --- Step 4: Rebuild workflow_phases (expand CHECK, add uuid column) ---
+        # All valid workflow phases: existing 7 + brainstorm/backlog lifecycle + 5D
+        conn.execute("""
+            CREATE TABLE workflow_phases_new (
+                type_id                    TEXT PRIMARY KEY
+                                           REFERENCES entities(type_id),
+                workflow_phase             TEXT CHECK(workflow_phase IN (
+                                               'brainstorm','specify','design',
+                                               'create-plan','create-tasks',
+                                               'implement','finish',
+                                               'draft','reviewing','promoted','abandoned',
+                                               'open','triaged','dropped',
+                                               'discover','define','deliver','debrief'
+                                           ) OR workflow_phase IS NULL),
+                kanban_column              TEXT NOT NULL DEFAULT 'backlog'
+                                           CHECK(kanban_column IN (
+                                               'backlog','prioritised','wip',
+                                               'agent_review','human_review',
+                                               'blocked','documenting','completed'
+                                           )),
+                last_completed_phase       TEXT CHECK(last_completed_phase IN (
+                                               'brainstorm','specify','design',
+                                               'create-plan','create-tasks',
+                                               'implement','finish',
+                                               'draft','reviewing','promoted','abandoned',
+                                               'open','triaged','dropped',
+                                               'discover','define','deliver','debrief'
+                                           ) OR last_completed_phase IS NULL),
+                mode                       TEXT CHECK(mode IN (
+                                               'standard', 'full', 'light'
+                                           ) OR mode IS NULL),
+                backward_transition_reason TEXT,
+                updated_at                 TEXT NOT NULL,
+                uuid                       TEXT
+            )
+        """)
+
+        # Copy existing data (uuid defaults to NULL, backfilled below)
+        conn.execute(
+            "INSERT INTO workflow_phases_new "
+            "(type_id, workflow_phase, kanban_column, last_completed_phase, "
+            "mode, backward_transition_reason, updated_at) "
+            "SELECT type_id, workflow_phase, kanban_column, last_completed_phase, "
+            "mode, backward_transition_reason, updated_at FROM workflow_phases"
+        )
+
+        # Backfill uuid from entities table
+        conn.execute(
+            "UPDATE workflow_phases_new SET uuid = ("
+            "  SELECT e.uuid FROM entities e "
+            "  WHERE e.type_id = workflow_phases_new.type_id"
+            ")"
+        )
+
+        conn.execute("DROP TABLE workflow_phases")
+        conn.execute("PRAGMA legacy_alter_table = OFF")
+        conn.execute(
+            "ALTER TABLE workflow_phases_new RENAME TO workflow_phases"
+        )
+
+        # Recreate trigger on workflow_phases
+        conn.execute("""
+            CREATE TRIGGER enforce_immutable_wp_type_id
+            BEFORE UPDATE OF type_id ON workflow_phases
+            BEGIN
+                SELECT RAISE(ABORT, 'workflow_phases.type_id is immutable');
+            END
+        """)
+
+        # Recreate indexes on workflow_phases
+        conn.execute(
+            "CREATE INDEX idx_wp_kanban_column "
+            "ON workflow_phases(kanban_column)"
+        )
+        conn.execute(
+            "CREATE INDEX idx_wp_workflow_phase "
+            "ON workflow_phases(workflow_phase)"
+        )
+        conn.execute(
+            "CREATE INDEX idx_wp_uuid ON workflow_phases(uuid)"
+        )
+
+        # --- Step 5: Rebuild entities_fts virtual table ---
+        conn.execute("DROP TABLE IF EXISTS entities_fts")
+        try:
+            conn.execute(
+                "CREATE VIRTUAL TABLE entities_fts USING fts5("
+                "name, entity_id, entity_type, status, metadata_text, "
+                "content='entities', content_rowid='rowid')"
+            )
+        except sqlite3.OperationalError as exc:
+            if "no such module: fts5" in str(exc):
+                raise RuntimeError("FTS5 extension not available") from exc
+            raise
+
+        # Backfill FTS from entities
+        rows = conn.execute(
+            "SELECT rowid, name, entity_id, entity_type, status, metadata "
+            "FROM entities"
+        ).fetchall()
+        for row in rows:
+            metadata_text = flatten_metadata(
+                json.loads(row[5]) if row[5] else None
+            )
+            conn.execute(
+                "INSERT INTO entities_fts(rowid, name, entity_id, entity_type, "
+                "status, metadata_text) VALUES(?, ?, ?, ?, ?, ?)",
+                (row[0], row[1], row[2], row[3], row[4] or "", metadata_text),
+            )
+
+        # --- Step 6: CREATE entity_tags table ---
+        conn.execute("""
+            CREATE TABLE entity_tags (
+                entity_uuid TEXT NOT NULL,
+                tag         TEXT NOT NULL,
+                UNIQUE(entity_uuid, tag)
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX idx_et_entity_uuid ON entity_tags(entity_uuid)"
+        )
+        conn.execute(
+            "CREATE INDEX idx_et_tag ON entity_tags(tag)"
+        )
+
+        # --- Step 7: CREATE entity_dependencies table ---
+        conn.execute("""
+            CREATE TABLE entity_dependencies (
+                entity_uuid     TEXT NOT NULL,
+                blocked_by_uuid TEXT NOT NULL,
+                UNIQUE(entity_uuid, blocked_by_uuid)
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX idx_ed_entity_uuid "
+            "ON entity_dependencies(entity_uuid)"
+        )
+        conn.execute(
+            "CREATE INDEX idx_ed_blocked_by_uuid "
+            "ON entity_dependencies(blocked_by_uuid)"
+        )
+
+        # --- Step 8: CREATE entity_okr_alignment table ---
+        conn.execute("""
+            CREATE TABLE entity_okr_alignment (
+                entity_uuid      TEXT NOT NULL,
+                key_result_uuid  TEXT NOT NULL,
+                UNIQUE(entity_uuid, key_result_uuid)
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX idx_eoa_entity_uuid "
+            "ON entity_okr_alignment(entity_uuid)"
+        )
+        conn.execute(
+            "CREATE INDEX idx_eoa_key_result_uuid "
+            "ON entity_okr_alignment(key_result_uuid)"
+        )
+
+        # --- Step 9: INSERT next_seq_{type} entries into _metadata ---
+        # Bootstrap from max existing sequential IDs for each entity type
+        entity_types = conn.execute(
+            "SELECT DISTINCT entity_type FROM entities"
+        ).fetchall()
+        for (etype,) in entity_types:
+            key = f"next_seq_{etype}"
+            # Only bootstrap if key doesn't already exist
+            existing = conn.execute(
+                "SELECT value FROM _metadata WHERE key = ?", (key,)
+            ).fetchone()
+            if existing is None:
+                # Extract max numeric prefix from entity_id values
+                rows = conn.execute(
+                    "SELECT entity_id FROM entities WHERE entity_type = ?",
+                    (etype,),
+                ).fetchall()
+                max_seq = 0
+                for (eid,) in rows:
+                    # entity_id format: {seq}-{slug} or legacy formats
+                    parts = eid.split("-", 1)
+                    try:
+                        seq_val = int(parts[0])
+                        if seq_val > max_seq:
+                            max_seq = seq_val
+                    except (ValueError, IndexError):
+                        pass
+                conn.execute(
+                    "INSERT INTO _metadata(key, value) VALUES(?, ?)",
+                    (key, str(max_seq)),
+                )
+
+        # --- Step 10: PRAGMA foreign_key_check ---
+        # NOTE: Deferred to post-commit. During the transaction, PRAGMA
+        # foreign_key_check reports false positives because CREATE TABLE
+        # FKs reference the pre-rename table name (entities_new). The
+        # post-commit check below (after PRAGMA foreign_keys=ON) validates
+        # correctly against the final table names.
+
+        # --- Step 11: Data integrity check A — backfill orphaned parent_uuid ---
+        conn.execute("""
+            UPDATE entities SET parent_uuid = (
+                SELECT e2.uuid FROM entities e2
+                WHERE e2.type_id = entities.parent_type_id
+            )
+            WHERE parent_type_id IS NOT NULL AND parent_uuid IS NULL
+        """)
+
+        # --- Step 12: Data integrity check B — orphaned workflow_phases / NULL uuids ---
+        orphaned_wp = conn.execute(
+            "SELECT wp.type_id FROM workflow_phases wp "
+            "LEFT JOIN entities e ON wp.type_id = e.type_id "
+            "WHERE e.type_id IS NULL"
+        ).fetchall()
+        if orphaned_wp:
+            # Delete orphaned workflow_phases rows (no matching entity)
+            for (tid,) in orphaned_wp:
+                conn.execute(
+                    "DELETE FROM workflow_phases WHERE type_id = ?", (tid,)
+                )
+
+        null_uuid_wp = conn.execute(
+            "SELECT type_id FROM workflow_phases WHERE uuid IS NULL"
+        ).fetchall()
+        if null_uuid_wp:
+            # Re-attempt backfill for any remaining NULL uuids
+            conn.execute(
+                "UPDATE workflow_phases SET uuid = ("
+                "  SELECT e.uuid FROM entities e "
+                "  WHERE e.type_id = workflow_phases.type_id"
+                ") WHERE uuid IS NULL"
+            )
+
+        # Update schema_version inside transaction (atomic with DDL)
+        conn.execute(
+            "INSERT INTO _metadata(key, value) VALUES('schema_version', '6') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+
+        # --- Step 13: COMMIT ---
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        # --- Step 14: PRAGMA foreign_keys=ON ---
+        conn.execute("PRAGMA foreign_keys = ON")
+
+    # Post-migration FK check — outside try, after commit
+    post_violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+    if post_violations:
+        raise RuntimeError(
+            f"FK violations after migration: {post_violations}"
+        )
+
+
 # Ordered mapping of version -> migration function.
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     1: _create_initial_schema,
@@ -514,6 +901,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     3: _create_workflow_phases_table,
     4: _create_fts_index,
     5: _expand_workflow_phase_check,
+    6: _schema_expansion_v6,
 }
 
 # Sentinel object to distinguish "not provided" from explicit ``None``.
@@ -533,7 +921,10 @@ class EntityDatabase:
         in-memory database.
     """
 
-    VALID_ENTITY_TYPES = ("backlog", "brainstorm", "project", "feature")
+    VALID_ENTITY_TYPES = (
+        "backlog", "brainstorm", "project", "feature",
+        "initiative", "objective", "key_result", "task",
+    )
 
     def __init__(self, db_path: str, *, check_same_thread: bool = True) -> None:
         self._conn = sqlite3.connect(db_path, timeout=5.0, check_same_thread=check_same_thread)
@@ -586,6 +977,191 @@ class EntityDatabase:
         return (row["uuid"], row["type_id"])
 
     # ------------------------------------------------------------------
+    # UUID lookup and flexible ref resolution (Task 1b.3a)
+    # ------------------------------------------------------------------
+
+    def get_entity_by_uuid(self, uuid: str) -> dict | None:
+        """Retrieve a single entity by UUID.
+
+        Returns entity dict or None if not found (or input is not a valid UUID).
+        """
+        row = self._conn.execute(
+            "SELECT * FROM entities WHERE uuid = ?", (uuid,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def resolve_ref(self, ref: str) -> str:
+        """Resolve a flexible reference to a single entity UUID.
+
+        Resolution order:
+        1. If ref looks like a UUID (36 chars, has dashes), look up by uuid.
+        2. Try as exact type_id.
+        3. Try as type_id prefix.
+           - Single match: return that uuid.
+           - Multiple matches: raise ValueError with candidate list.
+           - No matches: raise ValueError.
+
+        Parameters
+        ----------
+        ref:
+            UUID string, full type_id, or type_id prefix.
+
+        Returns
+        -------
+        str
+            The resolved entity UUID.
+
+        Raises
+        ------
+        ValueError
+            If ref is ambiguous (multiple prefix matches) or not found.
+        """
+        # 1. Try as UUID
+        if _UUID_V4_RE.match(ref.lower()):
+            entity = self.get_entity_by_uuid(ref.lower())
+            if entity is not None:
+                return entity["uuid"]
+            raise ValueError(f"No entity found matching ref: {ref!r}")
+
+        # 2. Try as exact type_id
+        row = self._conn.execute(
+            "SELECT uuid FROM entities WHERE type_id = ?", (ref,)
+        ).fetchone()
+        if row is not None:
+            return row["uuid"]
+
+        # 3. Try as prefix
+        matches = self.search_by_type_id_prefix(ref)
+        if len(matches) == 1:
+            return matches[0]["uuid"]
+        if len(matches) > 1:
+            candidates = [m["type_id"] for m in matches]
+            raise ValueError(
+                f"Multiple entities match ref {ref!r}: {candidates}"
+            )
+
+        raise ValueError(f"No entity found matching ref: {ref!r}")
+
+    # ------------------------------------------------------------------
+    # Prefix search and transaction helpers (Task 1b.3b)
+    # ------------------------------------------------------------------
+
+    def search_by_type_id_prefix(self, prefix: str) -> list[dict]:
+        """Search for entities whose type_id starts with the given prefix.
+
+        Parameters
+        ----------
+        prefix:
+            The type_id prefix to match (e.g. "feature:05").
+
+        Returns
+        -------
+        list[dict]
+            List of matching entity dicts.
+        """
+        # Use LIKE with escaped prefix for efficient prefix search.
+        # Escape any existing % or _ in the prefix to prevent SQL injection.
+        escaped = prefix.replace("%", "\\%").replace("_", "\\_")
+        rows = self._conn.execute(
+            "SELECT * FROM entities WHERE type_id LIKE ? ESCAPE '\\'",
+            (escaped + "%",),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    @contextmanager
+    def begin_immediate(self):
+        """Context manager that wraps a block in BEGIN IMMEDIATE.
+
+        Commits on success, rolls back on exception. Yields the connection.
+
+        Usage::
+
+            with db.begin_immediate() as conn:
+                conn.execute("UPDATE ...")
+        """
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield self._conn
+            self._conn.execute("COMMIT")
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+
+    # ------------------------------------------------------------------
+    # Entity tagging (Task 1b.9a)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _validate_tag(tag: str) -> None:
+        """Validate tag format: lowercase, hyphens, digits, 1-50 chars."""
+        if not tag or not _TAG_RE.match(tag):
+            raise ValueError(
+                f"Invalid tag {tag!r}: must be 1-50 chars, lowercase "
+                f"letters, digits, and hyphens (no leading/trailing hyphens)"
+            )
+
+    def add_tag(self, entity_uuid: str, tag: str) -> None:
+        """Add a tag to an entity. Idempotent (duplicate is ignored).
+
+        Parameters
+        ----------
+        entity_uuid:
+            UUID of the entity to tag.
+        tag:
+            Tag string (lowercase, hyphens, max 50 chars).
+
+        Raises
+        ------
+        ValueError
+            If tag format is invalid.
+        """
+        self._validate_tag(tag)
+        self._conn.execute(
+            "INSERT OR IGNORE INTO entity_tags (entity_uuid, tag) "
+            "VALUES (?, ?)",
+            (entity_uuid, tag),
+        )
+        self._conn.commit()
+
+    def remove_tag(self, entity_uuid: str, tag: str) -> None:
+        """Remove a tag from an entity. Silent if tag not present."""
+        self._conn.execute(
+            "DELETE FROM entity_tags WHERE entity_uuid = ? AND tag = ?",
+            (entity_uuid, tag),
+        )
+        self._conn.commit()
+
+    def get_tags(self, entity_uuid: str) -> list[str]:
+        """Return all tags for an entity, sorted alphabetically."""
+        rows = self._conn.execute(
+            "SELECT tag FROM entity_tags WHERE entity_uuid = ? ORDER BY tag",
+            (entity_uuid,),
+        ).fetchall()
+        return [row["tag"] for row in rows]
+
+    def query_by_tag(self, tag: str) -> list[dict]:
+        """Return all entities with a given tag, across all types.
+
+        Parameters
+        ----------
+        tag:
+            The tag to query by.
+
+        Returns
+        -------
+        list[dict]
+            List of entity dicts for entities carrying this tag.
+        """
+        rows = self._conn.execute(
+            "SELECT e.* FROM entities e "
+            "JOIN entity_tags et ON e.uuid = et.entity_uuid "
+            "WHERE et.tag = ? "
+            "ORDER BY e.entity_type, e.name",
+            (tag,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    # ------------------------------------------------------------------
     # Entity CRUD
     # ------------------------------------------------------------------
 
@@ -604,7 +1180,8 @@ class EntityDatabase:
         Parameters
         ----------
         entity_type:
-            One of: backlog, brainstorm, project, feature.
+            One of the VALID_ENTITY_TYPES (backlog, brainstorm, project,
+            feature, initiative, objective, key_result, task).
         entity_id:
             Unique identifier within the entity_type namespace.
         name:

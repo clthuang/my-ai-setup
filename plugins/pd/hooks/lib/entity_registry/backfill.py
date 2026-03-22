@@ -14,6 +14,7 @@ import re
 import sys
 
 from entity_registry.database import EntityDatabase
+from workflow_engine.kanban import derive_kanban
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +33,10 @@ PHASE_SEQUENCE: tuple[str, ...] = (
     "create-tasks", "implement", "finish",
 )
 
-STATUS_TO_KANBAN: dict[str, str] = {
-    "planned": "backlog",
-    "active": "wip",
-    "completed": "completed",
-    "abandoned": "completed",
-}
+# Valid statuses for kanban derivation (used for validation only)
+_VALID_STATUSES: frozenset[str] = frozenset({"planned", "active", "completed", "abandoned"})
 
-VALID_MODES: frozenset[str] = frozenset({"standard", "full"})
+VALID_MODES: frozenset[str] = frozenset({"standard", "full", "light"})
 
 
 # ---------------------------------------------------------------------------
@@ -203,13 +200,21 @@ def backfill_workflow_phases(
                         meta_path, type_id,
                     )
 
-            # Early handling for brainstorm/backlog — skip STATUS_TO_KANBAN
+            # Early handling for brainstorm/backlog — skip kanban derivation
             if entity_type in ("brainstorm", "backlog"):
-                # Child-completion override
+                # Child-completion override (D3: prefer parent_uuid, fall back
+                # to parent_type_id for legacy entities without parent_uuid)
+                entity_uuid = entity.get("uuid")
                 children = [
                     e for e in all_entities
-                    if e.get("parent_type_id") == type_id
-                    and e["entity_type"] == "feature"
+                    if e["entity_type"] == "feature"
+                    and (
+                        (entity_uuid and e.get("parent_uuid") == entity_uuid)
+                        or (
+                            not e.get("parent_uuid")
+                            and e.get("parent_type_id") == type_id
+                        )
+                    )
                 ]
                 all_children_completed = children and all(
                     c.get("status") == "completed" for c in children
@@ -271,15 +276,13 @@ def backfill_workflow_phases(
             if status is None:
                 status = "planned"
 
-            # Validate status against STATUS_TO_KANBAN
-            if status not in STATUS_TO_KANBAN:
+            # Validate status
+            if status not in _VALID_STATUSES:
                 logger.warning(
                     "Unmapped status %r for entity %s, defaulting to 'planned'",
                     status, type_id,
                 )
                 status = "planned"
-
-            kanban_column = STATUS_TO_KANBAN[status]
 
             # Feature-specific: derive workflow_phase, last_completed_phase, mode
             workflow_phase = None
@@ -315,6 +318,8 @@ def backfill_workflow_phases(
                         mode, type_id,
                     )
                     mode = None
+
+            kanban_column = derive_kanban(status, workflow_phase)
 
             # INSERT OR IGNORE for idempotency (TD-10: bypasses CRUD)
             insert_sql = (

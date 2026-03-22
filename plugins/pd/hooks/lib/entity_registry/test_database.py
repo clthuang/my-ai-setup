@@ -322,7 +322,7 @@ class TestMigration2:
 
         # Now open it with EntityDatabase — runs pending migrations (3+)
         db = EntityDatabase(db_path)
-        assert db.get_metadata("schema_version") == "5"
+        assert db.get_metadata("schema_version") == "6"
 
         # Schema should be intact
         cur = db._conn.execute("PRAGMA table_info(entities)")
@@ -438,17 +438,26 @@ class TestSchemaCreation:
         assert col_map["uuid"][5] == 1  # pk flag
         assert col_map["type_id"][5] == 0  # type_id is NOT pk
 
-    def test_entity_type_check_constraint(self, db: EntityDatabase):
-        """Only backlog, brainstorm, project, feature should be allowed."""
+    def test_entity_type_no_sql_check_constraint(self, db: EntityDatabase):
+        """entity_type CHECK constraint removed in v6; Python validation only.
+
+        After migration 6, arbitrary entity_type values are accepted at the
+        SQL level. Validation is enforced by _validate_entity_type() in Python.
+        """
         import uuid
 
-        with pytest.raises(sqlite3.IntegrityError):
-            db._conn.execute(
-                "INSERT INTO entities (uuid, type_id, entity_type, entity_id, "
-                "name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (str(uuid.uuid4()), "invalid:x", "invalid", "x", "test",
-                 "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
-            )
+        # SQL-level insert with arbitrary entity_type should succeed
+        db._conn.execute(
+            "INSERT INTO entities (uuid, type_id, entity_type, entity_id, "
+            "name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (str(uuid.uuid4()), "custom:x", "custom", "x", "test",
+             "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+        )
+        db._conn.commit()
+        row = db._conn.execute(
+            "SELECT entity_type FROM entities WHERE type_id = 'custom:x'"
+        ).fetchone()
+        assert row[0] == "custom"
 
     def test_valid_entity_types_accepted(self, db: EntityDatabase):
         """All four valid entity types should be insertable."""
@@ -487,18 +496,26 @@ class TestTriggers:
 
 
 class TestIndexes:
-    def test_has_six_indexes(self, db: EntityDatabase):
+    def test_has_indexes(self, db: EntityDatabase):
+        """Verify all expected indexes exist after migration 6."""
         cur = db._conn.execute(
             "SELECT name FROM sqlite_master WHERE type='index' "
             "AND name NOT LIKE 'sqlite_%' ORDER BY name"
         )
         index_names = [row[0] for row in cur.fetchall()]
         expected = [
+            "idx_ed_blocked_by_uuid",
+            "idx_ed_entity_uuid",
             "idx_entity_type",
+            "idx_eoa_entity_uuid",
+            "idx_eoa_key_result_uuid",
+            "idx_et_entity_uuid",
+            "idx_et_tag",
             "idx_parent_type_id",
             "idx_parent_uuid",
             "idx_status",
             "idx_wp_kanban_column",
+            "idx_wp_uuid",
             "idx_wp_workflow_phase",
         ]
         assert index_names == expected
@@ -536,7 +553,7 @@ class TestMetadata:
         assert db.get_metadata("foo") == "baz"
 
     def test_schema_version_is_5(self, db: EntityDatabase):
-        assert db.get_metadata("schema_version") == "5"
+        assert db.get_metadata("schema_version") == "6"
 
 
 # ---------------------------------------------------------------------------
@@ -588,10 +605,24 @@ class TestRegisterEntity:
             db.register_entity("invalid_type", "x", "Bad Type")
 
     def test_all_valid_types(self, db: EntityDatabase):
-        """All four valid types should succeed."""
-        for etype in ("backlog", "brainstorm", "project", "feature"):
+        """All eight valid types should succeed."""
+        for etype in EntityDatabase.VALID_ENTITY_TYPES:
             result = db.register_entity(etype, f"id-{etype}", f"Name {etype}")
             assert _UUID_V4_RE.match(result), f"Expected UUID v4 for {etype}"
+
+    def test_new_entity_types_register_successfully(self, db: EntityDatabase):
+        """New entity types (initiative, objective, key_result, task) register."""
+        new_types = ("initiative", "objective", "key_result", "task")
+        for etype in new_types:
+            uuid_str = db.register_entity(etype, f"001-test-{etype}", f"Test {etype}")
+            assert _UUID_V4_RE.match(uuid_str), f"{etype} should return valid UUID"
+            # Verify entity is queryable
+            row = db._conn.execute(
+                "SELECT entity_type, entity_id FROM entities WHERE uuid = ?",
+                (uuid_str,),
+            ).fetchone()
+            assert row["entity_type"] == etype
+            assert row["entity_id"] == f"001-test-{etype}"
 
     def test_optional_fields(self, db: EntityDatabase):
         """artifact_path, status, parent_type_id, metadata should be optional."""
@@ -2338,7 +2369,7 @@ class TestMigrationIdempotency:
         entity = db2.get_entity("project:p1")
         assert entity is not None
         assert entity["uuid"] == p1_uuid
-        assert db2.get_metadata("schema_version") == "5"
+        assert db2.get_metadata("schema_version") == "6"
         db2.close()
 
 
@@ -2461,11 +2492,11 @@ class TestMigration3:
         )
         assert cur.fetchone() is not None
 
-    def test_workflow_phases_has_7_columns(self, db: EntityDatabase):
-        """workflow_phases should have exactly 7 columns."""
+    def test_workflow_phases_has_8_columns(self, db: EntityDatabase):
+        """workflow_phases should have exactly 8 columns (uuid added in v6)."""
         cur = db._conn.execute("PRAGMA table_info(workflow_phases)")
         columns = cur.fetchall()
-        assert len(columns) == 7
+        assert len(columns) == 8
 
     def test_workflow_phases_column_names(self, db: EntityDatabase):
         """workflow_phases columns should match the DDL specification."""
@@ -2479,6 +2510,7 @@ class TestMigration3:
             "mode",
             "backward_transition_reason",
             "updated_at",
+            "uuid",
         ]
         assert col_names == expected
 
@@ -2536,7 +2568,7 @@ class TestMigration3:
 
     def test_schema_version_is_5(self, db: EntityDatabase):
         """After all migrations, schema_version should be 5."""
-        assert db.get_metadata("schema_version") == "5"
+        assert db.get_metadata("schema_version") == "6"
 
     # -- Task 1.2: Migration creates indexes and trigger (AC-2) ------------
 
@@ -2721,10 +2753,10 @@ class TestMigration3:
     # -- Task 1.4: Fresh DB migration safety (AC-3) ------------------------
 
     def test_fresh_db_has_all_migrations(self, tmp_path):
-        """A brand-new EntityDatabase should run all 5 migrations."""
+        """A brand-new EntityDatabase should run all 6 migrations."""
         fresh_db = EntityDatabase(str(tmp_path / "fresh.db"))
         try:
-            assert fresh_db.get_metadata("schema_version") == "5"
+            assert fresh_db.get_metadata("schema_version") == "6"
         finally:
             fresh_db.close()
 
@@ -2808,7 +2840,7 @@ class TestWorkflowPhaseCRUD:
     def test_create_workflow_phase_returns_dict_with_all_columns(
         self, db: EntityDatabase
     ):
-        """create_workflow_phase for existing entity returns dict with 7 columns."""
+        """create_workflow_phase for existing entity returns dict with 8 columns."""
         db.register_entity("feature", "f1", "Test Feature")
         result = db.create_workflow_phase(
             "feature:f1",
@@ -2827,6 +2859,7 @@ class TestWorkflowPhaseCRUD:
             "mode",
             "backward_transition_reason",
             "updated_at",
+            "uuid",
         }
         assert set(result.keys()) == expected_keys
         assert result["type_id"] == "feature:f1"
@@ -2890,8 +2923,8 @@ class TestWorkflowPhaseCRUD:
         result = db.get_workflow_phase("feature:nonexistent")
         assert result is None
 
-    def test_get_workflow_phase_has_all_7_columns(self, db: EntityDatabase):
-        """get_workflow_phase result dict has all 7 columns."""
+    def test_get_workflow_phase_has_all_8_columns(self, db: EntityDatabase):
+        """get_workflow_phase result dict has all 8 columns (uuid added in v6)."""
         db.register_entity("feature", "f1", "Test Feature")
         db.create_workflow_phase(
             "feature:f1",
@@ -2910,6 +2943,7 @@ class TestWorkflowPhaseCRUD:
             "mode",
             "backward_transition_reason",
             "updated_at",
+            "uuid",
         }
         assert set(result.keys()) == expected_keys
         assert result["type_id"] == "feature:f1"
@@ -4120,11 +4154,11 @@ class TestMigration5:
             conn.close()
 
     def test_migration_5_idempotent(self, tmp_path):
-        """Fresh DB runs all migrations including 5; schema_version=5 and
+        """Fresh DB runs all migrations including 5+6; schema_version=6 and
         new phase values are accepted."""
         db = EntityDatabase(str(tmp_path / "m5-idem.db"))
         try:
-            assert db.get_schema_version() == 5
+            assert db.get_schema_version() == 6
 
             # Verify all new phase values are accepted
             new_phases = [

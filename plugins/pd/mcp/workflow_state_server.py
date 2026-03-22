@@ -31,10 +31,8 @@ from entity_registry.frontmatter_sync import (
 )
 from semantic_memory.config import read_config
 from transition_gate.models import Severity, TransitionResult
-from workflow_engine.constants import FEATURE_PHASE_TO_KANBAN
 from workflow_engine.engine import WorkflowStateEngine
 from workflow_engine.feature_lifecycle import (
-    STATUS_TO_KANBAN,
     _atomic_json_write,
     _iso_now,
     _validate_feature_type_id,
@@ -42,7 +40,9 @@ from workflow_engine.feature_lifecycle import (
     init_feature_state as _lib_init_feature_state,
     init_project_state as _lib_init_project_state,
 )
+from workflow_engine.kanban import derive_kanban
 from workflow_engine.models import FeatureWorkflowState, TransitionResponse
+from workflow_engine.notifications import NotificationQueue
 from workflow_engine.reconciliation import (
     ReconcileAction,
     WorkflowDriftReport,
@@ -59,6 +59,8 @@ from mcp.server.fastmcp import FastMCP
 _db: EntityDatabase | None = None
 _engine: WorkflowStateEngine | None = None
 _artifacts_root: str = ""
+_project_root: str = ""
+_notification_queue: NotificationQueue | None = None
 
 # ---------------------------------------------------------------------------
 # Lifespan
@@ -68,7 +70,7 @@ _artifacts_root: str = ""
 @asynccontextmanager
 async def lifespan(server):
     """Manage DB connection and engine lifecycle."""
-    global _db, _engine, _artifacts_root
+    global _db, _engine, _artifacts_root, _project_root, _notification_queue
 
     db_path = os.environ.get(
         "ENTITY_DB_PATH",
@@ -78,10 +80,12 @@ async def lifespan(server):
     _db = EntityDatabase(db_path)
 
     project_root = os.environ.get("PROJECT_ROOT", os.getcwd())
+    _project_root = project_root
     config = read_config(project_root)
     _artifacts_root = os.path.join(project_root, str(config.get("artifacts_root", "docs")))
 
     _engine = WorkflowStateEngine(_db, _artifacts_root)
+    _notification_queue = NotificationQueue()
 
     print(f"workflow-engine: started (db={db_path}, artifacts={_artifacts_root})", file=sys.stderr)
 
@@ -92,6 +96,7 @@ async def lifespan(server):
             _db.close()
             _db = None
         _engine = None
+        _notification_queue = None
 
 
 # ---------------------------------------------------------------------------
@@ -427,9 +432,8 @@ def _process_transition_phase(
 
         # Update kanban_column for features based on phase
         if feature_type_id.startswith("feature:"):
-            kanban = FEATURE_PHASE_TO_KANBAN.get(target_phase)
-            if kanban:
-                db.update_workflow_phase(feature_type_id, kanban_column=kanban)
+            kanban = derive_kanban("active", target_phase)
+            db.update_workflow_phase(feature_type_id, kanban_column=kanban)
 
         # Project .meta.json
         warning = _project_meta_json(db, engine, feature_type_id)
@@ -441,6 +445,48 @@ def _process_transition_phase(
             result["projection_warning"] = warning
 
     return json.dumps(result)
+
+
+# ---------------------------------------------------------------------------
+# Artifact completeness check (AC-5)
+# ---------------------------------------------------------------------------
+
+# Expected artifacts per mode for finish-phase completeness warning.
+# Light mode deferred to task 1b.10.
+_EXPECTED_ARTIFACTS: dict[str, list[str]] = {
+    "standard": ["spec.md", "tasks.md", "retro.md"],
+    "full": ["spec.md", "design.md", "plan.md", "tasks.md", "retro.md"],
+    "light": ["spec.md"],
+}
+
+
+def _check_artifact_completeness(
+    db: EntityDatabase,
+    feature_type_id: str,
+) -> list[str]:
+    """Check for missing expected artifacts on finish. Returns list of warnings."""
+    entity = db.get_entity(feature_type_id)
+    if entity is None:
+        return []
+
+    artifact_path = entity.get("artifact_path")
+    if not artifact_path or not os.path.isdir(artifact_path):
+        return []
+
+    # Read mode from workflow_phases table
+    wf = db.get_workflow_phase(feature_type_id)
+    mode = (wf.get("mode") if wf else None) or "standard"
+
+    expected = _EXPECTED_ARTIFACTS.get(mode)
+    if expected is None:
+        return []
+
+    missing = [
+        name for name in expected
+        if not os.path.isfile(os.path.join(artifact_path, name))
+    ]
+
+    return [f"Missing artifact: {name}" for name in missing]
 
 
 @_with_error_handling
@@ -490,12 +536,9 @@ def _process_complete_phase(
 
         # Update kanban_column for features based on completed phase
         if feature_type_id.startswith("feature:"):
-            if phase == "finish":
-                kanban = "completed"
-            else:
-                kanban = FEATURE_PHASE_TO_KANBAN.get(state.current_phase)
-            if kanban:
-                db.update_workflow_phase(feature_type_id, kanban_column=kanban)
+            status = "completed" if phase == "finish" else "active"
+            kanban = derive_kanban(status, state.current_phase)
+            db.update_workflow_phase(feature_type_id, kanban_column=kanban)
 
         # Project .meta.json
         warning = _project_meta_json(db, engine, feature_type_id)
@@ -503,6 +546,14 @@ def _process_complete_phase(
         result["completed_at"] = phase_timing[phase]["completed"]
         if warning:
             result["projection_warning"] = warning
+
+        # Artifact completeness warning on finish (AC-5)
+        if phase == "finish":
+            artifact_warnings = _check_artifact_completeness(
+                db, feature_type_id,
+            )
+            if artifact_warnings:
+                result["artifact_warnings"] = artifact_warnings
 
     return json.dumps(result)
 
@@ -741,21 +792,20 @@ def _process_reconcile_status(
             1 for r in frontmatter_reports if r.status != "in_sync"
         )
         return json.dumps({
-            "healthy": wf_drift == 0 and fm_drift == 0,
+            "healthy": wf_drift == 0,
             "workflow_drift_count": wf_drift,
             "frontmatter_drift_count": fm_drift,
         })
 
     fm_summary = _build_frontmatter_summary(frontmatter_reports)
 
-    # Healthy: both dimensions have all counts except in_sync == 0
+    # Healthy: workflow drift only (frontmatter drift excluded per AC-2,
+    # artifact_missing_count excluded — informational, not a health issue)
+    _HEALTH_EXCLUDED = {"in_sync", "artifact_missing_count"}
     wf_healthy = all(
-        v == 0 for k, v in workflow_result.summary.items() if k != "in_sync"
+        v == 0 for k, v in workflow_result.summary.items() if k not in _HEALTH_EXCLUDED
     )
-    fm_healthy = all(
-        v == 0 for k, v in fm_summary.items() if k != "in_sync"
-    )
-    healthy = wf_healthy and fm_healthy
+    healthy = wf_healthy
 
     return json.dumps({
         "workflow_drift": {
@@ -775,6 +825,49 @@ def _process_reconcile_status(
 
 
 # ---------------------------------------------------------------------------
+# Ref resolution helper (Task 1b.5)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_ref_to_feature_type_id(
+    db: EntityDatabase,
+    feature_type_id: str | None,
+    ref: str | None,
+) -> str:
+    """Resolve a feature_type_id or ref to a concrete feature_type_id.
+
+    Parameters
+    ----------
+    db:
+        Open EntityDatabase.
+    feature_type_id:
+        Explicit feature_type_id (takes precedence if provided).
+    ref:
+        Flexible reference: UUID, full type_id, or type_id prefix.
+
+    Returns
+    -------
+    str
+        The resolved feature_type_id.
+
+    Raises
+    ------
+    ValueError
+        If neither param provided, ref not found, or ambiguous.
+    """
+    if feature_type_id is not None:
+        return feature_type_id
+    if ref is None:
+        raise ValueError("Either feature_type_id or ref must be provided")
+
+    entity_uuid = db.resolve_ref(ref)
+    entity = db.get_entity_by_uuid(entity_uuid)
+    if entity is None:
+        raise ValueError(f"No entity found matching ref: {ref!r}")
+    return entity["type_id"]
+
+
+# ---------------------------------------------------------------------------
 # MCP tool handlers
 # ---------------------------------------------------------------------------
 
@@ -788,51 +881,73 @@ mcp = FastMCP("workflow-engine", lifespan=lifespan)
 
 
 @mcp.tool()
-async def get_phase(feature_type_id: str) -> str:
+async def get_phase(feature_type_id: str | None = None, ref: str | None = None) -> str:
     """Read the current workflow state for a feature."""
-    if _engine is None:
+    if _engine is None or _db is None:
         return _NOT_INITIALIZED
-    return _process_get_phase(_engine, feature_type_id)
+    try:
+        resolved = _resolve_ref_to_feature_type_id(_db, feature_type_id, ref)
+    except ValueError as exc:
+        return _make_error("invalid_ref", str(exc), "Provide a valid feature_type_id or ref")
+    return _process_get_phase(_engine, resolved)
 
 
 @mcp.tool()
 async def transition_phase(
-    feature_type_id: str,
-    target_phase: str,
+    feature_type_id: str | None = None,
+    target_phase: str = "",
     yolo_active: bool = False,
     skipped_phases: str | None = None,
+    ref: str | None = None,
 ) -> str:
     """Validate and enter a target phase."""
     if _engine is None or _db is None:
         return _NOT_INITIALIZED
+    try:
+        resolved = _resolve_ref_to_feature_type_id(_db, feature_type_id, ref)
+    except ValueError as exc:
+        return _make_error("invalid_ref", str(exc), "Provide a valid feature_type_id or ref")
     return _process_transition_phase(
-        _engine, feature_type_id, target_phase, yolo_active,
+        _engine, resolved, target_phase, yolo_active,
         db=_db, skipped_phases=skipped_phases,
     )
 
 
 @mcp.tool()
 async def complete_phase(
-    feature_type_id: str,
-    phase: str,
+    feature_type_id: str | None = None,
+    phase: str = "",
     iterations: int | None = None,
     reviewer_notes: str | None = None,
+    ref: str | None = None,
 ) -> str:
     """Record a phase as completed and advance to next phase."""
     if _engine is None or _db is None:
         return _NOT_INITIALIZED
+    try:
+        resolved = _resolve_ref_to_feature_type_id(_db, feature_type_id, ref)
+    except ValueError as exc:
+        return _make_error("invalid_ref", str(exc), "Provide a valid feature_type_id or ref")
     return _process_complete_phase(
-        _engine, feature_type_id, phase,
+        _engine, resolved, phase,
         db=_db, iterations=iterations, reviewer_notes=reviewer_notes,
     )
 
 
 @mcp.tool()
-async def validate_prerequisites(feature_type_id: str, target_phase: str) -> str:
+async def validate_prerequisites(
+    feature_type_id: str | None = None,
+    target_phase: str = "",
+    ref: str | None = None,
+) -> str:
     """Dry-run gate evaluation without executing the transition."""
-    if _engine is None:
+    if _engine is None or _db is None:
         return _NOT_INITIALIZED
-    return _process_validate_prerequisites(_engine, feature_type_id, target_phase)
+    try:
+        resolved = _resolve_ref_to_feature_type_id(_db, feature_type_id, ref)
+    except ValueError as exc:
+        return _make_error("invalid_ref", str(exc), "Provide a valid feature_type_id or ref")
+    return _process_validate_prerequisites(_engine, resolved, target_phase)
 
 
 @mcp.tool()
@@ -927,27 +1042,81 @@ async def init_project_state(
 
 
 @mcp.tool()
-async def activate_feature(feature_type_id: str) -> str:
+async def activate_feature(feature_type_id: str | None = None, ref: str | None = None) -> str:
     """Transition a planned feature to active status."""
     if _db is None or _engine is None:
         return _NOT_INITIALIZED
-    return _process_activate_feature(_db, _engine, feature_type_id, _artifacts_root)
+    try:
+        resolved = _resolve_ref_to_feature_type_id(_db, feature_type_id, ref)
+    except ValueError as exc:
+        return _make_error("invalid_ref", str(exc), "Provide a valid feature_type_id or ref")
+    return _process_activate_feature(_db, _engine, resolved, _artifacts_root)
 
 
 @mcp.tool()
-async def init_entity_workflow(type_id: str, workflow_phase: str, kanban_column: str) -> str:
+async def init_entity_workflow(
+    type_id: str | None = None,
+    workflow_phase: str = "",
+    kanban_column: str = "",
+    ref: str | None = None,
+) -> str:
     """Create a workflow_phases row for any entity type."""
     if _db is None:
         return _NOT_INITIALIZED
-    return _process_init_entity_workflow(_db, type_id, workflow_phase, kanban_column)
+    try:
+        resolved = _resolve_ref_to_feature_type_id(_db, type_id, ref)
+    except ValueError as exc:
+        return _make_error("invalid_ref", str(exc), "Provide a valid type_id or ref")
+    return _process_init_entity_workflow(_db, resolved, workflow_phase, kanban_column)
 
 
 @mcp.tool()
-async def transition_entity_phase(type_id: str, target_phase: str) -> str:
+async def transition_entity_phase(
+    type_id: str | None = None,
+    target_phase: str = "",
+    ref: str | None = None,
+) -> str:
     """Transition a brainstorm or backlog entity to a new lifecycle phase."""
     if _db is None:
         return _NOT_INITIALIZED
-    return _process_transition_entity_phase(_db, type_id, target_phase)
+    try:
+        resolved = _resolve_ref_to_feature_type_id(_db, type_id, ref)
+    except ValueError as exc:
+        return _make_error("invalid_ref", str(exc), "Provide a valid type_id or ref")
+    return _process_transition_entity_phase(_db, resolved, target_phase)
+
+
+@mcp.tool()
+async def get_notifications(project_root: str | None = None) -> str:
+    """Drain pending notifications for the current project.
+
+    Returns notifications queued by entity state changes (phase completions,
+    threshold crossings, etc.). Drained notifications are removed from the
+    queue so each notification is delivered exactly once.
+    """
+    if _notification_queue is None:
+        return _NOT_INITIALIZED
+    root = project_root or _project_root
+    if not root:
+        return _make_error(
+            "missing_project_root",
+            "No project_root provided and PROJECT_ROOT not set",
+            "Pass project_root or set PROJECT_ROOT env var",
+        )
+    notifications = _notification_queue.drain(project_root=root)
+    return json.dumps({
+        "project_root": root,
+        "count": len(notifications),
+        "notifications": [
+            {
+                "message": n.message,
+                "entity_type_id": n.entity_type_id,
+                "event": n.event,
+                "timestamp": n.timestamp,
+            }
+            for n in notifications
+        ],
+    })
 
 
 # ---------------------------------------------------------------------------

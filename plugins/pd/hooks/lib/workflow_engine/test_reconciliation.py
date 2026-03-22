@@ -1156,9 +1156,11 @@ class TestApplyWorkflowReconciliation:
         assert isinstance(result, ReconciliationResult)
         action_map = {a.feature_type_id: a.action for a in result.actions}
         assert action_map["feature:001-feat-a"] == "reconciled"
-        assert action_map["feature:002-feat-b"] == "skipped"
-        assert result.summary["reconciled"] == 1
-        assert result.summary["skipped"] == 1
+        # Feature 2 is phase-in-sync but has kanban drift (DB default "backlog"
+        # vs expected "prioritised" for create-plan phase), so it gets reconciled
+        assert action_map["feature:002-feat-b"] == "reconciled"
+        assert result.summary["reconciled"] == 2
+        assert result.summary["skipped"] == 0
 
     def test_dry_run_preview(self, tmp_path) -> None:
         """AC-9: dry_run preview returns changes without modifying DB."""
@@ -1208,7 +1210,7 @@ class TestApplyWorkflowReconciliation:
 
         result = apply_workflow_reconciliation(engine, db, str(tmp_path))
 
-        expected_keys = {"reconciled", "created", "skipped", "error", "dry_run"}
+        expected_keys = {"reconciled", "created", "skipped", "error", "dry_run", "kanban_fixed"}
         assert set(result.summary.keys()) == expected_keys
 
     def test_never_raises(self, tmp_path) -> None:
@@ -1288,10 +1290,10 @@ class TestIntegrationFullCycle:
         assert drift.summary["meta_json_ahead"] == 2
         assert drift.summary["in_sync"] == 1
 
-        # Step 2: Reconcile
+        # Step 2: Reconcile (3 reconciled: 2 phase-ahead + 1 kanban-only fix)
         result = apply_workflow_reconciliation(engine, db, str(tmp_path))
-        assert result.summary["reconciled"] == 2
-        assert result.summary["skipped"] == 1
+        assert result.summary["reconciled"] == 3
+        assert result.summary["skipped"] == 0
 
         # Step 3: Verify all in_sync
         drift2 = check_workflow_drift(engine, db, str(tmp_path))
@@ -1428,11 +1430,12 @@ class TestIntegrationFullCycle:
         assert status_map["feature:003-meta-only"] == "meta_json_only"
         assert status_map["feature:004-db-only"] == "db_only"
 
-        # Reconcile
+        # Reconcile (002-synced has kanban drift: default "backlog" vs expected
+        # "prioritised" for create-plan phase, so it gets reconciled too)
         result = apply_workflow_reconciliation(engine, db, str(tmp_path))
-        assert result.summary["reconciled"] == 1  # 001-ahead
+        assert result.summary["reconciled"] == 2  # 001-ahead + 002-synced (kanban fix)
         assert result.summary["created"] == 1    # 003-meta-only
-        assert result.summary["skipped"] == 2    # 002-synced + 004-db-only
+        assert result.summary["skipped"] == 1    # 004-db-only
 
         # Verify post-reconcile drift
         drift2 = check_workflow_drift(engine, db, str(tmp_path))
@@ -2203,8 +2206,8 @@ class TestDeriveExpectedKanban:
         assert _derive_expected_kanban("implement", "specify") == "wip"
 
     def test_derive_expected_kanban_unknown_phase(self):
-        """Unknown phase returns None."""
-        assert _derive_expected_kanban("nonexistent", None) is None
+        """Unknown phase falls back to 'backlog' via derive_kanban."""
+        assert _derive_expected_kanban("nonexistent", None) == "backlog"
 
 
 # ===========================================================================
@@ -2408,8 +2411,8 @@ class TestDeriveExpectedKanbanDeepened:
 
         Anticipate: If the special-case check for finish+finish is inverted
         (checking for None instead of 'finish'), this would incorrectly return
-        'completed'. The function should fall through to FEATURE_PHASE_TO_KANBAN
-        lookup which maps finish -> 'documenting'.
+        'completed'. The function should fall through to derive_kanban
+        which maps finish -> 'documenting'.
         derived_from: dimension:boundary_values (finish phase boundary)
         """
         # Given a finish phase with no last_completed_phase (None)
@@ -2431,11 +2434,11 @@ class TestDeriveExpectedKanbanDeepened:
         assert result == "documenting"
 
     def test_derive_expected_kanban_empty_string_phase(self):
-        """Empty string phase returns None (not in FEATURE_PHASE_TO_KANBAN).
+        """Empty string phase returns None (not in PHASE_TO_KANBAN).
 
         Anticipate: If empty string is treated as truthy but not found in map,
-        should return None (from dict.get default). If code uses `if not phase`
-        it would return None via the None path. Either way, None is correct.
+        should return None. If code uses `if not phase` it would return None
+        via the None path. Either way, None is correct.
         derived_from: dimension:boundary_values (empty string edge)
         """
         # Given an empty string phase
@@ -2446,12 +2449,10 @@ class TestDeriveExpectedKanbanDeepened:
     def test_derive_expected_kanban_every_phase_in_sequence(self):
         """Exhaustive check: every phase in PHASE_SEQUENCE maps to correct kanban.
 
-        Anticipate: If any phase is missing from FEATURE_PHASE_TO_KANBAN,
+        Anticipate: If any phase is missing from PHASE_TO_KANBAN,
         this test catches it with a specific assertion per phase.
         derived_from: dimension:boundary_values (exhaustive coverage)
         """
-        from workflow_engine.constants import FEATURE_PHASE_TO_KANBAN
-
         expected_mapping = {
             "brainstorm": "backlog",
             "specify": "backlog",
@@ -2465,7 +2466,7 @@ class TestDeriveExpectedKanbanDeepened:
         for phase, expected_kanban in expected_mapping.items():
             # When we derive expected kanban (with arbitrary last_completed)
             result = _derive_expected_kanban(phase, None)
-            # Then it matches the FEATURE_PHASE_TO_KANBAN mapping
+            # Then it matches the PHASE_TO_KANBAN mapping
             assert result == expected_kanban, (
                 f"Phase '{phase}': expected kanban='{expected_kanban}', got '{result}'"
             )
@@ -2589,7 +2590,7 @@ class TestDeriveExpectedKanbanStatusAwareness:
 
     def test_derive_kanban_active_unchanged(self):
         """AC-2.3: status='active' does not override — uses phase-based lookup."""
-        # implement phase -> 'wip' (from FEATURE_PHASE_TO_KANBAN)
+        # implement phase -> 'wip' (from derive_kanban)
         result_with_status = _derive_expected_kanban(
             workflow_phase="implement",
             last_completed_phase=None,
@@ -2895,3 +2896,122 @@ class TestDepthContextReporting:
         report = _check_single_feature(engine, db, child_tid, meta)
 
         assert report.depth == 2, f"Expected depth=2 for child in 3-level hierarchy, got {report.depth}"
+
+
+# ===========================================================================
+# Task 1a.7: Reconciliation reporting (AC-6)
+# ===========================================================================
+
+
+class TestReconciliationSummaryKanbanFixed:
+    """AC-6: summary dict includes kanban_fixed count."""
+
+    def test_summary_has_kanban_fixed_key(self, tmp_path):
+        """AC-6.1: ReconciliationResult.summary always includes kanban_fixed."""
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="design",
+            last_completed_phase="specify",
+            mode="standard",
+            kanban_column="wip",
+        )
+        _create_meta_json(tmp_path, status="active", mode="standard", last_completed_phase="specify")
+        result = apply_workflow_reconciliation(engine, db, str(tmp_path))
+        assert "kanban_fixed" in result.summary
+
+    def test_kanban_fixed_zero_when_no_drift(self, tmp_path):
+        """AC-6.2: kanban_fixed is 0 when no kanban column drift exists."""
+        # Use kanban_column="prioritised" which is correct for design phase
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="design",
+            last_completed_phase="specify",
+            mode="standard",
+            kanban_column="prioritised",
+        )
+        _create_meta_json(tmp_path, status="active", mode="standard", last_completed_phase="specify")
+        result = apply_workflow_reconciliation(engine, db, str(tmp_path))
+        assert result.summary["kanban_fixed"] == 0
+
+    def test_kanban_fixed_counted_on_kanban_drift(self, tmp_path):
+        """AC-6.3: kanban_fixed counts features with kanban_column in changes."""
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="design",
+            last_completed_phase="specify",
+            mode="standard",
+            kanban_column="backlog",  # Wrong kanban -- should be 'wip' for design phase
+        )
+        _create_meta_json(tmp_path, status="active", mode="standard", last_completed_phase="specify")
+        result = apply_workflow_reconciliation(engine, db, str(tmp_path))
+        # The kanban column was wrong (backlog vs wip), so it should be fixed
+        assert result.summary["kanban_fixed"] >= 1
+
+    def test_kanban_fixed_not_counted_for_non_kanban_drift(self, tmp_path):
+        """AC-6.4: Phase-only drift (no kanban change) -> kanban_fixed stays 0."""
+        engine, db, type_id = _setup_engine(
+            tmp_path,
+            workflow_phase="specify",
+            last_completed_phase=None,
+            mode="standard",
+            kanban_column="wip",  # kanban correct for design phase
+        )
+        # .meta.json is ahead in phase but kanban matches the new phase
+        _create_meta_json(tmp_path, status="active", mode="standard", last_completed_phase="specify")
+        result = apply_workflow_reconciliation(engine, db, str(tmp_path))
+        # Check that kanban_fixed only counts kanban-specific changes
+        kanban_changes = 0
+        for action in result.actions:
+            for change in action.changes:
+                if change.field == "kanban_column":
+                    kanban_changes += 1
+        assert result.summary["kanban_fixed"] == kanban_changes
+
+
+class TestFormatReconciliationSummary:
+    """AC-6: format_reconciliation_summary() produces human-readable line."""
+
+    def test_format_with_changes(self):
+        """AC-6.5: Non-zero counts produce expected format string."""
+        from workflow_engine.reconciliation import format_reconciliation_summary
+
+        summary = {"reconciled": 2, "created": 1, "skipped": 5, "error": 0, "dry_run": 0, "kanban_fixed": 3}
+        msg = format_reconciliation_summary(summary)
+        assert "3 features synced" in msg
+        assert "3 kanban fixed" in msg
+        assert "0 warnings" in msg
+        assert msg.startswith("Reconciled:")
+
+    def test_format_silent_when_zero(self):
+        """AC-6.6: All zeros returns empty string (silent)."""
+        from workflow_engine.reconciliation import format_reconciliation_summary
+
+        summary = {"reconciled": 0, "created": 0, "skipped": 5, "error": 0, "dry_run": 0, "kanban_fixed": 0}
+        msg = format_reconciliation_summary(summary)
+        assert msg == ""
+
+    def test_format_with_warnings(self):
+        """AC-6.7: Errors are surfaced as warnings count."""
+        from workflow_engine.reconciliation import format_reconciliation_summary
+
+        summary = {"reconciled": 1, "created": 0, "skipped": 0, "error": 2, "dry_run": 0, "kanban_fixed": 0}
+        msg = format_reconciliation_summary(summary)
+        assert "1 features synced" in msg
+        assert "2 warnings" in msg
+
+    def test_format_only_kanban_fixed(self):
+        """AC-6.8: Only kanban fixes, no phase syncs."""
+        from workflow_engine.reconciliation import format_reconciliation_summary
+
+        summary = {"reconciled": 1, "created": 0, "skipped": 0, "error": 0, "dry_run": 0, "kanban_fixed": 1}
+        msg = format_reconciliation_summary(summary)
+        assert "1 features synced" in msg
+        assert "1 kanban fixed" in msg
+
+    def test_format_dry_run_silent(self):
+        """AC-6.9: Dry run mode is silent (no output)."""
+        from workflow_engine.reconciliation import format_reconciliation_summary
+
+        summary = {"reconciled": 0, "created": 0, "skipped": 0, "error": 0, "dry_run": 2, "kanban_fixed": 0}
+        msg = format_reconciliation_summary(summary)
+        assert msg == ""

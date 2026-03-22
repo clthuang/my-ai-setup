@@ -13,18 +13,7 @@ from datetime import datetime, timezone
 
 from entity_registry.database import EntityDatabase
 from workflow_engine.engine import WorkflowStateEngine
-
-
-# ---------------------------------------------------------------------------
-# Status-to-kanban mapping (single source of truth — also imported by workflow_state_server)
-# ---------------------------------------------------------------------------
-
-STATUS_TO_KANBAN: dict[str, str] = {
-    "active": "wip",
-    "planned": "backlog",
-    "completed": "completed",
-    "abandoned": "completed",
-}
+from workflow_engine.kanban import derive_kanban
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +98,19 @@ def init_feature_state(
 
     Returns dict with keys: created, feature_type_id, status, meta_json_path.
     Optionally includes projection_warning (not set here — added by MCP wrapper).
+
+    Raises:
+        ValueError: if feature_id, slug, or branch is None, empty, or whitespace-only.
     """
+    # Field validation — reject None, empty string, whitespace-only
+    for field_name, field_value in [
+        ("feature_id", feature_id),
+        ("slug", slug),
+        ("branch", branch),
+    ]:
+        if field_value is None or not isinstance(field_value, str) or not field_value.strip():
+            raise ValueError(f"invalid_input: {field_name} must be a non-empty string")
+
     feature_type_id = f"feature:{feature_id}-{slug}"
 
     # Validate feature_type_id for path traversal defense
@@ -158,17 +159,18 @@ def init_feature_state(
             metadata["skipped_phases"] = existing_meta["skipped_phases"]
         db.update_entity(feature_type_id, status=status, metadata=metadata)
 
-    # Fix kanban_column based on status (init-time uses STATUS_TO_KANBAN).
-    init_kanban = STATUS_TO_KANBAN.get(status)
-    if init_kanban:
+    # Fix kanban_column via derive_kanban (phase-aware single source of truth).
+    wf_row = db.get_workflow_phase(feature_type_id)
+    wf_phase = wf_row["workflow_phase"] if wf_row else None
+    init_kanban = derive_kanban(status, wf_phase)
+    try:
+        db.update_workflow_phase(feature_type_id, kanban_column=init_kanban)
+    except ValueError:
+        # Row may not exist if engine initialization failed — create it.
         try:
-            db.update_workflow_phase(feature_type_id, kanban_column=init_kanban)
+            db.create_workflow_phase(feature_type_id, kanban_column=init_kanban)
         except ValueError:
-            # Row may not exist if engine initialization failed — create it.
-            try:
-                db.create_workflow_phase(feature_type_id, kanban_column=init_kanban)
-            except ValueError:
-                pass  # Entity itself may be missing; workflow row cannot be created
+            pass  # Entity itself may be missing; workflow row cannot be created
 
     return {
         "created": True,

@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.13.20] - 2026-03-22
+
+### Added
+- `derive_kanban()` — unified kanban column derivation replacing scattered STATUS_TO_KANBAN and FEATURE_PHASE_TO_KANBAN constants (AC-4)
+- Schema migration 6 — entity type expansion (initiative, objective, key_result, task), 5D workflow phases, junction tables (entity_tags, entity_dependencies, entity_okr_alignment) (AC-9/10/11/12)
+- `resolve_ref()` and `ref` parameter on all MCP tools — supports UUID, full type_id, and prefix resolution (AC-7)
+- Central ID generator `generate_entity_id()` with per-type sequential counters (AC-8)
+- `WEIGHT_TEMPLATES` registry mapping (entity_type, weight) to phase sequences (AC-14)
+- `DependencyManager` with recursive CTE cycle detection and `cascade_unblock()` (AC-13)
+- Entity tagging CRUD with `add_entity_tag` / `get_entity_tags` MCP tools (AC-35b/36)
+- Gate parameterisation — `check_hard_prerequisites()` accepts optional `active_phases` for light-weight filtering (AC-15)
+- Secretary intelligence module — `detect_mode()`, `find_parent_candidates()`, `recommend_weight()`, `detect_scope_expansion()` (AC-17/18/22a)
+- Notification queue with file-backed JSONL and `fcntl.flock()` concurrency safety (AC-21)
+- Maintenance mode bypass for meta-json-guard (`PD_MAINTENANCE=1`) (AC-3)
+- Artifact completeness warning on finish phase for standard/full/light modes (AC-5)
+- Reconciliation reporting with kanban-fix counting at session start (AC-6)
+- Migration CLI `migrate` subcommand with `--dry-run` flag (AC-16)
+
+### Fixed
+- Field validation in `init_feature_state` — rejects empty/null/whitespace for feature_id, slug, branch (AC-1)
+- Frontmatter drift excluded from `reconcile_status` healthy check (AC-2)
+- `artifact_missing_count` excluded from healthy check (false positive fix)
+- `cascade_unblock` now updates entity status from blocked to planned (AC-29)
+- Backfill prefers `parent_uuid` over `parent_type_id` for parent resolution (NFR-6)
+
 ## [4.13.19] - 2026-03-21
 
 ### Fixed
