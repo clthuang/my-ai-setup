@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.13.23] - 2026-03-23
+
 ### Added
 - FiveDBackend for EntityWorkflowEngine — 5D phase transitions for projects/initiatives/objectives/key_results (AC-26/28)
 - Traffic light progress derivation (RED/YELLOW/GREEN) stored in parent metadata (AC-27)
