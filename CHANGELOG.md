@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.13.25] - 2026-03-23
+
 ### Added
 - `metadata.py` module — centralized metadata parsing (`parse_metadata`) and schema-based validation (`validate_metadata`) replacing 6+ hand-rolled patterns
 - `METADATA_SCHEMAS` — per-entity-type metadata key/type schemas for all 8 entity types with unknown-key warnings
