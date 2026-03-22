@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.13.24] - 2026-03-23
+
 ### Added
 - Anomaly propagation — systemic findings on terminal phase completion propagate to parent metadata (AC-35)
 - Catchball — `get_parent_context()` displays parent entity context during work creation (AC-35a)
