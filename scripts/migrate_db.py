@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import platform
+import shutil
 import sqlite3
 import sys
 import uuid as uuid_mod
@@ -443,6 +444,122 @@ def cmd_check_embeddings(args: argparse.Namespace) -> None:
         })
 
 
+def cmd_migrate(args: argparse.Namespace) -> None:
+    """Run schema migration on an entity database with backup.
+
+    1. Create timestamped backup of the DB file
+    2. Verify backup is openable and has correct row count
+    3. Run migration by opening EntityDatabase (auto-runs pending migrations)
+    4. Report pre/post schema versions and row counts
+    """
+    db_path = args.db_path
+
+    if not os.path.exists(db_path):
+        _json_out({"ok": False, "error": f"Database not found: {db_path}"})
+        sys.exit(1)
+
+    # Read pre-migration state
+    conn = sqlite3.connect(db_path)
+    try:
+        try:
+            pre_version = conn.execute(
+                "SELECT value FROM _metadata WHERE key='schema_version'"
+            ).fetchone()
+            pre_version = int(pre_version[0]) if pre_version else 0
+        except sqlite3.OperationalError:
+            pre_version = 0
+
+        try:
+            pre_entity_count = conn.execute(
+                "SELECT count(*) FROM entities"
+            ).fetchone()[0]
+        except sqlite3.OperationalError:
+            pre_entity_count = 0
+
+        try:
+            pre_wp_count = conn.execute(
+                "SELECT count(*) FROM workflow_phases"
+            ).fetchone()[0]
+        except sqlite3.OperationalError:
+            pre_wp_count = 0
+
+        # Collect all type_ids before migration
+        try:
+            pre_type_ids = sorted(
+                r[0] for r in conn.execute(
+                    "SELECT type_id FROM entities"
+                ).fetchall()
+            )
+        except sqlite3.OperationalError:
+            pre_type_ids = []
+    finally:
+        conn.close()
+
+    # Step 1: Create timestamped backup
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup_path = f"{db_path}.bak.{timestamp}"
+    shutil.copy2(db_path, backup_path)
+
+    # Step 2: Verify backup is openable and has correct row count
+    backup_conn = sqlite3.connect(backup_path)
+    try:
+        integrity = backup_conn.execute("PRAGMA integrity_check").fetchone()[0]
+        if integrity != "ok":
+            _json_out({
+                "ok": False,
+                "error": f"Backup integrity check failed: {integrity}",
+                "backup_path": backup_path,
+            })
+            sys.exit(1)
+        try:
+            backup_entity_count = backup_conn.execute(
+                "SELECT count(*) FROM entities"
+            ).fetchone()[0]
+        except sqlite3.OperationalError:
+            backup_entity_count = 0
+    finally:
+        backup_conn.close()
+
+    if backup_entity_count != pre_entity_count:
+        _json_out({
+            "ok": False,
+            "error": (
+                f"Backup entity count mismatch: "
+                f"expected {pre_entity_count}, got {backup_entity_count}"
+            ),
+            "backup_path": backup_path,
+        })
+        sys.exit(1)
+
+    # Step 3: Run migration
+    # Import EntityDatabase — resolve plugin path dynamically
+    sys.path.insert(0, os.path.join(
+        os.path.dirname(__file__), "..", "plugins", "pd", "hooks", "lib"
+    ))
+    from entity_registry.database import EntityDatabase
+
+    db = EntityDatabase(db_path)
+    post_version = db.get_schema_version()
+    post_entity_count = len(db.list_entities())
+
+    # Collect post-migration type_ids
+    post_type_ids = sorted(
+        e["type_id"] for e in db.list_entities()
+    )
+    db.close()
+
+    _json_out({
+        "ok": True,
+        "pre_version": pre_version,
+        "post_version": int(post_version),
+        "pre_entity_count": pre_entity_count,
+        "post_entity_count": post_entity_count,
+        "pre_wp_count": pre_wp_count,
+        "backup_path": backup_path,
+        "type_ids_preserved": pre_type_ids == post_type_ids,
+    })
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the argparse parser with all subcommands."""
     parser = argparse.ArgumentParser(
@@ -520,6 +637,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_check.add_argument("manifest_path", help="Path to manifest file")
     p_check.add_argument("dst_memory_db", help="Destination memory database")
     p_check.set_defaults(func=cmd_check_embeddings)
+
+    # migrate
+    p_migrate = subparsers.add_parser(
+        "migrate", help="Run schema migration on entity database"
+    )
+    p_migrate.add_argument("db_path", help="Path to entities.db")
+    p_migrate.set_defaults(func=cmd_migrate)
 
     return parser
 

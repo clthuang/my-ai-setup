@@ -22,6 +22,7 @@ SUBCOMMANDS = [
     "verify",
     "info",
     "check-embeddings",
+    "migrate",
 ]
 
 
@@ -55,6 +56,7 @@ SUBCOMMAND_ARGS = [
     ("verify", ["db.db", "--expected-count", "5", "--table", "entries"]),
     ("info", ["manifest.json"]),
     ("check-embeddings", ["manifest.json", "dst-memory.db"]),
+    ("migrate", ["entities.db"]),
 ]
 
 
@@ -1056,3 +1058,664 @@ class TestInfo:
         result = run_cli("info", manifest_path)
 
         assert result == manifest_data
+
+
+# ============================================================
+# Migration 6 (schema expansion v6) tests
+# ============================================================
+
+
+def create_v5_entity_db(
+    path: str,
+    entities: list[dict] | None = None,
+    workflow_phases: list[dict] | None = None,
+) -> None:
+    """Create a v5 entities.db with the pre-migration-6 schema.
+
+    This simulates what a real DB looks like before migration 6 runs:
+    - entities table has entity_type CHECK constraint (4 values)
+    - workflow_phases has no uuid column
+    - workflow_phases CHECK allows 7-phase + brainstorm lifecycle phases
+    - mode CHECK allows only 'standard' and 'full'
+    - No entity_tags, entity_dependencies, entity_okr_alignment tables
+    """
+    conn = sqlite3.connect(path)
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.executescript("""
+        CREATE TABLE _metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+
+        CREATE TABLE entities (
+            uuid           TEXT NOT NULL PRIMARY KEY,
+            type_id        TEXT NOT NULL UNIQUE,
+            entity_type    TEXT NOT NULL CHECK(entity_type IN (
+                'backlog','brainstorm','project','feature')),
+            entity_id      TEXT NOT NULL,
+            name           TEXT NOT NULL,
+            status         TEXT,
+            parent_type_id TEXT REFERENCES entities(type_id),
+            parent_uuid    TEXT REFERENCES entities(uuid),
+            artifact_path  TEXT,
+            created_at     TEXT NOT NULL,
+            updated_at     TEXT NOT NULL,
+            metadata       TEXT
+        );
+
+        CREATE TABLE workflow_phases (
+            type_id                    TEXT PRIMARY KEY
+                                       REFERENCES entities(type_id),
+            workflow_phase             TEXT CHECK(workflow_phase IN (
+                                           'brainstorm','specify','design',
+                                           'create-plan','create-tasks',
+                                           'implement','finish',
+                                           'draft','reviewing','promoted','abandoned',
+                                           'open','triaged','dropped'
+                                       ) OR workflow_phase IS NULL),
+            kanban_column              TEXT NOT NULL DEFAULT 'backlog'
+                                       CHECK(kanban_column IN (
+                                           'backlog','prioritised','wip',
+                                           'agent_review','human_review',
+                                           'blocked','documenting','completed'
+                                       )),
+            last_completed_phase       TEXT CHECK(last_completed_phase IN (
+                                           'brainstorm','specify','design',
+                                           'create-plan','create-tasks',
+                                           'implement','finish',
+                                           'draft','reviewing','promoted','abandoned',
+                                           'open','triaged','dropped'
+                                       ) OR last_completed_phase IS NULL),
+            mode                       TEXT CHECK(mode IN ('standard', 'full')
+                                           OR mode IS NULL),
+            backward_transition_reason TEXT,
+            updated_at                 TEXT NOT NULL
+        );
+
+        CREATE VIRTUAL TABLE entities_fts USING fts5(
+            name, entity_id, entity_type, status, metadata_text,
+            content='entities', content_rowid='rowid'
+        );
+
+        -- Triggers
+        CREATE TRIGGER enforce_immutable_type_id
+        BEFORE UPDATE OF type_id ON entities
+        BEGIN SELECT RAISE(ABORT, 'type_id is immutable'); END;
+
+        CREATE TRIGGER enforce_immutable_entity_type
+        BEFORE UPDATE OF entity_type ON entities
+        BEGIN SELECT RAISE(ABORT, 'entity_type is immutable'); END;
+
+        CREATE TRIGGER enforce_immutable_created_at
+        BEFORE UPDATE OF created_at ON entities
+        BEGIN SELECT RAISE(ABORT, 'created_at is immutable'); END;
+
+        CREATE TRIGGER enforce_no_self_parent
+        BEFORE INSERT ON entities
+        WHEN NEW.parent_type_id IS NOT NULL AND NEW.parent_type_id = NEW.type_id
+        BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent'); END;
+
+        CREATE TRIGGER enforce_no_self_parent_update
+        BEFORE UPDATE OF parent_type_id ON entities
+        WHEN NEW.parent_type_id IS NOT NULL AND NEW.parent_type_id = NEW.type_id
+        BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent'); END;
+
+        CREATE TRIGGER enforce_immutable_uuid
+        BEFORE UPDATE OF uuid ON entities
+        BEGIN SELECT RAISE(ABORT, 'uuid is immutable'); END;
+
+        CREATE TRIGGER enforce_no_self_parent_uuid_insert
+        BEFORE INSERT ON entities
+        WHEN NEW.parent_uuid IS NOT NULL AND NEW.parent_uuid = NEW.uuid
+        BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent'); END;
+
+        CREATE TRIGGER enforce_no_self_parent_uuid_update
+        BEFORE UPDATE OF parent_uuid ON entities
+        WHEN NEW.parent_uuid IS NOT NULL AND NEW.parent_uuid = NEW.uuid
+        BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent'); END;
+
+        CREATE TRIGGER enforce_immutable_wp_type_id
+        BEFORE UPDATE OF type_id ON workflow_phases
+        BEGIN SELECT RAISE(ABORT, 'workflow_phases.type_id is immutable'); END;
+
+        -- Indexes
+        CREATE INDEX idx_entity_type ON entities(entity_type);
+        CREATE INDEX idx_status ON entities(status);
+        CREATE INDEX idx_parent_type_id ON entities(parent_type_id);
+        CREATE INDEX idx_parent_uuid ON entities(parent_uuid);
+        CREATE INDEX idx_wp_kanban_column ON workflow_phases(kanban_column);
+        CREATE INDEX idx_wp_workflow_phase ON workflow_phases(workflow_phase);
+    """)
+
+    # Set schema version to 5
+    conn.execute(
+        "INSERT INTO _metadata(key, value) VALUES('schema_version', '5')"
+    )
+    conn.commit()
+
+    if entities:
+        for e in entities:
+            now = _now_iso()
+            conn.execute(
+                "INSERT INTO entities (uuid, type_id, entity_type, entity_id, "
+                "name, status, parent_type_id, parent_uuid, artifact_path, "
+                "created_at, updated_at, metadata) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    e.get("uuid", str(uuid.uuid4())),
+                    e["type_id"],
+                    e.get("entity_type", "feature"),
+                    e.get("entity_id", "test-001"),
+                    e.get("name", "Test Entity"),
+                    e.get("status", "active"),
+                    e.get("parent_type_id"),
+                    e.get("parent_uuid"),
+                    e.get("artifact_path"),
+                    e.get("created_at", now),
+                    e.get("updated_at", now),
+                    e.get("metadata"),
+                ),
+            )
+        conn.commit()
+        # Backfill FTS
+        for row in conn.execute(
+            "SELECT rowid, name, entity_id, entity_type, status, metadata "
+            "FROM entities"
+        ).fetchall():
+            meta_text = ""
+            if row[5]:
+                try:
+                    import json as _json
+                    meta = _json.loads(row[5])
+                    meta_text = " ".join(str(v) for v in meta.values()) if isinstance(meta, dict) else ""
+                except Exception:
+                    pass
+            conn.execute(
+                "INSERT INTO entities_fts(rowid, name, entity_id, entity_type, "
+                "status, metadata_text) VALUES(?, ?, ?, ?, ?, ?)",
+                (row[0], row[1], row[2], row[3], row[4] or "", meta_text),
+            )
+        conn.commit()
+
+    if workflow_phases:
+        for wp in workflow_phases:
+            now = _now_iso()
+            conn.execute(
+                "INSERT INTO workflow_phases (type_id, workflow_phase, "
+                "kanban_column, last_completed_phase, mode, "
+                "backward_transition_reason, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    wp["type_id"],
+                    wp.get("workflow_phase"),
+                    wp.get("kanban_column", "backlog"),
+                    wp.get("last_completed_phase"),
+                    wp.get("mode"),
+                    wp.get("backward_transition_reason"),
+                    wp.get("updated_at", now),
+                ),
+            )
+        conn.commit()
+
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.close()
+
+
+class TestMigration6:
+    """Tests for migration 6 (schema expansion v6) via CLI migrate command."""
+
+    def _make_test_db(self, tmp_path: Path) -> tuple[str, list[dict], list[dict]]:
+        """Create a v5 DB with realistic test data. Returns (path, entities, wps)."""
+        db_path = str(tmp_path / "entities.db")
+
+        parent_uuid = str(uuid.uuid4())
+        child1_uuid = str(uuid.uuid4())
+        child2_uuid = str(uuid.uuid4())
+        standalone_uuid = str(uuid.uuid4())
+
+        entities = [
+            {
+                "uuid": parent_uuid,
+                "type_id": "project:001-infra",
+                "entity_type": "project",
+                "entity_id": "001-infra",
+                "name": "Infrastructure",
+                "status": "active",
+            },
+            {
+                "uuid": child1_uuid,
+                "type_id": "feature:042-logging",
+                "entity_type": "feature",
+                "entity_id": "042-logging",
+                "name": "Structured Logging",
+                "status": "active",
+                "parent_type_id": "project:001-infra",
+                "parent_uuid": parent_uuid,
+            },
+            {
+                "uuid": child2_uuid,
+                "type_id": "feature:043-metrics",
+                "entity_type": "feature",
+                "entity_id": "043-metrics",
+                "name": "Observability Metrics",
+                "status": "completed",
+                "parent_type_id": "project:001-infra",
+                "parent_uuid": parent_uuid,
+                "metadata": '{"priority": "high", "tags": ["monitoring"]}',
+            },
+            {
+                "uuid": standalone_uuid,
+                "type_id": "brainstorm:005-ideas",
+                "entity_type": "brainstorm",
+                "entity_id": "005-ideas",
+                "name": "Future Ideas",
+                "status": "active",
+            },
+        ]
+
+        wps = [
+            {
+                "type_id": "feature:042-logging",
+                "workflow_phase": "implement",
+                "kanban_column": "wip",
+                "last_completed_phase": "design",
+                "mode": "standard",
+            },
+            {
+                "type_id": "feature:043-metrics",
+                "workflow_phase": "finish",
+                "kanban_column": "completed",
+                "last_completed_phase": "implement",
+                "mode": "full",
+            },
+        ]
+
+        create_v5_entity_db(db_path, entities, wps)
+        return db_path, entities, wps
+
+    # --- Test 1: Row counts preserved after migration ---
+    def test_migration_preserves_row_counts(self, tmp_path: Path) -> None:
+        """Migration on test DB with existing entities preserves row counts."""
+        db_path, entities, wps = self._make_test_db(tmp_path)
+
+        result = run_cli("migrate", db_path)
+
+        assert result["ok"] is True
+        assert result["pre_entity_count"] == len(entities)
+        assert result["post_entity_count"] == len(entities)
+        assert result["pre_version"] == 5
+        assert result["post_version"] == 6
+
+    # --- Test 2: All type_ids preserved ---
+    def test_migration_preserves_type_ids(self, tmp_path: Path) -> None:
+        """All type_ids are preserved exactly after migration."""
+        db_path, entities, _ = self._make_test_db(tmp_path)
+
+        result = run_cli("migrate", db_path)
+
+        assert result["type_ids_preserved"] is True
+
+        # Double-check by reading the DB directly
+        conn = sqlite3.connect(db_path)
+        post_type_ids = sorted(
+            r[0] for r in conn.execute("SELECT type_id FROM entities").fetchall()
+        )
+        conn.close()
+        expected_type_ids = sorted(e["type_id"] for e in entities)
+        assert post_type_ids == expected_type_ids
+
+    # --- Test 3: Backup file exists and is valid ---
+    def test_migration_creates_valid_backup(self, tmp_path: Path) -> None:
+        """Backup file exists after migration and is a valid DB."""
+        db_path, _, _ = self._make_test_db(tmp_path)
+
+        result = run_cli("migrate", db_path)
+
+        assert result["ok"] is True
+        backup_path = result["backup_path"]
+        assert os.path.exists(backup_path)
+
+        # Verify backup is openable and has correct schema version (5)
+        conn = sqlite3.connect(backup_path)
+        integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+        version = conn.execute(
+            "SELECT value FROM _metadata WHERE key='schema_version'"
+        ).fetchone()[0]
+        entity_count = conn.execute("SELECT count(*) FROM entities").fetchone()[0]
+        conn.close()
+        assert integrity == "ok"
+        assert version == "5"
+        assert entity_count == 4
+
+    # --- Test 4: PRAGMA foreign_key_check returns zero violations ---
+    def test_migration_no_fk_violations(self, tmp_path: Path) -> None:
+        """PRAGMA foreign_key_check returns zero violations after migration."""
+        db_path, _, _ = self._make_test_db(tmp_path)
+        run_cli("migrate", db_path)
+
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys = ON")
+        violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+        conn.close()
+        assert len(violations) == 0
+
+    # --- Test 5: Zero orphaned workflow_phases rows ---
+    def test_migration_no_orphaned_workflow_phases(self, tmp_path: Path) -> None:
+        """No workflow_phases rows reference non-existent entities."""
+        db_path, _, _ = self._make_test_db(tmp_path)
+        run_cli("migrate", db_path)
+
+        conn = sqlite3.connect(db_path)
+        orphaned = conn.execute(
+            "SELECT wp.type_id FROM workflow_phases wp "
+            "LEFT JOIN entities e ON wp.type_id = e.type_id "
+            "WHERE e.type_id IS NULL"
+        ).fetchall()
+        conn.close()
+        assert len(orphaned) == 0
+
+    # --- Test 6: Zero NULL uuid in workflow_phases after backfill ---
+    def test_migration_no_null_uuids_in_workflow_phases(self, tmp_path: Path) -> None:
+        """All workflow_phases rows have uuid backfilled from entities."""
+        db_path, _, _ = self._make_test_db(tmp_path)
+        run_cli("migrate", db_path)
+
+        conn = sqlite3.connect(db_path)
+        null_uuids = conn.execute(
+            "SELECT type_id FROM workflow_phases WHERE uuid IS NULL"
+        ).fetchall()
+        conn.close()
+        assert len(null_uuids) == 0
+
+    # --- Test 7: Zero rows with parent_type_id set but parent_uuid NULL ---
+    def test_migration_no_orphaned_parent_uuid(self, tmp_path: Path) -> None:
+        """All entities with parent_type_id have parent_uuid backfilled."""
+        db_path, _, _ = self._make_test_db(tmp_path)
+        run_cli("migrate", db_path)
+
+        conn = sqlite3.connect(db_path)
+        orphaned = conn.execute(
+            "SELECT type_id FROM entities "
+            "WHERE parent_type_id IS NOT NULL AND parent_uuid IS NULL"
+        ).fetchall()
+        conn.close()
+        assert len(orphaned) == 0
+
+    # --- Test 8: FTS5 search works after migration ---
+    def test_migration_fts_works(self, tmp_path: Path) -> None:
+        """FTS5 search returns correct results after entities_fts rebuild."""
+        db_path, _, _ = self._make_test_db(tmp_path)
+        run_cli("migrate", db_path)
+
+        conn = sqlite3.connect(db_path)
+        # Search for a known entity name
+        results = conn.execute(
+            "SELECT e.name FROM entities_fts "
+            "JOIN entities e ON entities_fts.rowid = e.rowid "
+            "WHERE entities_fts MATCH 'Logging'"
+        ).fetchall()
+        conn.close()
+        assert len(results) == 1
+        assert "Logging" in results[0][0]
+
+    # --- Test 9: New tables exist ---
+    def test_migration_creates_junction_tables(self, tmp_path: Path) -> None:
+        """entity_tags, entity_dependencies, entity_okr_alignment tables exist."""
+        db_path, _, _ = self._make_test_db(tmp_path)
+        run_cli("migrate", db_path)
+
+        conn = sqlite3.connect(db_path)
+        tables = [
+            r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "ORDER BY name"
+            ).fetchall()
+        ]
+        conn.close()
+
+        assert "entity_tags" in tables
+        assert "entity_dependencies" in tables
+        assert "entity_okr_alignment" in tables
+
+    # --- Test 10: New CHECK constraints accept 5D phases and 'light' mode ---
+    def test_migration_accepts_5d_phases_and_light_mode(self, tmp_path: Path) -> None:
+        """5D phases (discover, define, deliver, debrief) and light mode accepted."""
+        db_path, _, _ = self._make_test_db(tmp_path)
+        run_cli("migrate", db_path)
+
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA foreign_keys = OFF")
+
+        # Register a test entity first
+        test_uuid = str(uuid.uuid4())
+        now = _now_iso()
+        conn.execute(
+            "INSERT INTO entities (uuid, type_id, entity_type, entity_id, "
+            "name, status, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (test_uuid, "project:test-5d", "project", "test-5d",
+             "5D Test", "active", now, now),
+        )
+
+        # Test 5D phases
+        for phase in ("discover", "define", "deliver", "debrief"):
+            conn.execute(
+                "DELETE FROM workflow_phases WHERE type_id = 'project:test-5d'"
+            )
+            conn.execute(
+                "INSERT INTO workflow_phases (type_id, workflow_phase, "
+                "kanban_column, mode, updated_at) "
+                "VALUES (?, ?, 'backlog', 'light', ?)",
+                ("project:test-5d", phase, now),
+            )
+        conn.commit()
+
+        # Verify light mode was accepted
+        row = conn.execute(
+            "SELECT mode FROM workflow_phases WHERE type_id = 'project:test-5d'"
+        ).fetchone()
+        conn.close()
+        assert row[0] == "light"
+
+    # --- Test 11: entity_type CHECK constraint removed ---
+    def test_migration_entity_type_check_removed(self, tmp_path: Path) -> None:
+        """entity_type CHECK constraint is removed — arbitrary types accepted at SQL level."""
+        db_path, _, _ = self._make_test_db(tmp_path)
+        run_cli("migrate", db_path)
+
+        conn = sqlite3.connect(db_path)
+        now = _now_iso()
+        # This would fail with CHECK constraint if still present
+        conn.execute(
+            "INSERT INTO entities (uuid, type_id, entity_type, entity_id, "
+            "name, status, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (str(uuid.uuid4()), "initiative:001-test", "initiative", "001-test",
+             "Test Initiative", "active", now, now),
+        )
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT entity_type FROM entities WHERE type_id = 'initiative:001-test'"
+        ).fetchone()
+        conn.close()
+        assert row[0] == "initiative"
+
+    # --- Test: workflow_phases uuid column correctly backfilled ---
+    def test_migration_workflow_phases_uuid_backfill(self, tmp_path: Path) -> None:
+        """workflow_phases.uuid matches the entity's uuid for each row."""
+        db_path, _, _ = self._make_test_db(tmp_path)
+        run_cli("migrate", db_path)
+
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute(
+            "SELECT wp.type_id, wp.uuid, e.uuid "
+            "FROM workflow_phases wp "
+            "JOIN entities e ON wp.type_id = e.type_id"
+        ).fetchall()
+        conn.close()
+
+        assert len(rows) == 2
+        for row in rows:
+            assert row[1] == row[2], (
+                f"workflow_phases.uuid ({row[1]}) != entities.uuid ({row[2]}) "
+                f"for type_id={row[0]}"
+            )
+
+    # --- Test: next_seq counters bootstrapped correctly ---
+    def test_migration_seq_counters_bootstrapped(self, tmp_path: Path) -> None:
+        """next_seq_{type} metadata entries bootstrapped from max existing IDs."""
+        db_path, _, _ = self._make_test_db(tmp_path)
+        run_cli("migrate", db_path)
+
+        conn = sqlite3.connect(db_path)
+        # feature has IDs 042-logging and 043-metrics -> max seq should be 43
+        feature_seq = conn.execute(
+            "SELECT value FROM _metadata WHERE key = 'next_seq_feature'"
+        ).fetchone()
+        # project has 001-infra -> max seq 1
+        project_seq = conn.execute(
+            "SELECT value FROM _metadata WHERE key = 'next_seq_project'"
+        ).fetchone()
+        # brainstorm has 005-ideas -> max seq 5
+        brainstorm_seq = conn.execute(
+            "SELECT value FROM _metadata WHERE key = 'next_seq_brainstorm'"
+        ).fetchone()
+        conn.close()
+
+        assert feature_seq is not None
+        assert int(feature_seq[0]) == 43
+        assert project_seq is not None
+        assert int(project_seq[0]) == 1
+        assert brainstorm_seq is not None
+        assert int(brainstorm_seq[0]) == 5
+
+    # --- Test: junction tables accept inserts ---
+    def test_migration_junction_tables_functional(self, tmp_path: Path) -> None:
+        """Can insert into entity_tags, entity_dependencies, entity_okr_alignment."""
+        db_path, entities, _ = self._make_test_db(tmp_path)
+        run_cli("migrate", db_path)
+
+        conn = sqlite3.connect(db_path)
+        entity_uuid = entities[0]["uuid"]
+
+        # entity_tags
+        conn.execute(
+            "INSERT INTO entity_tags (entity_uuid, tag) VALUES (?, ?)",
+            (entity_uuid, "security"),
+        )
+        # entity_dependencies
+        conn.execute(
+            "INSERT INTO entity_dependencies (entity_uuid, blocked_by_uuid) "
+            "VALUES (?, ?)",
+            (entities[1]["uuid"], entities[2]["uuid"]),
+        )
+        # entity_okr_alignment
+        conn.execute(
+            "INSERT INTO entity_okr_alignment (entity_uuid, key_result_uuid) "
+            "VALUES (?, ?)",
+            (entity_uuid, str(uuid.uuid4())),
+        )
+        conn.commit()
+
+        tags = conn.execute("SELECT * FROM entity_tags").fetchall()
+        deps = conn.execute("SELECT * FROM entity_dependencies").fetchall()
+        okrs = conn.execute("SELECT * FROM entity_okr_alignment").fetchall()
+        conn.close()
+
+        assert len(tags) == 1
+        assert len(deps) == 1
+        assert len(okrs) == 1
+
+    # --- Test: junction tables enforce UNIQUE constraints ---
+    def test_migration_junction_tables_unique_constraints(self, tmp_path: Path) -> None:
+        """Duplicate inserts into junction tables raise IntegrityError."""
+        db_path, entities, _ = self._make_test_db(tmp_path)
+        run_cli("migrate", db_path)
+
+        conn = sqlite3.connect(db_path)
+        entity_uuid = entities[0]["uuid"]
+
+        conn.execute(
+            "INSERT INTO entity_tags (entity_uuid, tag) VALUES (?, ?)",
+            (entity_uuid, "security"),
+        )
+        conn.commit()
+
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO entity_tags (entity_uuid, tag) VALUES (?, ?)",
+                (entity_uuid, "security"),
+            )
+        conn.close()
+
+    # --- Test: metadata FTS search includes metadata content ---
+    def test_migration_fts_metadata_search(self, tmp_path: Path) -> None:
+        """FTS search finds entities by metadata content after rebuild."""
+        db_path, _, _ = self._make_test_db(tmp_path)
+        run_cli("migrate", db_path)
+
+        conn = sqlite3.connect(db_path)
+        # Search for metadata content "monitoring" (tag in entity 043-metrics)
+        results = conn.execute(
+            "SELECT e.type_id FROM entities_fts "
+            "JOIN entities e ON entities_fts.rowid = e.rowid "
+            "WHERE entities_fts MATCH 'monitoring'"
+        ).fetchall()
+        conn.close()
+        assert len(results) == 1
+        assert results[0][0] == "feature:043-metrics"
+
+    # --- Test: already at v6 is a no-op ---
+    def test_migration_idempotent(self, tmp_path: Path) -> None:
+        """Running migrate on an already-v6 DB is a no-op."""
+        db_path, _, _ = self._make_test_db(tmp_path)
+
+        # First migration
+        result1 = run_cli("migrate", db_path)
+        assert result1["ok"] is True
+        assert result1["post_version"] == 6
+
+        # Second migration — should be no-op
+        result2 = run_cli("migrate", db_path)
+        assert result2["ok"] is True
+        assert result2["pre_version"] == 6
+        assert result2["post_version"] == 6
+
+    # --- Test: orphaned parent_uuid backfill ---
+    def test_migration_backfills_orphaned_parent_uuid(self, tmp_path: Path) -> None:
+        """Entities with parent_type_id but NULL parent_uuid get backfilled."""
+        db_path = str(tmp_path / "orphan.db")
+
+        parent_uuid = str(uuid.uuid4())
+        child_uuid = str(uuid.uuid4())
+
+        entities = [
+            {
+                "uuid": parent_uuid,
+                "type_id": "project:001-parent",
+                "entity_type": "project",
+                "entity_id": "001-parent",
+                "name": "Parent",
+                "status": "active",
+            },
+            {
+                "uuid": child_uuid,
+                "type_id": "feature:001-child",
+                "entity_type": "feature",
+                "entity_id": "001-child",
+                "name": "Child",
+                "status": "active",
+                "parent_type_id": "project:001-parent",
+                # parent_uuid intentionally NULL to test backfill
+                "parent_uuid": None,
+            },
+        ]
+
+        create_v5_entity_db(db_path, entities)
+        run_cli("migrate", db_path)
+
+        conn = sqlite3.connect(db_path)
+        row = conn.execute(
+            "SELECT parent_uuid FROM entities WHERE type_id = 'feature:001-child'"
+        ).fetchone()
+        conn.close()
+        assert row[0] == parent_uuid
