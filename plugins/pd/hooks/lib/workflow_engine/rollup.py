@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from entity_registry.metadata import parse_metadata
+
 if TYPE_CHECKING:
     from entity_registry.database import EntityDatabase
 
@@ -96,6 +98,67 @@ def compute_progress(db: "EntityDatabase", entity_uuid: str) -> float:
             total += weights.get(phase, 0.0) if phase else 0.0
 
     return total / active_count if active_count > 0 else 0.0
+
+
+def compute_objective_score(db: "EntityDatabase", objective_uuid: str) -> float:
+    """Compute weighted score for an objective from its KR children.
+
+    Each KR child's score is based on its completion status (completed=1.0,
+    else phase-based progress). KRs can have an optional ``weight`` in
+    metadata (default 1.0). The objective score is the weighted average.
+
+    Parameters
+    ----------
+    db:
+        EntityDatabase instance for data access.
+    objective_uuid:
+        UUID of the objective entity.
+
+    Returns
+    -------
+    float
+        Weighted score in [0.0, 1.0]. Returns 0.0 if no KR children
+        or all weights are 0.
+    """
+    children = db.get_children_by_uuid(objective_uuid)
+    if not children:
+        return 0.0
+
+    weighted_sum = 0.0
+    total_weight = 0.0
+
+    for child in children:
+        status = child.get("status")
+        if status == "abandoned":
+            continue
+
+        # Get weight from metadata (default 1.0)
+        meta = parse_metadata(child.get("metadata"))
+        weight = meta.get("weight", 1.0)
+        try:
+            weight = float(weight)
+        except (ValueError, TypeError):
+            weight = 1.0
+
+        if weight <= 0:
+            continue  # zero/negative weight excluded
+
+        # Compute child score
+        if status == "completed":
+            score = 1.0
+        else:
+            entity_type = child.get("entity_type", "")
+            if entity_type == "feature":
+                weights = PHASE_WEIGHTS_7
+            else:
+                weights = PHASE_WEIGHTS_5D
+            phase = _get_workflow_phase(db, child["type_id"])
+            score = weights.get(phase, 0.0) if phase else 0.0
+
+        weighted_sum += score * weight
+        total_weight += weight
+
+    return weighted_sum / total_weight if total_weight > 0 else 0.0
 
 
 def rollup_parent(db: "EntityDatabase", child_uuid: str) -> None:

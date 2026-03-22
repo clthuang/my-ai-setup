@@ -607,6 +607,60 @@ async def search_entities(
 
 
 # ---------------------------------------------------------------------------
+# OKR convenience tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def create_key_result(
+    parent_ref: str,
+    name: str,
+    metric_type: str,
+    weight: float = 1.0,
+    status: str | None = None,
+) -> str:
+    """Create a key_result entity linked to a parent objective.
+
+    Parameters
+    ----------
+    parent_ref:
+        Reference to the parent objective (type_id, UUID, or prefix).
+    name:
+        Human-readable name for the key result.
+    metric_type:
+        Type of metric (e.g. "milestone", "percentage", "count").
+    weight:
+        Relative weight for weighted scoring (default 1.0).
+    status:
+        Optional initial status.
+    """
+    if _db is None:
+        return "Error: database not initialized"
+
+    try:
+        parent_type_id = _resolve_ref_param(_db, None, parent_ref)
+    except ValueError as exc:
+        return f"Error: {exc}"
+
+    try:
+        from entity_registry.id_generator import generate_entity_id
+
+        entity_id = generate_entity_id(_db, "key_result", name)
+        metadata = {"metric_type": metric_type, "weight": weight}
+        uuid = _db.register_entity(
+            "key_result",
+            entity_id,
+            name,
+            status=status,
+            parent_type_id=parent_type_id,
+            metadata=metadata,
+        )
+        return f"Created key_result:{entity_id} (uuid={uuid}, weight={weight})"
+    except Exception as exc:
+        return f"Error creating key_result: {exc}"
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

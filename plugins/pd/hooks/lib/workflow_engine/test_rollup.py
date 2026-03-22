@@ -16,6 +16,7 @@ from workflow_engine.rollup import (
     PHASE_WEIGHTS_5D,
     PHASE_WEIGHTS_7,
     _MAX_DEPTH,
+    compute_objective_score,
     compute_progress,
     rollup_parent,
 )
@@ -400,3 +401,88 @@ class TestRollupParent:
         parent = db.get_entity_by_uuid(parent_uuid)
         meta = json.loads(parent["metadata"])
         assert meta["progress"] == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# Task 2B.1: Weighted objective scoring tests
+# ---------------------------------------------------------------------------
+
+
+class TestComputeObjectiveScore:
+    """Tests for compute_objective_score with weighted KRs."""
+
+    def test_weighted_average(self, db):
+        """KR1(completed, weight=2.0) + KR2(active/no-phase, weight=1.0) → 0.667."""
+        obj_uuid = _register(db, "objective", "o1", "Objective 1")
+        _register(db, "key_result", "kr1", "KR 1",
+                  parent_type_id="objective:o1", status="completed",
+                  metadata={"weight": 2.0})
+        _register(db, "key_result", "kr2", "KR 2",
+                  parent_type_id="objective:o1", status="active",
+                  metadata={"weight": 1.0})
+        # (1.0*2.0 + 0.0*1.0) / (2.0+1.0) = 2/3 ≈ 0.667
+        score = compute_objective_score(db, obj_uuid)
+        assert score == pytest.approx(2.0 / 3.0, abs=0.01)
+
+    def test_default_weights_backward_compat(self, db):
+        """No weights → equal average (same as compute_progress)."""
+        obj_uuid = _register(db, "objective", "o2", "Objective 2")
+        _register(db, "key_result", "kr-a", "KR A",
+                  parent_type_id="objective:o2", status="completed")
+        _register(db, "key_result", "kr-b", "KR B",
+                  parent_type_id="objective:o2", status="active")
+        # completed=1.0, active with no phase=0.0 → (1.0+0.0)/2 = 0.5
+        score = compute_objective_score(db, obj_uuid)
+        assert score == pytest.approx(0.5)
+
+    def test_all_weights_zero(self, db):
+        """All KRs weight=0.0 → returns 0.0 (no ZeroDivisionError)."""
+        obj_uuid = _register(db, "objective", "o3", "Objective 3")
+        _register(db, "key_result", "kr-z1", "KR Z1",
+                  parent_type_id="objective:o3", status="completed",
+                  metadata={"weight": 0.0})
+        score = compute_objective_score(db, obj_uuid)
+        assert score == 0.0
+
+    def test_no_children(self, db):
+        obj_uuid = _register(db, "objective", "o4", "Objective 4")
+        assert compute_objective_score(db, obj_uuid) == 0.0
+
+    def test_abandoned_excluded(self, db):
+        obj_uuid = _register(db, "objective", "o5", "Objective 5")
+        _register(db, "key_result", "kr-good", "Good KR",
+                  parent_type_id="objective:o5", status="completed",
+                  metadata={"weight": 1.0})
+        _register(db, "key_result", "kr-aband", "Abandoned KR",
+                  parent_type_id="objective:o5", status="abandoned",
+                  metadata={"weight": 1.0})
+        score = compute_objective_score(db, obj_uuid)
+        assert score == pytest.approx(1.0)
+
+    def test_mixed_weights(self, db):
+        obj_uuid = _register(db, "objective", "o6", "Objective 6")
+        _register(db, "key_result", "kr-w3", "KR W3",
+                  parent_type_id="objective:o6", status="completed",
+                  metadata={"weight": 3.0})
+        _register(db, "key_result", "kr-w1", "KR W1",
+                  parent_type_id="objective:o6", status="active",
+                  metadata={"weight": 1.0})
+        # (1.0*3.0 + 0.0*1.0) / (3.0+1.0) = 0.75
+        score = compute_objective_score(db, obj_uuid)
+        assert score == pytest.approx(0.75)
+
+    def test_invalid_weight_defaults_to_one(self, db):
+        obj_uuid = _register(db, "objective", "o7", "Objective 7")
+        _register(db, "key_result", "kr-bad-w", "Bad Weight KR",
+                  parent_type_id="objective:o7", status="completed",
+                  metadata={"weight": "heavy"})
+        score = compute_objective_score(db, obj_uuid)
+        assert score == pytest.approx(1.0)
+
+    def test_weight_int_accepted(self, db):
+        obj_uuid = _register(db, "objective", "o8", "Objective 8")
+        _register(db, "key_result", "kr-int", "Int Weight KR",
+                  parent_type_id="objective:o8", status="completed",
+                  metadata={"weight": 2})
+        score = compute_objective_score(db, obj_uuid)
+        assert score == pytest.approx(1.0)
