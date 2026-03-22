@@ -1,11 +1,16 @@
 """EntityWorkflowEngine -- strategy-pattern wrapper over frozen WorkflowStateEngine.
 
 Adds cascade logic (unblock, rollup, notify) via two-phase commit:
-  Phase A: Frozen engine auto-commits completion (or direct DB for tasks)
+  Phase A: Frozen engine auto-commits completion (or direct DB for tasks/5D)
   Phase B: Separate BEGIN IMMEDIATE for cascade operations
 
-Implements design D1 (Strategy Pattern), D2 (Cascade in Engine),
-plan Step 3.3 [XC], AC-25.
+Backends:
+  FeatureBackend — delegates to frozen WorkflowStateEngine (L3 features)
+  FiveDBackend   — 5D phase-sequence transitions for L1/L2/L4 entities
+                   (initiative, objective, key_result, project, task)
+
+Implements design D1 (Strategy Pattern), D2 (Cascade in Engine), C3,
+plan Steps 3.3/4.1, AC-25/AC-26/AC-28.
 """
 from __future__ import annotations
 
@@ -25,6 +30,19 @@ from .templates import get_template
 
 if TYPE_CHECKING:
     pass
+
+# 5D entity types use phase-sequence-only transitions (no artifact prereqs).
+# Features use the frozen WorkflowStateEngine with full guard model.
+FIVE_D_ENTITY_TYPES: frozenset[str] = frozenset(
+    {"initiative", "objective", "key_result", "project", "task"}
+)
+
+# Deliver-phase mapping: the phase where blocked_by is enforced.
+# Features use "implement", 5D entities use "deliver".
+_DELIVER_PHASE: dict[str, str] = {
+    "feature": "implement",
+}
+_FIVE_D_DELIVER_PHASE = "deliver"
 
 
 @dataclass(frozen=True)
@@ -61,8 +79,12 @@ class CompletionResult:
 class EntityWorkflowEngine:
     """Strategy-pattern orchestrator wrapping frozen WorkflowStateEngine.
 
-    Routes to FeatureBackend (frozen engine) or TaskBackend based on
-    entity_type. Both paths run cascade in a separate transaction (Phase B).
+    Routes to FeatureBackend (frozen engine) or FiveDBackend (direct DB)
+    based on entity_type. Both paths run cascade in a separate transaction
+    (Phase B).
+
+    FeatureBackend: L3 features — full guard model via frozen engine.
+    FiveDBackend:   L1/L2/L4 — phase-sequence-only, blocked_by at deliver.
     """
 
     def __init__(
@@ -114,11 +136,13 @@ class EntityWorkflowEngine:
         entity_type = entity["entity_type"]
         type_id = entity["type_id"]
 
-        # Phase A: completion
+        # Phase A: completion — route by backend
         if entity_type == "feature":
             state = self._feature_complete(type_id, phase)
+        elif entity_type in FIVE_D_ENTITY_TYPES:
+            state = self._fived_complete(entity, phase)
         else:
-            state = self._task_complete(entity, phase)
+            raise ValueError(f"Unsupported entity type: {entity_type}")
 
         # Phase B: cascade (separate transaction, idempotent)
         unblocked: list[str] = []
@@ -179,21 +203,30 @@ class EntityWorkflowEngine:
         entity_type = entity["entity_type"]
         type_id = entity["type_id"]
 
-        # Check blocked_by for all entity types
-        blockers = self._dep_manager.get_blockers(self._db, entity_uuid)
-        if blockers:
-            raise ValueError(
-                f"Entity {type_id} is blocked by {len(blockers)} "
-                f"dependencies. Complete blockers first."
+        # Check blocked_by at deliver phase (implement for features,
+        # deliver for 5D entities). Per design C3/AC-28.
+        deliver_phase = _DELIVER_PHASE.get(
+            entity_type, _FIVE_D_DELIVER_PHASE
+        )
+        if target_phase == deliver_phase:
+            blockers = self._dep_manager.get_blockers(
+                self._db, entity_uuid
             )
+            if blockers:
+                raise ValueError(
+                    f"Entity {type_id} is blocked by {len(blockers)} "
+                    f"dependencies. Complete blockers first."
+                )
 
         if entity_type == "feature":
             return self._frozen_engine.transition_phase(
                 type_id, target_phase
             )
 
-        # Task/5D entities: direct phase update
-        return self._task_transition(entity, target_phase)
+        if entity_type in FIVE_D_ENTITY_TYPES:
+            return self._fived_transition(entity, target_phase)
+
+        raise ValueError(f"Unsupported entity type: {entity_type}")
 
     def get_state(
         self, entity_uuid: str
@@ -237,13 +270,13 @@ class EntityWorkflowEngine:
         return self._frozen_engine.complete_phase(type_id, phase)
 
     # ------------------------------------------------------------------
-    # Private: Task backend (direct DB)
+    # Private: FiveDBackend (direct DB — tasks, projects, initiatives, etc.)
     # ------------------------------------------------------------------
 
-    def _task_complete(
+    def _fived_complete(
         self, entity: dict, phase: str
     ) -> FeatureWorkflowState | None:
-        """Phase A for tasks/5D entities: direct DB update."""
+        """Phase A for 5D entities: direct DB update."""
         type_id = entity["type_id"]
         entity_type = entity["entity_type"]
         weight = self._get_weight(type_id)
@@ -289,10 +322,10 @@ class EntityWorkflowEngine:
             source="db",
         )
 
-    def _task_transition(
+    def _fived_transition(
         self, entity: dict, target_phase: str
     ) -> TransitionResponse:
-        """Transition for task/5D entities: phase-sequence validation."""
+        """Transition for 5D entities: phase-sequence validation."""
         from transition_gate.models import Severity, TransitionResult
 
         type_id = entity["type_id"]

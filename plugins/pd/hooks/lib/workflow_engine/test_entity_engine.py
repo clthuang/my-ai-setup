@@ -605,18 +605,26 @@ class TestTransitionPhase:
 
         assert isinstance(response, TransitionResponse)
 
-    def test_blocked_entity_cannot_transition(self, tmp_path):
+    def test_blocked_entity_cannot_transition_to_deliver(self, tmp_path):
+        """Blocked feature cannot transition to implement (deliver phase)."""
         db = _make_db()
+        slug = "028-blocked"
+        artifacts_root = str(tmp_path)
+        _create_meta_json(artifacts_root, slug)
+
         blocker_uuid = _register(db, "feature", "027-blocker", "Blocker")
-        blocked_uuid = _register(db, "feature", "028-blocked", "Blocked")
+        blocked_uuid = _register(db, "feature", slug, "Blocked")
+        _with_phase(
+            db, f"feature:{slug}", "create-tasks", mode="standard"
+        )
 
         dep_mgr = DependencyManager()
         dep_mgr.add_dependency(db, blocked_uuid, blocker_uuid)
 
-        engine = _make_engine(db, str(tmp_path))
+        engine = _make_engine(db, artifacts_root)
 
         with pytest.raises(ValueError, match="blocked by"):
-            engine.transition_phase(blocked_uuid, "specify")
+            engine.transition_phase(blocked_uuid, "implement")
 
     def test_task_transition_phase_sequence(self, tmp_path):
         db = _make_db()
@@ -673,3 +681,328 @@ class TestCascadeUnblock:
         # Status should change from blocked to planned
         entity = db.get_entity_by_uuid(dependent_uuid)
         assert entity["status"] == "planned"
+
+
+# ---------------------------------------------------------------------------
+# Task 4.1: FiveDBackend tests — project/initiative/objective/key_result
+# ---------------------------------------------------------------------------
+
+
+class TestFiveDProjectTransition:
+    """Project entity transitions through 5D phases."""
+
+    def test_project_transitions_through_all_5d_phases(self, tmp_path):
+        """Project transitions discover → define → design → deliver → debrief."""
+        db = _make_db()
+        proj_uuid = _register(db, "project", "p001-alpha", "Alpha Project")
+        _with_phase(db, "project:p001-alpha", "discover", mode="standard")
+
+        engine = _make_engine(db, str(tmp_path))
+
+        # Walk through full 5D sequence
+        phases = ["discover", "define", "design", "deliver", "debrief"]
+        for i, phase in enumerate(phases[:-1]):
+            response = engine.transition_phase(proj_uuid, phases[i + 1])
+            assert not response.degraded
+            assert any(r.allowed for r in response.results), (
+                f"Transition to {phases[i + 1]} should be allowed"
+            )
+
+    def test_project_complete_advances_phases(self, tmp_path):
+        """Completing each 5D phase advances to the next."""
+        db = _make_db()
+        proj_uuid = _register(db, "project", "p002-beta", "Beta Project")
+        _with_phase(db, "project:p002-beta", "discover", mode="standard")
+
+        engine = _make_engine(db, str(tmp_path))
+
+        result = engine.complete_phase(proj_uuid, "discover")
+        assert result.entity_type == "project"
+        assert result.state is not None
+        assert result.state.current_phase == "define"
+        assert result.state.last_completed_phase == "discover"
+
+    def test_project_complete_terminal_sets_completed(self, tmp_path):
+        """Completing debrief (terminal) marks project completed."""
+        db = _make_db()
+        proj_uuid = _register(db, "project", "p003-gamma", "Gamma Project")
+        _with_phase(
+            db, "project:p003-gamma", "debrief",
+            mode="standard", last_completed_phase="deliver",
+        )
+
+        engine = _make_engine(db, str(tmp_path))
+        result = engine.complete_phase(proj_uuid, "debrief")
+
+        assert result.state.last_completed_phase == "debrief"
+        entity = db.get_entity_by_uuid(proj_uuid)
+        assert entity["status"] == "completed"
+
+    def test_project_get_state(self, tmp_path):
+        """get_state returns correct state for 5D project."""
+        db = _make_db()
+        proj_uuid = _register(db, "project", "p004-delta", "Delta Project")
+        _with_phase(
+            db, "project:p004-delta", "design",
+            mode="full", last_completed_phase="define",
+        )
+
+        engine = _make_engine(db, str(tmp_path))
+        state = engine.get_state(proj_uuid)
+
+        assert state is not None
+        assert state.current_phase == "design"
+        assert state.mode == "full"
+
+
+class TestFiveDOutOfSequence:
+    """Out-of-sequence transitions are rejected for 5D entities."""
+
+    def test_project_skip_phase_rejected(self, tmp_path):
+        """Cannot skip from discover to deliver (skipping define+design)."""
+        db = _make_db()
+        proj_uuid = _register(db, "project", "p010-skip", "Skip Project")
+        _with_phase(db, "project:p010-skip", "discover", mode="standard")
+
+        engine = _make_engine(db, str(tmp_path))
+        response = engine.transition_phase(proj_uuid, "deliver")
+
+        assert not response.degraded
+        assert any(
+            not r.allowed and "skip" in r.reason.lower()
+            for r in response.results
+        ), "Should reject out-of-sequence transition"
+
+    def test_initiative_skip_phase_rejected(self, tmp_path):
+        """Initiative: cannot skip from discover to debrief."""
+        db = _make_db()
+        init_uuid = _register(
+            db, "initiative", "i001-skip", "Skip Initiative"
+        )
+        _with_phase(db, "initiative:i001-skip", "discover", mode="standard")
+
+        engine = _make_engine(db, str(tmp_path))
+        response = engine.transition_phase(init_uuid, "debrief")
+
+        assert any(
+            not r.allowed for r in response.results
+        ), "Should reject skip"
+
+    def test_project_invalid_phase_rejected(self, tmp_path):
+        """Phase not in 5D sequence is rejected."""
+        db = _make_db()
+        proj_uuid = _register(db, "project", "p011-bad", "Bad Phase Project")
+        _with_phase(db, "project:p011-bad", "discover", mode="standard")
+
+        engine = _make_engine(db, str(tmp_path))
+        response = engine.transition_phase(proj_uuid, "implement")
+
+        assert any(
+            not r.allowed and "not in sequence" in r.reason.lower()
+            for r in response.results
+        )
+
+    def test_project_next_phase_allowed(self, tmp_path):
+        """Transition to the immediate next phase is allowed."""
+        db = _make_db()
+        proj_uuid = _register(db, "project", "p012-next", "Next Project")
+        _with_phase(db, "project:p012-next", "define", mode="standard")
+
+        engine = _make_engine(db, str(tmp_path))
+        response = engine.transition_phase(proj_uuid, "design")
+
+        assert any(r.allowed for r in response.results)
+
+
+class TestFiveDDeliverBlockedBy:
+    """Deliver phase with active blocked_by is rejected (AC-28)."""
+
+    def test_deliver_with_blocker_rejected(self, tmp_path):
+        """Project blocked by another entity cannot transition to deliver."""
+        db = _make_db()
+        blocker_uuid = _register(
+            db, "project", "p020-blocker", "Blocker Project"
+        )
+        blocked_uuid = _register(
+            db, "project", "p021-blocked", "Blocked Project"
+        )
+        _with_phase(db, "project:p021-blocked", "design", mode="standard")
+
+        dep_mgr = DependencyManager()
+        dep_mgr.add_dependency(db, blocked_uuid, blocker_uuid)
+
+        engine = _make_engine(db, str(tmp_path))
+
+        with pytest.raises(ValueError, match="blocked by"):
+            engine.transition_phase(blocked_uuid, "deliver")
+
+    def test_non_deliver_phase_allowed_with_blocker(self, tmp_path):
+        """Blocker does NOT prevent non-deliver transitions (e.g. define)."""
+        db = _make_db()
+        blocker_uuid = _register(
+            db, "project", "p022-blocker", "Blocker"
+        )
+        blocked_uuid = _register(
+            db, "project", "p023-blocked", "Blocked"
+        )
+        _with_phase(db, "project:p023-blocked", "discover", mode="standard")
+
+        dep_mgr = DependencyManager()
+        dep_mgr.add_dependency(db, blocked_uuid, blocker_uuid)
+
+        engine = _make_engine(db, str(tmp_path))
+        # define is NOT the deliver phase, so blocker should not prevent it
+        response = engine.transition_phase(blocked_uuid, "define")
+        assert any(r.allowed for r in response.results)
+
+    def test_deliver_without_blocker_allowed(self, tmp_path):
+        """Deliver transition succeeds when no blockers exist."""
+        db = _make_db()
+        proj_uuid = _register(
+            db, "project", "p024-free", "Free Project"
+        )
+        _with_phase(db, "project:p024-free", "design", mode="standard")
+
+        engine = _make_engine(db, str(tmp_path))
+        response = engine.transition_phase(proj_uuid, "deliver")
+
+        assert any(r.allowed for r in response.results)
+
+    def test_feature_blocked_at_implement_not_deliver(self, tmp_path):
+        """Feature blocker check fires at implement (not deliver)."""
+        db = _make_db()
+        slug_blocker = "032-feat-blocker"
+        slug_blocked = "033-feat-blocked"
+        artifacts_root = str(tmp_path)
+        _create_meta_json(artifacts_root, slug_blocked)
+
+        blocker_uuid = _register(
+            db, "feature", slug_blocker, "Feature Blocker"
+        )
+        blocked_uuid = _register(
+            db, "feature", slug_blocked, "Feature Blocked"
+        )
+        _with_phase(
+            db, f"feature:{slug_blocked}", "create-tasks", mode="standard"
+        )
+
+        dep_mgr = DependencyManager()
+        dep_mgr.add_dependency(db, blocked_uuid, blocker_uuid)
+
+        engine = _make_engine(db, artifacts_root)
+
+        with pytest.raises(ValueError, match="blocked by"):
+            engine.transition_phase(blocked_uuid, "implement")
+
+
+class TestFiveDInitiativeObjectiveKeyResult:
+    """5D transitions for initiative, objective, key_result types."""
+
+    def test_initiative_complete_phase(self, tmp_path):
+        db = _make_db()
+        uuid = _register(db, "initiative", "i002-comp", "Complete Init")
+        _with_phase(db, "initiative:i002-comp", "discover", mode="full")
+
+        engine = _make_engine(db, str(tmp_path))
+        result = engine.complete_phase(uuid, "discover")
+
+        assert result.entity_type == "initiative"
+        assert result.state.current_phase == "define"
+
+    def test_objective_complete_phase(self, tmp_path):
+        db = _make_db()
+        uuid = _register(db, "objective", "o001-comp", "Complete Obj")
+        _with_phase(db, "objective:o001-comp", "define", mode="standard")
+
+        engine = _make_engine(db, str(tmp_path))
+        result = engine.complete_phase(uuid, "define")
+
+        assert result.entity_type == "objective"
+        assert result.state.current_phase == "design"
+
+    def test_key_result_complete_phase(self, tmp_path):
+        db = _make_db()
+        uuid = _register(db, "key_result", "kr001-comp", "Complete KR")
+        _with_phase(db, "key_result:kr001-comp", "define", mode="standard")
+
+        engine = _make_engine(db, str(tmp_path))
+        result = engine.complete_phase(uuid, "define")
+
+        assert result.entity_type == "key_result"
+        assert result.state.current_phase == "deliver"
+
+    def test_key_result_terminal_completes(self, tmp_path):
+        """key_result: debrief is terminal → status=completed."""
+        db = _make_db()
+        uuid = _register(db, "key_result", "kr002-term", "Terminal KR")
+        _with_phase(
+            db, "key_result:kr002-term", "debrief",
+            mode="standard", last_completed_phase="deliver",
+        )
+
+        engine = _make_engine(db, str(tmp_path))
+        result = engine.complete_phase(uuid, "debrief")
+
+        entity = db.get_entity_by_uuid(uuid)
+        assert entity["status"] == "completed"
+
+    def test_initiative_transition_sequence(self, tmp_path):
+        db = _make_db()
+        uuid = _register(db, "initiative", "i003-trans", "Trans Init")
+        _with_phase(db, "initiative:i003-trans", "define", mode="standard")
+
+        engine = _make_engine(db, str(tmp_path))
+        response = engine.transition_phase(uuid, "design")
+
+        assert any(r.allowed for r in response.results)
+
+
+class TestFiveDDeliverPhaseMapping:
+    """Deliver phase mapping: features=implement, 5D=deliver (AC-28)."""
+
+    def test_project_deliver_phase_is_deliver(self, tmp_path):
+        """Project's deliver gate is at 'deliver' phase."""
+        db = _make_db()
+        blocker_uuid = _register(
+            db, "project", "p030-blocker", "Blocker"
+        )
+        proj_uuid = _register(
+            db, "project", "p031-proj", "Project"
+        )
+        _with_phase(db, "project:p031-proj", "design", mode="standard")
+
+        dep_mgr = DependencyManager()
+        dep_mgr.add_dependency(db, proj_uuid, blocker_uuid)
+
+        engine = _make_engine(db, str(tmp_path))
+
+        # deliver is blocked
+        with pytest.raises(ValueError, match="blocked by"):
+            engine.transition_phase(proj_uuid, "deliver")
+
+        # design is NOT blocked (non-deliver phase)
+        # Reset to define so we can transition to design
+        db.update_workflow_phase("project:p031-proj", workflow_phase="define")
+        response = engine.transition_phase(proj_uuid, "design")
+        assert any(r.allowed for r in response.results)
+
+    def test_initiative_deliver_blocked(self, tmp_path):
+        """Initiative's deliver gate is at 'deliver' phase."""
+        db = _make_db()
+        blocker_uuid = _register(
+            db, "initiative", "i010-blocker", "Blocker Init"
+        )
+        init_uuid = _register(
+            db, "initiative", "i011-blocked", "Blocked Init"
+        )
+        _with_phase(
+            db, "initiative:i011-blocked", "design", mode="standard"
+        )
+
+        dep_mgr = DependencyManager()
+        dep_mgr.add_dependency(db, init_uuid, blocker_uuid)
+
+        engine = _make_engine(db, str(tmp_path))
+
+        with pytest.raises(ValueError, match="blocked by"):
+            engine.transition_phase(init_uuid, "deliver")
