@@ -315,3 +315,121 @@ class TestPromoteTaskRefResolution:
         db.update_entity(type_id, artifact_path=str(empty_dir))
         with pytest.raises(FileNotFoundError, match="tasks.md"):
             promote_task(db, type_id, "anything")
+
+
+# ---------------------------------------------------------------------------
+# Task 3.5: query_ready_tasks tests
+# ---------------------------------------------------------------------------
+
+
+class TestQueryReadyTasks:
+    """Task 3.5: query_ready_tasks returns only ready tasks."""
+
+    def _setup_feature_with_tasks(self, db, tmp_path):
+        """Create a feature in implement phase with 3 tasks: A ready, B blocked, C parent not in implement.
+
+        Returns (feature_type_id, feature_uuid, task_a_uuid, task_b_uuid, task_c_uuid).
+        """
+        from workflow_engine.task_promotion import query_ready_tasks
+
+        # Feature in implement phase
+        slug = "060-test-ready"
+        type_id = f"feature:{slug}"
+        feature_uuid = db.register_entity(
+            entity_type="feature", entity_id=slug,
+            name="Test Ready Feature", status="active",
+        )
+        db.create_workflow_phase(type_id, mode="standard", workflow_phase="implement")
+
+        # Task A: planned, no blockers, parent in implement → READY
+        task_a_uuid = db.register_entity(
+            entity_type="task", entity_id="001-task-a",
+            name="Task A - Ready", status="planned",
+            parent_type_id=type_id,
+        )
+        db.create_workflow_phase("task:001-task-a", mode="standard")
+
+        # Task B: planned, blocked by task A → NOT READY
+        task_b_uuid = db.register_entity(
+            entity_type="task", entity_id="002-task-b",
+            name="Task B - Blocked", status="planned",
+            parent_type_id=type_id,
+        )
+        db.create_workflow_phase("task:002-task-b", mode="standard")
+        dep_mgr = DependencyManager()
+        dep_mgr.add_dependency(db, task_b_uuid, task_a_uuid)
+
+        # Feature 2: NOT in implement phase (in specify)
+        slug2 = "061-not-implement"
+        type_id2 = f"feature:{slug2}"
+        feature2_uuid = db.register_entity(
+            entity_type="feature", entity_id=slug2,
+            name="Not Implement Feature", status="active",
+        )
+        db.create_workflow_phase(type_id2, mode="standard", workflow_phase="specify")
+
+        # Task C: planned, no blockers, but parent NOT in implement → NOT READY
+        task_c_uuid = db.register_entity(
+            entity_type="task", entity_id="003-task-c",
+            name="Task C - Parent Not Implement", status="planned",
+            parent_type_id=type_id2,
+        )
+        db.create_workflow_phase("task:003-task-c", mode="standard")
+
+        return type_id, feature_uuid, task_a_uuid, task_b_uuid, task_c_uuid
+
+    def test_returns_only_ready_task(self, tmp_path):
+        """3 tasks (A ready, B blocked, C parent not in implement) → returns only A."""
+        from workflow_engine.task_promotion import query_ready_tasks
+
+        db = _make_db()
+        _, _, task_a_uuid, _, _ = self._setup_feature_with_tasks(db, tmp_path)
+
+        result = query_ready_tasks(db)
+
+        assert len(result) == 1
+        assert result[0]["uuid"] == task_a_uuid
+        assert result[0]["name"] == "Task A - Ready"
+
+    def test_ready_task_includes_parent_context(self, tmp_path):
+        """Ready tasks include parent type_id and phase."""
+        from workflow_engine.task_promotion import query_ready_tasks
+
+        db = _make_db()
+        type_id, _, _, _, _ = self._setup_feature_with_tasks(db, tmp_path)
+
+        result = query_ready_tasks(db)
+        assert len(result) == 1
+        assert result[0]["parent_type_id"] == type_id
+        assert result[0]["parent_phase"] == "implement"
+
+    def test_empty_when_no_tasks(self):
+        """No task entities at all → empty list."""
+        from workflow_engine.task_promotion import query_ready_tasks
+
+        db = _make_db()
+        result = query_ready_tasks(db)
+        assert result == []
+
+    def test_completed_tasks_excluded(self, tmp_path):
+        """Tasks with status=completed are not returned."""
+        from workflow_engine.task_promotion import query_ready_tasks
+
+        db = _make_db()
+        slug = "070-completed"
+        type_id = f"feature:{slug}"
+        db.register_entity(
+            entity_type="feature", entity_id=slug,
+            name="Completed Parent", status="active",
+        )
+        db.create_workflow_phase(type_id, mode="standard", workflow_phase="implement")
+
+        db.register_entity(
+            entity_type="task", entity_id="004-done",
+            name="Done Task", status="completed",
+            parent_type_id=type_id,
+        )
+        db.create_workflow_phase("task:004-done", mode="standard")
+
+        result = query_ready_tasks(db)
+        assert result == []

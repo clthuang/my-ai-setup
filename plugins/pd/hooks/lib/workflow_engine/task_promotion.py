@@ -22,6 +22,74 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
+# Task 3.5: Agent-executable task query
+# ---------------------------------------------------------------------------
+
+
+def query_ready_tasks(db: "EntityDatabase") -> list[dict]:
+    """Return task entities that are ready for execution.
+
+    Ready = type=task, status=planned, no blocked_by entries,
+    and parent entity currently in 'implement' phase.
+
+    Returns list of dicts with task info + parent context.
+
+    Parameters
+    ----------
+    db:
+        Open EntityDatabase instance.
+
+    Returns
+    -------
+    list[dict]
+        Each dict: {uuid, type_id, name, status, parent_type_id, parent_phase}.
+    """
+    tasks = db.list_entities(entity_type="task")
+    if not tasks:
+        return []
+
+    ready: list[dict] = []
+
+    for task in tasks:
+        if task.get("status") != "planned":
+            continue
+
+        task_uuid = task["uuid"]
+
+        # Check no blockers
+        blockers = db._conn.execute(
+            "SELECT 1 FROM entity_dependencies WHERE entity_uuid = ? LIMIT 1",
+            (task_uuid,),
+        ).fetchone()
+        if blockers is not None:
+            continue
+
+        # Check parent is in implement phase
+        parent_type_id = task.get("parent_type_id")
+        if not parent_type_id:
+            continue
+
+        parent_wp = db.get_workflow_phase(parent_type_id)
+        if parent_wp is None:
+            continue
+
+        parent_phase = parent_wp.get("workflow_phase")
+        if parent_phase != "implement":
+            continue
+
+        ready.append({
+            "uuid": task_uuid,
+            "type_id": task["type_id"],
+            "name": task.get("name", ""),
+            "status": task["status"],
+            "parent_type_id": parent_type_id,
+            "parent_phase": parent_phase,
+        })
+
+    return ready
+
+
+# ---------------------------------------------------------------------------
 # Errors
 # ---------------------------------------------------------------------------
 
