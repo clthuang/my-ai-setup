@@ -1,19 +1,22 @@
 """EntityWorkflowEngine -- strategy-pattern wrapper over frozen WorkflowStateEngine.
 
 Adds cascade logic (unblock, rollup, notify) via two-phase commit:
-  Phase A: Frozen engine auto-commits completion (or direct DB for tasks)
+  Phase A: Frozen engine auto-commits completion (or direct DB for tasks/5D)
   Phase B: Separate BEGIN IMMEDIATE for cascade operations
 
-Implements design D1 (Strategy Pattern), D2 (Cascade in Engine),
-plan Step 3.3 [XC], AC-25.
+Backends:
+  FeatureBackend — delegates to frozen WorkflowStateEngine (L3 features)
+  FiveDBackend   — 5D phase-sequence transitions for L1/L2/L4 entities
+                   (initiative, objective, key_result, project, task)
+
+Implements design D1 (Strategy Pattern), D2 (Cascade in Engine), C3,
+plan Steps 3.3/4.1/4.3/4.4, AC-25/AC-26/AC-28/AC-29/AC-30.
 """
 from __future__ import annotations
 
 import sqlite3
 import sys
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
-
 from entity_registry.database import EntityDatabase
 from entity_registry.dependencies import DependencyManager
 
@@ -23,8 +26,20 @@ from .notifications import Notification, NotificationQueue
 from .rollup import compute_progress, rollup_parent
 from .templates import get_template
 
-if TYPE_CHECKING:
-    pass
+
+
+# 5D entity types use phase-sequence-only transitions (no artifact prereqs).
+# Features use the frozen WorkflowStateEngine with full guard model.
+FIVE_D_ENTITY_TYPES: frozenset[str] = frozenset(
+    {"initiative", "objective", "key_result", "project", "task"}
+)
+
+# Deliver-phase mapping: the phase where blocked_by is enforced.
+# Features use "implement", 5D entities use "deliver".
+_DELIVER_PHASE: dict[str, str] = {
+    "feature": "implement",
+}
+_FIVE_D_DELIVER_PHASE = "deliver"
 
 
 @dataclass(frozen=True)
@@ -61,18 +76,27 @@ class CompletionResult:
 class EntityWorkflowEngine:
     """Strategy-pattern orchestrator wrapping frozen WorkflowStateEngine.
 
-    Routes to FeatureBackend (frozen engine) or TaskBackend based on
-    entity_type. Both paths run cascade in a separate transaction (Phase B).
+    Routes to FeatureBackend (frozen engine) or FiveDBackend (direct DB)
+    based on entity_type. Both paths run cascade in a separate transaction
+    (Phase B).
+
+    FeatureBackend: L3 features — full guard model via frozen engine.
+    FiveDBackend:   L1/L2/L4 — phase-sequence-only, blocked_by at deliver.
     """
+
+    # Shared constant with frozen engine for degraded mode detection
+    _SOURCE_DEGRADED = "meta_json_fallback"
 
     def __init__(
         self,
         db: EntityDatabase,
         artifacts_root: str,
         notification_queue: NotificationQueue | None = None,
+        project_root: str = "",
     ) -> None:
         self._db = db
         self._artifacts_root = artifacts_root
+        self._project_root = project_root
         self._frozen_engine = WorkflowStateEngine(db, artifacts_root)
         self._dep_manager = DependencyManager()
         self._notification_queue = notification_queue
@@ -114,11 +138,13 @@ class EntityWorkflowEngine:
         entity_type = entity["entity_type"]
         type_id = entity["type_id"]
 
-        # Phase A: completion
+        # Phase A: completion — route by backend
         if entity_type == "feature":
             state = self._feature_complete(type_id, phase)
+        elif entity_type in FIVE_D_ENTITY_TYPES:
+            state = self._fived_complete(entity, phase)
         else:
-            state = self._task_complete(entity, phase)
+            raise ValueError(f"Unsupported entity type: {entity_type}")
 
         # Phase B: cascade (separate transaction, idempotent)
         unblocked: list[str] = []
@@ -126,7 +152,7 @@ class EntityWorkflowEngine:
         cascade_error: str | None = None
 
         # Skip cascade if DB is unhealthy (degraded mode)
-        if state is not None and state.source == "meta_json_fallback":
+        if state is not None and state.source == self._SOURCE_DEGRADED:
             cascade_error = "cascade skipped: degraded mode"
         else:
             try:
@@ -179,21 +205,37 @@ class EntityWorkflowEngine:
         entity_type = entity["entity_type"]
         type_id = entity["type_id"]
 
-        # Check blocked_by for all entity types
-        blockers = self._dep_manager.get_blockers(self._db, entity_uuid)
-        if blockers:
-            raise ValueError(
-                f"Entity {type_id} is blocked by {len(blockers)} "
-                f"dependencies. Complete blockers first."
+        # Check blocked_by at deliver phase (implement for features,
+        # deliver for 5D entities). Per design C3/AC-28.
+        deliver_phase = _DELIVER_PHASE.get(
+            entity_type, _FIVE_D_DELIVER_PHASE
+        )
+        if target_phase == deliver_phase:
+            blockers = self._dep_manager.get_blockers(
+                self._db, entity_uuid
             )
+            if blockers:
+                blocker_names = []
+                for b_uuid in blockers:
+                    b_entity = self._db.get_entity_by_uuid(b_uuid)
+                    if b_entity:
+                        blocker_names.append(b_entity["type_id"])
+                    else:
+                        blocker_names.append(b_uuid)
+                raise ValueError(
+                    f"Entity {type_id} is blocked by: "
+                    f"{', '.join(blocker_names)}"
+                )
 
         if entity_type == "feature":
             return self._frozen_engine.transition_phase(
                 type_id, target_phase
             )
 
-        # Task/5D entities: direct phase update
-        return self._task_transition(entity, target_phase)
+        if entity_type in FIVE_D_ENTITY_TYPES:
+            return self._fived_transition(entity, target_phase)
+
+        raise ValueError(f"Unsupported entity type: {entity_type}")
 
     def get_state(
         self, entity_uuid: str
@@ -217,14 +259,109 @@ class EntityWorkflowEngine:
         row = self._db.get_workflow_phase(type_id)
         if row is None:
             return None
+
+        # Derive completed_phases from template (same logic as frozen engine)
+        last_completed = row.get("last_completed_phase")
+        completed_phases: tuple[str, ...] = ()
+        if last_completed:
+            weight = row.get("mode") or "standard"
+            try:
+                template = get_template(entity_type, weight)
+                if last_completed in template:
+                    idx = template.index(last_completed)
+                    completed_phases = tuple(template[: idx + 1])
+            except KeyError:
+                pass  # unknown template — leave empty
+
         return FeatureWorkflowState(
             feature_type_id=type_id,
             current_phase=row["workflow_phase"],
-            last_completed_phase=row.get("last_completed_phase"),
-            completed_phases=(),  # simplified for non-features
+            last_completed_phase=last_completed,
+            completed_phases=completed_phases,
             mode=row.get("mode"),
             source="db",
         )
+
+    def abandon_entity(
+        self, entity_uuid: str, *, cascade: bool = False
+    ) -> list[str]:
+        """Abandon an entity, with orphan guard.
+
+        Checks for active children (status not completed/abandoned).
+        If active children exist and cascade is False, raises ValueError
+        listing the active children (orphan guard).
+
+        Parameters
+        ----------
+        entity_uuid:
+            UUID of the entity to abandon.
+        cascade:
+            If True, abandon all active descendants recursively.
+            If False (default), reject if active children exist.
+
+        Returns
+        -------
+        list[str]
+            UUIDs of all entities abandoned (including the target).
+
+        Raises
+        ------
+        ValueError
+            If entity not found, or active children exist and cascade=False.
+        """
+        entity = self._db.get_entity_by_uuid(entity_uuid)
+        if entity is None:
+            raise ValueError(f"Entity not found: {entity_uuid}")
+
+        active_children = self._get_active_children(entity_uuid)
+
+        if active_children and not cascade:
+            child_names = [
+                c["type_id"] for c in active_children
+            ]
+            raise ValueError(
+                f"Cannot abandon {entity['type_id']}: "
+                f"{len(active_children)} active children: "
+                f"{', '.join(child_names)}"
+            )
+
+        abandoned: list[str] = []
+
+        if cascade and active_children:
+            # Walk tree depth-first, abandon all active descendants
+            abandoned = self._abandon_descendants(entity_uuid)
+
+        # Abandon the entity itself
+        self._db.update_entity(entity["type_id"], status="abandoned")
+        abandoned.append(entity_uuid)
+
+        return abandoned
+
+    def _get_active_children(self, parent_uuid: str) -> list[dict]:
+        """Return children that are not completed or abandoned."""
+        children = self._db.get_children_by_uuid(parent_uuid)
+        return [
+            c for c in children
+            if c.get("status") not in ("completed", "abandoned")
+        ]
+
+    def _abandon_descendants(self, parent_uuid: str) -> list[str]:
+        """Recursively abandon all active descendants depth-first.
+
+        Returns list of UUIDs abandoned (excluding the parent itself).
+        """
+        abandoned: list[str] = []
+        children = self._db.get_children_by_uuid(parent_uuid)
+        for child in children:
+            if child.get("status") in ("completed", "abandoned"):
+                continue
+            # Recurse into grandchildren first
+            abandoned.extend(
+                self._abandon_descendants(child["uuid"])
+            )
+            self._db.update_entity(child["type_id"], status="abandoned")
+            abandoned.append(child["uuid"])
+        return abandoned
 
     # ------------------------------------------------------------------
     # Private: Feature backend (delegates to frozen engine)
@@ -237,13 +374,13 @@ class EntityWorkflowEngine:
         return self._frozen_engine.complete_phase(type_id, phase)
 
     # ------------------------------------------------------------------
-    # Private: Task backend (direct DB)
+    # Private: FiveDBackend (direct DB — tasks, projects, initiatives, etc.)
     # ------------------------------------------------------------------
 
-    def _task_complete(
+    def _fived_complete(
         self, entity: dict, phase: str
     ) -> FeatureWorkflowState | None:
-        """Phase A for tasks/5D entities: direct DB update."""
+        """Phase A for 5D entities: direct DB update."""
         type_id = entity["type_id"]
         entity_type = entity["entity_type"]
         weight = self._get_weight(type_id)
@@ -262,6 +399,26 @@ class EntityWorkflowEngine:
             )
 
         phase_idx = phases.index(phase)
+
+        # Validate phase: allow current phase OR backward re-run (rework),
+        # reject forward skip. Matches frozen engine behavior (engine.py:134-147).
+        wf_row = self._db.get_workflow_phase(type_id)
+        current_phase = wf_row["workflow_phase"] if wf_row else None
+        if current_phase and phase != current_phase:
+            last_completed = wf_row.get("last_completed_phase") if wf_row else None
+            if last_completed is None:
+                raise ValueError(
+                    f"Phase mismatch: cannot complete '{phase}' when current "
+                    f"phase is '{current_phase}' and no phases completed yet "
+                    f"for {type_id}"
+                )
+            last_idx = phases.index(last_completed) if last_completed in phases else -1
+            if phase_idx > last_idx:
+                raise ValueError(
+                    f"Phase mismatch: cannot complete '{phase}' when current "
+                    f"phase is '{current_phase}' for {type_id}"
+                )
+            # Backward re-run is valid (rework cycle) — continue
         is_terminal = phase_idx == len(phases) - 1
         next_phase = phase if is_terminal else phases[phase_idx + 1]
 
@@ -289,10 +446,10 @@ class EntityWorkflowEngine:
             source="db",
         )
 
-    def _task_transition(
+    def _fived_transition(
         self, entity: dict, target_phase: str
     ) -> TransitionResponse:
-        """Transition for task/5D entities: phase-sequence validation."""
+        """Transition for 5D entities: phase-sequence validation."""
         from transition_gate.models import Severity, TransitionResult
 
         type_id = entity["type_id"]
@@ -336,6 +493,23 @@ class EntityWorkflowEngine:
             if current is not None and current in phases:
                 current_idx = phases.index(current)
                 target_idx = phases.index(target_phase)
+                if target_idx < current_idx:
+                    # Backward transition allowed (rework) — warn only,
+                    # matching frozen engine's check_backward_transition (G-18)
+                    return TransitionResponse(
+                        results=(
+                            TransitionResult(
+                                guard_id="G-18",
+                                allowed=True,
+                                reason=(
+                                    f"Backward transition from '{current}' to "
+                                    f"'{target_phase}' (rework)"
+                                ),
+                                severity=Severity.warn,
+                            ),
+                        ),
+                        degraded=False,
+                    )
                 if target_idx > current_idx + 1:
                     return TransitionResponse(
                         results=(
@@ -441,7 +615,7 @@ class EntityWorkflowEngine:
                 message=f"Phase completed for {entity['type_id']}",
                 entity_type_id=entity["type_id"],
                 event="phase_completed",
-                project_root="",  # filled by caller
+                project_root=self._project_root,
                 timestamp=now,
             )
         )
@@ -456,7 +630,7 @@ class EntityWorkflowEngine:
                         ),
                         entity_type_id=unblocked_entity["type_id"],
                         event="unblocked",
-                        project_root="",
+                        project_root=self._project_root,
                         timestamp=now,
                     )
                 )
