@@ -379,16 +379,27 @@ class EntityWorkflowEngine:
                 f"({entity_type}, {weight}): {phases}"
             )
 
-        # Validate phase matches current phase (prevent arbitrary skip)
+        phase_idx = phases.index(phase)
+
+        # Validate phase: allow current phase OR backward re-run (rework),
+        # reject forward skip. Matches frozen engine behavior (engine.py:134-147).
         wf_row = self._db.get_workflow_phase(type_id)
         current_phase = wf_row["workflow_phase"] if wf_row else None
         if current_phase and phase != current_phase:
-            raise ValueError(
-                f"Phase mismatch: cannot complete '{phase}' when "
-                f"current phase is '{current_phase}' for {type_id}"
-            )
-
-        phase_idx = phases.index(phase)
+            last_completed = wf_row.get("last_completed_phase") if wf_row else None
+            if last_completed is None:
+                raise ValueError(
+                    f"Phase mismatch: cannot complete '{phase}' when current "
+                    f"phase is '{current_phase}' and no phases completed yet "
+                    f"for {type_id}"
+                )
+            last_idx = phases.index(last_completed) if last_completed in phases else -1
+            if phase_idx > last_idx:
+                raise ValueError(
+                    f"Phase mismatch: cannot complete '{phase}' when current "
+                    f"phase is '{current_phase}' for {type_id}"
+                )
+            # Backward re-run is valid (rework cycle) — continue
         is_terminal = phase_idx == len(phases) - 1
         next_phase = phase if is_terminal else phases[phase_idx + 1]
 
@@ -464,16 +475,18 @@ class EntityWorkflowEngine:
                 current_idx = phases.index(current)
                 target_idx = phases.index(target_phase)
                 if target_idx < current_idx:
+                    # Backward transition allowed (rework) — warn only,
+                    # matching frozen engine's check_backward_transition (G-18)
                     return TransitionResponse(
                         results=(
                             TransitionResult(
-                                guard_id="PHASE_SEQ",
-                                allowed=False,
+                                guard_id="G-18",
+                                allowed=True,
                                 reason=(
-                                    f"Cannot move backward from '{current}' to "
-                                    f"'{target_phase}'"
+                                    f"Backward transition from '{current}' to "
+                                    f"'{target_phase}' (rework)"
                                 ),
-                                severity=Severity.block,
+                                severity=Severity.warn,
                             ),
                         ),
                         degraded=False,
