@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Secretary mode detection (Step 0) — CREATE/CONTINUE/QUERY classification before routing (AC-17/19)
+- Secretary entity registry queries — parent candidate search, duplicate detection, weight recommendation in TRIAGE (AC-17/18)
+- Universal work creation flow (Steps C1-C4) — identify, link, register, activate with backlog promotion (AC-20/22)
+- Secretary weight escalation — scope expansion detection with upgrade recommendation (AC-22a)
+
 ## [4.13.20] - 2026-03-22
 
 ### Added
