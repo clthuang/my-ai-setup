@@ -844,7 +844,7 @@ Propose parent linkage using Triage results:
 1. If `parent_candidate` was found in Triage:
    - Call `get_entity(ref="{parent_type_id}")` to confirm parent still exists and is active
    - Present: "Link as child of {parent_name} ({parent_type_id})?"
-   - If parent has context (phase, progress), display it: "Parent: {parent_type_id} ({phase}, {progress}%)" — this is the Catchball pattern (showing parent intent on creation)
+   - Before confirming parent linkage, fetch parent context using `get_parent_context(db, parent_type_id)` from `secretary_intelligence.py`. If context is returned, display: "Parent: {type_id} ({phase}, {progress}%)" with traffic light indicator ({traffic_light}). This is the Catchball pattern (AC-35a) — showing parent intent on creation so the user understands what they're linking into.
    - User confirms or selects different parent or standalone
 
 2. If no parent found:

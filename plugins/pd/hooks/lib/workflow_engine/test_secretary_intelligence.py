@@ -17,6 +17,7 @@ from workflow_engine.secretary_intelligence import (
     detect_mode,
     detect_scope_expansion,
     find_parent_candidates,
+    get_parent_context,
     recommend_weight,
 )
 
@@ -576,3 +577,126 @@ class TestCheckKrCount:
 
         result = check_kr_count(db, obj_uuid)
         assert result is None  # only 5 active KRs
+
+
+# ---------------------------------------------------------------------------
+# get_parent_context tests (AC-35a — Catchball)
+# ---------------------------------------------------------------------------
+class TestGetParentContext:
+    """Fetch parent entity context for display during child creation."""
+
+    @pytest.fixture()
+    def db(self, tmp_path):
+        from entity_registry.database import EntityDatabase
+
+        db_path = str(tmp_path / "test.db")
+        db = EntityDatabase(db_path)
+        return db
+
+    def test_returns_context_for_parent_with_workflow(self, db):
+        """Parent with workflow phase + progress in metadata -> full context."""
+        proj_uuid = db.register_entity(
+            entity_type="project", entity_id="003-platform",
+            name="Platform Project", status="active",
+            metadata={"progress": 67},
+        )
+        # Create workflow_phases row for the project
+        db.create_workflow_phase("project:003-platform", workflow_phase="deliver", mode="full")
+
+        result = get_parent_context(db, "project:003-platform")
+        assert result is not None
+        assert result["type_id"] == "project:003-platform"
+        assert result["name"] == "Platform Project"
+        assert result["phase"] == "deliver"
+        assert result["progress"] == 67
+
+    def test_returns_context_without_progress(self, db):
+        """Parent with workflow phase but no progress metadata -> progress is None."""
+        db.register_entity(
+            entity_type="project", entity_id="004-infra",
+            name="Infrastructure", status="active",
+        )
+        db.create_workflow_phase("project:004-infra", workflow_phase="specify", mode="standard")
+
+        result = get_parent_context(db, "project:004-infra")
+        assert result is not None
+        assert result["type_id"] == "project:004-infra"
+        assert result["phase"] == "specify"
+        assert result["progress"] is None
+
+    def test_returns_context_without_workflow_phase(self, db):
+        """Parent entity exists but has no workflow_phases row -> phase is None."""
+        db.register_entity(
+            entity_type="project", entity_id="005-legacy",
+            name="Legacy Project", status="active",
+            metadata={"progress": 30},
+        )
+
+        result = get_parent_context(db, "project:005-legacy")
+        assert result is not None
+        assert result["phase"] is None
+        assert result["progress"] == 30
+
+    def test_returns_none_for_nonexistent_parent(self, db):
+        """Non-existent type_id -> None."""
+        result = get_parent_context(db, "project:999-missing")
+        assert result is None
+
+    def test_traffic_light_green(self, db):
+        """Progress >= 70 -> GREEN."""
+        db.register_entity(
+            entity_type="project", entity_id="006-green",
+            name="Green Project", status="active",
+            metadata={"progress": 70},
+        )
+        result = get_parent_context(db, "project:006-green")
+        assert result["traffic_light"] == "GREEN"
+
+    def test_traffic_light_yellow(self, db):
+        """Progress 40-69 -> YELLOW."""
+        db.register_entity(
+            entity_type="project", entity_id="007-yellow",
+            name="Yellow Project", status="active",
+            metadata={"progress": 50},
+        )
+        result = get_parent_context(db, "project:007-yellow")
+        assert result["traffic_light"] == "YELLOW"
+
+    def test_traffic_light_red(self, db):
+        """Progress < 40 -> RED."""
+        db.register_entity(
+            entity_type="project", entity_id="008-red",
+            name="Red Project", status="active",
+            metadata={"progress": 20},
+        )
+        result = get_parent_context(db, "project:008-red")
+        assert result["traffic_light"] == "RED"
+
+    def test_traffic_light_none_when_no_progress(self, db):
+        """No progress -> no traffic light."""
+        db.register_entity(
+            entity_type="project", entity_id="009-nolight",
+            name="No Progress Project", status="active",
+        )
+        result = get_parent_context(db, "project:009-nolight")
+        assert result["traffic_light"] is None
+
+    def test_traffic_light_boundary_40(self, db):
+        """Progress == 40 -> YELLOW (not RED)."""
+        db.register_entity(
+            entity_type="project", entity_id="010-boundary",
+            name="Boundary 40", status="active",
+            metadata={"progress": 40},
+        )
+        result = get_parent_context(db, "project:010-boundary")
+        assert result["traffic_light"] == "YELLOW"
+
+    def test_traffic_light_boundary_70(self, db):
+        """Progress == 70 -> GREEN (not YELLOW)."""
+        db.register_entity(
+            entity_type="project", entity_id="011-boundary",
+            name="Boundary 70", status="active",
+            metadata={"progress": 70},
+        )
+        result = get_parent_context(db, "project:011-boundary")
+        assert result["traffic_light"] == "GREEN"

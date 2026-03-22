@@ -354,6 +354,66 @@ def check_kr_count(db: "EntityDatabase", objective_uuid: str) -> str | None:
     return None
 
 
+def get_parent_context(db: "EntityDatabase", parent_type_id: str) -> dict | None:
+    """Fetch parent entity context for Catchball display during child creation.
+
+    Returns a dict with parent info including workflow phase and progress,
+    or None if the parent entity doesn't exist.
+
+    Implements AC-35a (Catchball — parent intent on creation).
+
+    Parameters
+    ----------
+    db:
+        EntityDatabase instance for data access.
+    parent_type_id:
+        The type_id of the parent entity (e.g., "project:003-platform").
+
+    Returns
+    -------
+    dict | None
+        Dict with keys: type_id, name, phase, progress, traffic_light.
+        None if parent entity not found.
+    """
+    entity = db.get_entity(parent_type_id)
+    if entity is None:
+        return None
+
+    # Extract workflow phase
+    phase = None
+    wp = db.get_workflow_phase(parent_type_id)
+    if wp is not None:
+        phase = wp.get("workflow_phase")
+
+    # Extract progress from metadata
+    progress = None
+    if entity.get("metadata"):
+        try:
+            import json
+            meta = json.loads(entity["metadata"]) if isinstance(entity["metadata"], str) else entity["metadata"]
+            progress = meta.get("progress")
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            pass
+
+    # Compute traffic light from progress
+    traffic_light = None
+    if progress is not None:
+        if progress >= 70:
+            traffic_light = "GREEN"
+        elif progress >= 40:
+            traffic_light = "YELLOW"
+        else:
+            traffic_light = "RED"
+
+    return {
+        "type_id": parent_type_id,
+        "name": entity["name"],
+        "phase": phase,
+        "progress": progress,
+        "traffic_light": traffic_light,
+    }
+
+
 def detect_scope_expansion(
     current_mode: str,
     signals: list[str],
