@@ -1260,3 +1260,61 @@ class TestAbandonEntityOrphanGuard:
         for uid in [init_uuid, proj_uuid, feat_uuid]:
             entity = db.get_entity_by_uuid(uid)
             assert entity["status"] == "abandoned"
+
+
+# ---------------------------------------------------------------
+# Adversarial review fixes — blocker B1 (phase mismatch) + B2 (backward transition)
+# ---------------------------------------------------------------
+
+class TestFiveDPhaseMismatchGuard:
+    """Blocker B1: _fived_complete must reject completing wrong phase."""
+
+    def test_complete_wrong_phase_rejected(self, tmp_path):
+        """Complete 'deliver' when entity is in 'discover' → ValueError."""
+        db = _make_db()
+        proj_uuid = _register(db, "project", "090-mismatch", "Mismatch")
+        _with_phase(db, "project:090-mismatch", "discover", mode="standard")
+        engine = _make_engine(db, str(tmp_path))
+        with pytest.raises(ValueError, match="Phase mismatch"):
+            engine.complete_phase(proj_uuid, "deliver")
+
+    def test_complete_correct_phase_succeeds(self, tmp_path):
+        """Complete 'discover' when entity is in 'discover' → succeeds."""
+        db = _make_db()
+        proj_uuid = _register(db, "project", "091-correct", "Correct")
+        _with_phase(db, "project:091-correct", "discover", mode="standard")
+        engine = _make_engine(db, str(tmp_path))
+        result = engine.complete_phase(proj_uuid, "discover")
+        assert result.state.last_completed_phase == "discover"
+
+
+class TestFiveDBackwardTransitionGuard:
+    """Blocker B2: _fived_transition must reject backward transitions."""
+
+    def test_backward_transition_rejected(self, tmp_path):
+        """Transition from 'deliver' back to 'define' → blocked."""
+        db = _make_db()
+        proj_uuid = _register(db, "project", "092-backward", "Backward")
+        _with_phase(db, "project:092-backward", "deliver", mode="standard")
+        engine = _make_engine(db, str(tmp_path))
+        resp = engine.transition_phase(proj_uuid, "define")
+        assert not resp.results[0].allowed
+        assert "backward" in resp.results[0].reason.lower()
+
+    def test_backward_to_discover_rejected(self, tmp_path):
+        """Transition from 'define' back to 'discover' → blocked."""
+        db = _make_db()
+        proj_uuid = _register(db, "project", "093-backward2", "Backward2")
+        _with_phase(db, "project:093-backward2", "define", mode="standard")
+        engine = _make_engine(db, str(tmp_path))
+        resp = engine.transition_phase(proj_uuid, "discover")
+        assert not resp.results[0].allowed
+
+    def test_forward_transition_still_works(self, tmp_path):
+        """Forward transition (discover → define) still works."""
+        db = _make_db()
+        proj_uuid = _register(db, "project", "094-forward", "Forward")
+        _with_phase(db, "project:094-forward", "discover", mode="standard")
+        engine = _make_engine(db, str(tmp_path))
+        resp = engine.transition_phase(proj_uuid, "define")
+        assert resp.results[0].allowed

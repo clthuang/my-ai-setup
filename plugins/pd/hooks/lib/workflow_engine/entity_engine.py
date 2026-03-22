@@ -17,8 +17,6 @@ from __future__ import annotations
 import sqlite3
 import sys
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
-
 from entity_registry.database import EntityDatabase
 from entity_registry.dependencies import DependencyManager
 
@@ -28,8 +26,7 @@ from .notifications import Notification, NotificationQueue
 from .rollup import compute_progress, rollup_parent
 from .templates import get_template
 
-if TYPE_CHECKING:
-    pass
+
 
 # 5D entity types use phase-sequence-only transitions (no artifact prereqs).
 # Features use the frozen WorkflowStateEngine with full guard model.
@@ -382,6 +379,15 @@ class EntityWorkflowEngine:
                 f"({entity_type}, {weight}): {phases}"
             )
 
+        # Validate phase matches current phase (prevent arbitrary skip)
+        wf_row = self._db.get_workflow_phase(type_id)
+        current_phase = wf_row["workflow_phase"] if wf_row else None
+        if current_phase and phase != current_phase:
+            raise ValueError(
+                f"Phase mismatch: cannot complete '{phase}' when "
+                f"current phase is '{current_phase}' for {type_id}"
+            )
+
         phase_idx = phases.index(phase)
         is_terminal = phase_idx == len(phases) - 1
         next_phase = phase if is_terminal else phases[phase_idx + 1]
@@ -457,6 +463,21 @@ class EntityWorkflowEngine:
             if current is not None and current in phases:
                 current_idx = phases.index(current)
                 target_idx = phases.index(target_phase)
+                if target_idx < current_idx:
+                    return TransitionResponse(
+                        results=(
+                            TransitionResult(
+                                guard_id="PHASE_SEQ",
+                                allowed=False,
+                                reason=(
+                                    f"Cannot move backward from '{current}' to "
+                                    f"'{target_phase}'"
+                                ),
+                                severity=Severity.block,
+                            ),
+                        ),
+                        degraded=False,
+                    )
                 if target_idx > current_idx + 1:
                     return TransitionResponse(
                         results=(
