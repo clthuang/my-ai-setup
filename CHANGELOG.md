@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.13.22] - 2026-03-23
+
 ### Added
 - `EntityWorkflowEngine` — strategy-pattern engine wrapping frozen `WorkflowStateEngine` with two-phase commit cascade (AC-25)
 - `promote_task` — core module + MCP tool for promoting tasks.md headings to tracked task entities (AC-23)
