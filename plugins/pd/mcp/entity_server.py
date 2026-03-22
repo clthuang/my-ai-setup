@@ -633,6 +633,9 @@ async def create_key_result(
     """
     if _db is None:
         return "Error: database not initialized (server not started)"
+    _VALID_METRIC_TYPES = ("milestone", "binary", "baseline_target", "target", "baseline")
+    if metric_type not in _VALID_METRIC_TYPES:
+        return json.dumps({"error": f"Invalid metric_type: {metric_type}. Must be one of: {', '.join(_VALID_METRIC_TYPES)}"})
     try:
         parent_type_id = _resolve_ref_param(_db, None, parent_ref, is_mutation=True)
         eid = entity_id or name.lower().replace(" ", "-")[:30]
@@ -644,7 +647,7 @@ async def create_key_result(
             metadata=json.dumps({"metric_type": metric_type}),
         )
         return json.dumps({"uuid": uuid, "type_id": f"key_result:{eid}"})
-    except (ValueError, Exception) as exc:
+    except (ValueError, KeyError) as exc:
         return json.dumps({"error": str(exc)})
 
 
@@ -664,11 +667,13 @@ async def update_kr_score(
     """
     if _db is None:
         return "Error: database not initialized (server not started)"
+    if not (0.0 <= score <= 1.0):
+        return json.dumps({"error": f"Score must be between 0.0 and 1.0, got {score}"})
     try:
         resolved = _resolve_ref_param(_db, None, kr_ref, is_mutation=True)
         _db.update_entity(resolved, metadata={"score": float(score)})
         return json.dumps({"result": f"Score updated to {score}", "type_id": resolved})
-    except (ValueError, Exception) as exc:
+    except (ValueError, KeyError) as exc:
         return json.dumps({"error": str(exc)})
 
 

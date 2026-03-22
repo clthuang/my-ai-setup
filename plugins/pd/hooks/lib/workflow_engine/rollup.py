@@ -199,7 +199,7 @@ def compute_okr_score(db: "EntityDatabase", kr_uuid: str) -> float:
 def compute_objective_score(db: "EntityDatabase", objective_uuid: str) -> float:
     """Compute and store the score for an objective entity from its child KR scores.
 
-    The objective score is the weighted average of all non-abandoned child
+    The objective score is the equal-weight average of all non-abandoned child
     key_result scores (each computed via ``compute_okr_score``).  Non-KR
     children are ignored.
 

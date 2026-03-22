@@ -275,7 +275,7 @@ def recommend_weight(scope_signals: list[str]) -> str:
 # ---------------------------------------------------------------------------
 _ACTIVITY_WORDS: list[str] = [
     "launch", "build", "implement", "create", "deploy",
-    "migrate", "develop", "ship", "release",
+    "migrate", "develop", "ship", "release", "complete",
 ]
 
 _ACTIVITY_PATTERN = re.compile(
