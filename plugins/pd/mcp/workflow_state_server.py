@@ -94,7 +94,9 @@ async def lifespan(server):
 
     _engine = WorkflowStateEngine(_db, _artifacts_root)
     _notification_queue = NotificationQueue()
-    _entity_engine = EntityWorkflowEngine(_db, _artifacts_root, _notification_queue)
+    _entity_engine = EntityWorkflowEngine(
+        _db, _artifacts_root, _notification_queue, project_root=_project_root
+    )
 
     print(f"workflow-engine: started (db={db_path}, artifacts={_artifacts_root})", file=sys.stderr)
 

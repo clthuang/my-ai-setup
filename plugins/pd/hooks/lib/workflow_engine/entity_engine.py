@@ -84,14 +84,19 @@ class EntityWorkflowEngine:
     FiveDBackend:   L1/L2/L4 — phase-sequence-only, blocked_by at deliver.
     """
 
+    # Shared constant with frozen engine for degraded mode detection
+    _SOURCE_DEGRADED = "meta_json_fallback"
+
     def __init__(
         self,
         db: EntityDatabase,
         artifacts_root: str,
         notification_queue: NotificationQueue | None = None,
+        project_root: str = "",
     ) -> None:
         self._db = db
         self._artifacts_root = artifacts_root
+        self._project_root = project_root
         self._frozen_engine = WorkflowStateEngine(db, artifacts_root)
         self._dep_manager = DependencyManager()
         self._notification_queue = notification_queue
@@ -147,7 +152,7 @@ class EntityWorkflowEngine:
         cascade_error: str | None = None
 
         # Skip cascade if DB is unhealthy (degraded mode)
-        if state is not None and state.source == "meta_json_fallback":
+        if state is not None and state.source == self._SOURCE_DEGRADED:
             cascade_error = "cascade skipped: degraded mode"
         else:
             try:
@@ -254,11 +259,25 @@ class EntityWorkflowEngine:
         row = self._db.get_workflow_phase(type_id)
         if row is None:
             return None
+
+        # Derive completed_phases from template (same logic as frozen engine)
+        last_completed = row.get("last_completed_phase")
+        completed_phases: tuple[str, ...] = ()
+        if last_completed:
+            weight = row.get("mode") or "standard"
+            try:
+                template = get_template(entity_type, weight)
+                if last_completed in template:
+                    idx = template.index(last_completed)
+                    completed_phases = tuple(template[: idx + 1])
+            except KeyError:
+                pass  # unknown template — leave empty
+
         return FeatureWorkflowState(
             feature_type_id=type_id,
             current_phase=row["workflow_phase"],
-            last_completed_phase=row.get("last_completed_phase"),
-            completed_phases=(),  # simplified for non-features
+            last_completed_phase=last_completed,
+            completed_phases=completed_phases,
             mode=row.get("mode"),
             source="db",
         )
@@ -596,7 +615,7 @@ class EntityWorkflowEngine:
                 message=f"Phase completed for {entity['type_id']}",
                 entity_type_id=entity["type_id"],
                 event="phase_completed",
-                project_root="",  # filled by caller
+                project_root=self._project_root,
                 timestamp=now,
             )
         )
@@ -611,7 +630,7 @@ class EntityWorkflowEngine:
                         ),
                         entity_type_id=unblocked_entity["type_id"],
                         event="unblocked",
-                        project_root="",
+                        project_root=self._project_root,
                         timestamp=now,
                     )
                 )
