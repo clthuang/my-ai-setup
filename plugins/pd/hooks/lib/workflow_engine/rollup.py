@@ -4,7 +4,7 @@ Computes parent progress from children's completed phases and propagates
 up the ancestor chain.  Called by ``EntityWorkflowEngine.complete_phase()``
 after a child entity completes a phase.
 
-Implements design C5 (Progress Rollup Engine) and plan Step 3.2.
+Implements design C5 (Progress Rollup Engine), plan Step 3.2 and Step 4.2.
 """
 from __future__ import annotations
 
@@ -98,6 +98,31 @@ def compute_progress(db: "EntityDatabase", entity_uuid: str) -> float:
     return total / active_count if active_count > 0 else 0.0
 
 
+def compute_traffic_light(progress: float) -> str:
+    """Derive a traffic light colour from a progress value.
+
+    Thresholds (per AC-27):
+    - RED:    progress < 0.4
+    - YELLOW: 0.4 <= progress < 0.7
+    - GREEN:  progress >= 0.7
+
+    Parameters
+    ----------
+    progress:
+        Progress value in [0.0, 1.0].
+
+    Returns
+    -------
+    str
+        One of ``"RED"``, ``"YELLOW"``, or ``"GREEN"``.
+    """
+    if progress < 0.4:
+        return "RED"
+    if progress < 0.7:
+        return "YELLOW"
+    return "GREEN"
+
+
 def rollup_parent(db: "EntityDatabase", child_uuid: str) -> None:
     """Walk up the parent chain and recompute progress for each ancestor.
 
@@ -134,7 +159,11 @@ def rollup_parent(db: "EntityDatabase", child_uuid: str) -> None:
             break
 
         progress = compute_progress(db, parent_uuid)
-        db.update_entity(parent["type_id"], metadata={"progress": progress})
+        traffic_light = compute_traffic_light(progress)
+        db.update_entity(
+            parent["type_id"],
+            metadata={"progress": progress, "traffic_light": traffic_light},
+        )
 
         parent_uuid = parent.get("parent_uuid")
         depth += 1

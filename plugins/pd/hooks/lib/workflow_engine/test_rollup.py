@@ -17,6 +17,7 @@ from workflow_engine.rollup import (
     PHASE_WEIGHTS_7,
     _MAX_DEPTH,
     compute_progress,
+    compute_traffic_light,
     rollup_parent,
 )
 
@@ -400,3 +401,167 @@ class TestRollupParent:
         parent = db.get_entity_by_uuid(parent_uuid)
         meta = json.loads(parent["metadata"])
         assert meta["progress"] == pytest.approx(1.0)
+
+    def test_traffic_light_stored_in_metadata(self, db):
+        """AC-27: rollup stores traffic_light alongside progress."""
+        parent_uuid = _register(db, "project", "p1", "Project 1")
+        child_uuid = _register(db, "feature", "f1", "F1",
+                                parent_type_id="project:p1",
+                                status="completed")
+
+        rollup_parent(db, child_uuid)
+
+        parent = db.get_entity_by_uuid(parent_uuid)
+        meta = json.loads(parent["metadata"])
+        assert meta["progress"] == pytest.approx(1.0)
+        assert meta["traffic_light"] == "GREEN"
+
+    def test_traffic_light_yellow_on_partial_progress(self, db):
+        """AC-27: progress 0.65 → YELLOW traffic light."""
+        parent_uuid = _register(db, "project", "p1", "Project 1")
+        child_uuid = _register(db, "feature", "f1", "F1",
+                                parent_type_id="project:p1",
+                                status="completed")
+        _register(db, "feature", "f2", "F2",
+                  parent_type_id="project:p1", status="active")
+        _with_phase(db, "feature:f2", "design")
+
+        rollup_parent(db, child_uuid)
+
+        parent = db.get_entity_by_uuid(parent_uuid)
+        meta = json.loads(parent["metadata"])
+        # (1.0 + 0.3) / 2 = 0.65
+        assert meta["progress"] == pytest.approx(0.65)
+        assert meta["traffic_light"] == "YELLOW"
+
+    def test_traffic_light_red_on_low_progress(self, db):
+        """AC-27: low progress → RED traffic light."""
+        parent_uuid = _register(db, "project", "p1", "Project 1")
+        child_uuid = _register(db, "feature", "f1", "F1",
+                                parent_type_id="project:p1", status="active")
+        _with_phase(db, "feature:f1", "specify")
+        _register(db, "feature", "f2", "F2",
+                  parent_type_id="project:p1", status="active")
+        _with_phase(db, "feature:f2", "brainstorm")
+
+        rollup_parent(db, child_uuid)
+
+        parent = db.get_entity_by_uuid(parent_uuid)
+        meta = json.loads(parent["metadata"])
+        # (0.1 + 0.0) / 2 = 0.05
+        assert meta["progress"] == pytest.approx(0.05)
+        assert meta["traffic_light"] == "RED"
+
+    def test_traffic_light_propagates_up_ancestor_chain(self, db):
+        """Traffic light stored at every level of the ancestor chain."""
+        gp_uuid = _register(db, "initiative", "i1", "Init 1")
+        _register(db, "project", "p1", "Project 1",
+                  parent_type_id="initiative:i1", status="active")
+        _with_phase(db, "project:p1", "deliver")
+        child_uuid = _register(db, "feature", "f1", "F1",
+                                parent_type_id="project:p1",
+                                status="completed")
+
+        rollup_parent(db, child_uuid)
+
+        gp = db.get_entity_by_uuid(gp_uuid)
+        gp_meta = json.loads(gp["metadata"])
+        assert "traffic_light" in gp_meta
+        # p1 phase=deliver => 0.7 progress => GREEN
+        assert gp_meta["traffic_light"] == "GREEN"
+
+    def test_ac27_verification_scenario(self, db):
+        """AC-27 verification: 3 features (completed, implement, design) → 0.67 → YELLOW."""
+        parent_uuid = _register(db, "project", "p1", "Project 1")
+        c1 = _register(db, "feature", "f1", "F1",
+                        parent_type_id="project:p1", status="completed")
+        _register(db, "feature", "f2", "F2",
+                  parent_type_id="project:p1", status="active")
+        _with_phase(db, "feature:f2", "implement")
+        _register(db, "feature", "f3", "F3",
+                  parent_type_id="project:p1", status="active")
+        _with_phase(db, "feature:f3", "design")
+
+        rollup_parent(db, c1)
+
+        parent = db.get_entity_by_uuid(parent_uuid)
+        meta = json.loads(parent["metadata"])
+        # (1.0 + 0.7 + 0.3) / 3 = 0.6667
+        assert meta["progress"] == pytest.approx(2.0 / 3.0, abs=0.01)
+        assert meta["traffic_light"] == "YELLOW"
+
+
+# -----------------------------------------------------------------------
+# compute_traffic_light()
+# -----------------------------------------------------------------------
+
+class TestComputeTrafficLight:
+    """Tests for compute_traffic_light() — AC-27 thresholds."""
+
+    def test_red_at_zero(self):
+        assert compute_traffic_light(0.0) == "RED"
+
+    def test_red_below_threshold(self):
+        assert compute_traffic_light(0.39) == "RED"
+
+    def test_yellow_at_boundary(self):
+        """Exactly 0.4 → YELLOW."""
+        assert compute_traffic_light(0.4) == "YELLOW"
+
+    def test_yellow_mid_range(self):
+        assert compute_traffic_light(0.5) == "YELLOW"
+
+    def test_yellow_just_below_green(self):
+        assert compute_traffic_light(0.69) == "YELLOW"
+
+    def test_green_at_boundary(self):
+        """Exactly 0.7 → GREEN."""
+        assert compute_traffic_light(0.7) == "GREEN"
+
+    def test_green_high(self):
+        assert compute_traffic_light(0.85) == "GREEN"
+
+    def test_green_at_one(self):
+        assert compute_traffic_light(1.0) == "GREEN"
+
+    def test_red_just_below_yellow(self):
+        """0.399... → RED (boundary precision)."""
+        assert compute_traffic_light(0.3999999) == "RED"
+
+    def test_yellow_just_below_green_precise(self):
+        """0.699... → YELLOW (boundary precision)."""
+        assert compute_traffic_light(0.6999999) == "YELLOW"
+
+
+class TestComputeProgressMixedChildren:
+    """AC-27: project with mixed 7-phase and 5D children."""
+
+    def test_mixed_feature_and_task_children(self, db):
+        """Project with feature (7-phase) and task (5D) children."""
+        parent_uuid = _register(db, "project", "p1", "Project 1")
+        _register(db, "feature", "f1", "F1",
+                  parent_type_id="project:p1", status="active")
+        _with_phase(db, "feature:f1", "implement")  # 0.7
+        _register(db, "task", "t1", "T1",
+                  parent_type_id="project:p1", status="active")
+        _with_phase(db, "task:t1", "define")  # 0.1
+
+        progress = compute_progress(db, parent_uuid)
+        # (0.7 + 0.1) / 2 = 0.4
+        assert progress == pytest.approx(0.4)
+
+    def test_mixed_children_with_completed(self, db):
+        """Feature completed + task in deliver + feature in brainstorm."""
+        parent_uuid = _register(db, "project", "p1", "Project 1")
+        _register(db, "feature", "f1", "F1",
+                  parent_type_id="project:p1", status="completed")  # 1.0
+        _register(db, "task", "t1", "T1",
+                  parent_type_id="project:p1", status="active")
+        _with_phase(db, "task:t1", "deliver")  # 0.7
+        _register(db, "feature", "f2", "F2",
+                  parent_type_id="project:p1", status="active")
+        _with_phase(db, "feature:f2", "brainstorm")  # 0.0
+
+        progress = compute_progress(db, parent_uuid)
+        # (1.0 + 0.7 + 0.0) / 3 ≈ 0.567
+        assert progress == pytest.approx(1.7 / 3.0)
