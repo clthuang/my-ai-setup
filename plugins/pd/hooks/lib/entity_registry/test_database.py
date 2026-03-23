@@ -322,7 +322,7 @@ class TestMigration2:
 
         # Now open it with EntityDatabase — runs pending migrations (3+)
         db = EntityDatabase(db_path)
-        assert db.get_metadata("schema_version") == "6"
+        assert db.get_metadata("schema_version") == "7"
 
         # Schema should be intact
         cur = db._conn.execute("PRAGMA table_info(entities)")
@@ -553,7 +553,7 @@ class TestMetadata:
         assert db.get_metadata("foo") == "baz"
 
     def test_schema_version_is_5(self, db: EntityDatabase):
-        assert db.get_metadata("schema_version") == "6"
+        assert db.get_metadata("schema_version") == "7"
 
 
 # ---------------------------------------------------------------------------
@@ -2369,7 +2369,7 @@ class TestMigrationIdempotency:
         entity = db2.get_entity("project:p1")
         assert entity is not None
         assert entity["uuid"] == p1_uuid
-        assert db2.get_metadata("schema_version") == "6"
+        assert db2.get_metadata("schema_version") == "7"
         db2.close()
 
 
@@ -2568,7 +2568,7 @@ class TestMigration3:
 
     def test_schema_version_is_5(self, db: EntityDatabase):
         """After all migrations, schema_version should be 5."""
-        assert db.get_metadata("schema_version") == "6"
+        assert db.get_metadata("schema_version") == "7"
 
     # -- Task 1.2: Migration creates indexes and trigger (AC-2) ------------
 
@@ -2753,10 +2753,10 @@ class TestMigration3:
     # -- Task 1.4: Fresh DB migration safety (AC-3) ------------------------
 
     def test_fresh_db_has_all_migrations(self, tmp_path):
-        """A brand-new EntityDatabase should run all 6 migrations."""
+        """A brand-new EntityDatabase should run all 7 migrations."""
         fresh_db = EntityDatabase(str(tmp_path / "fresh.db"))
         try:
-            assert fresh_db.get_metadata("schema_version") == "6"
+            assert fresh_db.get_metadata("schema_version") == "7"
         finally:
             fresh_db.close()
 
@@ -4158,7 +4158,7 @@ class TestMigration5:
         new phase values are accepted."""
         db = EntityDatabase(str(tmp_path / "m5-idem.db"))
         try:
-            assert db.get_schema_version() == 6
+            assert db.get_schema_version() == 7
 
             # Verify all new phase values are accepted
             new_phases = [
