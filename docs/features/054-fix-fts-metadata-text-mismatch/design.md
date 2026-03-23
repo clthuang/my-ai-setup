@@ -23,8 +23,11 @@ A new migration function added to the `MIGRATIONS` dict at key `7`. Follows the 
 2. `DROP TABLE IF EXISTS entities_fts`
 3. `CREATE VIRTUAL TABLE entities_fts USING fts5(name, entity_id, entity_type, status, metadata_text)` — no `content=` or `content_rowid=`
 4. Backfill all entities (same pattern as migration 4/6)
-5. Update `_metadata` schema_version to `7`
-6. `COMMIT`
+5. `COMMIT`
+
+**Note:** The schema_version upsert is NOT inside this function. The `_migrate()` loop at database.py:2252-2257 handles version tracking after each migration function returns — this is the established pattern used by all existing migrations.
+
+**Fresh database path:** `entities_fts` is only created via the migration chain. A fresh database runs migrations 1→2→3→4→5→6→7 sequentially. Migration 4 creates FTS with `content='entities'` (historical, unchanged per TD-2), then migration 7 drops and recreates without `content=`. No other code path creates `entities_fts`.
 
 ### Component: FTS DML Pattern Update
 
@@ -39,8 +42,11 @@ All FTS delete operations change from external-content syntax to standard SQL:
 **Affected functions:**
 - `update_entity()` at database.py:1513-1519 — replace 7-column VALUES('delete',...) with `DELETE FROM entities_fts WHERE rowid = ?`
 - `delete_entity()` at database.py:1574-1579 — same replacement
+- `register_entity()` at database.py:1237-1243 — **No change needed** (uses standard `INSERT INTO entities_fts(rowid, ...) VALUES(?, ...)`, compatible with both modes)
 
-**Simplification benefit:** The new delete pattern no longer requires fetching old column values or calling `flatten_metadata()` on old metadata. `update_entity` still needs the old metadata for the old FTS insert pattern — but actually, only the INSERT of new values is needed after DELETE. `delete_entity` no longer needs to compute `metadata_text` before deletion.
+**Simplification benefit:** The new delete pattern no longer requires fetching old column values or calling `flatten_metadata()` on old metadata. `delete_entity` no longer needs to compute `metadata_text` before deletion.
+
+**INVARIANT:** All FTS INSERT operations MUST specify explicit `rowid` matching the `entities` table rowid. The `search_entities()` query joins on `entities_fts.rowid = e.rowid` — omitting rowid on INSERT would break this join. Add a code comment at each FTS INSERT site documenting this invariant.
 
 ### Component: migrate_db.py FTS Backfill
 
@@ -71,7 +77,7 @@ Copy the ~15-line `flatten_metadata` function into `migrate_db.py`. The function
 **Option B (rejected): sys.path import from entity_registry.**
 Would create a cross-layer dependency between `scripts/` and `plugins/pd/hooks/lib/`. The import path is fragile — depends on relative directory structure. Not worth the coupling for a 15-line pure function.
 
-**Rationale:** The spec suggested sys.path import, but inlining is simpler and avoids coupling. The function has zero external dependencies and is unlikely to change. If it ever does, the migration tool's copy only needs to handle the frozen schema at migration time.
+**Spec Deviation (FR-3):** The spec recommends `sys.path` import from `entity_registry.database`. This design inlines instead. Accepted trade-off: duplication of a 15-line stable function vs cross-layer coupling between `scripts/` and `plugins/pd/hooks/lib/`. The function has zero external dependencies and is unlikely to change.
 
 ### Component: Test Helper Alignment
 
@@ -204,7 +210,9 @@ def _flatten_metadata(metadata: dict | None) -> str:
 
 
 def _backfill_entity_fts(dst: sqlite3.Connection) -> int:
-    """Backfill entities_fts from all entities. Returns count of indexed entities."""
+    """Clear and rebuild entities_fts from all entities. Returns count of indexed entities."""
+    # Clear existing FTS entries to avoid duplicates on re-run
+    dst.execute("DELETE FROM entities_fts")
     rows = dst.execute(
         "SELECT rowid, name, entity_id, entity_type, status, metadata FROM entities"
     ).fetchall()
@@ -246,7 +254,7 @@ def test_fts_rebuild_succeeds_on_production_schema(tmp_path):
 
 | Risk | Mitigation |
 |------|-----------|
-| Standalone FTS increases disk usage | Entity count < 1000; overhead ~500KB max — negligible |
+| Standalone FTS increases disk usage | Entity count < 1000; FTS overhead is proportional to indexed text size — negligible at this scale |
 | Old databases at version < 6 upgrading | Migration chain 4→5→6→7 works; migration 7 drops/recreates FTS regardless of prior state |
 | `flatten_metadata` diverges between database.py and migrate_db.py | Function is 15 lines, stable since Feature 012. Comment in migrate_db.py copy notes the source |
 
@@ -255,5 +263,5 @@ def test_fts_rebuild_succeeds_on_production_schema(tmp_path):
 1. **Existing entity registry tests** (710+) — must pass with only FTS CREATE schema changes in helpers
 2. **Existing migration tests** (128) — must pass with updated test helper schemas
 3. **New: FTS rebuild regression test** (AC-7) — verifies rebuild + integrity-check + search
-4. **New: Migration 7 test** (AC-4) — creates v6 DB, runs migration, verifies FTS works
+4. **New: Migration 7 test** (AC-4) — creates v6 DB, runs migration, verifies: pre-existing entities searchable, rebuild succeeds, integrity-check passes, schema_version == 7
 5. **New: merge_entities FTS test** (AC-5) — verifies imported entities are searchable
