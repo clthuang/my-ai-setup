@@ -96,13 +96,13 @@ returns no errors on a database with entities. For standalone content-bearing FT
 `search_entities("query")` returns matching entities with rank ordering, identical to current behavior. Existing entity registry tests pass without modification beyond test helper schema fixes. "Test helper schema fix" means only changes to `CREATE VIRTUAL TABLE` statements in test setup code. No changes to test assertions, query patterns, or expected results are permitted. If any test requires assertion changes, that constitutes a behavioral change that must be documented.
 
 ### AC-4: Migration 7 upgrades existing databases
-A database at schema version 6 is upgraded to version 7 with a working FTS index after running `EntityDB()` initialization.
+A database at schema version 6 is upgraded to version 7 with a working FTS index (verified by successful `rebuild` and `search_entities` returning pre-existing entities) after running `EntityDB()` initialization.
 
 ### AC-5: merge_entities indexes imported entities
 Given a source DB with an entity named "TestImport" and a destination DB, when `merge_entities` is called, then `search_entities("TestImport")` on the destination DB returns the imported entity.
 
 ### AC-6: Test helpers use production FTS schema
-The `create_entity_db` helper in `test_migrate_db.py` and the bash helper in `test_migrate_bash.sh` create FTS tables matching the production schema (including `metadata_text`, without `content='entities'`).
+All test helpers that create FTS tables (see FR-4 affected locations) create FTS tables matching the production schema (including `metadata_text`, without `content='entities'`).
 
 ### AC-7: Rebuild regression test exists
 A test verifies that FTS `rebuild` succeeds on a production-schema database with populated entities.
