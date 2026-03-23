@@ -131,7 +131,28 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
 );
 ```
 
-Also update the FTS backfill INSERT to include `metadata_text` column (use empty string `''` for test entities). **Important:** With standalone FTS (no `content=`), entities are NOT automatically indexed — the helper must explicitly INSERT into `entities_fts` after inserting entities, or FTS MATCH queries will return zero results.
+**Critical:** With standalone FTS (no `content=`), the existing `rebuild` at line 373 no longer populates FTS from the entities table. Replace the `rebuild` call with explicit FTS INSERTs:
+
+Before (line 371-374):
+```python
+if entities:
+    conn.execute("INSERT INTO entities_fts(entities_fts) VALUES('rebuild')")
+    conn.commit()
+```
+
+After:
+```python
+if entities:
+    for row in conn.execute("SELECT rowid, name, entity_id, entity_type, status, metadata FROM entities").fetchall():
+        conn.execute(
+            "INSERT INTO entities_fts(rowid, name, entity_id, entity_type, status, metadata_text) "
+            "VALUES(?, ?, ?, ?, ?, ?)",
+            (row[0], row[1], row[2], row[3], row[4] or "", row[5] or ""),
+        )
+    conn.commit()
+```
+
+Note: test entities typically have no metadata, so `row[5] or ""` suffices (no need for `flatten_metadata`).
 
 #### 4b: test_migrate_db.py deepened helper (line ~1133)
 
@@ -149,7 +170,7 @@ CREATE VIRTUAL TABLE entities_fts USING fts5(
 );
 ```
 
-**Note:** After removing `content='entities'`, FTS `rebuild` no longer pulls from the entities table — it only re-processes existing FTS content. If any deepened tests rely on rebuild to populate FTS from entities, they need explicit FTS INSERT statements after entity creation. Check deepened test callers for this pattern.
+**Deepened test callers investigated:** The deepened helper at line 1133 creates the schema but FTS rows are populated via manual INSERT (not rebuild). The `test_migration_fts_works` test at line 1443 runs `migrate` CLI which triggers `EntityDB()` auto-migration including migration 7's backfill — so it will work correctly. No deepened tests rely on rebuild for initial FTS population. Safe to change.
 
 #### 4c: test_migrate_bash.sh (line ~878)
 
@@ -250,7 +271,46 @@ def test_fts_rebuild_succeeds_on_production_schema(tmp_path):
 
 **File:** `plugins/pd/hooks/lib/entity_registry/test_search.py` (or test_database.py)
 
-Create a v6 database by manually executing SQL matching the v6 schema (entities table, workflow_phases, FTS with `content='entities'`, `_metadata` with `schema_version=6`) and inserting test entities with FTS rows. Then instantiate `EntityDB()` which will auto-run only migration 7, and verify:
+Create a v6 database manually, then instantiate `EntityDB()` which will auto-run only migration 7, and verify:
+
+**V6 fixture setup:**
+```python
+conn = sqlite3.connect(str(db_path))
+conn.executescript("""
+    CREATE TABLE _metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    INSERT INTO _metadata VALUES ('schema_version', '6');
+    CREATE TABLE entities (
+        uuid TEXT NOT NULL PRIMARY KEY, type_id TEXT NOT NULL UNIQUE,
+        entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, name TEXT NOT NULL,
+        status TEXT, parent_type_id TEXT, parent_uuid TEXT, artifact_path TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, metadata TEXT
+    );
+    CREATE VIRTUAL TABLE entities_fts USING fts5(
+        name, entity_id, entity_type, status, metadata_text,
+        content='entities', content_rowid='rowid'
+    );
+    CREATE TABLE workflow_phases (
+        type_id TEXT NOT NULL, workflow_phase TEXT, kanban_column TEXT,
+        last_completed_phase TEXT, mode TEXT, backward_transition_reason TEXT,
+        updated_at TEXT NOT NULL
+    );
+    INSERT INTO entities VALUES (
+        'uuid-1', 'feature:test-v6', 'feature', 'test-v6', 'V6 Test Entity',
+        'active', NULL, NULL, NULL, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', NULL
+    );
+""")
+# Manually add FTS entry (external-content mode)
+conn.execute(
+    "INSERT INTO entities_fts(rowid, name, entity_id, entity_type, status, metadata_text) "
+    "VALUES(1, 'V6 Test Entity', 'test-v6', 'feature', 'active', '')"
+)
+conn.commit()
+conn.close()
+# Now open with EntityDB — triggers migration 7
+db = EntityDB(str(db_path))
+```
+
+Verify:
 1. `get_schema_version() == 7`
 2. Pre-existing entities are searchable via `search_entities()`
 3. FTS `rebuild` succeeds
