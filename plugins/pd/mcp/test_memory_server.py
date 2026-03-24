@@ -322,20 +322,24 @@ class TestConfidence:
 
 
 class TestKeywords:
-    def test_keywords_stored_as_empty_json(self, db: MemoryDatabase):
-        """Keywords should always be '[]' (keyword system removed)."""
+    def test_keywords_stored_as_non_empty_json(self, db: MemoryDatabase):
+        """Keywords should be populated via extract_keywords (not empty)."""
         _process_store_memory(
             db=db,
             provider=None,
-            name="No KW",
-            description="No keyword gen test",
-            reasoning="Reason",
+            name="Verify codebase facts before artifact review",
+            description="Always grep source files to verify factual claims before writing review artifacts",
+            reasoning="Prevents incorrect assumptions from propagating into spec and design docs",
             category="patterns",
             references=[],
         )
-        expected_hash = content_hash("No keyword gen test")
+        expected_hash = content_hash(
+            "Always grep source files to verify factual claims before writing review artifacts"
+        )
         entry = db.get_entry(expected_hash)
-        assert entry["keywords"] == "[]"
+        keywords = json.loads(entry["keywords"])
+        assert isinstance(keywords, list)
+        assert len(keywords) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -1014,6 +1018,90 @@ class TestSearchMemoryCategoryFilterBeforeRankingDeepened:
 
 
 # ---------------------------------------------------------------------------
+# Test: record_influence MCP tool (Tasks 2.2.3 / 2.2.5)
+# ---------------------------------------------------------------------------
+
+from memory_server import _process_record_influence  # noqa: E402
+
+
+class TestRecordInfluence:
+    def _store_entry(self, db: MemoryDatabase, entry_id: str = "inf-test", name: str = "Hook stderr pattern"):
+        """Helper to seed an entry for influence tests."""
+        entry = {
+            "id": entry_id,
+            "name": name,
+            "description": "Suppress stderr in hooks to prevent JSON corruption",
+            "category": "patterns",
+            "source": "manual",
+            "keywords": "[]",
+            "source_project": "/tmp",
+            "source_hash": "0000",
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+        }
+        db.upsert_entry(entry)
+
+    def test_increments_influence_count(self, db: MemoryDatabase):
+        """record_influence should increment influence_count on matched entry."""
+        self._store_entry(db)
+        assert db.get_entry("inf-test")["influence_count"] == 0
+
+        result = _process_record_influence(db, "Hook stderr pattern", "implementer", "feature:057")
+        assert "Recorded influence" in result
+        assert db.get_entry("inf-test")["influence_count"] == 1
+
+    def test_inserts_influence_log_row(self, db: MemoryDatabase):
+        """record_influence should insert a row into influence_log."""
+        self._store_entry(db)
+        _process_record_influence(db, "Hook stderr pattern", "reviewer", "feature:057-memory")
+
+        rows = db._conn.execute(
+            "SELECT entry_id, agent_role, feature_type_id FROM influence_log"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0][0] == "inf-test"
+        assert rows[0][1] == "reviewer"
+        assert rows[0][2] == "feature:057-memory"
+
+    def test_returns_error_for_nonexistent_entry(self, db: MemoryDatabase):
+        """record_influence should return error when entry not found."""
+        result = _process_record_influence(db, "Nonexistent entry name", "implementer", None)
+        assert "Entry not found" in result
+        assert "Nonexistent entry name" in result
+
+    def test_case_insensitive_match(self, db: MemoryDatabase):
+        """record_influence should match entry names case-insensitively (AC-8)."""
+        self._store_entry(db)
+        result = _process_record_influence(db, "hook stderr pattern", "implementer", None)
+        assert "Recorded influence" in result
+        assert db.get_entry("inf-test")["influence_count"] == 1
+
+    def test_partial_name_match_via_like_fallback(self, db: MemoryDatabase):
+        """record_influence should match via LIKE fallback for partial names."""
+        self._store_entry(db, name="Always validate hook inputs before processing")
+        result = _process_record_influence(db, "validate hook inputs", "implementer", None)
+        assert "Recorded influence" in result
+
+    def test_multiple_influences_accumulate(self, db: MemoryDatabase):
+        """Multiple record_influence calls should accumulate counts."""
+        self._store_entry(db)
+        _process_record_influence(db, "Hook stderr pattern", "implementer", "feature:057")
+        _process_record_influence(db, "Hook stderr pattern", "reviewer", "feature:057")
+        assert db.get_entry("inf-test")["influence_count"] == 2
+
+        log_count = db._conn.execute(
+            "SELECT COUNT(*) FROM influence_log WHERE entry_id = 'inf-test'"
+        ).fetchone()[0]
+        assert log_count == 2
+
+    def test_none_feature_type_id_accepted(self, db: MemoryDatabase):
+        """record_influence should accept None for feature_type_id."""
+        self._store_entry(db)
+        result = _process_record_influence(db, "Hook stderr pattern", "implementer", None)
+        assert "Recorded influence" in result
+
+
+# ---------------------------------------------------------------------------
 # Delete memory MCP tests (feature 047)
 # ---------------------------------------------------------------------------
 
@@ -1067,3 +1155,260 @@ class TestDeleteMemoryMCP:
             assert "not found" in data["error"].lower()
         finally:
             memory_server._db = old_db
+
+
+# ---------------------------------------------------------------------------
+# Test: store_memory keyword + dedup integration (Task 2.1.6)
+# ---------------------------------------------------------------------------
+
+
+class SimilarVectorProvider:
+    """Embedding provider that always returns the same normalized vector.
+
+    This ensures any two entries will have cosine similarity ~1.0,
+    triggering the dedup merge path.
+    """
+
+    def __init__(self, dims: int = 768) -> None:
+        self._dims = dims
+        rng = np.random.RandomState(42)
+        vec = rng.randn(dims).astype(np.float32)
+        self._fixed_vec = vec / np.linalg.norm(vec)
+
+    @property
+    def dimensions(self) -> int:
+        return self._dims
+
+    @property
+    def provider_name(self) -> str:
+        return "fake-similar"
+
+    @property
+    def model_name(self) -> str:
+        return "fake-similar-model"
+
+    def embed(self, text: str, task_type: str = "query") -> np.ndarray:
+        return self._fixed_vec.copy()
+
+    def embed_batch(
+        self, texts: list[str], task_type: str = "document"
+    ) -> list[np.ndarray]:
+        return [self.embed(t, task_type) for t in texts]
+
+
+class NormalizedFakeProvider:
+    """Embedding provider producing distinct normalized vectors per text.
+
+    Uses a seed derived from the text hash so identical text yields
+    identical vectors but different texts yield different vectors.
+    """
+
+    def __init__(self, dims: int = 768) -> None:
+        self._dims = dims
+
+    @property
+    def dimensions(self) -> int:
+        return self._dims
+
+    @property
+    def provider_name(self) -> str:
+        return "fake-normalized"
+
+    @property
+    def model_name(self) -> str:
+        return "fake-normalized-model"
+
+    def embed(self, text: str, task_type: str = "query") -> np.ndarray:
+        rng = np.random.RandomState(abs(hash(text)) % (2**31))
+        vec = rng.randn(self._dims).astype(np.float32)
+        norm = np.linalg.norm(vec)
+        if norm > 0:
+            vec /= norm
+        return vec
+
+    def embed_batch(
+        self, texts: list[str], task_type: str = "document"
+    ) -> list[np.ndarray]:
+        return [self.embed(t, task_type) for t in texts]
+
+
+class TestStoreMemoryKeywordIntegration:
+    """Integration tests for keyword extraction in store_memory."""
+
+    def test_store_memory_produces_non_empty_keywords(self, db: MemoryDatabase):
+        """store_memory should populate keywords via extract_keywords."""
+        result = _process_store_memory(
+            db=db,
+            provider=None,
+            name="Verify codebase facts before artifact review",
+            description="Always grep source files to verify factual claims before writing review artifacts",
+            reasoning="Prevents incorrect assumptions from propagating into spec and design docs",
+            category="patterns",
+            references=[],
+        )
+        assert result.startswith("Stored:")
+        entry_id = content_hash(
+            "Always grep source files to verify factual claims before writing review artifacts"
+        )
+        entry = db.get_entry(entry_id)
+        keywords = json.loads(entry["keywords"])
+        assert len(keywords) > 0
+
+    def test_keywords_stored_in_db_entry(self, db: MemoryDatabase):
+        """Keywords should be persisted as a JSON array in the entry."""
+        _process_store_memory(
+            db=db,
+            provider=None,
+            name="SQLite FTS5 content-hash indexing",
+            description="Use content-hash as primary key for FTS5 indexed entries in SQLite databases",
+            reasoning="Content-hash provides deterministic deduplication at the database level",
+            category="patterns",
+            references=[],
+        )
+        entry_id = content_hash(
+            "Use content-hash as primary key for FTS5 indexed entries in SQLite databases"
+        )
+        entry = db.get_entry(entry_id)
+        keywords = json.loads(entry["keywords"])
+        assert isinstance(keywords, list)
+        # Should contain technical terms from the text
+        assert any("sqlite" in kw or "fts5" in kw or "content-hash" in kw for kw in keywords)
+
+    def test_ac4_keywords_3_to_10_elements(self, db: MemoryDatabase):
+        """AC-4: stored entry keywords should have 3-10 elements."""
+        _process_store_memory(
+            db=db,
+            provider=None,
+            name="Verify codebase facts before artifact review",
+            description="Always grep source files to verify factual claims before writing review artifacts",
+            reasoning="Prevents incorrect assumptions from propagating into spec and design docs",
+            category="patterns",
+            references=[],
+        )
+        entry_id = content_hash(
+            "Always grep source files to verify factual claims before writing review artifacts"
+        )
+        entry = db.get_entry(entry_id)
+        keywords = json.loads(entry["keywords"])
+        assert 3 <= len(keywords) <= 10, f"Expected 3-10 keywords, got {len(keywords)}: {keywords}"
+
+
+class TestStoreMemoryDedupIntegration:
+    """Integration tests for semantic dedup in store_memory."""
+
+    def test_near_duplicate_returns_reinforced(self, db: MemoryDatabase):
+        """Storing a near-duplicate should return 'Reinforced:' message."""
+        provider = SimilarVectorProvider()
+
+        # Store first entry
+        result1 = _process_store_memory(
+            db=db,
+            provider=provider,
+            name="Always validate hook inputs",
+            description="Validate all inputs in hook functions before processing to prevent errors",
+            reasoning="Prevents runtime errors from bad data",
+            category="patterns",
+            references=[],
+        )
+        assert result1.startswith("Stored:")
+
+        # Store near-duplicate (same vector direction due to SimilarVectorProvider)
+        result2 = _process_store_memory(
+            db=db,
+            provider=provider,
+            name="Validate hook function inputs",
+            description="Hook functions should validate all inputs before executing to avoid failures",
+            reasoning="Prevents crashes from malformed input",
+            category="patterns",
+            references=[],
+        )
+        assert "Reinforced:" in result2
+        assert "observation #" in result2
+
+    def test_unique_entry_returns_stored(self, db: MemoryDatabase):
+        """Storing a unique entry (no embedding match) should return 'Stored:'."""
+        provider = NormalizedFakeProvider()
+
+        # Store first entry
+        result1 = _process_store_memory(
+            db=db,
+            provider=provider,
+            name="SQLite write contention fix",
+            description="Use WAL mode and BEGIN IMMEDIATE to handle SQLite write contention",
+            reasoning="Prevents database locked errors under concurrent access",
+            category="patterns",
+            references=[],
+        )
+        assert result1.startswith("Stored:")
+
+        # Store a genuinely different entry (different text -> different vector)
+        result2 = _process_store_memory(
+            db=db,
+            provider=provider,
+            name="Python testing best practices",
+            description="Always write tests before implementation following TDD methodology",
+            reasoning="TDD catches design issues early and prevents regressions",
+            category="heuristics",
+            references=[],
+        )
+        assert result2.startswith("Stored:")
+
+    def test_dedup_graceful_degradation_no_provider(self, db: MemoryDatabase):
+        """Without embedding provider, dedup is skipped and entry stores normally."""
+        # Store two similar entries without provider -- both should store
+        result1 = _process_store_memory(
+            db=db,
+            provider=None,
+            name="Validate hook inputs",
+            description="Always validate inputs in hook functions before processing",
+            reasoning="Prevents errors from bad data",
+            category="patterns",
+            references=[],
+        )
+        assert result1.startswith("Stored:")
+
+        result2 = _process_store_memory(
+            db=db,
+            provider=None,
+            name="Check hook inputs first",
+            description="Before processing, check all inputs in hook functions",
+            reasoning="Prevents crashes from malformed data",
+            category="patterns",
+            references=[],
+        )
+        assert result2.startswith("Stored:")
+
+    def test_dedup_merge_increments_observation_count(self, db: MemoryDatabase):
+        """Dedup merge should increment observation_count on the existing entry."""
+        provider = SimilarVectorProvider()
+
+        # Store first entry
+        _process_store_memory(
+            db=db,
+            provider=provider,
+            name="Always validate hook inputs",
+            description="Validate all inputs in hook functions before processing to prevent errors",
+            reasoning="Prevents runtime errors from bad data",
+            category="patterns",
+            references=[],
+        )
+
+        first_id = content_hash(
+            "Validate all inputs in hook functions before processing to prevent errors"
+        )
+        entry_before = db.get_entry(first_id)
+        assert entry_before["observation_count"] == 1
+
+        # Store near-duplicate
+        _process_store_memory(
+            db=db,
+            provider=provider,
+            name="Validate hook function inputs",
+            description="Hook functions should validate all inputs before executing to avoid failures",
+            reasoning="Prevents crashes from malformed input",
+            category="patterns",
+            references=[],
+        )
+
+        entry_after = db.get_entry(first_id)
+        assert entry_after["observation_count"] == 2

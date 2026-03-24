@@ -1397,3 +1397,129 @@ class TestMergeDuplicate:
         assert "name" in result
         assert "description" in result
         assert "influence_count" in result
+
+
+# ---------------------------------------------------------------------------
+# Test: find_entry_by_name (Task 2.2.1)
+# ---------------------------------------------------------------------------
+
+
+class TestFindEntryByName:
+    def test_exact_match_case_insensitive(self, db: MemoryDatabase):
+        """find_entry_by_name should find entry by exact name (case-insensitive)."""
+        db.upsert_entry(_make_entry(id="e1", name="Hook Stderr Pattern"))
+        result = db.find_entry_by_name("hook stderr pattern")
+        assert result is not None
+        assert result["id"] == "e1"
+        assert result["name"] == "Hook Stderr Pattern"
+
+    def test_exact_match_same_case(self, db: MemoryDatabase):
+        """find_entry_by_name should find entry with exact same case."""
+        db.upsert_entry(_make_entry(id="e1", name="My Pattern"))
+        result = db.find_entry_by_name("My Pattern")
+        assert result is not None
+        assert result["id"] == "e1"
+
+    def test_like_fallback_when_exact_fails(self, db: MemoryDatabase):
+        """find_entry_by_name should fall back to LIKE when exact match fails."""
+        db.upsert_entry(_make_entry(id="e1", name="Always validate hook inputs before processing"))
+        result = db.find_entry_by_name("validate hook inputs")
+        assert result is not None
+        assert result["id"] == "e1"
+
+    def test_returns_none_for_nonexistent(self, db: MemoryDatabase):
+        """find_entry_by_name should return None when no entry matches."""
+        db.upsert_entry(_make_entry(id="e1", name="Something"))
+        result = db.find_entry_by_name("completely different name")
+        assert result is None
+
+    def test_sql_wildcards_escaped(self, db: MemoryDatabase):
+        """find_entry_by_name should escape SQL wildcards in the LIKE fallback."""
+        db.upsert_entry(_make_entry(id="e1", name="Pattern with 100% accuracy"))
+        # '%' in the search name should be escaped, not act as wildcard
+        result = db.find_entry_by_name("100%")
+        assert result is not None
+        assert result["id"] == "e1"
+
+    def test_underscore_escaped(self, db: MemoryDatabase):
+        """find_entry_by_name should escape underscore in the LIKE fallback."""
+        db.upsert_entry(_make_entry(id="e1", name="Use _embed_text_for_entry helper"))
+        # '_' in the search name should be escaped, not act as single-char wildcard
+        result = db.find_entry_by_name("_embed_text_for_entry")
+        assert result is not None
+        assert result["id"] == "e1"
+
+    def test_returns_first_match_on_multiple(self, db: MemoryDatabase):
+        """find_entry_by_name should return the first matching entry."""
+        db.upsert_entry(_make_entry(id="e1", name="Pattern A about hooks"))
+        db.upsert_entry(_make_entry(id="e2", name="Pattern B about hooks"))
+        result = db.find_entry_by_name("hooks")
+        assert result is not None
+        assert result["id"] in ("e1", "e2")
+
+
+# ---------------------------------------------------------------------------
+# Test: increment_influence and log_influence (Task 2.2.2)
+# ---------------------------------------------------------------------------
+
+
+class TestIncrementInfluence:
+    def test_increments_influence_count(self, db: MemoryDatabase):
+        """increment_influence should increase influence_count by 1."""
+        db.upsert_entry(_make_entry(id="e1"))
+        assert db.get_entry("e1")["influence_count"] == 0
+
+        db.increment_influence("e1")
+        assert db.get_entry("e1")["influence_count"] == 1
+
+        db.increment_influence("e1")
+        assert db.get_entry("e1")["influence_count"] == 2
+
+    def test_increment_only_affects_target(self, db: MemoryDatabase):
+        """increment_influence should not affect other entries."""
+        db.upsert_entry(_make_entry(id="e1"))
+        db.upsert_entry(_make_entry(id="e2", name="Other"))
+
+        db.increment_influence("e1")
+        assert db.get_entry("e1")["influence_count"] == 1
+        assert db.get_entry("e2")["influence_count"] == 0
+
+
+class TestLogInfluence:
+    def test_inserts_influence_log_row(self, db: MemoryDatabase):
+        """log_influence should insert a row into influence_log."""
+        db.upsert_entry(_make_entry(id="e1"))
+        db.log_influence("e1", "implementer", "feature:057-memory")
+
+        rows = db._conn.execute(
+            "SELECT entry_id, agent_role, feature_type_id, timestamp "
+            "FROM influence_log"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0][0] == "e1"
+        assert rows[0][1] == "implementer"
+        assert rows[0][2] == "feature:057-memory"
+        assert rows[0][3] is not None  # timestamp present
+
+    def test_inserts_with_null_feature_type_id(self, db: MemoryDatabase):
+        """log_influence should accept None for feature_type_id."""
+        db.upsert_entry(_make_entry(id="e1"))
+        db.log_influence("e1", "reviewer", None)
+
+        rows = db._conn.execute(
+            "SELECT feature_type_id FROM influence_log"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0][0] is None
+
+    def test_multiple_logs_accumulate(self, db: MemoryDatabase):
+        """log_influence should accumulate multiple rows for same entry."""
+        db.upsert_entry(_make_entry(id="e1"))
+        db.log_influence("e1", "implementer", "feature:057")
+        db.log_influence("e1", "reviewer", "feature:057")
+        db.log_influence("e1", "implementer", "feature:058")
+
+        count = db._conn.execute(
+            "SELECT COUNT(*) FROM influence_log WHERE entry_id = 'e1'"
+        ).fetchone()[0]
+        assert count == 3

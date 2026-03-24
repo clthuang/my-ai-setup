@@ -478,6 +478,55 @@ class MemoryDatabase:
 
         return self.get_entry(existing_id)
 
+    def find_entry_by_name(self, name: str) -> dict | None:
+        """Find an entry by name with case-insensitive exact match, LIKE fallback.
+
+        Primary: exact match via LOWER(name) = LOWER(?).
+        Fallback: LIKE with escaped SQL wildcards.
+        Returns the first matching entry dict, or None.
+        """
+        # Primary: case-insensitive exact match
+        cur = self._conn.execute(
+            "SELECT * FROM entries WHERE LOWER(name) = LOWER(?)", (name,)
+        )
+        row = cur.fetchone()
+        if row is not None:
+            return dict(row)
+
+        # Fallback: LIKE with escaped wildcards
+        escaped = name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        cur = self._conn.execute(
+            "SELECT * FROM entries WHERE name LIKE ? ESCAPE '\\'", (pattern,)
+        )
+        row = cur.fetchone()
+        if row is not None:
+            return dict(row)
+
+        return None
+
+    def increment_influence(self, entry_id: str) -> None:
+        """Increment influence_count by 1 for the given entry."""
+        self._conn.execute(
+            "UPDATE entries SET influence_count = influence_count + 1 WHERE id = ?",
+            (entry_id,),
+        )
+        self._conn.commit()
+
+    def log_influence(
+        self, entry_id: str, agent_role: str, feature_type_id: str | None
+    ) -> None:
+        """Insert a row into influence_log with current ISO timestamp."""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._conn.execute(
+            "INSERT INTO influence_log (entry_id, agent_role, feature_type_id, timestamp) "
+            "VALUES (?, ?, ?, ?)",
+            (entry_id, agent_role, feature_type_id, now),
+        )
+        self._conn.commit()
+
     def get_source_hash(self, entry_id: str) -> str | None:
         """Return the source_hash for an entry, or ``None`` if missing."""
         cur = self._conn.execute(
