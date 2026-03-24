@@ -89,7 +89,7 @@ Two-tier extraction:
 
 ### C2: Dedup Checker (`plugins/pd/hooks/lib/semantic_memory/dedup.py`)
 
-**New file.** Provides `check_duplicate(embedding_vec, embedding_provider, db, threshold)` → `DedupResult`.
+**New file.** Provides `check_duplicate(embedding_vec, db, threshold)` → `DedupResult`.
 
 ```python
 @dataclass
@@ -97,10 +97,9 @@ class DedupResult:
     is_duplicate: bool
     existing_entry_id: str | None  # ID of matched entry if duplicate
     similarity: float              # highest similarity score
-    embedding: np.ndarray | None   # the computed embedding vector (reused for storage)
 ```
 
-Takes a pre-computed embedding vector (not raw text) to avoid double-computation. The caller (`_process_store_memory`) computes the embedding once and passes it to both dedup and storage.
+Takes a pre-computed embedding vector (not raw text) to avoid double-computation. The caller (`_process_store_memory`) computes the embedding once and passes it to both dedup and storage. The embedding is NOT returned in DedupResult — the caller already has it.
 
 Uses existing `get_all_embeddings()` + matmul pattern from retrieval.py. `get_all_embeddings()` returns `(ids: list[str], matrix: np.ndarray)` — entry ID lookup via `ids[np.argmax(scores)]`. Self-matching is not possible because the new entry hasn't been inserted yet at dedup check time. Threshold from `config["memory_dedup_threshold"]` (default 0.90).
 
@@ -428,7 +427,7 @@ def _backfill_keywords(db, config):
 |------|-------------|-------------|
 | `plugins/pd/hooks/lib/semantic_memory/keywords.py` | **New** | Tiered keyword extraction (Tier 1 regex + Tier 2 Gemini LLM) |
 | `plugins/pd/hooks/lib/semantic_memory/dedup.py` | **New** | Semantic deduplication check via embedding cosine similarity |
-| `plugins/pd/hooks/lib/semantic_memory/database.py` | Modify | Migration 4 (influence_count + influence_log), `merge_duplicate()` method, add `influence_count` to `_COLUMNS` |
+| `plugins/pd/hooks/lib/semantic_memory/database.py` | Modify | Migration 4 (influence_count + influence_log), `merge_duplicate()` method, add `"influence_count"` to `_COLUMNS` list (line 246) |
 | `plugins/pd/hooks/lib/semantic_memory/ranking.py` | Modify | `_prominence()` rebalanced with influence signal |
 | `plugins/pd/hooks/lib/semantic_memory/config.py` | Modify | Add `memory_dedup_threshold` to DEFAULTS |
 | `plugins/pd/hooks/lib/semantic_memory/writer.py` | Modify | Add `backfill-keywords` action |
