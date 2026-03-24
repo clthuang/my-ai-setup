@@ -149,7 +149,11 @@ Extract DB logic into sync helper functions, then apply `@with_retry("entity")`:
 9. `create_key_result` (line 690) — inline `_db.register_entity()` call
 10. `update_kr_score` (line 737) — inline `_db.update_entity()` call
 
-For Type B handlers, the pattern is: extract the try-block DB logic into a sync `_process_*` function (matching the convention of server_helpers.py), then wrap with `@with_retry("entity")`. The async handler becomes a thin wrapper that checks `_db is None` and calls the sync helper. The existing `except Exception` in the async handler converts any exhausted-retry OperationalError into a structured JSON error response.
+For Type B handlers, the pattern is: extract the try-block DB logic into a sync `_process_*` function (matching the convention of server_helpers.py), then wrap with `@with_retry("entity")`. The async handler becomes a thin wrapper that checks `_db is None` and calls the sync helper.
+
+**Error conversion for exhausted retries:** Not all async handlers have `except Exception`. Handlers 8 (`add_okr_alignment` — catches `ValueError` only), 9 (`create_key_result` — catches `ValueError, KeyError`), and 10 (`update_kr_score` — catches `ValueError, KeyError`) use narrow exception clauses. These must be broadened to `except Exception` to catch exhausted-retry `OperationalError` and convert to structured JSON error. Handlers 3-7 already have `except Exception`.
+
+**Implementation-time verification:** Grep `entity_server.py` for all `@mcp.tool()` handlers that call `_db` write methods (`register`, `update`, `delete`, `add_*`, `remove_*`, `set_*`) and confirm coverage matches this list.
 
 ### C3: Memory Server Retry Integration
 
@@ -162,7 +166,9 @@ For Type B handlers, the pattern is: extract the try-block DB logic into a sync 
 2. `_process_record_influence` (line 237) — sync helper, apply `@with_retry("memory")` directly
 3. `delete_memory` handler (line 410) — has inline `_db.delete_entry()`, extract to sync `_process_delete_memory` then wrap
 
-**Error conversion:** Memory server's async handlers already have try/except that catch exceptions and return error strings. Exhausted-retry OperationalError will propagate through the existing error handling.
+**Error conversion:** NOT all memory server async handlers have try/except. `store_memory` (line 314) and `record_influence` (line 451) call their sync helpers directly with NO try/except — only `delete_memory` (line 422) has `except Exception`. Implementation must add `try/except Exception` wrappers to `store_memory` and `record_influence` async handlers to catch exhausted-retry `OperationalError` and return structured error strings.
+
+**Embedding idempotency:** `_process_store_memory` computes embeddings via `provider.embed()` before the DB write. Embedding computation is stateless (HTTP call or local model) and safe to re-invoke on retry. The 3-retry window (~2.6s) is well within typical API rate limits.
 
 ### C4: Workflow State Server Refactor
 
@@ -196,7 +202,14 @@ For Type B handlers, the pattern is: extract the try-block DB logic into a sync 
 
 **Unit tests:** `plugins/pd/hooks/lib/test_sqlite_retry.py` — test `with_retry` and `is_transient` in isolation (mock OperationalError, verify backoff sequence, test transient classification).
 **Integration tests:** `plugins/pd/hooks/lib/test_sqlite_retry_integration.py` — concurrent-write tests using `multiprocessing` with real file-backed SQLite.
-**CLAUDE.md:** Update test commands section with run instructions for both test files.
+**CLAUDE.md entries to add:**
+```bash
+# Run sqlite retry unit tests
+plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/test_sqlite_retry.py -v
+
+# Run sqlite retry concurrent-write integration tests
+plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/test_sqlite_retry_integration.py -v --timeout=60
+```
 
 ## Interfaces
 
@@ -311,12 +324,14 @@ async def delete_entity(type_id=None, ref=None) -> str:
 ### I5: Memory Server Decorator Application Pattern
 
 ```python
-# In memory_server.py — import and apply
+# In memory_server.py — apply to existing sync helpers
 from sqlite_retry import with_retry
 
 @with_retry("memory")
-def _process_store_memory(args: dict) -> str:
-    ...
+def _process_store_memory(db, provider, name, description, reasoning,
+                          category, references, confidence="medium",
+                          source_project="", config=None) -> str:
+    ...  # existing logic unchanged
 ```
 
 ### I6: Workflow State Server Refactor Pattern
