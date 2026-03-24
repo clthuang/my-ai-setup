@@ -190,12 +190,7 @@ def check_db_readiness(
         if schema_issue is not None:
             issues.append(schema_issue)
 
-    if memory_db_ok:
-        schema_issue = _check_schema_version(
-            memory_db_path, "Memory DB", MEMORY_SCHEMA_VERSION
-        )
-        if schema_issue is not None:
-            issues.append(schema_issue)
+    # Memory DB schema_version checked by check_memory_health (Check 5), not here (B2 resolution)
 
     # WAL mode checks (only if not locked)
     if entity_db_ok:
@@ -631,17 +626,17 @@ def check_brainstorm_status(
             if bs_row:
                 bs_uuid = bs_row[0]
                 dep_cursor = entities_conn.execute(
-                    "SELECT target_uuid FROM entity_dependencies "
-                    "WHERE source_uuid = ?",
+                    "SELECT blocked_by_uuid FROM entity_dependencies "
+                    "WHERE entity_uuid = ?",
                     (bs_uuid,),
                 )
                 for dep_row in dep_cursor:
-                    target_uuid = dep_row[0]
+                    blocked_by_uuid = dep_row[0]
                     # Check if target is a completed feature
                     feat_row = entities_conn.execute(
                         "SELECT type_id, status FROM entities "
                         "WHERE uuid = ? AND entity_type = 'feature'",
-                        (target_uuid,),
+                        (blocked_by_uuid,),
                     ).fetchone()
                     if feat_row and feat_row[1] in ("completed", "finished"):
                         issues.append(Issue(
@@ -1530,7 +1525,7 @@ def check_referential_integrity(
     # 7. entity_dependencies orphans
     try:
         cursor = entities_conn.execute(
-            "SELECT source_uuid, target_uuid FROM entity_dependencies"
+            "SELECT entity_uuid, blocked_by_uuid FROM entity_dependencies"
         )
         for row in cursor:
             src, tgt = row
@@ -1540,7 +1535,7 @@ def check_referential_integrity(
                     severity="warning",
                     entity=None,
                     message=(
-                        f"entity_dependencies source_uuid '{src}' "
+                        f"entity_dependencies entity_uuid '{src}' "
                         "references non-existent entity"
                     ),
                     fix_hint="Remove orphaned dependency row",
@@ -1551,7 +1546,7 @@ def check_referential_integrity(
                     severity="warning",
                     entity=None,
                     message=(
-                        f"entity_dependencies target_uuid '{tgt}' "
+                        f"entity_dependencies blocked_by_uuid '{tgt}' "
                         "references non-existent entity"
                     ),
                     fix_hint="Remove orphaned dependency row",
