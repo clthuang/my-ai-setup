@@ -464,9 +464,11 @@ def check_workflow_phase(
                 ))
 
         # Backward transition awareness: check for rework state
+        # Use direct SQLite connection (not db._conn — CLAUDE.md prohibits private access)
         try:
-            conn = db._conn
-            cursor = conn.execute(
+            bt_conn = sqlite3.connect(entities_db_path)
+            bt_conn.execute("PRAGMA busy_timeout = 5000")
+            cursor = bt_conn.execute(
                 "SELECT type_id, workflow_phase, last_completed_phase "
                 "FROM workflow_phases"
             )
@@ -494,6 +496,8 @@ def check_workflow_phase(
                         ))
         except sqlite3.Error:
             pass
+        finally:
+            bt_conn.close()
 
     except sqlite3.OperationalError as exc:
         issues.append(Issue(

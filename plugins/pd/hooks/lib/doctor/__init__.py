@@ -55,9 +55,8 @@ _MEMORY_DB_CHECKS = {
 }
 
 
-def _make_skip_result(check_fn, reason: str) -> CheckResult:
-    """Create a sentinel CheckResult for a skipped check."""
-    # Derive check name from function name (strip 'check_')
+def _make_failed_result(check_fn, message: str, fix_hint: str | None = None) -> CheckResult:
+    """Create a failed CheckResult (for skips, errors, or missing prerequisites)."""
     name = check_fn.__name__
     if name.startswith("check_"):
         name = name[len("check_"):]
@@ -69,29 +68,8 @@ def _make_skip_result(check_fn, reason: str) -> CheckResult:
                 check=name,
                 severity="error",
                 entity=None,
-                message=f"Skipped: {reason}",
-                fix_hint=None,
-            )
-        ],
-        elapsed_ms=0,
-    )
-
-
-def _make_error_result(check_fn, exc: Exception) -> CheckResult:
-    """Create an error CheckResult for an uncaught exception in a check."""
-    name = check_fn.__name__
-    if name.startswith("check_"):
-        name = name[len("check_"):]
-    return CheckResult(
-        name=name,
-        passed=False,
-        issues=[
-            Issue(
-                check=name,
-                severity="error",
-                entity=None,
-                message=f"Check failed with exception: {exc}",
-                fix_hint=None,
+                message=message,
+                fix_hint=fix_hint,
             )
         ],
         elapsed_ms=0,
@@ -167,12 +145,12 @@ def run_diagnostics(
 
             # Handle missing DB files
             if not entity_db_exists and fn_name in _ENTITY_DB_CHECKS:
-                results.append(_make_skip_result(
+                results.append(_make_failed_result(
                     check_fn, "entity DB file not found"
                 ))
                 continue
             if not memory_db_exists and fn_name in _MEMORY_DB_CHECKS:
-                results.append(_make_skip_result(
+                results.append(_make_failed_result(
                     check_fn, "memory DB file not found"
                 ))
                 continue
@@ -233,13 +211,13 @@ def run_diagnostics(
             # Skip checks based on DB lock status (from check 8 results)
             if fn_name != "check_db_readiness":
                 if not entity_db_ok and fn_name in _ENTITY_DB_CHECKS:
-                    results.append(_make_skip_result(
-                        check_fn, "entity DB locked or unavailable"
+                    results.append(_make_failed_result(
+                        check_fn, "Skipped: entity DB locked or unavailable"
                     ))
                     continue
                 if not memory_db_ok and fn_name in _MEMORY_DB_CHECKS:
-                    results.append(_make_skip_result(
-                        check_fn, "memory DB locked or unavailable"
+                    results.append(_make_failed_result(
+                        check_fn, "Skipped: memory DB locked or unavailable"
                     ))
                     continue
 
@@ -254,7 +232,7 @@ def run_diagnostics(
                     memory_db_ok = result.extras.get("memory_db_ok", True)
 
             except Exception as exc:
-                results.append(_make_error_result(check_fn, exc))
+                results.append(_make_failed_result(check_fn, f"Check failed with exception: {exc}"))
 
     finally:
         if entities_conn is not None:
