@@ -41,7 +41,7 @@ In a single session, we encountered all of these:
 `/pd:doctor` runs a comprehensive health check across all data stores and reports all inconsistencies in one view.
 
 ### G2: Auto-fix with confirmation
-After diagnosis, offer to fix all detected issues automatically. Show what will change, get confirmation, then apply fixes atomically.
+After diagnosis, offer to fix all detected issues automatically. Show what will change, get confirmation, then apply fixes sequentially. Re-run checks after fixing to verify (idempotency).
 
 ### G3: Cross-store consistency
 Detect drift between: `.meta.json` ↔ entity DB, `.meta.json` ↔ workflow DB, brainstorm files ↔ entity DB, `backlog.md` ↔ entity DB, memory DB health, and feature branch existence ↔ feature status.
@@ -73,6 +73,7 @@ If any data store is unavailable (DB locked, MCP server down), diagnose as much 
 ### Check 3: Brainstorm Status Consistency
 - For each brainstorm entity with `status != "promoted"`: check if any feature's `.meta.json` has `brainstorm_source` pointing to it
 - If feature exists and is completed → brainstorm should be "promoted"
+- **Coverage gap:** Older features may lack `brainstorm_source` in `.meta.json`. Fallback: check entity DB dependency edges (`brainstorm:X` → `feature:Y`), then filename matching (brainstorm slug appears in feature slug)
 - **Fix:** Update brainstorm entity status to "promoted"
 
 ### Check 4: Backlog Status Consistency
@@ -125,7 +126,7 @@ If any data store is unavailable (DB locked, MCP server down), diagnose as much 
 | ID | Criterion | Measurement |
 |----|-----------|-------------|
 | SC-1 | Single `/pd:doctor` command produces a health report covering all 10 checks | Report includes pass/fail per check with details |
-| SC-2 | Auto-fix resolves all fixable issues with user confirmation | Before/after comparison shows 0 remaining drift |
+| SC-2 | Auto-fix resolves all fixable issues with user confirmation | After auto-fix, a second doctor run reports 0 issues (idempotency) |
 | SC-3 | Doctor works when MCP servers are unavailable | Falls back to direct SQLite access with busy_timeout |
 | SC-4 | Doctor works on any project using the pd plugin | No hardcoded paths, uses standard plugin resolution |
 | SC-5 | Doctor handles empty/new projects gracefully | No errors on projects with no features/brainstorms/backlogs |
@@ -137,27 +138,39 @@ If any data store is unavailable (DB locked, MCP server down), diagnose as much 
 ### Command: `/pd:doctor`
 New command file in `plugins/pd/commands/doctor.md` that orchestrates the diagnostic.
 
-### Agent: `pd:doctor-agent`
-New agent that reads all data stores, runs the 10 checks, and produces a structured report.
+### Implementation Vehicle: Python module + MCP tool
+The core diagnostic logic lives in a new Python module `plugins/pd/hooks/lib/doctor/` (like `reconciliation_orchestrator/`). This module runs the 10 checks using direct Python/SQLite access — not through MCP tools — so it works even when MCP servers are unavailable or holding locks.
+
+Exposed via:
+1. **MCP tool** `run_doctor` on the workflow-state server — returns structured JSON for programmatic access
+2. **CLI entrypoint** `python -m doctor` — for direct invocation from command files or hooks
+3. **Command file** `doctor.md` — the `/pd:doctor` command parses the JSON output and presents it interactively
+
+Each check calls existing reconciliation functions where available (e.g., `check_workflow_drift()` for Check 2, `sync_entity_statuses()` for Check 1) rather than reimplementing. New logic only for gaps not covered by existing functions (Checks 3-4 brainstorm/backlog, Checks 9-10 operational).
 
 ### Fix Mode
 After the diagnostic report, offer:
-1. **Auto-fix all** — apply all safe fixes with a summary
+1. **Auto-fix all** — apply all safe fixes sequentially with a summary
 2. **Review each** — walk through each fix with confirmation
 3. **Report only** — save report, no fixes
 
+Post-fix: re-run all checks to verify (idempotency check). Cross-store atomicity is not achievable — partial fix + re-run is the recovery path.
+
 ### Data Access Strategy
-- **Primary:** MCP tools (entity registry, workflow engine) when available
-- **Fallback:** Direct SQLite with `PRAGMA busy_timeout = 5000` when MCP unavailable
+- **Primary:** Direct Python + SQLite with `PRAGMA busy_timeout = 5000` (bypasses MCP lock issues)
+- **Secondary:** MCP tools when convenient (e.g., entity registration)
 - **Always filesystem:** `.meta.json`, `backlog.md`, brainstorm files, git operations
 
 ## Phasing
 
-### Phase 1: Diagnostic (read-only report)
-Implement all 8 checks, produce structured report. No auto-fix.
+### Phase 1: Data Consistency Diagnostic (Checks 1-8, read-only)
+Implement checks 1-8 (data consistency across stores), produce structured report. No auto-fix.
 
-### Phase 2: Auto-fix
-Add fix capabilities per check. User confirmation before each fix category.
+### Phase 2: Auto-fix for Data Consistency (Checks 1-8)
+Add fix capabilities for checks 1-8. User confirmation before each fix category.
+
+### Phase 3: Operational Checks (Checks 9-10)
+Add cache cleanup and outdated MCP detection. These are operationally distinct from data consistency and have different risk profiles (process management, filesystem deletion).
 
 ## Risks
 
