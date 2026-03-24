@@ -121,7 +121,7 @@
 - **Action:** Edit `plugins/pd/hooks/lib/semantic_memory/injector.py`:
   1. **No-context early return** (insertion point 2): After `pipeline = RetrievalPipeline(db, provider, config)` and before `context_query = pipeline.collect_context(project_root)`, add the skip block. **MUST be inside the existing try block** so `finally: db.close()` fires. Write tracking inline with `skipped_reason: "no_work_context"` (intentionally diverges from `write_tracking()` — add code comment noting this).
   2. **Threshold filter** (insertion point 1): After `selected = engine.rank(result, entries_by_id, limit)` and before `if selected:` recall tracking, add: `threshold = float(config.get("memory_relevance_threshold", 0.3))` then `selected = [e for e in selected if e["final_score"] > threshold]`. This ensures `db.update_recall()` is NOT called for filtered entries (design TD-4).
-- **Depends on:** Tasks 3.3, 3.4, 3.5
+- **Depends on:** Tasks 3.1, 3.3, 3.4, 3.5 (3.1 for config.py; config.py edits in Tasks 3.1 and 4.1 must not run concurrently)
 - **Done when:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/semantic_memory/test_injector.py -v` — all tests pass including new threshold and skip tests
 
 ### Task 4.1: Change memory_injection_limit default to 15
