@@ -866,6 +866,31 @@ class TestHasWorkContext:
             mock_branch.assert_not_called()
 
 
+class TestRetrieveProjectParam:
+    """retrieve() passes project through to RetrievalResult."""
+
+    def test_project_none_by_default(self):
+        """When project not passed, result.project is None."""
+        db = MockDatabase(fts5_available=False)
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+        result = pipeline.retrieve("test query")
+        assert result.project is None
+
+    def test_project_passed_through(self):
+        """When project is set, result.project carries it."""
+        db = MockDatabase(fts5_available=False)
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+        result = pipeline.retrieve("test query", project="my-project")
+        assert result.project == "my-project"
+
+    def test_project_passed_on_none_query(self):
+        """Even with None context_query, project is passed through."""
+        db = MockDatabase(all_entries=[{"id": "e1"}])
+        pipeline = RetrievalPipeline(db=db, provider=None, config={})
+        result = pipeline.retrieve(None, project="my-project")
+        assert result.project == "my-project"
+
+
 class TestCollectContextWordLimit:
     """collect_context respects the 100-word limit for spec description."""
 

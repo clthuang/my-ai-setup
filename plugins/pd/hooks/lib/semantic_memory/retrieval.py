@@ -172,7 +172,7 @@ class RetrievalPipeline:
     # Retrieval
     # ------------------------------------------------------------------
 
-    def retrieve(self, context_query: str | None) -> RetrievalResult:
+    def retrieve(self, context_query: str | None, project: str | None = None) -> RetrievalResult:
         """Perform hybrid retrieval using vector and keyword search.
 
         Parameters
@@ -180,6 +180,9 @@ class RetrievalPipeline:
         context_query:
             The context string to search with. If ``None``, returns an
             empty result immediately.
+        project:
+            Optional project name for project-scoped ranking.  Passed
+            through to ``RetrievalResult.project`` for downstream use.
 
         Returns
         -------
@@ -194,6 +197,7 @@ class RetrievalPipeline:
             return RetrievalResult(
                 candidates=candidates,
                 context_query=None,
+                project=project,
             )
 
         candidates: dict[str, CandidateScores] = {}
@@ -233,6 +237,7 @@ class RetrievalPipeline:
             vector_candidate_count=vector_count,
             fts5_candidate_count=fts5_count,
             context_query=context_query,
+            project=project,
         )
 
     # ------------------------------------------------------------------

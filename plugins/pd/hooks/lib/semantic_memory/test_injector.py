@@ -41,6 +41,114 @@ def _make_entry(
 
 
 # ---------------------------------------------------------------------------
+# Tests: _resolve_project_name (Feature 061)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveProjectName:
+    """_resolve_project_name resolves from git remote or directory name."""
+
+    def test_git_remote_https(self):
+        """Extracts project name from HTTPS git remote URL."""
+        from semantic_memory.injector import _resolve_project_name
+
+        with mock.patch("semantic_memory.injector.subprocess") as mock_subprocess:
+            mock_result = mock.Mock()
+            mock_result.returncode = 0
+            mock_result.stdout = "https://github.com/user/pedantic-drip.git\n"
+            mock_subprocess.run.return_value = mock_result
+
+            name = _resolve_project_name("/some/path")
+
+        assert name == "pedantic-drip"
+
+    def test_git_remote_ssh(self):
+        """Extracts project name from SSH git remote URL."""
+        from semantic_memory.injector import _resolve_project_name
+
+        with mock.patch("semantic_memory.injector.subprocess") as mock_subprocess:
+            mock_result = mock.Mock()
+            mock_result.returncode = 0
+            mock_result.stdout = "git@github.com:user/my-project.git\n"
+            mock_subprocess.run.return_value = mock_result
+
+            name = _resolve_project_name("/some/path")
+
+        assert name == "my-project"
+
+    def test_git_remote_no_git_suffix(self):
+        """Handles remote URL without .git suffix."""
+        from semantic_memory.injector import _resolve_project_name
+
+        with mock.patch("semantic_memory.injector.subprocess") as mock_subprocess:
+            mock_result = mock.Mock()
+            mock_result.returncode = 0
+            mock_result.stdout = "https://github.com/user/cool-repo\n"
+            mock_subprocess.run.return_value = mock_result
+
+            name = _resolve_project_name("/some/path")
+
+        assert name == "cool-repo"
+
+    def test_fallback_to_dirname(self):
+        """Falls back to directory basename when git remote fails."""
+        from semantic_memory.injector import _resolve_project_name
+
+        with mock.patch("semantic_memory.injector.subprocess") as mock_subprocess:
+            mock_result = mock.Mock()
+            mock_result.returncode = 1
+            mock_result.stdout = ""
+            mock_subprocess.run.return_value = mock_result
+
+            name = _resolve_project_name("/home/user/my-project")
+
+        assert name == "my-project"
+
+    def test_fallback_on_exception(self):
+        """Falls back to directory basename when subprocess raises."""
+        from semantic_memory.injector import _resolve_project_name
+
+        with mock.patch("semantic_memory.injector.subprocess") as mock_subprocess:
+            mock_subprocess.run.side_effect = Exception("git not found")
+
+            name = _resolve_project_name("/home/user/fallback-proj")
+
+        assert name == "fallback-proj"
+
+    def test_injector_passes_project_to_retrieve(self):
+        """main() resolves project name and passes to pipeline.retrieve."""
+        from semantic_memory.injector import main
+
+        mock_db = mock.MagicMock()
+        mock_db.count_entries.return_value = 10
+        mock_db.get_metadata.return_value = "0"
+        mock_db.get_all_entries.return_value = []
+
+        mock_result = RetrievalResult(context_query="test query")
+
+        with mock.patch("semantic_memory.injector.read_config", return_value={"memory_injection_limit": 20, "memory_embedding_model": "test"}), \
+             mock.patch("semantic_memory.injector.MemoryDatabase", return_value=mock_db), \
+             mock.patch("semantic_memory.injector.create_provider", return_value=None), \
+             mock.patch("semantic_memory.injector.RetrievalPipeline") as mock_pipeline_cls, \
+             mock.patch("semantic_memory.injector.RankingEngine") as mock_ranking_cls, \
+             mock.patch("semantic_memory.injector.MarkdownImporter"), \
+             mock.patch("semantic_memory.injector._resolve_project_name", return_value="test-project"):
+
+            mock_pipeline = mock_pipeline_cls.return_value
+            mock_pipeline.has_work_context.return_value = True
+            mock_pipeline.collect_context.return_value = "test query"
+            mock_pipeline.retrieve.return_value = mock_result
+
+            mock_ranking = mock_ranking_cls.return_value
+            mock_ranking.rank.return_value = []
+
+            main(["--project-root", "/tmp/test", "--global-store", "/tmp/store"])
+
+        # Verify retrieve was called with project kwarg
+        mock_pipeline.retrieve.assert_called_once_with("test query", project="test-project")
+
+
+# ---------------------------------------------------------------------------
 # Tests: format_output
 # ---------------------------------------------------------------------------
 

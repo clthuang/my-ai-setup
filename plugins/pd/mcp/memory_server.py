@@ -166,6 +166,7 @@ def _process_search_memory(
     limit: int = 10,
     category: str | None = None,
     brief: bool = False,
+    project: str | None = None,
 ) -> str:
     """Search the semantic memory database for relevant entries.
 
@@ -176,6 +177,8 @@ def _process_search_memory(
     brief:
         If True, return compact plain-text (one line per entry) instead of
         full Markdown.
+    project:
+        If set, apply two-tier project-scoped blending in ranking.
 
     Returns formatted results or an error string. Never raises.
     """
@@ -183,7 +186,7 @@ def _process_search_memory(
         return "Error: query must be non-empty"
 
     pipeline = RetrievalPipeline(db, provider, config)
-    result = pipeline.retrieve(query.strip())
+    result = pipeline.retrieve(query.strip(), project=project)
 
     all_entries = db.get_all_entries()
 
@@ -360,6 +363,7 @@ async def search_memory(
     limit: int = 10,
     category: str | None = None,
     brief: bool = False,
+    project: str | None = None,
 ) -> str:
     """Search long-term memory for relevant learnings.
 
@@ -380,6 +384,10 @@ async def search_memory(
     brief:
         Return compact plain-text (one line per entry) instead of
         full Markdown detail.  Default: False.
+    project:
+        Filter results with two-tier project-scoped blending.
+        Top N/2 from this project, remainder from all projects.
+        Default: None (no project filtering).
 
     Returns matching memories ranked by relevance.
     """
@@ -394,6 +402,7 @@ async def search_memory(
         limit=limit,
         category=category,
         brief=brief,
+        project=project,
     )
 
 

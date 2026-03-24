@@ -364,6 +364,17 @@ Task tool call:
 
 **Budget:** Max 3 entries per review cycle to avoid noise.
 
+**Notable catches (single-iteration blockers):**
+If the review loop completed in 1 iteration AND the reviewer found issues with severity "blocker":
+1. For each blocker issue (max 2):
+   - Store via `store_memory` MCP tool:
+     - `name`: derived from issue description (max 60 chars)
+     - `description`: issue description + the suggestion that resolved it
+     - `reasoning`: "Single-iteration blocker catch in feature {id} create-tasks phase"
+     - `category`: inferred from issue type (same mapping as recurring patterns above)
+     - `confidence`: "medium"
+     - `references`: ["feature/{id}-{slug}"]
+
 **Circuit breaker capture:** If review loop hit max iterations (cap reached) in either stage, also capture a single entry:
 - `name`: "Task review cap: {brief issue category}"
 - `description`: summary of unresolved issues that prevented approval
