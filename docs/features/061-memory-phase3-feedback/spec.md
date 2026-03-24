@@ -13,7 +13,7 @@ pd's semantic memory system has delivery (Phase 1), quality (Phase 2), and diagn
 **In scope:**
 - Notable catch capture: extend reviewer output schema and command file review-learning sections
 - Project-scoped search: add `project` parameter to `search_memory` MCP tool and `RetrievalPipeline.retrieve()`
-- Recall dampening: add time-weighted decay to recall frequency in `MemoryRanker._recall_frequency()`
+- Recall dampening: add time-weighted decay to recall frequency in `RankingEngine._recall_frequency()`
 
 **Out of scope:**
 - Bidirectional knowledge bank sync (DB ↔ markdown)
@@ -55,7 +55,7 @@ Add a `project` parameter to the retrieval pipeline that implements two-tier ble
 **Implementation locations:**
 - `RetrievalPipeline.retrieve()` in `plugins/pd/hooks/lib/semantic_memory/retrieval.py` — add `project: str | None = None` parameter
 - `search_memory` MCP tool in `plugins/pd/mcp/memory_server.py` — add `project` parameter, pass through to pipeline
-- `MemoryRanker.rank()` in `plugins/pd/hooks/lib/semantic_memory/ranking.py` — no changes (ranking is score-based, not project-aware; project filtering happens at retrieval level)
+- `RankingEngine.rank()` in `plugins/pd/hooks/lib/semantic_memory/ranking.py` — no changes (ranking is score-based, not project-aware; project filtering happens at retrieval level)
 - Session-start injector in `plugins/pd/hooks/lib/semantic_memory/injector.py` — pass current project name from `source_project` config or git remote
 
 **When `project` is None:** Existing behavior (no project filtering).
@@ -65,7 +65,7 @@ Add a `project` parameter to the retrieval pipeline that implements two-tier ble
 
 ### FR-3: Recall Dampening with Time Decay
 
-Modify `MemoryRanker._recall_frequency()` to incorporate time decay:
+Modify `RankingEngine._recall_frequency()` to incorporate time decay. The `last_recalled_at` column already exists in the schema (added in migration 3) and is already updated by `MemoryDatabase.update_recall()`. No schema migration needed.
 
 **Current formula:**
 ```python
@@ -85,11 +85,9 @@ def _recall_frequency(self, recall_count: int, last_recalled_at: str | None, now
     return base * decay
 ```
 
-This means entries recalled recently get full credit, but entries not recalled in 14+ days see their recall advantage halved, allowing newer entries to compete.
+**Effect on ranking:** This change operates at the recall_frequency component (0.15 weight in prominence). Stale high-recall entries lose their recall advantage over time, which shifts the prominence balance toward recency (0.25 weight) and observation_count (0.25 weight). New entries (recall_count=0) still get recall_frequency=0 — the dampening doesn't boost new entries directly, but it reduces the gap by lowering stale entries' scores. The net effect is that new entries compete more effectively on the other 4 prominence components.
 
-**Schema change:** Add `last_recalled_at TEXT` column to the `entries` table. Updated when `recall_count` is incremented (during injection). Default NULL for existing entries.
-
-**Migration:** Add migration 5 to `MemoryDatabase._migrate()` that adds the column with `ALTER TABLE entries ADD COLUMN last_recalled_at TEXT`.
+**Caller update:** `_prominence()` must pass `entry.get("last_recalled_at")` and `now` to the updated `_recall_frequency()` call.
 
 ## Non-Requirements
 
@@ -107,7 +105,7 @@ Given a review loop where a blocker is found and fixed in iteration 1, when the 
 Given a review loop with 5 single-iteration blockers, when review learnings are captured, then at most 2 notable catches are stored.
 
 ### AC-3: Project-scoped search returns blended results
-Given `search_memory(query="test", project="pedantic-drip")`, when results are returned, then approximately half come from `source_project="pedantic-drip"` and half from all projects, deduplicated by entry ID.
+Given `search_memory(query="test", project="pedantic-drip")` with limit=10 and project has >= 5 matching entries, when results are returned, then exactly 5 come from `source_project="pedantic-drip"` and 5 from the universal tier (deduplicated by entry ID). When project has < N/2 entries, the remainder is filled from the universal tier.
 
 ### AC-4: Project=None preserves existing behavior
 Given `search_memory(query="test")` without project parameter, when results are returned, then behavior is identical to pre-feature behavior (no project filtering).
@@ -116,24 +114,21 @@ Given `search_memory(query="test")` without project parameter, when results are 
 Given a session start, when the injector runs, then it passes the current project name to the retrieval pipeline's `project` parameter.
 
 ### AC-6: Recall dampening reduces stale entry scores
-Given an entry with `recall_count=10` but `last_recalled_at` 30 days ago, when ranked, then its recall frequency score is significantly lower than an entry with `recall_count=10` recalled today.
+Given an entry with `recall_count=10` and `last_recalled_at` 30 days ago, when `_recall_frequency()` is called, then the result is <= 0.35 (vs 1.0 for the same entry recalled today). Specifically: `1.0 * 1/(1+30/14) ≈ 0.318`.
 
-### AC-7: New entries compete with stale recalled entries
-Given a new entry (recall_count=0) and an old frequently-recalled entry (recall_count=10, last_recalled_at 60 days ago), when ranked with similar vector/keyword scores, then the new entry's prominence is competitive (not dominated by the stale entry's recall count).
+### AC-7: Stale entries lose recall advantage at prominence level
+Given a stale entry (recall_count=10, last_recalled_at 60 days ago) and a recent entry (recall_count=3, last_recalled_at today), when prominence is computed with equal recency/observation/confidence/influence, then the stale entry's prominence is lower because its recall component (0.15 weight) is dampened to `1.0 * 1/(1+60/14) ≈ 0.189` while the recent entry gets `0.3 * 1.0 = 0.3`.
 
-### AC-8: Schema migration adds last_recalled_at
-Given an existing memory DB with schema_version=4, when MemoryDatabase is constructed, then `last_recalled_at` column exists and schema_version is 5.
-
-### AC-9: last_recalled_at updated on injection
-Given an entry injected into a session, when `recall_count` is incremented, then `last_recalled_at` is set to the current timestamp.
+### AC-8: last_recalled_at already exists (no migration needed)
+Given an existing memory DB with schema_version=4, when `last_recalled_at` column is queried via `SELECT last_recalled_at FROM entries LIMIT 1`, then no error occurs (column already exists from migration 3).
 
 ## Dependencies
 
 - Feature 055 (memory feedback loop Phase 1) — subagent delivery, dead code removal
 - Feature 057 (memory Phase 2) — keywords, dedup, influence tracking
-- `semantic_memory.ranking.MemoryRanker` — recall frequency modification
+- `semantic_memory.ranking.RankingEngine` — recall frequency modification
 - `semantic_memory.retrieval.RetrievalPipeline` — project filtering
-- `semantic_memory.database.MemoryDatabase` — schema migration
+- `semantic_memory.database.MemoryDatabase` — `update_recall()` already sets `last_recalled_at` (no migration needed)
 
 ## Risks
 
@@ -141,9 +136,9 @@ Given an entry injected into a session, when `recall_count` is incremented, then
 |------|-----------|--------|------------|
 | Project name resolution inconsistency (git remote vs stored source_project) | Medium | Medium | Use same resolution logic as store_memory |
 | Two-tier blend returns fewer results than limit when project has few entries | Medium | Low | If project tier has < N/2 entries, fill remainder from universal tier |
-| Schema migration 5 breaks existing doctor Check 5 (expects schema_version=4) | High | Medium | Update doctor Check 5 to accept schema_version >= 4 |
+| Project name mismatch between git remote basename and stored source_project | Medium | Low | Log warning if mismatch detected, fall back to stored value |
 | Notable catch capture increases memory noise | Low | Low | Budget cap of 2 per cycle + medium confidence (not low) |
 
 ## Traceability
 
-This spec implements PRD gaps 2c, 3a, 3d from the Memory Feedback Loop PRD (`docs/brainstorms/20260324-100000-memory-feedback-loop-completion.prd.md`). Completes the 3-phase plan outlined in the PRD's "Phasing Recommendation" section.
+This spec implements PRD gaps 2c, 3a, 3d from the Memory Feedback Loop PRD (`docs/features/061-memory-phase3-feedback/prd.md`, originally `docs/brainstorms/20260324-100000-memory-feedback-loop-completion.prd.md`). Completes the 3-phase plan outlined in the PRD's "Phasing Recommendation" section.
