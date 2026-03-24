@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `pd:doctor` command — 10 data consistency checks across entity DB, memory DB, workflow state, git branches, and filesystem with cross-project safety and backward-transition awareness
 - Tiered keyword extraction for memory entries — regex heuristics extract keywords on capture; Gemini LLM fallback used when heuristic yields too few terms, improving future search recall
 - Semantic deduplication at capture time — new memories are compared against recent entries using cosine similarity; entries above the `memory_dedup_threshold` (default 0.90) are suppressed to prevent redundant storage
 - `record_influence` MCP tool — records when a retrieved memory influenced a subagent dispatch, incrementing an influence counter used by memory ranking
