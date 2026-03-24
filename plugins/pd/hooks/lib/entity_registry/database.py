@@ -2650,9 +2650,11 @@ class EntityDatabase:
 
     def _set_pragmas(self) -> None:
         """Set connection-level PRAGMAs for performance and safety."""
+        # busy_timeout MUST be set first — journal_mode=WAL requires a write
+        # that can be blocked by concurrent connections during init.
+        self._conn.execute("PRAGMA busy_timeout = 15000")
         self._conn.execute("PRAGMA journal_mode = WAL")
         self._conn.execute("PRAGMA foreign_keys = ON")
-        self._conn.execute("PRAGMA busy_timeout = 15000")
         self._conn.execute("PRAGMA cache_size = -8000")
 
     def _migrate(self) -> None:
