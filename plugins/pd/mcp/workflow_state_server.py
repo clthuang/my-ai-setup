@@ -8,8 +8,10 @@ from __future__ import annotations
 import functools
 import json
 import os
+import random
 import sqlite3
 import sys
+import time
 from contextlib import asynccontextmanager
 
 # Make workflow_engine, transition_gate, entity_registry, semantic_memory
@@ -391,6 +393,47 @@ def _catch_entity_value_error(func):
     return wrapper
 
 
+def _is_transient(exc: sqlite3.Error) -> bool:
+    """Return True if the error is a transient lock contention error."""
+    return "locked" in str(exc).lower()
+
+
+def _with_retry(max_attempts=3, backoff=(0.1, 0.5, 2.0)):
+    """Retry decorator for transient SQLite write errors.
+
+    Applied INSIDE _with_error_handling so retries happen before
+    the error is converted to a terminal MCP response.
+
+    Decorator stacking order:
+      @_with_error_handling    <- outer: catches final exception, returns JSON error
+      _with_retry()            <- middle: retries transient errors before they reach outer
+      @_catch_value_error      <- inner: converts ValueError to structured error
+      def _process_foo(...)
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exc = None
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except sqlite3.OperationalError as exc:
+                    if not _is_transient(exc):
+                        raise
+                    last_exc = exc
+                    if attempt < max_attempts - 1:
+                        delay = backoff[min(attempt, len(backoff) - 1)]
+                        jitter = random.uniform(0, 0.05)
+                        print(
+                            f"workflow-state: retry {attempt+1}/{max_attempts} "
+                            f"after {exc} (sleeping {delay:.1f}s)",
+                            file=sys.stderr,
+                        )
+                        time.sleep(delay + jitter)
+            raise last_exc  # Exhausted — propagates to _with_error_handling
+        return wrapper
+    return decorator
+
 
 @_with_error_handling
 def _process_get_phase(engine: WorkflowStateEngine, feature_type_id: str) -> str:
@@ -405,6 +448,7 @@ def _process_get_phase(engine: WorkflowStateEngine, feature_type_id: str) -> str
 
 
 @_with_error_handling
+@_with_retry()
 @_catch_value_error
 def _process_transition_phase(
     engine: WorkflowStateEngine,
@@ -418,23 +462,62 @@ def _process_transition_phase(
     # Task 3.4: Check blocked_by via entity engine before transition.
     # For features, we still delegate to frozen engine for the actual transition
     # (entity_engine.transition_phase checks blockers then delegates).
-    if entity_engine is not None and db is not None:
-        entity = db.get_entity(feature_type_id)
-        if entity is not None:
-            try:
-                response = entity_engine.transition_phase(entity["uuid"], target_phase)
-            except ValueError as exc:
-                # Blocked or invalid — return as structured error
-                return _make_error(
-                    "invalid_transition",
-                    str(exc),
-                    "Check blocked_by dependencies or current phase",
+    transitioned = False
+    warning = None
+
+    if db is not None:
+        with db.transaction():
+            if entity_engine is not None:
+                entity = db.get_entity(feature_type_id)
+                if entity is not None:
+                    try:
+                        response = entity_engine.transition_phase(entity["uuid"], target_phase)
+                    except ValueError as exc:
+                        # Blocked or invalid — return as structured error
+                        return _make_error(
+                            "invalid_transition",
+                            str(exc),
+                            "Check blocked_by dependencies or current phase",
+                        )
+                else:
+                    response = engine.transition_phase(feature_type_id, target_phase, yolo_active)
+            else:
+                response = engine.transition_phase(feature_type_id, target_phase, yolo_active)
+
+            if response.degraded:
+                raise sqlite3.OperationalError(
+                    "engine returned degraded=True inside transaction"
                 )
-        else:
-            response = engine.transition_phase(feature_type_id, target_phase, yolo_active)
+
+            transitioned = all(r.allowed for r in response.results)
+
+            if transitioned:
+                # Store phase timing in entity metadata
+                entity = db.get_entity(feature_type_id)
+                raw_metadata = entity.get("metadata") if entity else None
+                if raw_metadata:
+                    metadata = json.loads(raw_metadata) if isinstance(raw_metadata, str) else raw_metadata
+                else:
+                    metadata = {}
+
+                phase_timing = metadata.get("phase_timing", {})
+                phase_timing.setdefault(target_phase, {})
+                phase_timing[target_phase]["started"] = _iso_now()
+                metadata["phase_timing"] = phase_timing
+
+                # Store skipped phases if provided
+                if skipped_phases:
+                    metadata["skipped_phases"] = json.loads(skipped_phases)
+
+                db.update_entity(feature_type_id, metadata=metadata)
+
+                # Update kanban_column for features based on phase
+                if feature_type_id.startswith("feature:"):
+                    kanban = derive_kanban("active", target_phase)
+                    db.update_workflow_phase(feature_type_id, kanban_column=kanban)
     else:
         response = engine.transition_phase(feature_type_id, target_phase, yolo_active)
-    transitioned = all(r.allowed for r in response.results)
+        transitioned = all(r.allowed for r in response.results)
 
     result: dict = {
         "transitioned": transitioned,
@@ -442,35 +525,19 @@ def _process_transition_phase(
         "degraded": response.degraded,
     }
 
+    # Filesystem write AFTER transaction committed
     if transitioned and db is not None:
-        # Store phase timing in entity metadata
+        warning = _project_meta_json(db, engine, feature_type_id)
+
+        # Retrieve started_at from committed data
         entity = db.get_entity(feature_type_id)
         raw_metadata = entity.get("metadata") if entity else None
         if raw_metadata:
             metadata = json.loads(raw_metadata) if isinstance(raw_metadata, str) else raw_metadata
         else:
             metadata = {}
-
         phase_timing = metadata.get("phase_timing", {})
-        phase_timing.setdefault(target_phase, {})
-        phase_timing[target_phase]["started"] = _iso_now()
-        metadata["phase_timing"] = phase_timing
-
-        # Store skipped phases if provided
-        if skipped_phases:
-            metadata["skipped_phases"] = json.loads(skipped_phases)
-
-        db.update_entity(feature_type_id, metadata=metadata)
-
-        # Update kanban_column for features based on phase
-        if feature_type_id.startswith("feature:"):
-            kanban = derive_kanban("active", target_phase)
-            db.update_workflow_phase(feature_type_id, kanban_column=kanban)
-
-        # Project .meta.json
-        warning = _project_meta_json(db, engine, feature_type_id)
-
-        result["started_at"] = phase_timing[target_phase]["started"]
+        result["started_at"] = phase_timing.get(target_phase, {}).get("started")
         if skipped_phases:
             result["skipped_phases_stored"] = True
         if warning:
@@ -522,6 +589,7 @@ def _check_artifact_completeness(
 
 
 @_with_error_handling
+@_with_retry()
 @_catch_value_error
 def _process_complete_phase(
     engine: WorkflowStateEngine,
@@ -536,20 +604,67 @@ def _process_complete_phase(
     # If entity_engine is available, use it (handles frozen engine delegation
     # + cascade internally). Fall back to frozen engine if not wired yet.
     completion = None
-    if entity_engine is not None and db is not None:
-        entity = db.get_entity(feature_type_id)
-        if entity is not None:
-            completion = entity_engine.complete_phase(entity["uuid"], phase)
-            state = completion.state
-            if state is None:
-                return _make_error(
-                    "completion_failed",
-                    f"Phase completion returned no state for {feature_type_id}",
-                    "Check entity type and phase validity",
+    warning = None
+
+    # First db.get_entity for UUID resolution stays OUTSIDE transaction
+    if db is not None:
+        with db.transaction():
+            if entity_engine is not None:
+                entity = db.get_entity(feature_type_id)
+                if entity is not None:
+                    completion = entity_engine.complete_phase(entity["uuid"], phase)
+                    state = completion.state
+                    if state is None:
+                        return _make_error(
+                            "completion_failed",
+                            f"Phase completion returned no state for {feature_type_id}",
+                            "Check entity type and phase validity",
+                        )
+                else:
+                    # Entity not in registry — fall back to frozen engine
+                    state = engine.complete_phase(feature_type_id, phase)
+            else:
+                state = engine.complete_phase(feature_type_id, phase)
+
+            if getattr(completion, 'degraded', False) if completion is not None else getattr(state, '_degraded', False) if hasattr(state, '_degraded') else False:
+                raise sqlite3.OperationalError(
+                    "engine returned degraded inside transaction"
                 )
-        else:
-            # Entity not in registry — fall back to frozen engine
-            state = engine.complete_phase(feature_type_id, phase)
+
+            # Store timing metadata in entity (MCP-layer responsibility)
+            entity = db.get_entity(feature_type_id)
+            if entity is None:
+                return _make_error(
+                    "feature_not_found",
+                    f"Feature not found after completion: {feature_type_id}",
+                    "Verify feature_type_id format: 'feature:{id}-{slug}'",
+                )
+
+            raw_metadata = entity.get("metadata")
+            if raw_metadata:
+                metadata = json.loads(raw_metadata) if isinstance(raw_metadata, str) else raw_metadata
+            else:
+                metadata = {}
+
+            phase_timing = metadata.get("phase_timing", {})
+            phase_timing.setdefault(phase, {})
+            phase_timing[phase]["completed"] = _iso_now()
+            if iterations is not None:
+                phase_timing[phase]["iterations"] = iterations
+            if reviewer_notes:
+                phase_timing[phase]["reviewerNotes"] = json.loads(reviewer_notes)
+            metadata["phase_timing"] = phase_timing
+            metadata["last_completed_phase"] = phase
+
+            # Update entity metadata (status='completed' handled by entity engine
+            # for features via frozen engine, and for tasks via _task_complete)
+            db.update_entity(feature_type_id, metadata=metadata)
+
+            # Update kanban_column for features based on completed phase
+            if feature_type_id.startswith("feature:"):
+                status = "completed" if phase == "finish" else "active"
+                kanban = derive_kanban(status, state.current_phase)
+                db.update_workflow_phase(feature_type_id, kanban_column=kanban)
     else:
         state = engine.complete_phase(feature_type_id, phase)
 
@@ -564,46 +679,20 @@ def _process_complete_phase(
         if completion.cascade_error:
             result["cascade_warning"] = completion.cascade_error
 
+    # Filesystem write AFTER transaction committed
     if db is not None:
-        # Store timing metadata in entity (MCP-layer responsibility)
-        entity = db.get_entity(feature_type_id)
-        if entity is None:
-            return _make_error(
-                "feature_not_found",
-                f"Feature not found after completion: {feature_type_id}",
-                "Verify feature_type_id format: 'feature:{id}-{slug}'",
-            )
-
-        raw_metadata = entity.get("metadata")
-        if raw_metadata:
-            metadata = json.loads(raw_metadata) if isinstance(raw_metadata, str) else raw_metadata
-        else:
-            metadata = {}
-
-        phase_timing = metadata.get("phase_timing", {})
-        phase_timing.setdefault(phase, {})
-        phase_timing[phase]["completed"] = _iso_now()
-        if iterations is not None:
-            phase_timing[phase]["iterations"] = iterations
-        if reviewer_notes:
-            phase_timing[phase]["reviewerNotes"] = json.loads(reviewer_notes)
-        metadata["phase_timing"] = phase_timing
-        metadata["last_completed_phase"] = phase
-
-        # Update entity metadata (status='completed' handled by entity engine
-        # for features via frozen engine, and for tasks via _task_complete)
-        db.update_entity(feature_type_id, metadata=metadata)
-
-        # Update kanban_column for features based on completed phase
-        if feature_type_id.startswith("feature:"):
-            status = "completed" if phase == "finish" else "active"
-            kanban = derive_kanban(status, state.current_phase)
-            db.update_workflow_phase(feature_type_id, kanban_column=kanban)
-
-        # Project .meta.json
         warning = _project_meta_json(db, engine, feature_type_id)
 
-        result["completed_at"] = phase_timing[phase]["completed"]
+        # Read committed timing data
+        entity = db.get_entity(feature_type_id)
+        if entity is not None:
+            raw_metadata = entity.get("metadata")
+            if raw_metadata:
+                metadata = json.loads(raw_metadata) if isinstance(raw_metadata, str) else raw_metadata
+            else:
+                metadata = {}
+            phase_timing = metadata.get("phase_timing", {})
+            result["completed_at"] = phase_timing.get(phase, {}).get("completed")
         if warning:
             result["projection_warning"] = warning
 
@@ -676,6 +765,7 @@ def _process_reconcile_check(
 
 
 @_with_error_handling
+@_with_retry()
 @_catch_value_error
 def _process_reconcile_apply(
     engine: WorkflowStateEngine,
@@ -697,6 +787,7 @@ def _process_reconcile_apply(
 
 
 @_with_error_handling
+@_with_retry()
 @_catch_value_error
 def _process_reconcile_frontmatter(
     db: EntityDatabase,
@@ -726,6 +817,7 @@ def _process_reconcile_frontmatter(
 
 
 @_with_error_handling
+@_with_retry()
 @_catch_value_error
 def _process_init_feature_state(
     db: EntityDatabase,
@@ -762,6 +854,7 @@ def _process_init_feature_state(
 
 
 @_with_error_handling
+@_with_retry()
 @_catch_value_error
 def _process_init_project_state(
     db: EntityDatabase,
@@ -788,6 +881,7 @@ def _process_init_project_state(
 
 
 @_with_error_handling
+@_with_retry()
 @_catch_value_error
 def _process_activate_feature(
     db: EntityDatabase,
@@ -809,6 +903,7 @@ def _process_activate_feature(
 
 
 @_with_error_handling
+@_with_retry()
 @_catch_entity_value_error
 def _process_init_entity_workflow(
     db: EntityDatabase, type_id: str, workflow_phase: str, kanban_column: str
@@ -818,6 +913,7 @@ def _process_init_entity_workflow(
 
 
 @_with_error_handling
+@_with_retry()
 @_catch_entity_value_error
 def _process_transition_entity_phase(
     db: EntityDatabase, type_id: str, target_phase: str
