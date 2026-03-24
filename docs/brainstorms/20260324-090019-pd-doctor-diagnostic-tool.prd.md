@@ -172,6 +172,84 @@ Add fix capabilities for checks 1-8. User confirmation before each fix category.
 ### Phase 3: Operational Checks (Checks 9-10)
 Add cache cleanup and outdated MCP detection. These are operationally distinct from data consistency and have different risk profiles (process management, filesystem deletion).
 
+## Additional Checks from Investigation (Checks 11-20)
+
+Independent investigation of the codebase identified 10 additional failure modes:
+
+### Check 11: Junction Table Orphans (P0)
+- `entity_tags`, `entity_dependencies`, `entity_okr_alignment` have NO FK constraints
+- `delete_entity()` doesn't clean up these tables — orphaned rows accumulate
+- Phantom dependencies can incorrectly block features in YOLO mode
+- **Detect:** LEFT JOIN each junction table against entities on UUID; rows with no match
+- **Fix:** DELETE orphaned rows
+
+### Check 12: Entity FTS Index Consistency (P0)
+- Entity FTS was changed to standalone mode (migration 7) — requires manual sync in every write path
+- Any code path writing to entities table directly desynchronizes FTS
+- **Detect:** Compare `COUNT(*) FROM entities` vs `COUNT(*) FROM entities_fts`
+- **Fix:** Rebuild FTS: `python3 scripts/migrate_db.py rebuild-fts`
+
+### Check 13: Memory Embedding Coverage (P1)
+- Entries without embeddings are invisible to vector search
+- Entries with wrong-sized BLOBs (not 3072 bytes for 768-dim float32) silently skipped
+- **Detect:** `COUNT WHERE embedding IS NULL`, `COUNT WHERE length(embedding) != 3072`
+- **Fix:** Re-run embedding generation for affected entries
+
+### Check 14: Schema Version Validation (P1)
+- Entity DB schema_version should be 7, memory DB should be 4
+- Mismatch means migration interrupted or DB from different environment
+- **Detect:** `SELECT value FROM _metadata WHERE key = 'schema_version'` vs code constant
+- **Fix:** Re-run migrations
+
+### Check 15: Memory FTS Trigger Existence (P1)
+- Memory FTS uses triggers (entries_ai, entries_ad, entries_au)
+- If triggers dropped, new entries silently disappear from FTS search
+- **Detect:** Query sqlite_master for trigger names
+- **Fix:** Recreate triggers via `_create_fts5_objects()`
+
+### Check 16: parent_uuid / parent_type_id Consistency (P1)
+- parent_uuid backfilled once during migration 6; can drift on parent rename/delete
+- **Detect:** Cross-reference parent_uuid vs entity with parent_type_id
+- **Fix:** Re-backfill parent_uuid from parent_type_id
+
+### Check 17: Influence Log Orphans (P1)
+- influence_log has no FK constraints; delete_entry doesn't clean up
+- **Detect:** LEFT JOIN influence_log against entries on entry_id
+- **Fix:** DELETE orphaned rows
+
+### Check 18: Entity Artifact Path Liveness (P1)
+- artifact_path stored but never validated post-registration
+- **Detect:** `os.path.exists()` per entity with non-NULL artifact_path
+- **Fix:** Flag for user review (may indicate moved artifacts)
+
+### Check 19: Embedding Dimension Integrity (P1)
+- Embeddings with wrong byte count silently skipped by get_all_embeddings
+- **Detect:** `SELECT id, length(embedding) FROM entries WHERE embedding IS NOT NULL AND length(embedding) != 3072`
+- **Fix:** NULL out corrupted embeddings and re-embed
+
+### Check 20: Sequence Counter Validation (P2)
+- next_seq_{type} metadata in entity DB can drift below max existing entity_id
+- **Detect:** Compare counter value against max numeric prefix from entity_ids
+- **Fix:** Update counter to max + 1
+
+## Ideal State Invariant Summary
+
+The doctor validates **63 invariants** across 7 stores:
+
+| Category | Count | Stores |
+|----------|-------|--------|
+| Schema invariants | 11 | entities.db (7), memory.db (4) |
+| Referential integrity | 9 | entities.db (9) |
+| Data completeness | 18 | entities.db (9), memory.db (9) |
+| Cross-store consistency | 8 | entities.db + filesystem |
+| Filesystem structure | 6 | .meta.json files |
+| Configuration | 3 | pd.local.md |
+| Plugin registry | 3 | installed_plugins.json |
+| Operational health | 5 | all stores |
+| **Total** | **63** | |
+
+Each invariant has a concrete SQL query or filesystem check that returns 0 rows/true when healthy. The full invariant catalog is codified in the implementation module for machine-verifiable checks.
+
 ## Risks
 
 | Risk | Likelihood | Impact | Mitigation |
