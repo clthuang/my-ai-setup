@@ -247,8 +247,7 @@ def _process_record_influence(
     if entry is None:
         return f"Entry not found: {entry_name}"
 
-    db.increment_influence(entry["id"])
-    db.log_influence(entry["id"], agent_role, feature_type_id)
+    db.record_influence(entry["id"], agent_role, feature_type_id)
     return f"Recorded influence: {entry_name} by {agent_role}"
 
 
