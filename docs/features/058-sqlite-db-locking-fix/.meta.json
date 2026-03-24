@@ -1,0 +1,15 @@
+{
+  "id": "058",
+  "slug": "sqlite-db-locking-fix",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-03-24T08:02:07.307946+00:00",
+  "branch": "feature/058-sqlite-db-locking-fix",
+  "backlog_source": "00045",
+  "lastCompletedPhase": null,
+  "phases": {
+    "brainstorm": {
+      "started": "2026-03-24T08:02:07.307908+00:00"
+    }
+  }
+}
