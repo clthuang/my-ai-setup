@@ -61,10 +61,9 @@ def _make_db(tmp_path, name: str = "entities.db") -> str:
         );
 
         CREATE TABLE IF NOT EXISTS entity_dependencies (
-            source_uuid TEXT NOT NULL,
-            target_uuid TEXT NOT NULL,
-            dep_type    TEXT NOT NULL DEFAULT 'depends_on',
-            PRIMARY KEY (source_uuid, target_uuid, dep_type)
+            entity_uuid     TEXT NOT NULL,
+            blocked_by_uuid TEXT NOT NULL,
+            UNIQUE(entity_uuid, blocked_by_uuid)
         );
 
         CREATE TABLE IF NOT EXISTS entity_tags (
@@ -936,8 +935,8 @@ class TestCheck3EntityDepsFallback:
         )
         # Add dependency: brainstorm -> feature
         conn.execute(
-            "INSERT INTO entity_dependencies (source_uuid, target_uuid, dep_type) "
-            "VALUES (?, ?, 'depends_on')",
+            "INSERT INTO entity_dependencies (entity_uuid, blocked_by_uuid) "
+            "VALUES (?, ?)",
             (bs_uuid, feat_uuid),
         )
         conn.commit()
@@ -1952,7 +1951,7 @@ class TestCheck9OrphanedDependencyRow:
         )
         conn = sqlite3.connect(db_path)
         conn.execute(
-            "INSERT INTO entity_dependencies (source_uuid, target_uuid) "
+            "INSERT INTO entity_dependencies (entity_uuid, blocked_by_uuid) "
             "VALUES ('valid-uuid', 'nonexistent-uuid')"
         )
         conn.commit()
