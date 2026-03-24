@@ -41,7 +41,9 @@ and limit=5, brief=true. Include non-empty results as:
 
 This instruction is placed before each `Task tool call:` block. The orchestrator (Claude) interprets it as a prompt instruction and calls the MCP tool.
 
-**Scope boundary:** Only fresh dispatches (I1-R4 template) get the pre-dispatch instruction. Resumed dispatches (I2 template) do not — the memory was already included in the original context.
+**Scope boundary:** Only fresh dispatches get the pre-dispatch instruction. Resumed dispatches do not — the memory was already included in the original context. Fresh dispatches are identifiable in command files as the first `Task tool call:` block for each agent role (containing `## Required Artifacts`). Resumed dispatches are the alternative blocks using `resume: {agent_id}` syntax.
+
+**All dispatches in implement.md** (including conditional ones like code-simplifier and test-deepener) receive the pre-dispatch instruction. The latency of `search_memory` calls (~100-500ms) is negligible compared to subagent execution time.
 
 **Reliability:** Prompt-instructed MCP calls are not deterministic. The orchestrator may skip the call under context pressure. This is an accepted limitation for Phase 1. Influence tracking (Phase 3 of PRD) will measure actual delivery rates.
 
@@ -56,7 +58,9 @@ Delete the `TieredKeywordGenerator` and `SkipKeywordGenerator` classes, the `KEY
 - `plugins/pd/hooks/lib/semantic_memory/writer.py` — remove keyword merge logic
 - `plugins/pd/hooks/lib/semantic_memory/config.py` — remove `memory_keyword_provider` from DEFAULTS
 
-**What stays:** The `keywords` TEXT column in `entries` table, the FTS5 trigger that indexes keywords, and the `memory_keyword_weight` config key. These are harmless (empty column indexed into FTS5 triggers with no content) and removing them would require a schema migration. The keyword weight (0.2) effectively operates on name/description/reasoning via FTS5 — it's not fully wasted.
+**What stays:** The `keywords` TEXT column in `entries` table, the FTS5 trigger that indexes keywords, and the `memory_keyword_weight` config key. The `memory_keyword_weight` is retained unchanged — while the keywords column will always be empty, the FTS5 weight distributes across all indexed columns (name, description, reasoning, keywords) and removing it would change ranking behavior. This is a Phase 2 concern when LLM keywords are implemented.
+
+**Forward-compatibility note:** Phase 2 (LLM keyword generation, per PRD Gap 3c) will need to implement a keyword generator from scratch rather than building on `SkipKeywordGenerator`, since the stub infrastructure is being removed. This is acceptable because the existing stub produces zero output — a fresh implementation is simpler than extending dead code.
 
 ### FR-3: Remove unused embedding providers
 
@@ -64,7 +68,7 @@ Delete `OpenAIProvider`, `OllamaProvider`, and `VoyageProvider` from `embedding.
 
 **Files to modify:**
 - `plugins/pd/hooks/lib/semantic_memory/embedding.py` — remove 3 provider classes
-- `plugins/pd/hooks/lib/semantic_memory/test_embedding.py` (if exists) — remove tests for deleted providers
+- `plugins/pd/hooks/lib/semantic_memory/test_embedding.py` — remove tests for deleted providers (OpenAIProvider, OllamaProvider, VoyageProvider)
 - `plugins/pd/hooks/lib/semantic_memory/config.py` — remove provider-specific config keys if any
 
 **What stays:** The `create_provider(config)` factory function, but simplified to only handle `"gemini"` and `None`. The `memory_embedding_provider` config key stays (needed to select Gemini or disable embeddings).
@@ -77,7 +81,9 @@ Modify the injector to skip entries below a minimum relevance score and skip inj
 
 1. After ranking, filter entries to those with `final_score > 0.3` (configurable via `memory_relevance_threshold` in pd.local.md, default 0.3)
 2. If fewer than 3 entries meet the threshold, inject those entries (do not pad with low-relevance entries)
-3. If the context query from `collect_context()` is `None` (no active feature, no branch, no changed files), skip injection entirely and return an empty string with a diagnostic note: `"Memory: skipped (no context signals)"`
+3. If the context query from `collect_context()` contains only project-level description signals (no active feature, no feature branch, no recently changed files), skip injection entirely and return an empty string with a diagnostic note: `"Memory: skipped (no context signals)"`
+
+**Implementation note:** `collect_context()` almost never returns `None` because signal #4 (project-level description from CLAUDE.md/README.md) is always included. The skip condition must therefore check for "weak context" — a context string that lacks feature, branch, and file signals — not just `None`. Modify `collect_context()` to return a `ContextResult` with a `has_work_signals: bool` flag (True when any of signals 1-3, 5, or 6 are present), or add a separate method `has_work_context()` that the injector calls before deciding to inject.
 
 **Changes to config:** Add `memory_relevance_threshold` to DEFAULTS (default: 0.3).
 
@@ -100,8 +106,8 @@ Change `memory_injection_limit` default from 20 to 15. Update this repo's overri
 
 ## Acceptance Criteria
 
-### AC-1: Subagent dispatch prompts include relevant memories
-Every fresh (I1-R4 template) subagent dispatch in the 5 workflow command files includes a `## Relevant Engineering Memory` section populated by a `search_memory` call. Verified by reading the updated command files and confirming the pre-dispatch instruction block is present before each Task dispatch.
+### AC-1: Subagent dispatch prompts include memory enrichment instruction
+Each of the 5 workflow command files contains the pre-dispatch memory enrichment instruction block before every fresh Task dispatch block. Verified by `grep -c "Pre-dispatch memory enrichment" plugins/pd/commands/{specify,design,create-plan,create-tasks,implement}.md` returning a count matching the number of fresh dispatch blocks in each file.
 
 ### AC-2: keywords.py deleted
 `plugins/pd/hooks/lib/semantic_memory/keywords.py` no longer exists. `grep -r "TieredKeywordGenerator\|SkipKeywordGenerator\|KEYWORD_PROMPT" plugins/pd/` returns zero matches (excluding git history and test deletions).
@@ -110,10 +116,10 @@ Every fresh (I1-R4 template) subagent dispatch in the 5 workflow command files i
 `grep -r "OllamaProvider\|VoyageProvider\|OpenAIProvider" plugins/pd/hooks/lib/semantic_memory/` returns zero matches.
 
 ### AC-4: Relevance threshold filters low-scoring entries
-Given a memory DB with entries and a context query that produces varying relevance scores, when the injector runs, entries with `final_score <= 0.3` are excluded from injection output.
+Given scored entries with known `final_score` values (e.g., `[0.8, 0.5, 0.2, 0.1]`), when the injector's filtering logic runs with threshold 0.3, only entries with `final_score > 0.3` are included in injection output. Test by mocking `RankingEngine.rank()` to return entries with controlled scores, or by testing the filtering logic as a standalone function.
 
 ### AC-5: No-context injection skipped
-Given no active feature, no git branch (on main), and no recently changed files, when the injector runs, the output is empty with a diagnostic note containing "skipped" or "no context signals".
+Given no active feature, no feature branch (on main/develop), and no recently changed files (only project-level description signals present), when the injector runs, the output contains the diagnostic note `"Memory: skipped (no context signals)"` and no memory entries are included.
 
 ### AC-6: Default injection limit reduced
 `config.py` DEFAULTS has `memory_injection_limit: 15`. This repo's `.claude/pd.local.md` has `memory_injection_limit: 20`.
