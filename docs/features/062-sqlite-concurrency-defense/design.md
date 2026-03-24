@@ -168,7 +168,7 @@ For Type B handlers, the pattern is: extract the try-block DB logic into a sync 
 
 **Error conversion:** NOT all memory server async handlers have try/except. `store_memory` (line 314) and `record_influence` (line 451) call their sync helpers directly with NO try/except — only `delete_memory` (line 422) has `except Exception`. Implementation must add `try/except Exception` wrappers to `store_memory` and `record_influence` async handlers to catch exhausted-retry `OperationalError` and return structured error strings.
 
-**Embedding idempotency:** `_process_store_memory` computes embeddings via `provider.embed()` before the DB write. Embedding computation is stateless (HTTP call or local model) and safe to re-invoke on retry. The 3-retry window (~2.6s) is well within typical API rate limits.
+**Embedding idempotency:** `_process_store_memory` computes embeddings via `provider.embed()` before the DB write. Embedding computation is stateless (HTTP call or local model) and safe to re-invoke on retry. The 3-retry window (~2.6s) is well within typical API rate limits. Note: `with_retry` only intercepts `sqlite3.OperationalError` — embedding errors propagate immediately without retry. No retry logic should be added around `provider.embed()`.
 
 ### C4: Workflow State Server Refactor
 
@@ -202,7 +202,7 @@ For Type B handlers, the pattern is: extract the try-block DB logic into a sync 
 
 **Unit tests:** `plugins/pd/hooks/lib/test_sqlite_retry.py` — test `with_retry` and `is_transient` in isolation (mock OperationalError, verify backoff sequence, test transient classification).
 **Integration tests:** `plugins/pd/hooks/lib/test_sqlite_retry_integration.py` — concurrent-write tests using `multiprocessing` with real file-backed SQLite.
-**CLAUDE.md entries to add:**
+**CLAUDE.md entries to add** (insert after the entity registry test command block):
 ```bash
 # Run sqlite retry unit tests
 plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/test_sqlite_retry.py -v
@@ -339,20 +339,7 @@ def _process_store_memory(db, provider, name, description, reasoning,
 
 ### I6: Workflow State Server Refactor Pattern
 
-```python
-# Replace local definitions with imports
-from sqlite_retry import with_retry as _make_retry, is_transient as _is_transient
-
-# Create server-specific decorator instance
-_with_retry = _make_retry("workflow-state")
-
-# All existing @_with_retry() decorator calls remain unchanged
-# except _with_retry is now a pre-configured instance, not a factory call
-```
-
-**Wait — this changes semantics.** The existing `_with_retry()` is called WITH parentheses as a decorator factory. If we replace it with a pre-configured decorator, the call sites need adjustment. Two options:
-
-**Approach:** Import and alias the factory with `**kwargs` passthrough (no duplicated defaults):
+Import and alias the factory with `**kwargs` passthrough (no duplicated defaults):
 ```python
 from sqlite_retry import with_retry, is_transient
 
@@ -361,7 +348,9 @@ def _with_retry(**kwargs):
 
 _is_transient = is_transient
 ```
-This preserves all `@_with_retry()` call sites unchanged. Defaults are maintained only in `with_retry` — no dual-defaults maintenance burden.
+This preserves all 9 existing `@_with_retry()` call sites unchanged — they call the wrapper with parentheses, which returns a configured decorator. Defaults are maintained only in `with_retry` — no dual-defaults maintenance burden.
+
+**Verification:** `grep -c '@_with_retry' workflow_state_server.py` should return 9 both before and after refactoring.
 
 ## Dependency Graph
 
