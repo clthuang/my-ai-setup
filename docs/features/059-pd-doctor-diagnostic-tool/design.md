@@ -58,7 +58,26 @@ def check_feature_status(entities_conn, artifacts_root, **_) -> CheckResult:
 
 ### C3: Orchestrator (`__init__.py`)
 
-`run_diagnostics()` opens connections, runs all 10 checks sequentially, assembles `DiagnosticReport`. Each check call is wrapped in `try/except` — uncaught exceptions produce a `CheckResult(passed=False, issues=[Issue(severity="error", message=str(exc))])`, ensuring all 10 checks always produce results (AC-1).
+`run_diagnostics()` opens connections, runs all 10 checks sequentially, assembles `DiagnosticReport`.
+
+**Dispatch mechanism:** All context is passed as a kwargs dict to every check. Each check extracts what it needs:
+```python
+ctx = {
+    "entities_conn": entities_conn,  # may be None if locked
+    "memory_conn": memory_conn,      # may be None if locked
+    "entities_db_path": entities_db_path,
+    "memory_db_path": memory_db_path,
+    "artifacts_root": artifacts_root,
+    "project_root": project_root,
+    "base_branch": base_branch,      # resolved from pd.local.md or "main"
+}
+for check_fn in CHECK_ORDER:
+    result = _run_check(check_fn, ctx)
+```
+
+**Per-check exception isolation:** Each check call is wrapped in `try/except` — uncaught exceptions produce a `CheckResult(passed=False, issues=[Issue(severity="error", message=str(exc))])`, ensuring all 10 checks always produce results (AC-1).
+
+**Connection lifecycle:** `run_diagnostics()` uses `try/finally` to close both connections. Check 2 wraps its `EntityDatabase` in `try/finally` calling `db.close()`. The shared `entities_conn` is NOT used by Check 2 (it opens its own via `EntityDatabase(entities_db_path)`) — the shared connection should have no open transaction when Check 2 runs.
 
 ### C4: Command File (`doctor.md`)
 
@@ -85,7 +104,22 @@ Markdown prompt that resolves paths, invokes the Python module via Bash, and for
 **Decision:** Run Check 8 (DB Readiness) first. If either DB is locked, skip checks that require that DB.
 **Rationale:** Checks 1-7 and 9 need entity DB. Check 5 needs memory DB. If a DB is locked, attempting to open it wastes 5-15 seconds per check. Better to detect once and skip.
 
-**Skip mechanism:** If Check 8 reports entity DB locked, `run_diagnostics()` creates a sentinel `CheckResult(name=X, passed=False, issues=[Issue(severity="error", message="Skipped: entity DB locked")], elapsed_ms=0)` for each dependent check and does NOT call the check function. `entities_conn` is never passed as `None`. Same pattern for memory DB lock → Check 5 skipped.
+**Skip mechanism:** If Check 8 reports entity DB locked, `run_diagnostics()` creates a sentinel `CheckResult(name=X, passed=False, issues=[Issue(severity="error", message="Skipped: entity DB locked")], elapsed_ms=0)` for each dependent check and does NOT call the check function. Same pattern for memory DB lock → Check 5 skipped.
+
+**Check-to-DB dependency table:**
+
+| Check | Entity DB | Memory DB | Git | Config |
+|-------|-----------|-----------|-----|--------|
+| 1: Feature Status | required | — | — | — |
+| 2: Workflow Phase | required (own conn) | — | — | — |
+| 3: Brainstorm Status | required | — | — | — |
+| 4: Backlog Status | required | — | — | — |
+| 5: Memory Health | — | required | — | — |
+| 6: Branch Consistency | required | — | required | — |
+| 7: Entity Orphans | required | — | — | — |
+| 8: DB Readiness | tests both | tests both | — | — |
+| 9: Referential Integrity | required | — | — | — |
+| 10: Config Validity | — | — | — | required |
 
 ### TD-4: Check function signatures — kwargs for extensibility
 
@@ -207,14 +241,31 @@ class DiagnosticReport:
 
 ### I5: Command file — `doctor.md`
 
-```markdown
-# /pd:doctor Command
-1. Resolve paths (standard plugin resolution)
-2. Run: python -m doctor --entities-db ... --memory-db ... --artifacts-root ... --project-root ...
-3. Parse JSON output
-4. Format as table: Check | Status | Issues
-5. Show details for failed checks
+**Bash invocation** (follows plugin portability pattern from CLAUDE.md):
+```bash
+# Primary: cached plugin
+PLUGIN_ROOT=$(ls -d ~/.claude/plugins/cache/*/pd*/*/hooks 2>/dev/null | head -1 | xargs dirname)
+if [[ -n "$PLUGIN_ROOT" ]] && [[ -x "$PLUGIN_ROOT/.venv/bin/python" ]]; then
+  PYTHONPATH="$PLUGIN_ROOT/hooks/lib" "$PLUGIN_ROOT/.venv/bin/python" -m doctor \
+    --entities-db ~/.claude/pd/entities/entities.db \
+    --memory-db ~/.claude/pd/memory/memory.db \
+    --artifacts-root docs \
+    --project-root .
+else
+  # Fallback: dev workspace
+  PYTHONPATH=plugins/pd/hooks/lib plugins/pd/.venv/bin/python -m doctor \
+    --entities-db ~/.claude/pd/entities/entities.db \
+    --memory-db ~/.claude/pd/memory/memory.db \
+    --artifacts-root docs \
+    --project-root .
+fi
 ```
+
+Command file workflow:
+1. Run the Bash invocation above
+2. Parse JSON output from stdout
+3. Format as table: `Check | Status | Issues`
+4. Show details for failed checks
 
 ---
 
