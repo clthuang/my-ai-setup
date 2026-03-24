@@ -272,7 +272,7 @@ bash plugins/pd/scripts/setup.sh
 The setup script:
 1. Runs diagnostics to check prerequisites (python3, git, rsync)
 2. Creates/verifies the Python venv with core dependencies
-3. Configures an embedding provider for semantic memory (gemini, openai, voyage, ollama, or none)
+3. Configures an embedding provider for semantic memory (gemini or none)
 4. Sets up API keys and environment variables
 5. Initializes project directories and config
 
