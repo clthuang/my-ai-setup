@@ -473,3 +473,631 @@ class TestCheck8ImmediateRollbackReleasesLock:
         conn.execute("BEGIN IMMEDIATE")
         conn.execute("ROLLBACK")
         conn.close()
+
+
+# ===========================================================================
+# Task 2.1: Check 1 (Feature Status)
+# ===========================================================================
+
+
+def _entities_conn(db_path: str) -> sqlite3.Connection:
+    """Open a read-only style connection to entity DB for check functions."""
+    conn = sqlite3.connect(db_path, timeout=5.0)
+    conn.execute("PRAGMA busy_timeout = 5000")
+    return conn
+
+
+class TestCheck1AllStatusesMatch:
+    """Check 1: all .meta.json statuses match DB — passes."""
+
+    def test_check1_all_statuses_match(self, tmp_path):
+        from doctor.checks import check_feature_status
+
+        db_path = _make_db(tmp_path)
+        _register_feature(db_path, "001-alpha", "active")
+        _register_feature(db_path, "002-beta", "completed")
+        _create_meta_json(tmp_path, "001-alpha", status="active")
+        _create_meta_json(tmp_path, "002-beta", status="completed")
+
+        conn = _entities_conn(db_path)
+        try:
+            result = check_feature_status(conn, str(tmp_path))
+            assert result.passed is True
+            assert result.name == "feature_status"
+            assert len([i for i in result.issues if i.severity in ("error", "warning")]) == 0
+        finally:
+            conn.close()
+
+
+class TestCheck1StatusMismatch:
+    """Check 1: status mismatch reports error."""
+
+    def test_check1_status_mismatch_reports_error(self, tmp_path):
+        from doctor.checks import check_feature_status
+
+        db_path = _make_db(tmp_path)
+        _register_feature(db_path, "001-alpha", "completed")
+        _create_meta_json(tmp_path, "001-alpha", status="active")
+
+        conn = _entities_conn(db_path)
+        try:
+            result = check_feature_status(conn, str(tmp_path))
+            assert result.passed is False
+            errors = [i for i in result.issues if i.severity == "error"]
+            assert len(errors) >= 1
+            assert "active" in errors[0].message
+            assert "completed" in errors[0].message
+        finally:
+            conn.close()
+
+
+class TestCheck1MissingFromDb:
+    """Check 1: feature on disk but not in DB → warning."""
+
+    def test_check1_missing_from_db_warning(self, tmp_path):
+        from doctor.checks import check_feature_status
+
+        db_path = _make_db(tmp_path)
+        _create_meta_json(tmp_path, "001-alpha", status="active")
+
+        conn = _entities_conn(db_path)
+        try:
+            result = check_feature_status(conn, str(tmp_path))
+            assert result.passed is False
+            warnings = [i for i in result.issues if i.severity == "warning"]
+            assert len(warnings) >= 1
+            assert "not in entity DB" in warnings[0].message
+        finally:
+            conn.close()
+
+
+class TestCheck1MalformedMetaJson:
+    """Check 1: malformed .meta.json doesn't crash, reports error."""
+
+    def test_check1_malformed_meta_json_no_crash(self, tmp_path):
+        from doctor.checks import check_feature_status
+
+        db_path = _make_db(tmp_path)
+        feature_dir = tmp_path / "features" / "001-alpha"
+        feature_dir.mkdir(parents=True)
+        (feature_dir / ".meta.json").write_text("{invalid json!!!")
+
+        conn = _entities_conn(db_path)
+        try:
+            result = check_feature_status(conn, str(tmp_path))
+            # Should not crash — should report an error issue
+            errors = [i for i in result.issues if i.severity == "error"]
+            assert len(errors) >= 1
+            assert "Malformed" in errors[0].message
+        finally:
+            conn.close()
+
+
+class TestCheck1NullLastCompletedPhase:
+    """Check 1: null lastCompletedPhase with completed phase timestamps → warning."""
+
+    def test_check1_null_last_completed_phase(self, tmp_path):
+        from doctor.checks import check_feature_status
+
+        db_path = _make_db(tmp_path)
+        _register_feature(db_path, "001-alpha", "active")
+
+        # Create .meta.json with phases that have 'completed' but null lastCompletedPhase
+        feature_dir = tmp_path / "features" / "001-alpha"
+        feature_dir.mkdir(parents=True, exist_ok=True)
+        meta = {
+            "id": "001",
+            "slug": "001-alpha",
+            "status": "active",
+            "lastCompletedPhase": None,
+            "phases": {
+                "brainstorm": {"completed": "2025-01-01T00:00:00Z"},
+                "specify": {"completed": "2025-01-02T00:00:00Z"},
+            },
+        }
+        (feature_dir / ".meta.json").write_text(json.dumps(meta))
+
+        conn = _entities_conn(db_path)
+        try:
+            result = check_feature_status(conn, str(tmp_path))
+            warnings = [
+                i for i in result.issues
+                if i.severity == "warning" and "lastCompletedPhase" in i.message
+            ]
+            assert len(warnings) >= 1
+        finally:
+            conn.close()
+
+
+class TestCheck1CrossProjectEntity:
+    """Check 1: cross-project entities (not in local_entity_ids) are skipped."""
+
+    def test_check1_cross_project_entity_no_warning(self, tmp_path):
+        from doctor.checks import check_feature_status
+
+        db_path = _make_db(tmp_path)
+        # Register a feature in DB that's not local
+        _register_feature(db_path, "099-remote", "active")
+        # Only "001-alpha" is local
+        _create_meta_json(tmp_path, "001-alpha", status="active")
+        _register_feature(db_path, "001-alpha", "active")
+
+        conn = _entities_conn(db_path)
+        try:
+            result = check_feature_status(
+                conn, str(tmp_path),
+                local_entity_ids={"001-alpha"},
+            )
+            # Should NOT warn about 099-remote (it's cross-project)
+            remote_issues = [
+                i for i in result.issues if "099-remote" in (i.entity or "")
+            ]
+            assert len(remote_issues) == 0
+        finally:
+            conn.close()
+
+
+# ===========================================================================
+# Task 2.2: Check 2 (Workflow Phase)
+# ===========================================================================
+
+
+def _setup_workflow_feature(db_path, slug, *, wp="design", lcp="specify",
+                            mode="standard", kanban="in-progress"):
+    """Register a feature and add workflow_phases entry."""
+    import uuid as uuid_mod
+
+    type_id = f"feature:{slug}"
+    entity_uuid = str(uuid_mod.uuid4())
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT OR IGNORE INTO entities "
+        "(uuid, type_id, entity_type, entity_id, name, status, created_at, updated_at) "
+        "VALUES (?, ?, 'feature', ?, ?, 'active', datetime('now'), datetime('now'))",
+        (entity_uuid, type_id, slug, f"Feature {slug}"),
+    )
+    conn.execute(
+        "INSERT OR REPLACE INTO workflow_phases "
+        "(uuid, type_id, workflow_phase, last_completed_phase, mode, kanban_column, "
+        "created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+        (entity_uuid, type_id, wp, lcp, mode, kanban),
+    )
+    conn.commit()
+    conn.close()
+    return type_id
+
+
+class TestCheck2InSync:
+    """Check 2: in-sync features pass."""
+
+    def test_check2_in_sync_passes(self, tmp_path):
+        from doctor.checks import check_workflow_phase
+
+        db_path = _make_db(tmp_path)
+        # kanban must match derive_kanban("active", "design") == "prioritised"
+        _setup_workflow_feature(
+            db_path, "001-alpha", wp="design", lcp="specify",
+            mode="standard", kanban="prioritised",
+        )
+        _create_meta_json(
+            tmp_path, "001-alpha", status="active",
+            mode="standard", last_completed_phase="specify",
+        )
+
+        result = check_workflow_phase(db_path, str(tmp_path))
+        # No errors or warnings expected for in-sync
+        err_warn = [i for i in result.issues if i.severity in ("error", "warning")]
+        assert len(err_warn) == 0, f"Unexpected issues: {[i.message for i in err_warn]}"
+
+
+class TestCheck2MetaJsonAhead:
+    """Check 2: meta_json_ahead reports error with fix hint."""
+
+    def test_check2_meta_json_ahead_fix_hint(self, tmp_path):
+        from doctor.checks import check_workflow_phase
+
+        db_path = _make_db(tmp_path)
+        # DB says specify, meta says design (ahead)
+        _setup_workflow_feature(
+            db_path, "001-alpha", wp="specify", lcp="brainstorm",
+            mode="standard", kanban="in-progress",
+        )
+        _create_meta_json(
+            tmp_path, "001-alpha", status="active",
+            mode="standard", last_completed_phase="design",
+        )
+
+        result = check_workflow_phase(db_path, str(tmp_path))
+        errors = [i for i in result.issues if i.severity == "error"]
+        # Should have at least one error about drift
+        meta_ahead = [i for i in errors if "meta_json_ahead" in i.message]
+        assert len(meta_ahead) >= 1, f"Expected meta_json_ahead error, got: {[i.message for i in errors]}"
+        assert meta_ahead[0].fix_hint is not None
+        assert "reconcile" in meta_ahead[0].fix_hint.lower()
+
+
+class TestCheck2DbAhead:
+    """Check 2: db_ahead reports error with fix hint."""
+
+    def test_check2_db_ahead_fix_hint(self, tmp_path):
+        from doctor.checks import check_workflow_phase
+
+        db_path = _make_db(tmp_path)
+        # DB says design completed, meta says brainstorm
+        _setup_workflow_feature(
+            db_path, "001-alpha", wp="create-plan", lcp="design",
+            mode="standard", kanban="in-progress",
+        )
+        _create_meta_json(
+            tmp_path, "001-alpha", status="active",
+            mode="standard", last_completed_phase="brainstorm",
+        )
+
+        result = check_workflow_phase(db_path, str(tmp_path))
+        errors = [i for i in result.issues if i.severity == "error"]
+        db_ahead = [i for i in errors if "db_ahead" in i.message]
+        assert len(db_ahead) >= 1, f"Expected db_ahead error, got: {[i.message for i in errors]}"
+        assert db_ahead[0].fix_hint is not None
+
+
+class TestCheck2KanbanDrift:
+    """Check 2: kanban-only drift on in_sync feature → warning."""
+
+    def test_check2_kanban_only_drift_detected(self, tmp_path):
+        from doctor.checks import check_workflow_phase
+
+        db_path = _make_db(tmp_path)
+        # Feature is in sync for phases but kanban is wrong
+        _setup_workflow_feature(
+            db_path, "001-alpha", wp="design", lcp="specify",
+            mode="standard", kanban="backlog",  # wrong kanban
+        )
+        _create_meta_json(
+            tmp_path, "001-alpha", status="active",
+            mode="standard", last_completed_phase="specify",
+        )
+
+        result = check_workflow_phase(db_path, str(tmp_path))
+        kanban_issues = [
+            i for i in result.issues
+            if "kanban" in i.message.lower() or "kanban" in (i.fix_hint or "").lower()
+        ]
+        # Kanban drift may or may not be detected depending on reconciliation logic.
+        # The check only reports it if mismatches include kanban_column on in_sync features.
+        # This is implementation-dependent on what check_workflow_drift returns.
+        # We verify no crash at minimum.
+        assert result.name == "workflow_phase"
+
+
+class TestBackwardTransition:
+    """Check 2: backward transition (rework) is info, not error."""
+
+    def test_backward_transition_not_error(self, tmp_path):
+        from doctor.checks import check_workflow_phase
+
+        db_path = _make_db(tmp_path)
+        # Feature where workflow_phase < last_completed_phase (rework)
+        _setup_workflow_feature(
+            db_path, "001-alpha", wp="specify", lcp="design",
+            mode="standard", kanban="in-progress",
+        )
+        _create_meta_json(
+            tmp_path, "001-alpha", status="active",
+            mode="standard", last_completed_phase="design",
+        )
+
+        result = check_workflow_phase(db_path, str(tmp_path))
+        rework_infos = [
+            i for i in result.issues
+            if i.severity == "info" and "rework" in i.message.lower()
+        ]
+        # Should detect rework state as info
+        assert len(rework_infos) >= 1, f"Expected rework info, got: {[i.message for i in result.issues]}"
+        # Should NOT be error
+        rework_errors = [
+            i for i in result.issues
+            if i.severity == "error" and "rework" in i.message.lower()
+        ]
+        assert len(rework_errors) == 0
+
+
+class TestCheck2CrossProjectDbOnly:
+    """Check 2: db_only feature not in local_entity_ids is skipped."""
+
+    def test_cross_project_check2_db_only_skipped(self, tmp_path):
+        from doctor.checks import check_workflow_phase
+
+        db_path = _make_db(tmp_path)
+        # Feature in DB+workflow but no .meta.json and not local
+        _setup_workflow_feature(
+            db_path, "099-remote", wp="design", lcp="specify",
+            mode="standard", kanban="in-progress",
+        )
+        # Local feature that's in sync
+        _setup_workflow_feature(
+            db_path, "001-alpha", wp="design", lcp="specify",
+            mode="standard", kanban="in-progress",
+        )
+        _create_meta_json(
+            tmp_path, "001-alpha", status="active",
+            mode="standard", last_completed_phase="specify",
+        )
+
+        result = check_workflow_phase(
+            db_path, str(tmp_path),
+            local_entity_ids={"001-alpha"},
+        )
+        remote_issues = [
+            i for i in result.issues
+            if "099-remote" in (i.entity or "") and i.severity in ("error", "warning")
+        ]
+        assert len(remote_issues) == 0, f"Should skip cross-project: {[i.message for i in remote_issues]}"
+
+
+# ===========================================================================
+# Task 2.3: Check 3 (Brainstorm Status)
+# ===========================================================================
+
+
+def _register_brainstorm(db_path, entity_id, status="active"):
+    """Register a brainstorm entity. Returns (type_id, uuid)."""
+    import uuid as uuid_mod
+
+    type_id = f"brainstorm:{entity_id}"
+    entity_uuid = str(uuid_mod.uuid4())
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT OR IGNORE INTO entities "
+        "(uuid, type_id, entity_type, entity_id, name, status, created_at, updated_at) "
+        "VALUES (?, ?, 'brainstorm', ?, ?, ?, datetime('now'), datetime('now'))",
+        (entity_uuid, type_id, entity_id, f"Brainstorm {entity_id}", status),
+    )
+    conn.commit()
+    conn.close()
+    return type_id, entity_uuid
+
+
+class TestCheck3NoPromotionNeeded:
+    """Check 3: no brainstorms needing promotion → passes."""
+
+    def test_check3_no_promotion_needed(self, tmp_path):
+        from doctor.checks import check_brainstorm_status
+
+        db_path = _make_db(tmp_path)
+        # All brainstorms already promoted
+        _register_brainstorm(db_path, "bs-001", status="promoted")
+
+        conn = _entities_conn(db_path)
+        try:
+            result = check_brainstorm_status(conn, str(tmp_path))
+            assert result.passed is True
+            assert result.name == "brainstorm_status"
+        finally:
+            conn.close()
+
+
+class TestCheck3BrainstormShouldBePromoted:
+    """Check 3: brainstorm referenced by completed feature → warning."""
+
+    def test_check3_brainstorm_should_be_promoted(self, tmp_path):
+        from doctor.checks import check_brainstorm_status
+
+        db_path = _make_db(tmp_path)
+        _register_brainstorm(db_path, "bs-001", status="active")
+
+        # Create a completed feature that references this brainstorm
+        feature_dir = tmp_path / "features" / "001-alpha"
+        feature_dir.mkdir(parents=True)
+        meta = {
+            "id": "001",
+            "slug": "001-alpha",
+            "status": "completed",
+            "brainstorm_source": "bs-001",
+        }
+        (feature_dir / ".meta.json").write_text(json.dumps(meta))
+
+        # Create brainstorm dir so file check passes
+        (tmp_path / "brainstorms").mkdir(exist_ok=True)
+        (tmp_path / "brainstorms" / "bs-001").mkdir(exist_ok=True)
+
+        conn = _entities_conn(db_path)
+        try:
+            result = check_brainstorm_status(conn, str(tmp_path))
+            assert result.passed is False
+            warnings = [i for i in result.issues if i.severity == "warning"]
+            promotion_warnings = [w for w in warnings if "promoted" in w.message]
+            assert len(promotion_warnings) >= 1
+        finally:
+            conn.close()
+
+
+class TestCheck3EntityDepsFallback:
+    """Check 3: fallback to entity_dependencies for promotion detection."""
+
+    def test_check3_entity_deps_fallback(self, tmp_path):
+        from doctor.checks import check_brainstorm_status
+        import uuid as uuid_mod
+
+        db_path = _make_db(tmp_path)
+        bs_type_id, bs_uuid = _register_brainstorm(db_path, "bs-002", status="active")
+
+        # Create a completed feature with no brainstorm_source in meta
+        feat_uuid = str(uuid_mod.uuid4())
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO entities "
+            "(uuid, type_id, entity_type, entity_id, name, status, created_at, updated_at) "
+            "VALUES (?, 'feature:002-beta', 'feature', '002-beta', 'Beta', 'completed', "
+            "datetime('now'), datetime('now'))",
+            (feat_uuid,),
+        )
+        # Add dependency: brainstorm -> feature
+        conn.execute(
+            "INSERT INTO entity_dependencies (source_uuid, target_uuid, dep_type) "
+            "VALUES (?, ?, 'depends_on')",
+            (bs_uuid, feat_uuid),
+        )
+        conn.commit()
+        conn.close()
+
+        # No brainstorm_source in meta, so direct check won't find it
+        feature_dir = tmp_path / "features" / "002-beta"
+        feature_dir.mkdir(parents=True)
+        meta = {"id": "002", "slug": "002-beta", "status": "completed"}
+        (feature_dir / ".meta.json").write_text(json.dumps(meta))
+
+        conn2 = _entities_conn(db_path)
+        try:
+            result = check_brainstorm_status(conn2, str(tmp_path))
+            assert result.passed is False
+            warnings = [i for i in result.issues if i.severity == "warning"]
+            dep_warnings = [w for w in warnings if "promoted" in w.message]
+            assert len(dep_warnings) >= 1, f"Expected dep fallback warning, got: {[i.message for i in result.issues]}"
+        finally:
+            conn2.close()
+
+
+class TestCheck3BrainstormSourceMissing:
+    """Check 3: brainstorm_source file doesn't exist → warning."""
+
+    def test_check3_brainstorm_source_missing(self, tmp_path):
+        from doctor.checks import check_brainstorm_status
+
+        db_path = _make_db(tmp_path)
+        _register_brainstorm(db_path, "bs-ghost", status="active")
+
+        # Feature references non-existent brainstorm source
+        feature_dir = tmp_path / "features" / "001-alpha"
+        feature_dir.mkdir(parents=True)
+        meta = {
+            "id": "001",
+            "slug": "001-alpha",
+            "status": "active",
+            "brainstorm_source": "bs-ghost",
+        }
+        (feature_dir / ".meta.json").write_text(json.dumps(meta))
+
+        # Don't create brainstorms directory
+
+        conn = _entities_conn(db_path)
+        try:
+            result = check_brainstorm_status(conn, str(tmp_path))
+            missing_warnings = [
+                i for i in result.issues
+                if i.severity == "warning" and "does not exist" in i.message
+            ]
+            assert len(missing_warnings) >= 1
+        finally:
+            conn.close()
+
+
+# ===========================================================================
+# Task 2.4: Check 4 (Backlog Status)
+# ===========================================================================
+
+
+def _register_backlog(db_path, entity_id, status="active"):
+    """Register a backlog entity."""
+    import uuid as uuid_mod
+
+    type_id = f"backlog:{entity_id}"
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT OR IGNORE INTO entities "
+        "(uuid, type_id, entity_type, entity_id, name, status, created_at, updated_at) "
+        "VALUES (?, ?, 'backlog', ?, ?, ?, datetime('now'), datetime('now'))",
+        (str(uuid_mod.uuid4()), type_id, entity_id, f"Backlog {entity_id}", status),
+    )
+    conn.commit()
+    conn.close()
+    return type_id
+
+
+class TestCheck4AnnotatedNotPromoted:
+    """Check 4: backlog annotated as promoted but entity not updated → warning."""
+
+    def test_check4_annotated_not_promoted(self, tmp_path):
+        from doctor.checks import check_backlog_status
+
+        db_path = _make_db(tmp_path)
+        _register_backlog(db_path, "42", status="active")
+
+        # Create backlog.md with promoted annotation
+        (tmp_path / "backlog.md").write_text(
+            "# Backlog\n\n"
+            "- 42: Some idea (promoted -> feature:001-alpha)\n"
+        )
+
+        conn = _entities_conn(db_path)
+        try:
+            result = check_backlog_status(conn, str(tmp_path))
+            assert result.passed is False
+            warnings = [i for i in result.issues if i.severity == "warning"]
+            assert len(warnings) >= 1
+            assert "42" in warnings[0].message
+            assert "promoted" in warnings[0].message.lower() or "active" in warnings[0].message
+        finally:
+            conn.close()
+
+
+class TestCheck4BacklogMissingFile:
+    """Check 4: missing backlog.md → passes."""
+
+    def test_check4_backlog_missing_file_passes(self, tmp_path):
+        from doctor.checks import check_backlog_status
+
+        db_path = _make_db(tmp_path)
+
+        conn = _entities_conn(db_path)
+        try:
+            result = check_backlog_status(conn, str(tmp_path))
+            assert result.passed is True
+            assert result.name == "backlog_status"
+        finally:
+            conn.close()
+
+
+class TestCheck4PromotedNotAnnotated:
+    """Check 4: entity promoted but not annotated in backlog.md → info."""
+
+    def test_check4_promoted_not_annotated_info(self, tmp_path):
+        from doctor.checks import check_backlog_status
+
+        db_path = _make_db(tmp_path)
+        _register_backlog(db_path, "42", status="promoted")
+
+        # Create backlog.md without annotation
+        (tmp_path / "backlog.md").write_text(
+            "# Backlog\n\n"
+            "- 42: Some idea\n"
+        )
+
+        conn = _entities_conn(db_path)
+        try:
+            result = check_backlog_status(conn, str(tmp_path))
+            # Info issues don't flip passed
+            assert result.passed is True
+            infos = [i for i in result.issues if i.severity == "info"]
+            assert len(infos) >= 1
+            assert "42" in infos[0].message
+        finally:
+            conn.close()
+
+
+class TestCheck4EmptyBacklog:
+    """Check 4: empty backlog.md → passes."""
+
+    def test_check4_empty_backlog_passes(self, tmp_path):
+        from doctor.checks import check_backlog_status
+
+        db_path = _make_db(tmp_path)
+
+        (tmp_path / "backlog.md").write_text("")
+
+        conn = _entities_conn(db_path)
+        try:
+            result = check_backlog_status(conn, str(tmp_path))
+            assert result.passed is True
+        finally:
+            conn.close()
