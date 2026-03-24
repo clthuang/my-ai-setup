@@ -11,7 +11,7 @@ RCA source: `/Users/terry/projects/parameter-golf/docs/rca-pd-db-locking.md`
 Three bugs, two database modules:
 
 1. **Bug 1: MemoryDatabase migration race condition** (`semantic_memory/database.py`)
-2. **Bug 2: EntityDatabase `begin_immediate()` + high-level method incompatibility** (`entity_registry/database.py`)
+2. **Bug 2: EntityDatabase `begin_immediate()` doesn't set `_in_transaction` flag** (`entity_registry/database.py`)
 3. **Bug 3: EntityDatabase migration 5 `SELECT *` fragility** (`entity_registry/database.py`)
 
 ## Requirements
@@ -24,6 +24,9 @@ The `_migrate()` method in `semantic_memory/database.py` (line ~780) currently r
 
 ```python
 def _migrate(self):
+    # Bootstrap _metadata table — idempotent CREATE IF NOT EXISTS.
+    # Intentionally OUTSIDE the transaction: SQLite serializes DDL,
+    # and CREATE IF NOT EXISTS is safe under concurrency.
     self._conn.execute("CREATE TABLE IF NOT EXISTS _metadata ...")
     self._conn.commit()
 
@@ -45,23 +48,56 @@ def _migrate(self):
         raise
 ```
 
-**Note:** Individual migration functions that use `executescript()` (which auto-commits) need to be changed to use `execute()` calls instead, since `executescript` issues an implicit COMMIT that would break the outer transaction. Migration 2 (`_add_source_hash_and_created_timestamp`) currently uses `executescript` — change to sequential `execute()` calls.
+**`executescript` conversion required:** `executescript()` issues an implicit COMMIT that would break the outer `BEGIN IMMEDIATE` transaction. ALL migrations using `executescript` must be converted to sequential `execute()` calls:
 
-### FR-2: Make EntityDatabase high-level methods transaction-aware
+| Migration | Function | Lines with `executescript` |
+|-----------|----------|--------------------------|
+| 1 | `_create_initial_schema` | line 66 (DDL), line 120 (`_create_fts5_objects`) |
+| 2 | `_add_source_hash_and_created_timestamp` | line 153 (2 ALTER TABLE + 1 UPDATE) |
+| 3 | `_enforce_not_null_columns` | line 201 (table rebuild) |
 
-`register_entity()` and other high-level methods on `EntityDatabase` use Python's SQLite autocommit mode (implicit `BEGIN`/`COMMIT` around each `execute()`). When called inside a `begin_immediate()` context manager, the autocommit `COMMIT` prematurely ends the outer transaction. Subsequent `ROLLBACK` from the context manager fails with `cannot rollback - no transaction is active`.
+Each `executescript("""...""")` call should be split into individual `execute()` calls for each SQL statement. This is a mechanical transformation — the SQL statements themselves don't change, only the Python call method.
 
-**Fix:** Check `self._conn.in_transaction` before committing in high-level methods. If already in a caller's transaction, skip the internal commit — let the caller manage the transaction boundary.
+**Note:** Migrations 4+ (including the new migration 4 from Feature 057) already use `execute()` and are compatible with the outer transaction.
 
-**Affected methods:** All high-level write methods that do their own `COMMIT`. At minimum: `register_entity()`. Audit other methods that write and commit: `update_entity()`, `add_dependency()`, `remove_dependency()`, `set_parent()`, etc. Apply the same `in_transaction` guard pattern to each.
+### FR-2: Make `begin_immediate()` set `_in_transaction` flag
 
-**Alternative considered:** Adding a runtime guard to `begin_immediate()` that raises on nesting. Rejected because the goal is to allow composing high-level methods inside transactions, not to prevent it.
+The EntityDatabase already has a well-designed transaction architecture:
+- `_in_transaction: bool` flag (initialized `False` in `__init__`, line 965)
+- `_commit()` helper (line 979) that skips commit when `_in_transaction` is `True`
+- `transaction()` context manager (line 1150) that sets `_in_transaction = True`, suppressing `_commit()` calls inside the block
 
-### FR-3: Use explicit column lists in EntityDatabase migration 5
+The bug: `begin_immediate()` (line 1132) does NOT set `_in_transaction = True`. When `register_entity()` or other high-level methods call `_commit()` inside a `begin_immediate()` block, `_commit()` fires because the flag is `False`, prematurely ending the outer transaction.
 
-Migration 5 (`_expand_workflow_phase_check`) uses `INSERT INTO workflow_phases_new SELECT * FROM workflow_phases`. This is fragile — if a later migration adds a column to `workflow_phases` before migration 5 runs (due to version tracking inconsistency or partial migration), the column counts mismatch and the INSERT fails.
+**Fix:** Make `begin_immediate()` set `self._in_transaction = True` (and reset in `finally` block), matching the `transaction()` pattern:
 
-**Fix:** Replace `SELECT *` with explicit column list:
+```python
+@contextmanager
+def begin_immediate(self):
+    """Context manager that wraps a block in BEGIN IMMEDIATE."""
+    if self._in_transaction:
+        raise RuntimeError("Nested transactions not supported")
+    self._conn.execute("BEGIN IMMEDIATE")
+    self._in_transaction = True
+    try:
+        yield self._conn
+        self._conn.execute("COMMIT")
+    except Exception:
+        self._conn.execute("ROLLBACK")
+        raise
+    finally:
+        self._in_transaction = False
+```
+
+**No per-method changes needed.** All high-level methods (`register_entity`, `update_entity`, `add_dependency`, etc.) already call `_commit()` which already checks `_in_transaction`. Setting the flag in `begin_immediate()` is the only change required.
+
+### FR-3: Use explicit column lists in EntityDatabase migrations
+
+Migration 5 (`_expand_workflow_phase_check`) uses `INSERT INTO workflow_phases_new SELECT * FROM workflow_phases`. This is fragile — if a later migration adds a column to `workflow_phases` (e.g., migration 6 adds `uuid`), and migration 5 re-runs on a DB with the extra column present (due to version tracking inconsistency or cross-version plugin access), the column counts mismatch.
+
+**Specific column mismatch:** Migration 5 creates `workflow_phases_new` with 7 columns (type_id, workflow_phase, kanban_column, last_completed_phase, mode, backward_transition_reason, updated_at). If the source `workflow_phases` already has an 8th column (`uuid`, added by migration 6), `SELECT *` produces 8 values for a 7-column target.
+
+**Fix:** Replace `SELECT *` with explicit column lists in migration 5:
 ```sql
 INSERT INTO workflow_phases_new (type_id, workflow_phase, kanban_column,
     last_completed_phase, mode, backward_transition_reason, updated_at)
@@ -70,44 +106,49 @@ SELECT type_id, workflow_phase, kanban_column,
 FROM workflow_phases
 ```
 
-Also audit migration 6 (`_schema_expansion_v6`) for any `SELECT *` usage and apply the same fix.
+Also audit migration 6 (`_schema_expansion_v6`) for any `SELECT *` usage and apply the same fix with explicit column lists.
 
 ## Non-Requirements (Out of Scope)
 
 - **NR-1:** Changing SQLite isolation_level to manual mode globally — too invasive, affects all existing code
 - **NR-2:** Adding file-level locking (fcntl.flock) — WAL mode + BEGIN IMMEDIATE is sufficient
 - **NR-3:** Fixing the pre-existing `TestSysPathIdempotency` test failure (test ordering artifact, unrelated)
-- **NR-4:** Restructuring EntityDatabase's transaction model wholesale — targeted `in_transaction` guard is sufficient
+- **NR-4:** Restructuring EntityDatabase's transaction model wholesale — the existing `_in_transaction` + `_commit()` pattern is sound, just needs `begin_immediate()` to participate
+- **NR-5:** Deprecating `begin_immediate()` in favor of `transaction()` — both serve valid use cases (raw SQL vs. high-level methods)
 
 ## Acceptance Criteria
 
 ### AC-1: MemoryDatabase concurrent init succeeds
-6 threads concurrently creating `MemoryDatabase(same_path)` on a new DB file all succeed without errors. Verified by concurrent init test.
+6 threads concurrently creating `MemoryDatabase(same_path)` on a new DB file all succeed without errors. Post-condition: schema_version equals target AND all expected columns exist in the entries table. Verified by concurrent init test.
 
 ### AC-2: MemoryDatabase migration is atomic
 If a migration fails mid-way, schema_version is not incremented. The next connection retries the failed migration. Verified by test that simulates migration failure.
 
 ### AC-3: register_entity inside begin_immediate works
-`db.register_entity()` called inside `db.begin_immediate()` completes without error. The entire block is atomic (rollback works). Verified by test.
+`db.register_entity()` called inside `db.begin_immediate()` completes without error. The entire block is atomic (rollback on exception reverts all changes). Verified by test.
 
 ### AC-4: register_entity outside transaction still works
 `db.register_entity()` called normally (not inside a transaction) continues to work as before. Verified by existing tests passing.
 
-### AC-5: Migration 5 uses explicit column lists
+### AC-5: transaction() still works
+`db.transaction()` context manager continues to work correctly (regression guard). Verified by existing tests passing.
+
+### AC-6: Migration 5 uses explicit column lists
 `_expand_workflow_phase_check` uses explicit column names in both INSERT and SELECT. No `SELECT *` in any migration function. Verified by grep.
 
-### AC-6: Existing tests pass
+### AC-7: Existing tests pass
 All semantic_memory tests (435+), entity_registry tests (940+), and MCP server tests pass without regressions.
 
 ## Dependencies
 
-- Feature 056 (sqlite-write-contention-fix) — already merged, provides WAL mode + busy_timeout foundation
-- Feature 057 (memory-phase2-quality) — already merged, added migration 4 to semantic_memory
+- Feature 056 (sqlite-write-contention-fix) — merged to main, provides WAL mode + busy_timeout foundation
+- Feature 057 (memory-phase2-quality) — merged to main, added migration 4 to semantic_memory (already uses `execute()`, compatible with outer transaction)
 
 ## Risks
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| Migration 2 `executescript` → `execute` changes behavior | Low | Medium | Migration 2 is simple (2 ALTER TABLE + 1 UPDATE). Test that schema matches after migration. |
-| `in_transaction` guard breaks existing EntityDatabase behavior | Low | Medium | Only skip commit when already in transaction. Normal (non-nested) calls are unchanged. |
-| Concurrent migration test is flaky (thread timing) | Medium | Low | Use 6+ threads with barrier synchronization to maximize collision probability. Run 3 times in CI. |
+| `executescript` → `execute` conversion changes migration behavior | Low | Medium | Each conversion is mechanical (split multi-statement string into individual calls). Verify schema matches by comparing PRAGMA table_info before/after. |
+| `_in_transaction` flag in `begin_immediate()` breaks callers that relied on `_commit()` firing | Low | Low | The whole point is to suppress `_commit()` inside `begin_immediate()`. Any caller that needed the commit to fire was already broken (Bug 2). |
+| Concurrent migration test is flaky (thread timing) | Medium | Low | Use 6+ threads with barrier synchronization to maximize collision probability. Run multiple times. |
+| Migration 6 also has `SELECT *` that needs fixing | Low | Medium | FR-3 explicitly calls for auditing migration 6. |
