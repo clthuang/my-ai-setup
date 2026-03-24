@@ -851,6 +851,7 @@ class TestApplyFixes:
         )
 
         assert result.fixed_count == 0
+        assert result.failed_count == 0  # dry-run items are NOT counted as failed
         assert result.results[0].action.startswith("dry-run:")
         assert not result.results[0].applied
 
