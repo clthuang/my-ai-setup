@@ -147,7 +147,7 @@ Pass to `pipeline.retrieve(context_query, project=project_name)`.
 
 ### TD-2: Two-tier blend in ranker, not retrieval
 **Decision:** The blend logic (N/2 project + N/2 universal) lives in `rank()`, not `retrieve()`.
-**Rationale:** Retrieval is signal-agnostic (it produces candidate scores). Ranking is where selection decisions belong. This keeps retrieval clean and the blend logic testable.
+**Rationale:** Retrieval is signal-agnostic (it produces candidate scores). Ranking is where selection decisions belong. This keeps retrieval clean and the blend logic testable. Note: this supersedes spec FR-2's note that `rank()` needs no changes — the two-tier selection logic belongs in `rank()` for the reasons above.
 
 ### TD-3: Backward-compatible _recall_frequency signature
 **Decision:** Add `last_recalled_at` and `now` as optional kwargs with defaults.
@@ -211,6 +211,7 @@ def _resolve_project_name(project_root: str) -> str | None:
 | `plugins/pd/hooks/lib/semantic_memory/retrieval_types.py` | **Modified** | Add `project` field to `RetrievalResult` |
 | `plugins/pd/hooks/lib/semantic_memory/ranking.py` | **Modified** | Update `_recall_frequency()`, `_prominence()`, `rank()` |
 | `plugins/pd/hooks/lib/semantic_memory/injector.py` | **Modified** | Add `_resolve_project_name()`, pass project to retrieve |
+| `plugins/pd/mcp/memory_server.py` | **Modified** | Add `project` param to `search_memory` MCP tool, pass through to pipeline |
 | `plugins/pd/commands/specify.md` | **Modified** | Add notable catch sub-section |
 | `plugins/pd/commands/design.md` | **Modified** | Add notable catch sub-section |
 | `plugins/pd/commands/create-plan.md` | **Modified** | Add notable catch sub-section |
