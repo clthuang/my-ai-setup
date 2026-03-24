@@ -25,11 +25,11 @@ Optional: `rsync` and `gtimeout` (macOS: `brew install coreutils`).
 /plugin install pd@my-local-plugins
 ```
 
-Core dependencies auto-install on first session — keyword memory works immediately.
+Core dependencies auto-install on first session.
 
 ### Setup semantic memory (recommended)
 
-The plugin auto-installs core dependencies on first launch. For semantic search (vs keyword-only), configure an embedding provider:
+The plugin auto-installs core dependencies on first launch. For semantic search, configure an embedding provider:
 
 ```bash
 # Find your plugin root and run the interactive setup
@@ -41,10 +41,7 @@ The setup walks through provider selection, API key configuration, and project i
 | Provider | API Key | Notes |
 |----------|---------|-------|
 | gemini | `GEMINI_API_KEY` | Free tier available (default) |
-| openai | `OPENAI_API_KEY` | text-embedding-3-small |
-| voyage | `VOYAGE_API_KEY` | voyage-3-lite |
-| ollama | — | Local; `ollama pull nomic-embed-text` |
-| none | — | Keyword-only search |
+| none | — | Disable semantic search |
 
 ### Troubleshooting
 

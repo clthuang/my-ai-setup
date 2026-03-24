@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Memory enrichment in workflow phases — relevant past learnings are now injected into each subagent dispatch (specify, design, create-plan, create-tasks, implement) so context from previous projects informs current work
+- `memory_relevance_threshold` config option (default 0.3) — low-scoring memory entries are filtered before injection, reducing noise
+- Memory injection skips automatically when no relevant work context is detected, avoiding unhelpful entries on unrelated tasks
+- Category-scoped memory retrieval per agent role — reviewers receive anti-patterns, code-simplifier receives patterns, etc.
+
+### Changed
+- Default `memory_injection_limit` reduced from 20 to 15 (repo override reduced from 50 to 20) — keeps session context focused
+
+### Removed
+- OpenAI, Ollama, and Voyage embedding providers — only Gemini is supported for semantic memory; use `none` to disable embeddings
+
 ## [4.13.26] - 2026-03-23
 
 ### Fixed
