@@ -49,9 +49,9 @@
 **File:** `plugins/pd/hooks/lib/doctor/checks.py` (append)
 **Do:**
 1. Implement `check_workflow_phase(entities_db_path, artifacts_root, **kwargs) -> CheckResult`
-2. Construct `EntityDatabase(entities_db_path)` + `WorkflowStateEngine(db, artifacts_root)` in try/finally with try/except for OperationalError (hang mitigation)
-3. Call `check_workflow_drift(engine, db, artifacts_root)` — translate WorkflowDriftReport to Issues
-4. Backward transition awareness: if DB workflow_phase index < last_completed_phase index → info "Feature in rework state"
+2. Construct `db = EntityDatabase(entities_db_path)`, `engine = WorkflowStateEngine(db, artifacts_root)` in try/finally (db.close()). Wrap in try/except `sqlite3.OperationalError` for hang mitigation.
+3. Call `result = check_workflow_drift(engine, db, artifacts_root)` — signature: `check_workflow_drift(engine: WorkflowStateEngine, db: EntityDatabase, artifacts_root: str, feature_type_id: str | None = None) -> WorkflowDriftResult`. Translate each `WorkflowDriftReport` in `result.features` to Issues.
+4. Backward transition awareness: use phase sequence from `workflow_engine.constants.PHASE_SEQUENCE` (or equivalent). Compare `PHASE_SEQUENCE.index(workflow_phase)` vs `PHASE_SEQUENCE.index(last_completed_phase)`. If former < latter → info "Feature in rework state"
 5. Preserve drift direction: meta_json_ahead → error "Run reconcile_apply", db_ahead → error "DB has newer state", meta_json_only → warning, db_only → filter by local_entity_ids
 6. Kanban drift: inspect report.mismatches for kanban_column entries on in_sync features → warning
 **Tests:** `test_check2_in_sync_passes`, `test_check2_meta_json_ahead_fix_hint`, `test_check2_db_ahead_fix_hint`, `test_check2_kanban_only_drift_detected`, `test_backward_transition_not_error`, `test_cross_project_check2_db_only_skipped`
@@ -97,7 +97,7 @@
 1. Implement `check_branch_consistency(entities_conn, artifacts_root, project_root, base_branch, **kwargs) -> CheckResult`
 2. Verify base_branch via `git rev-parse --verify {base_branch}` → fallback to `origin/{base_branch}` → error if neither exists, skip remaining
 3. For each active local feature: read branch from .meta.json, `git branch --list '{branch}'`
-4. Active + no branch + merged (`git log --max-count=1`): rework-aware (phase < last_completed → warning "Create new branch"), otherwise → error "merged but active"
+4. Active + no branch + merged (`git log --max-count=1`): check rework state via raw SQL on entities_conn: `SELECT workflow_phase, last_completed_phase FROM workflow_phases WHERE type_id = 'feature:{folder_name}'`. If phase index < last_completed index → warning "Create new branch for rework", otherwise → error "merged but active"
 5. Active + no branch + not merged → warning
 **Tests:** `test_check6_all_branches_exist`, `test_check6_base_branch_missing`, `test_check6_active_no_branch_not_merged_warning`, `test_check6_active_merged_not_rework_error`, `test_check6_remote_base_branch_fallback`
 **Done when:** 5 tests pass
@@ -129,8 +129,8 @@
 7. Circular parent chains: Python dict traversal with visited set, depth 20 → error if cycle, warning if depth limit reached on valid chain
 8. entity_dependencies orphans (detection only) → warning
 9. entity_tags orphans (detection only) → warning
-**Tests:** `test_check9_valid_references`, `test_check9_dangling_parent_type_id`, `test_check9_parent_uuid_mismatch`, `test_check9_orphaned_workflow_phases`, `test_check9_self_referential_parent`, `test_check9_parent_uuid_null_with_type_id`, `test_check9_circular_parent_chain`, `test_check9_orphaned_dependency_row`, `test_check9_deep_chain_no_false_positive`
-**Done when:** 9 tests pass
+**Tests:** `test_check9_valid_references`, `test_check9_dangling_parent_type_id`, `test_check9_parent_uuid_mismatch`, `test_check9_orphaned_workflow_phases`, `test_check9_self_referential_parent`, `test_check9_parent_uuid_null_with_type_id`, `test_check9_circular_parent_chain`, `test_check9_orphaned_dependency_row`, `test_check9_deep_chain_no_false_positive`, `test_check9_chain_at_depth_limit`
+**Done when:** 10 tests pass
 **Depends on:** 3.3
 
 ### Task 4.2: Check 10 (Config Validity) + Tests
@@ -155,12 +155,12 @@
 2. Self-resolve: wrap `read_config(project_root)` in try/except → fallback base_branch="main"
 3. Guard DB paths: `os.path.isfile(db_path)` before connect → error CheckResult if missing, don't create files
 4. Build `local_entity_ids` via `_build_local_entity_set(artifacts_root)` → add to ctx
-5. CHECK_ORDER: check_db_readiness first, then 1-7,9-10
+5. `CHECK_ORDER = [check_db_readiness, check_feature_status, check_workflow_phase, check_brainstorm_status, check_backlog_status, check_memory_health, check_branch_consistency, check_entity_orphans, check_referential_integrity, check_config_validity]`
 6. Skip logic: read `check8_result.extras["entity_db_ok"]`/`["memory_db_ok"]` → sentinel CheckResults for locked-out checks
 7. Per-check try/except → error CheckResult on uncaught exception
-8. try/finally close connections
-**Tests:** `test_report_has_10_checks`, `test_report_10_checks_even_when_locked`, `test_healthy_project_all_pass`, `test_info_issues_do_not_flip_passed`, `test_entity_db_lock_skips_dependent`, `test_memory_db_lock_skips_check5`, `test_per_check_exception_isolation`, `test_missing_db_file_no_create`, `test_base_branch_from_config`, `test_base_branch_default_main`, `test_check8_runs_first`, `test_both_dbs_locked`, `test_fresh_project_empty`, `test_works_without_mcp`
-**Done when:** 14 tests pass AND `run_diagnostics()` on live data returns 10 checks
+8. try/finally close connections. Close dedicated lock-test connections before opening read-only ones.
+**Tests:** `test_report_has_10_checks`, `test_report_10_checks_even_when_locked`, `test_healthy_project_all_pass`, `test_info_issues_do_not_flip_passed`, `test_entity_db_lock_skips_dependent`, `test_memory_db_lock_skips_check5`, `test_per_check_exception_isolation`, `test_missing_db_file_no_create`, `test_base_branch_from_config`, `test_base_branch_default_main`, `test_check8_runs_first`, `test_both_dbs_locked`, `test_fresh_project_empty`, `test_works_without_mcp`, `test_connections_closed_on_success`, `test_connections_closed_on_exception`
+**Done when:** 16 tests pass AND `run_diagnostics()` on live data returns 10 checks
 **Depends on:** 4.2
 
 ### Task 5.2: CLI Entry Point + Tests
