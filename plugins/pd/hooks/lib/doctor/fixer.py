@@ -183,7 +183,9 @@ def apply_fixes(
     fixed_count = sum(1 for r in results if r.applied)
     skipped_count = sum(1 for r in results if r.classification == "manual")
     failed_count = sum(
-        1 for r in results if r.classification == "safe" and not r.applied
+        1 for r in results
+        if r.classification == "safe" and not r.applied
+        and not r.action.startswith("dry-run:")
     )
 
     return FixReport(
