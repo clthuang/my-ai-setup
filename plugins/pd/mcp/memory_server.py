@@ -24,6 +24,8 @@ from semantic_memory.database import MemoryDatabase
 from semantic_memory.embedding import EmbeddingProvider, create_provider
 from semantic_memory.ranking import RankingEngine
 from semantic_memory.retrieval import RetrievalPipeline
+from semantic_memory.dedup import check_duplicate
+from semantic_memory.keywords import extract_keywords
 from semantic_memory.writer import _embed_text_for_entry, _process_pending_embeddings
 
 from mcp.server.fastmcp import FastMCP
@@ -43,6 +45,7 @@ def _process_store_memory(
     references: list[str],
     confidence: str = "medium",
     source_project: str = "",
+    config: dict | None = None,
 ) -> str:
     """Store a learning in the semantic memory database.
 
@@ -73,7 +76,35 @@ def _process_store_memory(
     # -- Source is always 'session-capture' per spec D6 --
     source = "session-capture"
 
-    keywords_json = "[]"
+    keywords = extract_keywords(name, description, reasoning, category)
+    keywords_json = json.dumps(keywords)
+
+    # -- Compute embedding EARLY (before dedup check, reused for storage) --
+    embedding_vec = None
+    if provider is not None:
+        partial_entry = {
+            "name": name,
+            "description": description,
+            "keywords": keywords_json,
+            "reasoning": reasoning,
+        }
+        embed_text = _embed_text_for_entry(partial_entry)
+        try:
+            embedding_vec = provider.embed(embed_text, task_type="document")
+        except Exception as exc:
+            print(
+                f"memory-server: embedding failed: {exc}",
+                file=sys.stderr,
+            )
+
+    # -- Dedup check (before store) --
+    cfg = config or {}
+    threshold = cfg.get("memory_dedup_threshold", 0.90)
+    if embedding_vec is not None:
+        dedup_result = check_duplicate(embedding_vec, db, threshold)
+        if dedup_result.is_duplicate:
+            merged = db.merge_duplicate(dedup_result.existing_entry_id, keywords)
+            return f"Reinforced: {merged['name']} (observation #{merged['observation_count']})"
 
     # -- Build entry dict --
     now = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -100,19 +131,9 @@ def _process_store_memory(
     # -- Upsert into DB --
     db.upsert_entry(entry)
 
-    # -- Generate embedding using shared helper (consistent with writer) --
-    if provider is not None:
-        stored = db.get_entry(entry_id)
-        if stored:
-            embed_text = _embed_text_for_entry(stored)
-            try:
-                vec = provider.embed(embed_text, task_type="document")
-                db.update_embedding(entry_id, vec.tobytes())
-            except Exception as exc:
-                print(
-                    f"memory-server: embedding failed: {exc}",
-                    file=sys.stderr,
-                )
+    # -- Store pre-computed embedding --
+    if embedding_vec is not None:
+        db.update_embedding(entry_id, embedding_vec.tobytes())
 
     # -- Process pending embeddings batch --
     if provider is not None:
@@ -203,6 +224,32 @@ def _process_search_memory(
         lines.append("")
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Influence processing function (testable without MCP)
+# ---------------------------------------------------------------------------
+
+
+def _process_record_influence(
+    db: MemoryDatabase,
+    entry_name: str,
+    agent_role: str,
+    feature_type_id: str | None = None,
+) -> str:
+    """Record that a memory entry influenced agent behavior.
+
+    Looks up entry by name (case-insensitive exact match, LIKE fallback).
+    If found: increments influence_count and logs to influence_log.
+    Returns success or error message. Never raises.
+    """
+    entry = db.find_entry_by_name(entry_name)
+    if entry is None:
+        return f"Entry not found: {entry_name}"
+
+    db.increment_influence(entry["id"])
+    db.log_influence(entry["id"], agent_role, feature_type_id)
+    return f"Recorded influence: {entry_name} by {agent_role}"
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +351,7 @@ async def store_memory(
         references=references if references is not None else [],
         confidence=confidence,
         source_project=_project_root,
+        config=_config,
     )
 
 
@@ -368,6 +416,39 @@ async def delete_memory(entry_id: str) -> str:
         return json.dumps({"result": f"Deleted memory: {entry_id}"})
     except Exception as exc:
         return json.dumps({"error": str(exc)})
+
+
+@mcp.tool()
+async def record_influence(
+    entry_name: str,
+    agent_role: str,
+    feature_type_id: str | None = None,
+) -> str:
+    """Record that a memory entry influenced agent behavior.
+
+    Called after a subagent dispatch when injected memory entries were
+    referenced or applied in the agent's output.
+
+    Parameters
+    ----------
+    entry_name:
+        Name of the memory entry that was referenced.
+    agent_role:
+        Role of the agent that used this entry (e.g., 'implementer', 'spec-reviewer').
+    feature_type_id:
+        Current feature context (e.g., 'feature:057-memory'). Optional.
+
+    Returns confirmation or error message.
+    """
+    if _db is None:
+        return "Error: database not initialized (server not started)"
+
+    return _process_record_influence(
+        db=_db,
+        entry_name=entry_name,
+        agent_role=agent_role,
+        feature_type_id=feature_type_id,
+    )
 
 
 # ---------------------------------------------------------------------------
