@@ -51,7 +51,7 @@ Steps 4-9 → Step 10 (verification)
 
 **Verification:**
 ```bash
-grep -c "self._conn.commit()" plugins/pd/hooks/lib/entity_registry/database.py  # expect 1 (the intentional flush in transaction())
+grep -c "self._conn.commit()" plugins/pd/hooks/lib/entity_registry/database.py  # expect 0 (becomes 1 after Step 2 adds transaction())
 grep -c "self._commit()" plugins/pd/hooks/lib/entity_registry/database.py  # expect >= 19
 plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/ -v --tb=short -x 2>&1 | tail -5
 ```
@@ -226,8 +226,8 @@ plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_workflow_state_server.
    - `_process_init_feature_state` (has @_catch_value_error)
    - `_process_init_project_state` (has @_catch_value_error)
    - `_process_activate_feature` (has @_catch_value_error)
-   - `_process_init_entity_workflow` (verify if has @_catch_value_error)
-   - `_process_transition_entity_phase` (verify if has @_catch_value_error)
+   - `_process_init_entity_workflow` (has @_catch_entity_value_error — same stacking position)
+   - `_process_transition_entity_phase` (has @_catch_entity_value_error — same stacking position)
    - `_process_reconcile_apply` (verify if has @_catch_value_error)
    - `_process_reconcile_frontmatter` (verify if has @_catch_value_error)
 
