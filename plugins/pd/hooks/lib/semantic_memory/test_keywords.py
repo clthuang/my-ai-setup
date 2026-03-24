@@ -382,3 +382,147 @@ class TestConstants:
         assert "{description}" in KEYWORD_PROMPT
         assert "{reasoning}" in KEYWORD_PROMPT
         assert "{category}" in KEYWORD_PROMPT
+
+
+# ---------------------------------------------------------------------------
+# Backfill tests (Tasks 3.1.1 / 3.1.2, AC-5)
+# ---------------------------------------------------------------------------
+
+
+class TestBackfillKeywords:
+    """Tests for _backfill_keywords and CLI dispatch."""
+
+    def _make_db(self, tmp_path):
+        """Create a MemoryDatabase with auto-migrations."""
+        from semantic_memory.database import MemoryDatabase
+
+        db = MemoryDatabase(str(tmp_path / "memory.db"))
+        return db
+
+    def _insert_entry(self, db, entry_id, name, description, keywords="[]",
+                      reasoning="", category="patterns"):
+        """Insert a minimal test entry directly."""
+        import uuid as _uuid
+
+        db._conn.execute(
+            """INSERT OR IGNORE INTO entries
+               (id, name, description, reasoning, category, keywords,
+                source, source_project, confidence, created_at, updated_at,
+                source_hash, created_timestamp_utc)
+               VALUES (?, ?, ?, ?, ?, ?, 'manual', 'test', 'medium',
+                       '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z',
+                       ?, 1704067200.0)""",
+            (entry_id, name, description, reasoning, category, keywords,
+             entry_id),
+        )
+        db._conn.commit()
+
+    def test_backfill_processes_empty_keyword_entries(self, tmp_path):
+        """Backfill should extract keywords for entries with keywords='[]'."""
+        from semantic_memory.writer import _backfill_keywords
+
+        db = self._make_db(tmp_path)
+        self._insert_entry(db, "e1", "SQLite FTS5 indexing patterns",
+                           "Use FTS5 for full-text search in sqlite databases")
+
+        entry_before = db.get_entry("e1")
+        assert entry_before["keywords"] == "[]"
+
+        _backfill_keywords(db, {})
+
+        entry_after = db.get_entry("e1")
+        kws = json.loads(entry_after["keywords"])
+        assert len(kws) >= 1  # Should have extracted keywords
+        assert entry_after["keywords"] != "[]"
+        db.close()
+
+    def test_backfill_skips_entries_with_existing_keywords(self, tmp_path):
+        """Backfill should not modify entries that already have keywords."""
+        from semantic_memory.writer import _backfill_keywords
+
+        db = self._make_db(tmp_path)
+        existing_kws = '["sqlite", "fts5", "indexing"]'
+        self._insert_entry(db, "e1", "test entry", "some desc",
+                           keywords=existing_kws)
+
+        _backfill_keywords(db, {})
+
+        entry_after = db.get_entry("e1")
+        assert entry_after["keywords"] == existing_kws
+        db.close()
+
+    def test_backfill_continues_on_per_entry_failure(self, tmp_path):
+        """Backfill should skip failing entries and continue with the rest."""
+        from semantic_memory.writer import _backfill_keywords
+
+        db = self._make_db(tmp_path)
+        self._insert_entry(db, "e1", "SQLite FTS5 content-hash patterns",
+                           "FTS5 sqlite content-hash indexing")
+        self._insert_entry(db, "e2", "pytest fixture patterns",
+                           "Use pytest fixtures for database testing")
+
+        # Patch extract_keywords to fail on first call, succeed on second
+        call_count = 0
+
+        def flaky_extract(name, desc, reasoning, category, config=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("Simulated failure")
+            return ["pytest", "fixtures", "testing"]
+
+        with patch("semantic_memory.writer.extract_keywords", side_effect=flaky_extract):
+            _backfill_keywords(db, {})
+
+        # First entry should still be empty (failed), second should be populated
+        e1 = db.get_entry("e1")
+        e2 = db.get_entry("e2")
+        assert e1["keywords"] == "[]"
+        assert json.loads(e2["keywords"]) == ["pytest", "fixtures", "testing"]
+        db.close()
+
+    def test_cli_dispatch_routes_to_backfill(self, tmp_path):
+        """main() with --action backfill-keywords should call _backfill_keywords."""
+        from semantic_memory.writer import main
+
+        db_dir = tmp_path / "store"
+        db_dir.mkdir()
+        # Create a DB so the action has something to open
+        db = self._make_db(db_dir)
+        db.close()
+
+        with patch("semantic_memory.writer._backfill_keywords") as mock_bf:
+            with pytest.raises(SystemExit) as exc_info:
+                with patch(
+                    "sys.argv",
+                    ["writer", "--action", "backfill-keywords",
+                     "--global-store", str(db_dir)],
+                ):
+                    main()
+            assert exc_info.value.code == 0
+            mock_bf.assert_called_once()
+
+    def test_ac5_backfill_keywords_processes_empty(self, tmp_path):
+        """AC-5: backfill-keywords processes entries with empty keywords."""
+        from semantic_memory.writer import _backfill_keywords
+
+        db = self._make_db(tmp_path)
+        # Insert multiple entries with empty keywords
+        self._insert_entry(db, "a1",
+                           "Hook subprocess stderr suppression",
+                           "Always suppress stderr in hook subprocess calls to prevent JSON corruption")
+        self._insert_entry(db, "a2",
+                           "Git branch cleanup after retrospective",
+                           "Run retrospective before deleting branch so context is available")
+        self._insert_entry(db, "a3",
+                           "Entity Registry batch INSERT performance",
+                           "Use register_entities_batch for bulk entity registration in sqlite")
+
+        _backfill_keywords(db, {})
+
+        for eid in ("a1", "a2", "a3"):
+            entry = db.get_entry(eid)
+            kws = json.loads(entry["keywords"])
+            assert len(kws) >= 1, f"Entry {eid} should have keywords after backfill"
+            assert entry["keywords"] != "[]"
+        db.close()

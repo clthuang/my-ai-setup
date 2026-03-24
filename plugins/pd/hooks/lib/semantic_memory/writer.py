@@ -20,6 +20,7 @@ from semantic_memory.config import read_config
 from semantic_memory.database import MemoryDatabase
 from semantic_memory.embedding import create_provider
 
+from semantic_memory.keywords import extract_keywords
 from semantic_memory import VALID_CATEGORIES
 
 
@@ -144,13 +145,59 @@ def _process_pending_embeddings(db: MemoryDatabase, provider: object) -> int:
     return count
 
 
+def _backfill_keywords(db: MemoryDatabase, config: dict) -> None:
+    """Backfill keywords for all entries with empty keywords.
+
+    Iterates entries where keywords = '[]', runs extract_keywords() on each,
+    and calls db.update_keywords(). Progress output every 50 entries.
+    Continues on per-entry failures (logs and skips).
+    """
+    all_entries = db.get_all_entries()
+    empty = [e for e in all_entries if e.get("keywords", "[]") == "[]"]
+
+    total = len(empty)
+    if total == 0:
+        print("No entries with empty keywords found.", file=sys.stderr)
+        return
+
+    print(f"Backfilling keywords for {total} entries...", file=sys.stderr)
+    processed = 0
+    failed = 0
+
+    for i, entry in enumerate(empty, 1):
+        try:
+            keywords = extract_keywords(
+                entry.get("name", ""),
+                entry.get("description", ""),
+                entry.get("reasoning", ""),
+                entry.get("category", ""),
+            )
+            if keywords:
+                db.update_keywords(entry["id"], json.dumps(keywords))
+            processed += 1
+        except Exception as exc:
+            failed += 1
+            print(
+                f"Warning: backfill failed for {entry['id']}: {exc}",
+                file=sys.stderr,
+            )
+
+        if i % 50 == 0:
+            print(f"  Progress: {i}/{total} entries processed", file=sys.stderr)
+
+    print(
+        f"Backfill complete: {processed} updated, {failed} failed, {total} total",
+        file=sys.stderr,
+    )
+
+
 def main() -> None:
     """CLI entry point for the writer."""
     parser = argparse.ArgumentParser(description="Semantic memory writer CLI")
     parser.add_argument(
         "--action",
         required=True,
-        choices=["upsert", "delete"],
+        choices=["upsert", "delete", "backfill-keywords"],
         help="Action to perform",
     )
     parser.add_argument(
@@ -197,6 +244,24 @@ def main() -> None:
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             sys.exit(1)
+        except Exception as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(2)
+        finally:
+            db.close()
+
+    # Handle backfill-keywords action
+    if args.action == "backfill-keywords":
+        db_path = os.path.join(args.global_store, "memory.db")
+        try:
+            db = MemoryDatabase(db_path)
+        except Exception as exc:
+            print(f"Error opening database: {exc}", file=sys.stderr)
+            sys.exit(2)
+        try:
+            config = read_config(args.project_root)
+            _backfill_keywords(db, config)
+            sys.exit(0)
         except Exception as exc:
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(2)
