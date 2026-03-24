@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import sqlite3
 import sys
+from datetime import datetime, timezone
 from typing import Callable
 
 
@@ -435,9 +437,6 @@ class MemoryDatabase:
         Raises ValueError if the entry does not exist.
         Returns the updated entry dict.
         """
-        import json
-        from datetime import datetime, timezone
-
         self._conn.execute("BEGIN IMMEDIATE")
         try:
             row = self._conn.execute(
@@ -505,27 +504,29 @@ class MemoryDatabase:
 
         return None
 
-    def increment_influence(self, entry_id: str) -> None:
-        """Increment influence_count by 1 for the given entry."""
-        self._conn.execute(
-            "UPDATE entries SET influence_count = influence_count + 1 WHERE id = ?",
-            (entry_id,),
-        )
-        self._conn.commit()
-
-    def log_influence(
-        self, entry_id: str, agent_role: str, feature_type_id: str | None
+    def record_influence(
+        self,
+        entry_id: str,
+        agent_role: str,
+        feature_type_id: str | None,
     ) -> None:
-        """Insert a row into influence_log with current ISO timestamp."""
-        from datetime import datetime, timezone
-
+        """Atomically increment influence_count and log the influence event."""
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        self._conn.execute(
-            "INSERT INTO influence_log (entry_id, agent_role, feature_type_id, timestamp) "
-            "VALUES (?, ?, ?, ?)",
-            (entry_id, agent_role, feature_type_id, now),
-        )
-        self._conn.commit()
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            self._conn.execute(
+                "UPDATE entries SET influence_count = influence_count + 1 WHERE id = ?",
+                (entry_id,),
+            )
+            self._conn.execute(
+                "INSERT INTO influence_log (entry_id, agent_role, feature_type_id, timestamp) "
+                "VALUES (?, ?, ?, ?)",
+                (entry_id, agent_role, feature_type_id, now),
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
 
     def get_source_hash(self, entry_id: str) -> str | None:
         """Return the source_hash for an entry, or ``None`` if missing."""

@@ -1459,37 +1459,35 @@ class TestFindEntryByName:
 
 
 # ---------------------------------------------------------------------------
-# Test: increment_influence and log_influence (Task 2.2.2)
+# Test: record_influence (Task 2.2.2 — combined atomic method)
 # ---------------------------------------------------------------------------
 
 
-class TestIncrementInfluence:
+class TestRecordInfluence:
     def test_increments_influence_count(self, db: MemoryDatabase):
-        """increment_influence should increase influence_count by 1."""
+        """record_influence should increase influence_count by 1."""
         db.upsert_entry(_make_entry(id="e1"))
         assert db.get_entry("e1")["influence_count"] == 0
 
-        db.increment_influence("e1")
+        db.record_influence("e1", "implementer", "feature:057")
         assert db.get_entry("e1")["influence_count"] == 1
 
-        db.increment_influence("e1")
+        db.record_influence("e1", "reviewer", "feature:057")
         assert db.get_entry("e1")["influence_count"] == 2
 
     def test_increment_only_affects_target(self, db: MemoryDatabase):
-        """increment_influence should not affect other entries."""
+        """record_influence should not affect other entries."""
         db.upsert_entry(_make_entry(id="e1"))
         db.upsert_entry(_make_entry(id="e2", name="Other"))
 
-        db.increment_influence("e1")
+        db.record_influence("e1", "implementer", "feature:057")
         assert db.get_entry("e1")["influence_count"] == 1
         assert db.get_entry("e2")["influence_count"] == 0
 
-
-class TestLogInfluence:
     def test_inserts_influence_log_row(self, db: MemoryDatabase):
-        """log_influence should insert a row into influence_log."""
+        """record_influence should insert a row into influence_log."""
         db.upsert_entry(_make_entry(id="e1"))
-        db.log_influence("e1", "implementer", "feature:057-memory")
+        db.record_influence("e1", "implementer", "feature:057-memory")
 
         rows = db._conn.execute(
             "SELECT entry_id, agent_role, feature_type_id, timestamp "
@@ -1502,9 +1500,9 @@ class TestLogInfluence:
         assert rows[0][3] is not None  # timestamp present
 
     def test_inserts_with_null_feature_type_id(self, db: MemoryDatabase):
-        """log_influence should accept None for feature_type_id."""
+        """record_influence should accept None for feature_type_id."""
         db.upsert_entry(_make_entry(id="e1"))
-        db.log_influence("e1", "reviewer", None)
+        db.record_influence("e1", "reviewer", None)
 
         rows = db._conn.execute(
             "SELECT feature_type_id FROM influence_log"
@@ -1512,12 +1510,12 @@ class TestLogInfluence:
         assert len(rows) == 1
         assert rows[0][0] is None
 
-    def test_multiple_logs_accumulate(self, db: MemoryDatabase):
-        """log_influence should accumulate multiple rows for same entry."""
+    def test_multiple_records_accumulate(self, db: MemoryDatabase):
+        """record_influence should accumulate multiple rows for same entry."""
         db.upsert_entry(_make_entry(id="e1"))
-        db.log_influence("e1", "implementer", "feature:057")
-        db.log_influence("e1", "reviewer", "feature:057")
-        db.log_influence("e1", "implementer", "feature:058")
+        db.record_influence("e1", "implementer", "feature:057")
+        db.record_influence("e1", "reviewer", "feature:057")
+        db.record_influence("e1", "implementer", "feature:058")
 
         count = db._conn.execute(
             "SELECT COUNT(*) FROM influence_log WHERE entry_id = 'e1'"
