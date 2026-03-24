@@ -35,5 +35,6 @@
     }
   },
   "abandoned_reason": "Superseded by feature 012-two-plugin-coexistence",
-  "backlog_source": "00005"
+  "backlog_source": "00005",
+  "lastCompletedPhase": "implement"
 }
