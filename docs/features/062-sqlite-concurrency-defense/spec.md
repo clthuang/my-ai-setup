@@ -18,8 +18,8 @@ SQLite databases shared across multiple MCP server processes suffer write conten
 ### In Scope
 - Extract `_with_retry` and `_is_transient` from `workflow_state_server.py` into `plugins/pd/hooks/lib/sqlite_retry.py` as public `with_retry` and `is_transient` with parameterized server-name log prefix
 - Refactor `workflow_state_server.py` to import from `sqlite_retry.py`, removing its local `_with_retry` and `_is_transient` definitions
-- Apply `_with_retry` decorator to all write-path MCP handlers in `entity_server.py`
-- Apply `_with_retry` decorator to all write-path MCP handlers in `memory_server.py`
+- Apply `with_retry` (imported from `sqlite_retry.py`) decorator to all write-path MCP handlers in `entity_server.py`
+- Apply `with_retry` (imported from `sqlite_retry.py`) decorator to all write-path MCP handlers in `memory_server.py`
 - Wrap `cascade_unblock` + `rollup_parent` in `_run_cascade()` in a single `transaction()` block (Phase B atomicity only — Phase A/B separation preserved)
 - Audit `EntityDatabase` for multi-step `_commit()` paths outside `BEGIN IMMEDIATE` and wrap in `transaction()`
 - Standardize `busy_timeout` to 15000ms in `MemoryDatabase` (currently 5000ms)
@@ -83,7 +83,7 @@ SQLite databases shared across multiple MCP server processes suffer write conten
 - When a connection is opened
 - Then `PRAGMA busy_timeout = 15000` is set (previously 5000)
 - And all other database modules continue to use 15000ms
-- And a grep across all DB modules confirms no `busy_timeout` value other than 15000 exists
+- And a grep across production DB modules (excluding test files and `doctor/`) confirms no `busy_timeout` value other than 15000 exists. Doctor module uses intentionally short timeouts (2s-5s) for diagnostic purposes — excluded from standardization.
 - And the stale comment at `workflow_engine/engine.py:287` (claims "busy_timeout is inherited from EntityDatabase (5s)") is corrected to reflect the actual 15s value
 
 ### Concurrent-Write Integration Tests
