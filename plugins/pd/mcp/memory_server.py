@@ -363,18 +363,21 @@ async def store_memory(
     if _db is None:
         return "Error: database not initialized (server not started)"
 
-    return _process_store_memory(
-        db=_db,
-        provider=_provider,
-        name=name,
-        description=description,
-        reasoning=reasoning,
-        category=category,
-        references=references if references is not None else [],
-        confidence=confidence,
-        source_project=_project_root,
-        config=_config,
-    )
+    try:
+        return _process_store_memory(
+            db=_db,
+            provider=_provider,
+            name=name,
+            description=description,
+            reasoning=reasoning,
+            category=category,
+            references=references if references is not None else [],
+            confidence=confidence,
+            source_project=_project_root,
+            config=_config,
+        )
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
 
 
 @mcp.tool()
@@ -470,12 +473,15 @@ async def record_influence(
     if _db is None:
         return "Error: database not initialized (server not started)"
 
-    return _process_record_influence(
-        db=_db,
-        entry_name=entry_name,
-        agent_role=agent_role,
-        feature_type_id=feature_type_id,
-    )
+    try:
+        return _process_record_influence(
+            db=_db,
+            entry_name=entry_name,
+            agent_role=agent_role,
+            feature_type_id=feature_type_id,
+        )
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
 
 
 # ---------------------------------------------------------------------------
