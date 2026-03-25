@@ -127,7 +127,7 @@ graph TD
   5. Circuit breaker: if >8 multi-statement sequences found, stop and re-evaluate scope
   6. Document audit results as comments in code
 - **Test:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/ -v` — all 940+ tests pass
-- **Done when:** `grep -n '_commit()' database.py` output reviewed; no method outside `_in_transaction` context makes 2+ write SQL statements without a surrounding `transaction()`. Each wrapped method has comment: `# Audit 062: N write SQL statements — wrapped in transaction() for BEGIN IMMEDIATE`. All 940+ entity registry tests pass.
+- **Done when:** Audit comment exists in `database.py` listing all `_commit()` sites found and their wrapping status (format: `# Audit 062: N _commit() call sites found, M wrapped in transaction()`). Each wrapped method has inline comment: `# Audit 062: N write SQL statements — wrapped in transaction() for BEGIN IMMEDIATE`. All 940+ entity registry tests pass.
 
 ### Stage 2: Import Pattern Validation
 
@@ -153,7 +153,7 @@ graph TD
 - **Blocks:** Task 4.1
 - **Files:** `plugins/pd/hooks/lib/entity_registry/server_helpers.py`
 - **Do:**
-  1. Add import: `from sqlite_retry import with_retry` (works because `hooks/lib` is on `sys.path` via entity_registry's package init)
+  1. Add import: `from sqlite_retry import with_retry` (works because `entity_server.py` adds `hooks/lib` to `sys.path` via `_hooks_lib` at lines 14-16 BEFORE importing `server_helpers` — same mechanism as `workflow_state_server.py`. Verify: `server_helpers.py` already uses `from entity_registry.metadata import ...` which requires `hooks/lib` on path.)
   2. Add `@with_retry("entity")` decorator to `_process_register_entity`
   3. Add `@with_retry("entity")` decorator to `_process_set_parent`
   4. Run entity registry tests after each decoration
@@ -233,7 +233,7 @@ graph TD
   3. Write test: 3+ processes simultaneously write to memory DB via multiprocessing — all succeed within 30 seconds
   4. Use `multiprocessing.Event()` as barrier for synchronized start
   5. Post-test assertion: row count equals N * M (no missing/duplicate writes)
-  6. Write test: spawn a process holding exclusive lock (`BEGIN EXCLUSIVE` without committing) for 10s, then attempt a write from `with_retry` with `max_attempts=1` — confirm `sqlite3.OperationalError` with "locked" is raised (not unhandled crash)
+  6. Write test: spawn a process holding exclusive lock (`BEGIN EXCLUSIVE` without committing, held for 3s minimum). Attempt a write using `with_retry("test", max_attempts=1, backoff=(0.1,))` — confirms zero-retry path raises `sqlite3.OperationalError` with "locked" immediately without hanging. The 3s hold ensures lock is still active when the write attempt occurs.
   7. Each test creates temporary DB file via `tempfile` — no shared state
 - **Test:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/test_sqlite_retry_integration.py -v --timeout=60` — all pass
 - **Done when:** 3+ integration tests pass; concurrent writes verified for both entity and memory DBs
@@ -259,7 +259,7 @@ graph TD
 
 ## Summary
 
-- Total tasks: 14
+- Total tasks: 13
 - Parallel groups: 4
 - Critical path: Task 1.1 → 1.2 → 2.1 → 3.2 → 3.3 → 4.1 → 4.2
 - Max parallelism: 4 (Group 1: Tasks 1.1, 1.3, 1.4, 1.5)
