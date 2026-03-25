@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.13.24] - 2026-03-26
+
 ### Added
 - Memory search results are now embedded directly inside subagent Task prompt fields across all 5 workflow commands (specify, design, create-plan, create-tasks, implement) — past learnings are available to the subagent as part of its context rather than as a preamble outside the Task block
 - Post-dispatch influence tracking — all 5 workflow commands call `record_influence` after each dispatch to improve future memory ranking based on what was actually used
