@@ -18,3 +18,4 @@ class RetrievalResult:
     vector_candidate_count: int = 0
     fts5_candidate_count: int = 0
     context_query: str | None = None
+    project: str | None = None

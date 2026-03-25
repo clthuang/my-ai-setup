@@ -112,6 +112,10 @@ class RankingEngine:
             scored_entry["final_score"] = final_score
             scored.append(scored_entry)
 
+        # --- Project-scoped two-tier blend (when project is set) ----------
+        if result.project is not None:
+            return self._project_blend(scored, entries, result.project, limit)
+
         # --- Category-balanced selection ----------------------------------
         return self._balanced_select(scored, limit)
 
@@ -142,9 +146,32 @@ class RankingEngine:
         raw_recency = 1.0 / (1.0 + days_since / 30.0)
         return math.log(raw_recency + 1)
 
-    def _recall_frequency(self, recall_count: int) -> float:
-        """Compute recall frequency: ``min(recall_count / 10.0, 1.0)``."""
-        return min(recall_count / 10.0, 1.0)
+    def _recall_frequency(
+        self,
+        recall_count: int,
+        last_recalled_at: str | None = None,
+        now: datetime | None = None,
+    ) -> float:
+        """Compute recall frequency with optional time decay.
+
+        When *now* is ``None`` (backward compat), returns the base
+        formula ``min(recall_count / 10.0, 1.0)`` unchanged.
+
+        When *now* is provided, applies a 14-day half-life decay
+        based on *last_recalled_at*.  Entries without a
+        ``last_recalled_at`` timestamp receive half credit.
+        """
+        base = min(recall_count / 10.0, 1.0)
+        if now is None:
+            return base  # backward compat
+        if last_recalled_at is None:
+            return base * 0.5  # legacy entries without timestamp
+        recalled = datetime.fromisoformat(last_recalled_at)
+        if recalled.tzinfo is None:
+            recalled = recalled.replace(tzinfo=timezone.utc)
+        days_since = max((now - recalled).total_seconds() / 86400.0, 0.0)
+        decay = 1.0 / (1.0 + days_since / 14.0)
+        return base * decay
 
     def _influence_score(self, entry: dict) -> float:
         """Compute influence score: ``min(influence_count / 10.0, 1.0)``."""
@@ -219,10 +246,40 @@ class RankingEngine:
 
         confidence = self._confidence_value(entry.get("confidence", "medium"))
         recency = self._recency_decay(entry.get("updated_at", now.isoformat()), now)
-        recall = self._recall_frequency(entry.get("recall_count", 0))
+        recall = self._recall_frequency(entry.get("recall_count", 0), entry.get("last_recalled_at"), now)
         influence = self._influence_score(entry)
 
         return 0.25 * norm_obs + 0.15 * confidence + 0.25 * recency + 0.15 * recall + 0.20 * influence
+
+    def _project_blend(
+        self,
+        scored: list[dict],
+        entries: dict[str, dict],
+        project: str,
+        limit: int,
+    ) -> list[dict]:
+        """Two-tier blend: project-scoped + universal, deduplicated.
+
+        1. Split scored by source_project match.
+        2. Select top limit//2 from project tier via _balanced_select.
+        3. Fill remainder from universal (all entries, excluding selected).
+        4. Merge by final_score descending.
+        """
+        project_scored = [
+            s for s in scored
+            if entries.get(s["id"], {}).get("source_project") == project
+        ]
+        project_half = limit // 2
+        project_selected = self._balanced_select(list(project_scored), project_half)
+        selected_ids = {s["id"] for s in project_selected}
+
+        remainder = limit - len(project_selected)
+        universal_pool = [s for s in scored if s["id"] not in selected_ids]
+        universal_selected = self._balanced_select(list(universal_pool), remainder)
+
+        merged = project_selected + universal_selected
+        merged.sort(key=lambda e: e["final_score"], reverse=True)
+        return merged
 
     @staticmethod
     def _balanced_select(scored: list[dict], limit: int) -> list[dict]:

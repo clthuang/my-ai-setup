@@ -582,24 +582,32 @@ class EntityWorkflowEngine:
         unblocked: list[str] = []
         parent_progress: float | None = None
 
-        # cascade_unblock already commits internally, so we call it directly
-        unblocked = self._dep_manager.cascade_unblock(
-            self._db, entity_uuid
-        )
+        # Transaction scope: only the two write operations
+        with self._db.transaction():
+            unblocked = self._dep_manager.cascade_unblock(
+                self._db, entity_uuid
+            )
+            rollup_parent(self._db, entity_uuid)
 
-        # rollup_parent also commits internally via update_entity
-        rollup_parent(self._db, entity_uuid)
+        # Read-only operations OUTSIDE transaction (no write lock held).
+        # Note: compute_progress may read slightly stale data if another writer
+        # commits between transaction end and this read. Acceptable —
+        # stale progress self-corrects on the next reconciliation cycle.
+        try:
+            entity = self._db.get_entity_by_uuid(entity_uuid)
+            if entity is not None:
+                parent_uuid = entity.get("parent_uuid")
+                if parent_uuid is not None:
+                    parent_progress = compute_progress(self._db, parent_uuid)
 
-        # Compute parent progress for the result
-        entity = self._db.get_entity_by_uuid(entity_uuid)
-        if entity is not None:
-            parent_uuid = entity.get("parent_uuid")
-            if parent_uuid is not None:
-                parent_progress = compute_progress(self._db, parent_uuid)
-
-        # Notification push (optional, after DB commits)
-        if self._notification_queue is not None:
-            self._push_notifications(entity_uuid, unblocked)
+            if self._notification_queue is not None:
+                self._push_notifications(entity_uuid, unblocked)
+        except Exception:
+            import sys
+            print(
+                f"cascade post-transaction error (non-fatal): {sys.exc_info()[1]}",
+                file=sys.stderr,
+            )
 
         return unblocked, parent_progress
 

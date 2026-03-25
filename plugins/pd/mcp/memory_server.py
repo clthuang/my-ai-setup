@@ -28,6 +28,8 @@ from semantic_memory.dedup import check_duplicate
 from semantic_memory.keywords import extract_keywords
 from semantic_memory.writer import _embed_text_for_entry, _process_pending_embeddings
 
+from sqlite_retry import with_retry
+
 from mcp.server.fastmcp import FastMCP
 
 # ---------------------------------------------------------------------------
@@ -35,6 +37,7 @@ from mcp.server.fastmcp import FastMCP
 # ---------------------------------------------------------------------------
 
 
+@with_retry("memory")
 def _process_store_memory(
     db: MemoryDatabase,
     provider: EmbeddingProvider | None,
@@ -125,7 +128,7 @@ def _process_store_memory(
     }
 
     # Pre-check before upsert to distinguish new vs. reinforced return message
-    # Safe: MCP server is single-threaded with one DB connection; no concurrent writes possible
+    # Note: other MCP servers may write concurrently; retry decorator handles contention
     existing = db.get_entry(entry_id)
 
     # -- Upsert into DB --
@@ -166,6 +169,7 @@ def _process_search_memory(
     limit: int = 10,
     category: str | None = None,
     brief: bool = False,
+    project: str | None = None,
 ) -> str:
     """Search the semantic memory database for relevant entries.
 
@@ -176,6 +180,8 @@ def _process_search_memory(
     brief:
         If True, return compact plain-text (one line per entry) instead of
         full Markdown.
+    project:
+        If set, apply two-tier project-scoped blending in ranking.
 
     Returns formatted results or an error string. Never raises.
     """
@@ -183,7 +189,7 @@ def _process_search_memory(
         return "Error: query must be non-empty"
 
     pipeline = RetrievalPipeline(db, provider, config)
-    result = pipeline.retrieve(query.strip())
+    result = pipeline.retrieve(query.strip(), project=project)
 
     all_entries = db.get_all_entries()
 
@@ -231,6 +237,7 @@ def _process_search_memory(
 # ---------------------------------------------------------------------------
 
 
+@with_retry("memory")
 def _process_record_influence(
     db: MemoryDatabase,
     entry_name: str,
@@ -249,6 +256,22 @@ def _process_record_influence(
 
     db.record_influence(entry["id"], agent_role, feature_type_id)
     return f"Recorded influence: {entry_name} by {agent_role}"
+
+
+# ---------------------------------------------------------------------------
+# Delete processing function (testable without MCP)
+# ---------------------------------------------------------------------------
+
+
+@with_retry("memory")
+def _process_delete_memory(db: MemoryDatabase, entry_id: str) -> str:
+    """Delete a memory entry by ID.
+
+    Returns confirmation JSON or error JSON.  Never raises for expected
+    errors (entry not found, etc.).
+    """
+    db.delete_entry(entry_id)
+    return json.dumps({"result": f"Deleted memory: {entry_id}"})
 
 
 # ---------------------------------------------------------------------------
@@ -340,18 +363,21 @@ async def store_memory(
     if _db is None:
         return "Error: database not initialized (server not started)"
 
-    return _process_store_memory(
-        db=_db,
-        provider=_provider,
-        name=name,
-        description=description,
-        reasoning=reasoning,
-        category=category,
-        references=references if references is not None else [],
-        confidence=confidence,
-        source_project=_project_root,
-        config=_config,
-    )
+    try:
+        return _process_store_memory(
+            db=_db,
+            provider=_provider,
+            name=name,
+            description=description,
+            reasoning=reasoning,
+            category=category,
+            references=references if references is not None else [],
+            confidence=confidence,
+            source_project=_project_root,
+            config=_config,
+        )
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
 
 
 @mcp.tool()
@@ -360,6 +386,7 @@ async def search_memory(
     limit: int = 10,
     category: str | None = None,
     brief: bool = False,
+    project: str | None = None,
 ) -> str:
     """Search long-term memory for relevant learnings.
 
@@ -380,6 +407,10 @@ async def search_memory(
     brief:
         Return compact plain-text (one line per entry) instead of
         full Markdown detail.  Default: False.
+    project:
+        Filter results with two-tier project-scoped blending.
+        Top N/2 from this project, remainder from all projects.
+        Default: None (no project filtering).
 
     Returns matching memories ranked by relevance.
     """
@@ -394,6 +425,7 @@ async def search_memory(
         limit=limit,
         category=category,
         brief=brief,
+        project=project,
     )
 
 
@@ -411,8 +443,7 @@ async def delete_memory(entry_id: str) -> str:
     if _db is None:
         return "Error: database not initialized (server not started)"
     try:
-        _db.delete_entry(entry_id)
-        return json.dumps({"result": f"Deleted memory: {entry_id}"})
+        return _process_delete_memory(db=_db, entry_id=entry_id)
     except Exception as exc:
         return json.dumps({"error": str(exc)})
 
@@ -442,12 +473,15 @@ async def record_influence(
     if _db is None:
         return "Error: database not initialized (server not started)"
 
-    return _process_record_influence(
-        db=_db,
-        entry_name=entry_name,
-        agent_role=agent_role,
-        feature_type_id=feature_type_id,
-    )
+    try:
+        return _process_record_influence(
+            db=_db,
+            entry_name=entry_name,
+            agent_role=agent_role,
+            feature_type_id=feature_type_id,
+        )
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
 
 
 # ---------------------------------------------------------------------------

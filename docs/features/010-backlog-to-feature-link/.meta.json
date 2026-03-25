@@ -45,5 +45,6 @@
       "completed": "2026-01-31T13:45:00Z",
       "iterations": 1
     }
-  }
+  },
+  "lastCompletedPhase": "implement"
 }

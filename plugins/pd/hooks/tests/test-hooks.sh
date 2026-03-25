@@ -8,6 +8,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 HOOKS_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # Walk up to find repo root (has .git directory)
 PROJECT_ROOT="$(cd "${HOOKS_DIR}" && while [[ ! -d .git ]] && [[ $PWD != / ]]; do cd ..; done && pwd)"
+# Plugin venv python — the reference for sentinel content in tests
+PLUGIN_VENV_PYTHON="${HOOKS_DIR}/../.venv/bin/python"
+if [[ -x "$PLUGIN_VENV_PYTHON" ]]; then
+    SENTINEL_PYTHON="$(cd "$(dirname "$PLUGIN_VENV_PYTHON")" && pwd)/python"
+    SENTINEL_VERSION=$("$SENTINEL_PYTHON" -c "import sys; print('{0}.{1}'.format(sys.version_info.major, sys.version_info.minor))" 2>/dev/null || echo "3.14")
+else
+    # Fallback: system python3 with hardcoded version (CI may not have venv)
+    SENTINEL_PYTHON=$(command -v python3)
+    SENTINEL_VERSION="3.14"
+fi
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -2304,11 +2314,8 @@ test_meta_json_guard_sentinel_valid_content() {
     mkdir -p "$sentinel_dir"
 
     # Write sentinel with valid content (real python path)
-    local real_python
-    real_python=$(command -v python3)
-    local real_version
-    real_version=$(python3 -c "import sys; print('{0}.{1}'.format(sys.version_info.major, sys.version_info.minor))" 2>/dev/null)
-    echo "$real_python:$real_version" > "$sentinel_dir/.bootstrap-complete"
+    # Use plugin venv python (the actual sentinel reference)
+    echo "$SENTINEL_PYTHON:$SENTINEL_VERSION" > "$sentinel_dir/.bootstrap-complete"
 
     local output
     output=$(echo '{"tool_name":"Write","tool_input":{"file_path":"docs/features/042-foo/.meta.json","content":"{}"}}' | HOME="$META_GUARD_TMPDIR" "${HOOKS_DIR}/meta-json-guard.sh" 2>/dev/null)
@@ -2356,8 +2363,8 @@ test_meta_json_guard_sentinel_old_version() {
 
     # Write sentinel with valid path but old version
     local real_python
-    real_python=$(command -v python3)
-    echo "$real_python:3.9" > "$sentinel_dir/.bootstrap-complete"
+    # Intentionally low version to test version-too-low degradation
+    echo "$SENTINEL_PYTHON:3.9" > "$sentinel_dir/.bootstrap-complete"
 
     local output
     output=$(echo '{"tool_name":"Write","tool_input":{"file_path":"docs/features/042-foo/.meta.json","content":"{}"}}' | HOME="$META_GUARD_TMPDIR" "${HOOKS_DIR}/meta-json-guard.sh" 2>/dev/null) || true
@@ -2457,11 +2464,8 @@ test_meta_json_guard_maintenance_mode_allows() {
     # Set up valid sentinel so guard would normally deny
     local sentinel_dir="$META_GUARD_TMPDIR/.claude/plugins/cache/test-org/pd-test/1.0.0/.venv"
     mkdir -p "$sentinel_dir"
-    local real_python
-    real_python=$(command -v python3)
-    local real_version
-    real_version=$(python3 -c "import sys; print('{0}.{1}'.format(sys.version_info.major, sys.version_info.minor))" 2>/dev/null)
-    echo "$real_python:$real_version" > "$sentinel_dir/.bootstrap-complete"
+    # Use plugin venv python (the actual sentinel reference)
+    echo "$SENTINEL_PYTHON:$SENTINEL_VERSION" > "$sentinel_dir/.bootstrap-complete"
 
     local output
     output=$(echo '{"tool_name":"Write","tool_input":{"file_path":"docs/features/041-foo/.meta.json","content":"{}"}}' | PD_MAINTENANCE=1 HOME="$META_GUARD_TMPDIR" "${HOOKS_DIR}/meta-json-guard.sh" 2>/dev/null)
@@ -2482,11 +2486,8 @@ test_meta_json_guard_no_maintenance_blocks() {
     setup_meta_guard_test
     local sentinel_dir="$META_GUARD_TMPDIR/.claude/plugins/cache/test-org/pd-test/1.0.0/.venv"
     mkdir -p "$sentinel_dir"
-    local real_python
-    real_python=$(command -v python3)
-    local real_version
-    real_version=$(python3 -c "import sys; print('{0}.{1}'.format(sys.version_info.major, sys.version_info.minor))" 2>/dev/null)
-    echo "$real_python:$real_version" > "$sentinel_dir/.bootstrap-complete"
+    # Use plugin venv python (the actual sentinel reference)
+    echo "$SENTINEL_PYTHON:$SENTINEL_VERSION" > "$sentinel_dir/.bootstrap-complete"
 
     local output
     output=$(echo '{"tool_name":"Write","tool_input":{"file_path":"docs/features/041-foo/.meta.json","content":"{}"}}' | HOME="$META_GUARD_TMPDIR" "${HOOKS_DIR}/meta-json-guard.sh" 2>/dev/null)
@@ -2507,11 +2508,8 @@ test_meta_json_guard_maintenance_mode_zero_blocks() {
     setup_meta_guard_test
     local sentinel_dir="$META_GUARD_TMPDIR/.claude/plugins/cache/test-org/pd-test/1.0.0/.venv"
     mkdir -p "$sentinel_dir"
-    local real_python
-    real_python=$(command -v python3)
-    local real_version
-    real_version=$(python3 -c "import sys; print('{0}.{1}'.format(sys.version_info.major, sys.version_info.minor))" 2>/dev/null)
-    echo "$real_python:$real_version" > "$sentinel_dir/.bootstrap-complete"
+    # Use plugin venv python (the actual sentinel reference)
+    echo "$SENTINEL_PYTHON:$SENTINEL_VERSION" > "$sentinel_dir/.bootstrap-complete"
 
     local output
     output=$(echo '{"tool_name":"Write","tool_input":{"file_path":"docs/features/041-foo/.meta.json","content":"{}"}}' | PD_MAINTENANCE=0 HOME="$META_GUARD_TMPDIR" "${HOOKS_DIR}/meta-json-guard.sh" 2>/dev/null)

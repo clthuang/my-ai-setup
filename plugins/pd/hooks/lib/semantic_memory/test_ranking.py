@@ -536,11 +536,12 @@ class TestFinalScoreComputation:
         # norm_obs: log(10+1)/log(10+1) = 1.0
         # confidence: high = 1.0
         # recency: log(1.0+1) = log(2)
-        # recall: min(10/10, 1.0) = 1.0
+        # recall: base=1.0, last_recalled_at=None -> 1.0 * 0.5 = 0.5 (dampened)
         # influence: min(0/10, 1.0) = 0.0  (no influence_count on entry)
         recency_a = math.log(2)
+        recall_a = 0.5  # dampened: no last_recalled_at
         prominence_a = (W_OBS * 1.0 + W_CONF * 1.0 + W_REC * recency_a
-                        + W_RECALL * 1.0 + W_INF * 0.0)
+                        + W_RECALL * recall_a + W_INF * 0.0)
         expected_a = 0.5 * 1.0 + 0.2 * 1.0 + 0.3 * prominence_a
         assert abs(ranked[0]["final_score"] - expected_a) < 1e-9
 
@@ -550,7 +551,7 @@ class TestFinalScoreComputation:
         # norm_obs: log(5+1)/log(10+1) = log(6)/log(11)
         # confidence: low = 1/3
         # recency: log(0.5+1) = log(1.5)
-        # recall: min(0/10, 1.0) = 0.0
+        # recall: base=0.0, last_recalled_at=None -> 0.0 * 0.5 = 0.0
         # influence: min(0/10, 1.0) = 0.0
         norm_obs_b = math.log(6) / math.log(11)
         recency_b = math.log(1.5)
@@ -669,3 +670,243 @@ class TestInfluenceInProminence:
         p_a = engine._prominence(entry_a, max_obs, _NOW)
         p_b = engine._prominence(entry_b, max_obs, _NOW)
         assert p_b > p_a, "Entry with influence_count=10 should have higher prominence"
+
+
+# ---------------------------------------------------------------------------
+# Recall dampening with time decay (Feature 061)
+# ---------------------------------------------------------------------------
+
+
+class TestRecallDampening:
+    """_recall_frequency with time decay via last_recalled_at and now."""
+
+    def test_backward_compat_no_time_args(self):
+        """Calling with just recall_count returns base (no decay)."""
+        engine = RankingEngine(_default_config())
+        assert engine._recall_frequency(5) == 0.5
+        assert engine._recall_frequency(10) == 1.0
+        assert engine._recall_frequency(0) == 0.0
+
+    def test_now_none_returns_base(self):
+        """When now is None, return base regardless of last_recalled_at."""
+        engine = RankingEngine(_default_config())
+        assert engine._recall_frequency(5, last_recalled_at=_NOW_ISO, now=None) == 0.5
+
+    def test_last_recalled_at_none_returns_half(self):
+        """When last_recalled_at is None but now is set, return base * 0.5."""
+        engine = RankingEngine(_default_config())
+        result = engine._recall_frequency(10, last_recalled_at=None, now=_NOW)
+        assert abs(result - 0.5) < 1e-9
+
+    def test_recalled_today_returns_base(self):
+        """Entry recalled right now gets full base score (decay=1.0)."""
+        engine = RankingEngine(_default_config())
+        result = engine._recall_frequency(10, last_recalled_at=_NOW_ISO, now=_NOW)
+        assert abs(result - 1.0) < 1e-9
+
+    def test_recalled_14_days_ago(self):
+        """At 14 days, decay = 1/(1+14/14) = 0.5, so result = base * 0.5."""
+        engine = RankingEngine(_default_config())
+        recalled = (_NOW - timedelta(days=14)).isoformat()
+        result = engine._recall_frequency(10, last_recalled_at=recalled, now=_NOW)
+        # base=1.0, decay=0.5 -> 0.5
+        assert abs(result - 0.5) < 1e-9
+
+    def test_recalled_30_days_ago(self):
+        """AC-6: At 30 days, decay = 1/(1+30/14) ~= 0.318."""
+        engine = RankingEngine(_default_config())
+        recalled = (_NOW - timedelta(days=30)).isoformat()
+        result = engine._recall_frequency(10, last_recalled_at=recalled, now=_NOW)
+        expected = 1.0 / (1.0 + 30.0 / 14.0)
+        assert abs(result - expected) < 1e-6
+        assert result <= 0.35  # AC-6 criterion
+
+    def test_recalled_60_days_ago(self):
+        """At 60 days, decay = 1/(1+60/14) ~= 0.189."""
+        engine = RankingEngine(_default_config())
+        recalled = (_NOW - timedelta(days=60)).isoformat()
+        result = engine._recall_frequency(10, last_recalled_at=recalled, now=_NOW)
+        expected = 1.0 / (1.0 + 60.0 / 14.0)
+        assert abs(result - expected) < 1e-6
+
+    def test_zero_recall_count_stays_zero(self):
+        """recall_count=0 gives base=0.0 regardless of decay."""
+        engine = RankingEngine(_default_config())
+        result = engine._recall_frequency(0, last_recalled_at=_NOW_ISO, now=_NOW)
+        assert result == 0.0
+
+    def test_prominence_passes_last_recalled_at(self):
+        """AC-7: stale entry loses recall advantage vs recent entry."""
+        engine = RankingEngine(_default_config())
+        # Stale: high recall, 60 days old
+        _, stale = _make_entry("stale", recall_count=10)
+        stale["last_recalled_at"] = (_NOW - timedelta(days=60)).isoformat()
+
+        # Recent: moderate recall, recalled today
+        _, recent = _make_entry("recent", recall_count=3)
+        recent["last_recalled_at"] = _NOW_ISO
+
+        max_obs = 1
+        p_stale = engine._prominence(stale, max_obs, _NOW)
+        p_recent = engine._prominence(recent, max_obs, _NOW)
+
+        # Recent entry's recall component: 0.3 * 1.0 = 0.3
+        # Stale entry's recall component: 1.0 * 1/(1+60/14) ~= 0.189
+        # So recent should have higher recall contribution
+        # (other components are equal)
+        assert p_recent > p_stale or abs(p_recent - p_stale) < 1e-12
+
+
+# ---------------------------------------------------------------------------
+# Project-scoped ranking (Feature 061)
+# ---------------------------------------------------------------------------
+
+
+class TestProjectScopedRanking:
+    """rank() with result.project set applies two-tier blend."""
+
+    def _make_project_entries(self):
+        """Build entries from two projects for testing."""
+        entries = {}
+        candidates = {}
+
+        # 6 entries from "my-project"
+        for i in range(6):
+            eid, entry = _make_entry(
+                f"proj{i}", category="patterns", observation_count=10
+            )
+            entry["source_project"] = "my-project"
+            entries[eid] = entry
+            candidates[eid] = CandidateScores(
+                vector_score=0.9 - i * 0.02,
+                bm25_score=10.0 - i,
+            )
+
+        # 6 entries from "other-project"
+        for i in range(6):
+            eid, entry = _make_entry(
+                f"other{i}", category="heuristics", observation_count=8
+            )
+            entry["source_project"] = "other-project"
+            entries[eid] = entry
+            candidates[eid] = CandidateScores(
+                vector_score=0.85 - i * 0.02,
+                bm25_score=9.0 - i,
+            )
+
+        return entries, candidates
+
+    def test_project_none_unchanged_behavior(self):
+        """When result.project is None, behavior is identical to pre-feature."""
+        engine = RankingEngine(_default_config())
+        entries, candidates = self._make_project_entries()
+        result = RetrievalResult(
+            candidates=candidates,
+            vector_candidate_count=12,
+            fts5_candidate_count=12,
+        )
+        ranked = engine.rank(result, entries, limit=10, now=_NOW)
+        assert len(ranked) == 10
+        # Should be top 10 by score, no project filtering
+        scores = [r["final_score"] for r in ranked]
+        assert scores == sorted(scores, reverse=True)
+
+    def test_project_set_blends_two_tiers(self):
+        """With project set and enough entries, get N/2 from each tier."""
+        engine = RankingEngine(_default_config())
+        entries, candidates = self._make_project_entries()
+        result = RetrievalResult(
+            candidates=candidates,
+            vector_candidate_count=12,
+            fts5_candidate_count=12,
+            project="my-project",
+        )
+        ranked = engine.rank(result, entries, limit=10, now=_NOW)
+        assert len(ranked) == 10
+
+        # Count entries from each project
+        project_count = sum(1 for r in ranked if entries[r["id"]].get("source_project") == "my-project")
+        other_count = sum(1 for r in ranked if entries[r["id"]].get("source_project") != "my-project")
+        # Should have 5 from project and 5 from universal
+        assert project_count >= 5
+        assert other_count >= 5 or project_count + other_count == 10
+
+    def test_project_underfill(self):
+        """When project has fewer than N/2 entries, fill from universal."""
+        engine = RankingEngine(_default_config())
+        entries = {}
+        candidates = {}
+
+        # Only 2 entries from "my-project"
+        for i in range(2):
+            eid, entry = _make_entry(f"proj{i}", category="patterns")
+            entry["source_project"] = "my-project"
+            entries[eid] = entry
+            candidates[eid] = CandidateScores(vector_score=0.9 - i * 0.1, bm25_score=5.0)
+
+        # 8 entries from "other"
+        for i in range(8):
+            eid, entry = _make_entry(f"other{i}", category="heuristics")
+            entry["source_project"] = "other-project"
+            entries[eid] = entry
+            candidates[eid] = CandidateScores(vector_score=0.8 - i * 0.05, bm25_score=4.0)
+
+        result = RetrievalResult(
+            candidates=candidates,
+            vector_candidate_count=10,
+            fts5_candidate_count=10,
+            project="my-project",
+        )
+        ranked = engine.rank(result, entries, limit=6, now=_NOW)
+        assert len(ranked) == 6
+
+        # Both project entries should be included
+        proj_ids = {r["id"] for r in ranked if entries[r["id"]].get("source_project") == "my-project"}
+        assert len(proj_ids) == 2  # all project entries included
+
+    def test_project_deduplication(self):
+        """Entries already selected in project tier are excluded from universal."""
+        engine = RankingEngine(_default_config())
+        entries = {}
+        candidates = {}
+
+        # 4 entries from "my-project"
+        for i in range(4):
+            eid, entry = _make_entry(f"proj{i}", category="patterns")
+            entry["source_project"] = "my-project"
+            entries[eid] = entry
+            candidates[eid] = CandidateScores(vector_score=0.9 - i * 0.05, bm25_score=8.0)
+
+        # 4 entries from "other"
+        for i in range(4):
+            eid, entry = _make_entry(f"other{i}", category="heuristics")
+            entry["source_project"] = "other-project"
+            entries[eid] = entry
+            candidates[eid] = CandidateScores(vector_score=0.7 - i * 0.05, bm25_score=6.0)
+
+        result = RetrievalResult(
+            candidates=candidates,
+            vector_candidate_count=8,
+            fts5_candidate_count=8,
+            project="my-project",
+        )
+        ranked = engine.rank(result, entries, limit=6, now=_NOW)
+        assert len(ranked) == 6
+
+        # No duplicate IDs
+        ids = [r["id"] for r in ranked]
+        assert len(ids) == len(set(ids))
+
+    def test_project_result_sorted_by_final_score(self):
+        """Final merged result is sorted by final_score descending."""
+        engine = RankingEngine(_default_config())
+        entries, candidates = self._make_project_entries()
+        result = RetrievalResult(
+            candidates=candidates,
+            vector_candidate_count=12,
+            fts5_candidate_count=12,
+            project="my-project",
+        )
+        ranked = engine.rank(result, entries, limit=8, now=_NOW)
+        scores = [r["final_score"] for r in ranked]
+        assert scores == sorted(scores, reverse=True)

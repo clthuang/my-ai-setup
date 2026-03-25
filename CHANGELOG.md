@@ -7,7 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.13.22] - 2026-03-25
+
 ### Added
+- Shared `sqlite_retry` module (`with_retry` decorator + `is_transient` classifier) for consistent retry coverage across all MCP servers
+- Concurrent-write integration tests validating multi-process SQLite contention handling
+
+### Changed
+- Entity server: 10 write handlers now have `@with_retry("entity")` retry coverage
+- Memory server: 3 write handlers now have `@with_retry("memory")` retry coverage
+- `MemoryDatabase` `busy_timeout` standardized from 5000ms to 15000ms (matching entity DB)
+- `_run_cascade()` Phase B operations (cascade_unblock + rollup_parent) are now atomic within a single transaction
+- `transaction()` context manager is now re-entrant (safe for nested calls)
+
+### Fixed
+- Silent partial commits under concurrent MCP server access — multi-statement writes now use `BEGIN IMMEDIATE`
+- Entity server handlers with narrow exception clauses (ValueError only) now catch all exceptions for structured error responses
+
+## [5.0.0] - 2026-03-25
+
+### Added
+- Project-scoped memory search — `search_memory` and session injection now filter by project with two-tier blend
+- Recall dampening with 14-day time decay — stale frequently-recalled entries lose ranking advantage
+- Notable catch capture — single-iteration blocker issues now stored as medium-confidence learnings
 - `pd:doctor` command — 10 data consistency checks across entity DB, memory DB, workflow state, git branches, and filesystem with cross-project safety and backward-transition awareness
 - Tiered keyword extraction for memory entries — regex heuristics extract keywords on capture; Gemini LLM fallback used when heuristic yields too few terms, improving future search recall
 - Semantic deduplication at capture time — new memories are compared against recent entries using cosine similarity; entries above the `memory_dedup_threshold` (default 0.90) are suppressed to prevent redundant storage

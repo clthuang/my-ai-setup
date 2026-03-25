@@ -80,5 +80,6 @@
       "retro_completed": "2026-02-04T20:45:00Z",
       "completed": "2026-02-04T21:00:00Z"
     }
-  }
+  },
+  "lastCompletedPhase": "finish"
 }

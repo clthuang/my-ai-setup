@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 
@@ -162,6 +163,35 @@ def write_tracking(
 
 
 # ---------------------------------------------------------------------------
+# Project name resolution
+# ---------------------------------------------------------------------------
+
+
+def _resolve_project_name(project_root: str) -> str | None:
+    """Resolve project name from git remote origin or directory basename.
+
+    Uses the same logic as ``store_memory`` so that project names match
+    between stored entries and retrieval queries.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            cwd=project_root,
+            timeout=2,
+        )
+        if result.returncode == 0:
+            url = result.stdout.strip()
+            if url:
+                name = url.rstrip("/").rsplit("/", 1)[-1]
+                return name.removesuffix(".git")
+    except Exception:
+        pass
+    return os.path.basename(os.path.abspath(project_root))
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -229,7 +259,8 @@ def main(argv: list[str] | None = None) -> None:
             return
 
         context_query = pipeline.collect_context(project_root)
-        result = pipeline.retrieve(context_query)
+        project_name = _resolve_project_name(project_root)
+        result = pipeline.retrieve(context_query, project=project_name)
 
         # Rank
         all_entries = db.get_all_entries()
