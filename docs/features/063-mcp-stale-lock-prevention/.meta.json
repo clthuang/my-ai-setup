@@ -1,0 +1,14 @@
+{
+  "id": "063",
+  "slug": "mcp-stale-lock-prevention",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-03-25T05:23:19.755458+00:00",
+  "branch": "feature/063-mcp-stale-lock-prevention",
+  "lastCompletedPhase": null,
+  "phases": {
+    "brainstorm": {
+      "started": "2026-03-25T05:23:19.755168+00:00"
+    }
+  }
+}
