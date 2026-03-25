@@ -28,6 +28,8 @@ from semantic_memory.dedup import check_duplicate
 from semantic_memory.keywords import extract_keywords
 from semantic_memory.writer import _embed_text_for_entry, _process_pending_embeddings
 
+from sqlite_retry import with_retry
+
 from mcp.server.fastmcp import FastMCP
 
 # ---------------------------------------------------------------------------
@@ -35,6 +37,7 @@ from mcp.server.fastmcp import FastMCP
 # ---------------------------------------------------------------------------
 
 
+@with_retry("memory")
 def _process_store_memory(
     db: MemoryDatabase,
     provider: EmbeddingProvider | None,
@@ -125,7 +128,7 @@ def _process_store_memory(
     }
 
     # Pre-check before upsert to distinguish new vs. reinforced return message
-    # Safe: MCP server is single-threaded with one DB connection; no concurrent writes possible
+    # Note: other MCP servers may write concurrently; retry decorator handles contention
     existing = db.get_entry(entry_id)
 
     # -- Upsert into DB --
@@ -234,6 +237,7 @@ def _process_search_memory(
 # ---------------------------------------------------------------------------
 
 
+@with_retry("memory")
 def _process_record_influence(
     db: MemoryDatabase,
     entry_name: str,
@@ -252,6 +256,22 @@ def _process_record_influence(
 
     db.record_influence(entry["id"], agent_role, feature_type_id)
     return f"Recorded influence: {entry_name} by {agent_role}"
+
+
+# ---------------------------------------------------------------------------
+# Delete processing function (testable without MCP)
+# ---------------------------------------------------------------------------
+
+
+@with_retry("memory")
+def _process_delete_memory(db: MemoryDatabase, entry_id: str) -> str:
+    """Delete a memory entry by ID.
+
+    Returns confirmation JSON or error JSON.  Never raises for expected
+    errors (entry not found, etc.).
+    """
+    db.delete_entry(entry_id)
+    return json.dumps({"result": f"Deleted memory: {entry_id}"})
 
 
 # ---------------------------------------------------------------------------
@@ -420,8 +440,7 @@ async def delete_memory(entry_id: str) -> str:
     if _db is None:
         return "Error: database not initialized (server not started)"
     try:
-        _db.delete_entry(entry_id)
-        return json.dumps({"result": f"Deleted memory: {entry_id}"})
+        return _process_delete_memory(db=_db, entry_id=entry_id)
     except Exception as exc:
         return json.dumps({"error": str(exc)})
 
