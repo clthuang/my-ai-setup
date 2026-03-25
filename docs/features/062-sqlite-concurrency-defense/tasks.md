@@ -193,7 +193,7 @@ graph TD
   3. In `update_kr_score` async handler: change `except (ValueError, KeyError)` to `except Exception`
   4. Ensure each `except Exception` block returns structured JSON error (not raw traceback)
 - **Test:** Run entity tests; verify no OperationalError can propagate unhandled
-- **Done when:** All 3 handlers catch `Exception`; each except block returns `json.dumps({"error": str(exc)})` or equivalent structured JSON (verified by reading the code); entity registry test count matches pre-task count (no regressions)
+- **Done when:** All 3 handlers catch `Exception`; each except block returns `json.dumps({"error": str(exc)})` or equivalent structured JSON (verified by reading the code and by a test injecting `OperationalError` into each handler's `_process_*` function confirming structured JSON error is returned); entity registry test count matches pre-task count (no regressions)
 
 #### Task 3.4: Decorate memory server sync helpers with @with_retry
 - **Why:** Plan item 7 / Design C3
@@ -218,7 +218,7 @@ graph TD
   2. Add `try/except Exception` wrapper to `record_influence` async handler (line 451) — return structured error string on exception
   3. Fix misleading comment at line 128: replace with `# Note: single-threaded within this process does not prevent cross-process SQLite contention. Multiple MCP servers and hook processes share the same DB file — retry coverage is required.`
 - **Test:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_memory_server.py -v` — all tests pass
-- **Done when:** Both async handlers have try/except; misleading comment corrected; tests pass
+- **Done when:** Both async handlers have `try/except Exception` returning `json.dumps({"error": str(exc)})` (matching entity server convention); misleading comment corrected; a test injecting `OperationalError` confirms structured JSON error is returned; all memory server tests pass
 
 ### Stage 4: Validation
 
