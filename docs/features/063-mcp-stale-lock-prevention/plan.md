@@ -111,7 +111,7 @@ The plan follows a bottom-up dependency order: shared library first, then consum
 **Files:** `plugins/pd/ui/__main__.py` (MODIFY)
 
 **Work:**
-- Import `server_lifecycle` using sys.path manipulation: `sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'mcp'))` then `from server_lifecycle import write_pid, remove_pid, start_lifetime_watchdog`
+- Import `server_lifecycle` using sys.path manipulation: `sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'mcp'))` then `from server_lifecycle import write_pid, remove_pid, start_lifetime_watchdog`. Verify the import works from the UI server's actual launch context (run-ui-server.sh) — if the relative path `../mcp` doesn't resolve, adjust to absolute path resolution via `__file__`
 - In `main()` before `uvicorn.run()`: call `write_pid("ui_server")`, `start_lifetime_watchdog(86400)`
 - Register `atexit.register(remove_pid, "ui_server")` for best-effort cleanup
 - Note: no parent watchdog (UI server is intentionally detached via `nohup ... & disown`)
@@ -135,7 +135,7 @@ The plan follows a bottom-up dependency order: shared library first, then consum
 - Modify `lifespan()` to use `_init_db_with_retry()` instead of direct `EntityDatabase()` call
 - On init failure: set `_db = None`, `_db_unavailable = True`, start recovery thread
 - Add `_db_unavailable` guard to ALL tool handlers — implement as a helper function `_check_db_available()` that raises/returns error, called at the top of each handler. This reduces risk of missing a handler. Enumerate all handlers that need the guard (register_entity, update_entity, get_entity, search_entities, get_lineage, export_entities, add_dependency, etc.)
-- Recovery thread: on success, set `_db = new_db`, `_db_unavailable = False`, thread exits. Recovery initializes DB only (no backfill) — backfill runs on next full server restart. This avoids re-introducing the hang risk that degraded mode mitigates
+- Recovery thread: on success, set `_db = new_db`, `_db_unavailable = False`, log "DB recovered — backfill skipped, will run on next restart", thread exits. Recovery initializes DB only (no backfill) — backfill runs on next full server restart. This avoids re-introducing the hang risk that degraded mode mitigates
 
 **Tests (TDD) in `test_entity_server_degraded.py`:**
 - `test_degraded_mode_on_db_lock` — mock EntityDatabase to raise OperationalError, verify server starts with `_db_unavailable = True`
