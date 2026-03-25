@@ -132,6 +132,8 @@ If search_memory returned entries before this dispatch:
 | implement.md | security-reviewer | 635 | anti-patterns |
 | implement.md | implementer | 845 | (none) |
 
+**Category "(none)" note:** Phase-reviewer and implementer dispatches use no category filter — `search_memory` is called without a category, returning results across all categories. This is intentional: these agents benefit from broad memory context rather than a specific category.
+
 **Excluded (research agents):** codebase-explorer (design.md:65), internet-researcher (design.md:88) — these gather raw data, not act on engineering judgments.
 
 **Prompt block clarification:** Command files like implement.md have many `prompt: |` blocks (14 in implement.md). Only the FRESH (I1-R4) dispatch for each eligible agent gets memory enrichment — resumed dispatches (I2, I2-FV, I7) do not include the memory section, matching the existing pattern. The 7 eligible dispatches in implement.md correspond to 7 distinct agents (code-simplifier, test-deepener x2, implementation-reviewer, code-quality-reviewer, security-reviewer, implementer), each with their first/fresh prompt block.
@@ -230,7 +232,7 @@ PYTHONPATH="$PLUGIN_ROOT/hooks/lib" "$PLUGIN_ROOT/.venv/bin/python" \
   -m semantic_memory.writer --action backfill-keywords --global-store ~/.claude/pd/memory
 ```
 
-**No code changes needed** — the backfill action already exists and calls `extract_keywords()` (Tier 1 regex) for entries with empty `[]` keywords.
+**No code changes needed** — the backfill action already exists and calls `extract_keywords()` (Tier 1 regex) for entries with empty `[]` keywords. Implementation should verify on a 10-entry sample before running against the full corpus (risk accepted given idempotency guarantee).
 
 ### C4: Legacy Path Deprecation (REQ-5)
 
@@ -258,7 +260,7 @@ else
 fi
 ```
 
-The deprecation warning is output to stdout (appended to the session context output) rather than stderr, because CLAUDE.md mandates `2>/dev/null` for hook subprocesses. Alternatively, log to `~/.claude/pd/memory/deprecation.log` for `/pd:doctor` to detect.
+The deprecation warning is output to stdout (appended to the session context output) rather than stderr, because CLAUDE.md mandates `2>/dev/null` for hook subprocesses. This is the definitive approach — stdout is consistent with existing session-start output patterns and immediately visible.
 
 **Design decision:** Invert the conditional to make semantic the default path (matching the existing default=true). The `false` branch becomes the explicit opt-in for legacy.
 
@@ -383,7 +385,7 @@ Result must be < 10.0.
 ```
 C1 (Command Pattern) ← no dependencies, can start immediately
 C2 (Confidence Promotion) ← no dependencies, can start immediately
-C3 (Keyword Backfill) ← no dependencies, run after C1/C2 complete
+C3 (Keyword Backfill) ← no technical dependency; sequenced last as a migration step (run after C1/C2 complete)
 C4 (Legacy Deprecation) ← no dependencies, can start immediately
 C5 (Ranking Verification) ← depends on C2 tests being complete (shared test infrastructure)
 ```
