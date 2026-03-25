@@ -42,7 +42,7 @@ SQLite databases shared across multiple MCP server processes suffer write conten
 - Given `plugins/pd/hooks/lib/sqlite_retry.py` exists
 - When imported by any MCP server
 - Then provides `with_retry(server_name, max_attempts=3, backoff=(0.1, 0.5, 2.0))` decorator (jitter up to 50ms baked into the decorator) and `is_transient(error)` predicate
-- And `is_transient` returns True for `OperationalError` where the message contains "locked" OR "sql logic error" (case-insensitive match) — the "sql logic error" variant occurs under stale implicit transactions per RCA `docs/rca/20260324-workflow-sql-error.md:69-75`
+- And `is_transient` returns True for `OperationalError` where the message contains "locked" (case-insensitive match). Note: the RCA-documented "SQL logic error" variant is NOT matched — `BEGIN IMMEDIATE` in `transaction()` already prevents the stale implicit transaction root cause (see RCA lines 69-75). Matching "sql logic error" would false-positive on genuine schema/FTS/syntax errors.
 - And `is_transient` returns False for all other `OperationalError` messages
 - Note: `SQLITE_BUSY_SNAPSHOT` (stale WAL snapshot) is covered because `_with_retry` retries at the MCP handler level, which encompasses the full transaction — each retry starts a fresh transaction with a fresh snapshot, satisfying the PRD's full-transaction-restart requirement
 
@@ -68,10 +68,10 @@ SQLite databases shared across multiple MCP server processes suffer write conten
 - Verification (read-only): confirm `reconciliation_orchestrator` already detects stale `blocked_by` entries for completed entities and re-triggers cascade. If detection is absent, document the gap as a backlog item — do not implement during this feature.
 
 ### Multi-Step Write Atomicity
-- Given the following `EntityDatabase` methods issue multiple sequential `_commit()` calls outside `BEGIN IMMEDIATE`:
-  - `set_parent()` — calls `_commit()` after parent update, then `_commit()` after depth recalculation
-  - `register_entity()` — calls `_commit()` after insert, then potentially `_commit()` after FTS sync
-  - `update_entity()` — calls `_commit()` after update, then potentially `_commit()` after FTS sync
+- Given the following `EntityDatabase` methods execute multiple write SQL statements before a single `_commit()` outside `BEGIN IMMEDIATE` (upgrading to `transaction()` for eager lock acquisition):
+  - `register_entity()` — INSERT entity + INSERT FTS before one `_commit()` (line 1403)
+  - `update_entity()` — UPDATE entity + DELETE FTS + INSERT FTS before one `_commit()` (line 1695)
+  - Note: `set_parent()` has single UPDATE + `_commit()` — single-statement, skip. `delete_entity()` already uses `BEGIN IMMEDIATE` — skip.
   - Implementation MUST run `grep -n _commit database.py` and document all multi-step sequences found. The above list is preliminary; the audit result is the authoritative list. Expected: 3-5 multi-step sequences. If more than 8 are found, stop and re-evaluate scope before proceeding.
 - When these methods execute under contention
 - Then all sub-operations within each method are atomic (wrapped in `transaction()`)

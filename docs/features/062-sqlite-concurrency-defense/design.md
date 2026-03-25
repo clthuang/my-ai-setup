@@ -134,9 +134,9 @@
 **Architecture note:** Entity server uses `async def` MCP handlers that delegate to sync helpers. The retry decorator is synchronous. Two handler types exist:
 
 **Type A — Handlers using server_helpers (sync `_process_*` functions):**
-Apply `@with_retry("entity")` to the sync `_process_*` functions in `server_helpers.py`:
-1. `_process_register_entity` in `server_helpers.py` — called from `register_entity` (line 224)
-2. `_process_set_parent` in `server_helpers.py` — called from `set_parent` (line 264)
+Apply `@with_retry("entity")` to the sync `_process_*` functions in `server_helpers.py`. **Critical:** Both functions catch `except Exception` and return error strings — the retry decorator on the outside would never see `OperationalError`. Fix: add `except sqlite3.OperationalError: raise` BEFORE the generic `except Exception` clause in both functions. This lets `@with_retry` intercept transient errors while preserving error-string behavior for non-retryable errors.
+1. `_process_register_entity` in `server_helpers.py` (line 229) — re-raise OperationalError, then decorate
+2. `_process_set_parent` in `server_helpers.py` (line 417) — re-raise OperationalError, then decorate
 
 **Type B — Handlers with inline DB logic in async handlers:**
 Extract DB logic into sync helper functions, then apply `@with_retry("entity")`:
@@ -290,14 +290,21 @@ def _run_cascade(self, entity_uuid: str) -> tuple[list[str], float | None]:
 
 ### I4: Entity Server Decorator Application Pattern
 
-**Type A (existing server_helpers functions):**
+**Type A (existing server_helpers functions — re-raise OperationalError before generic catch):**
 ```python
-# In server_helpers.py — add decorator to existing functions
+# In server_helpers.py — re-raise OperationalError, then add decorator
+import sqlite3
 from sqlite_retry import with_retry
 
 @with_retry("entity")
 def _process_register_entity(db, entity_type, entity_id, name, ...):
-    ...  # existing logic unchanged
+    try:
+        db.register_entity(...)
+        return f"Registered: {type_id}"
+    except sqlite3.OperationalError:
+        raise  # Let @with_retry intercept transient errors
+    except Exception as exc:
+        return f"Error registering entity: {exc}"
 ```
 
 **Type B (inline handlers → extract + decorate):**

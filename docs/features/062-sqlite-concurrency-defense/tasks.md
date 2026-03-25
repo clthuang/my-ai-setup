@@ -61,7 +61,7 @@ graph TD
   2. Write test for `is_transient()`: OperationalError with "database is locked" returns True
   3. Write test for `is_transient()`: OperationalError with "database IS LOCKED" returns True (case-insensitive)
   4. Write test for `is_transient()`: OperationalError with "no such table" returns False
-  5. Write test for `is_transient()`: OperationalError with "SQL logic error" returns True (stale implicit transaction variant per RCA)
+  5. Write test for `is_transient()`: OperationalError with "SQL logic error" returns False (generic SQLITE_ERROR — not transient; `BEGIN IMMEDIATE` prevents the stale-transaction root cause)
   6. Write test for `is_transient()`: non-OperationalError returns False
   6. Write test for `with_retry()`: successful call returns result without retry
   7. Write test for `with_retry()`: transient error retries up to max_attempts then re-raises
@@ -80,7 +80,7 @@ graph TD
 - **Files:** `plugins/pd/hooks/lib/sqlite_retry.py` (new)
 - **Do:**
   1. Create `plugins/pd/hooks/lib/sqlite_retry.py`
-  2. Implement `is_transient(exc)`: `msg = str(exc).lower(); return isinstance(exc, sqlite3.OperationalError) and ('locked' in msg or 'sql logic error' in msg)`. Add comment referencing `docs/rca/20260324-workflow-sql-error.md:69-75` explaining why "sql logic error" is included (stale implicit transaction variant of SQLITE_BUSY).
+  2. Implement `is_transient(exc)`: return `isinstance(exc, sqlite3.OperationalError) and 'locked' in str(exc).lower()`. Add comment: `# Only matches "locked" — NOT "sql logic error" (SQLITE_ERROR is generic, covers schema/FTS/syntax errors). BEGIN IMMEDIATE prevents the stale-transaction root cause. See docs/rca/20260324-workflow-sql-error.md:69-75.`
   3. Implement `with_retry(server_name, max_attempts=3, backoff=(0.1, 0.5, 2.0))` decorator factory
   4. Inside wrapper: catch `sqlite3.OperationalError`, call `is_transient()`, sleep `backoff[min(attempt, len(backoff)-1)] + random.uniform(0, 0.05)`, print warning to stderr with server_name prefix
   5. On exhausted retries: re-raise last exception
@@ -149,18 +149,20 @@ graph TD
 
 ### Stage 3: Server Integration
 
-#### Task 3.1: Decorate entity server_helpers with @with_retry
+#### Task 3.1: Fix exception handling and decorate entity server_helpers with @with_retry
 - **Why:** Plan item 6 / Design C2 (Type A handlers)
 - **Depends on:** Task 2.1
 - **Blocks:** Task 4.1
 - **Files:** `plugins/pd/hooks/lib/entity_registry/server_helpers.py`
 - **Do:**
-  1. Add import: `from sqlite_retry import with_retry` (works because `entity_server.py` adds `hooks/lib` to `sys.path` via `_hooks_lib` at lines 14-16 BEFORE importing `server_helpers` — same mechanism as `workflow_state_server.py`. Verify: `server_helpers.py` already uses `from entity_registry.metadata import ...` which requires `hooks/lib` on path.)
-  2. Add `@with_retry("entity")` decorator to `_process_register_entity`
-  3. Add `@with_retry("entity")` decorator to `_process_set_parent`
-  4. Run entity registry tests after each decoration
+  1. Add imports: `import sqlite3` and `from sqlite_retry import with_retry` (works because `entity_server.py` adds `hooks/lib` to `sys.path` via `_hooks_lib` at lines 14-16 BEFORE importing `server_helpers`)
+  2. In `_process_register_entity` (line 229): add `except sqlite3.OperationalError: raise` BEFORE the existing `except Exception` clause at line 241. This lets `@with_retry` intercept transient errors while preserving error-string behavior for non-retryable errors.
+  3. Add `@with_retry("entity")` decorator to `_process_register_entity`
+  4. In `_process_set_parent` (line 417): add `except sqlite3.OperationalError: raise` BEFORE the existing `except Exception` clause at line 420.
+  5. Add `@with_retry("entity")` decorator to `_process_set_parent`
+  6. Run entity registry tests after each modification
 - **Test:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/ -v` — all tests pass
-- **Done when:** Both Type A handlers have `@with_retry("entity")` decorator; tests pass
+- **Done when:** Both Type A handlers have `except sqlite3.OperationalError: raise` before generic catch AND `@with_retry("entity")` decorator; tests pass; verify by injecting mock OperationalError that retry fires (not swallowed)
 
 #### Task 3.2: Extract 8 entity server inline handlers to sync _process_* functions
 - **Why:** Plan item 6 / Design C2 (Type B handlers)
