@@ -107,7 +107,7 @@ Replace all `db._conn.execute()` / `db._conn.commit()` calls with `db.transactio
 
 Three distinct refactoring targets:
 
-**`run_backfill()` (lines 145-149):** Bulk UPDATE setting `workflow_phase = 'finish'` for all NULL rows. To satisfy the spec's zero `db._conn.execute()` grep requirement, replace with: query all workflow phases via `db.list_workflow_phases()`, filter client-side for `workflow_phase is None`, then call `db.update_workflow_phase(type_id, workflow_phase='finish')` per row inside `db.transaction()`. Slightly less efficient than bulk SQL but eliminates the last raw SQL call and keeps the spec acceptance criteria honest.
+**`run_backfill()` (lines 145-149):** Bulk UPDATE setting `workflow_phase = 'finish'` for all NULL rows. To satisfy the spec's zero `db._conn.execute()` grep requirement, replace with: query all workflow phases via `db.list_workflow_phases()` (existing public API in `database.py:2323`), filter client-side for `workflow_phase is None`, then call `db.update_workflow_phase(type_id, workflow_phase='finish')` per row inside `db.transaction()`. Slightly less efficient than bulk SQL but eliminates the last raw SQL call and keeps the spec acceptance criteria honest.
 
 **`backfill_workflow_phases()` read (line 224):** Replace `db._conn.execute("SELECT ...")` with `db.get_workflow_phase(type_id)` to eliminate the raw SQL read. This is needed because the spec's acceptance criteria greps for zero `db._conn.execute()` calls.
 
@@ -169,7 +169,7 @@ New function `cleanup_stale_mcp_servers()` called early in session-start, before
 
 **Ordering:** cleanup runs BEFORE `run_doctor_autofix()` and `check_mcp_health()`.
 
-**Testing:** Integration test: spawn a Python process that writes a PID file, kill its parent (or set PPID=1 via double-fork), verify `cleanup_stale_mcp_servers()` terminates it and removes the PID file. Supplement with manual validation using a deliberately orphaned server process.
+**Testing:** Integration test in `plugins/pd/hooks/tests/test_session_start_cleanup.sh` (CREATE): spawn a Python process that writes a PID file, kill its parent (or set PPID=1 via double-fork), verify `cleanup_stale_mcp_servers()` terminates it and removes the PID file. Supplement with manual validation using a deliberately orphaned server process.
 
 #### 4. Degraded Mode Startup (MODIFY — `entity_server.py`, `workflow_state_server.py`)
 
@@ -480,11 +480,12 @@ def _identify_lock_holders(db_path: str) -> list[str]:
 | File | Action | Description |
 |------|--------|-------------|
 | `plugins/pd/mcp/server_lifecycle.py` | CREATE | Shared lifecycle module |
-| `plugins/pd/mcp/test_server_lifecycle.py` | CREATE | Unit tests for lifecycle module |
+| `plugins/pd/mcp/test_server_lifecycle.py` | CREATE | Unit tests: write_pid creates file with correct PID, remove_pid no-ops on missing, read_pid returns None for invalid, start_parent_watchdog calls _exit_fn on PPID change, start_lifetime_watchdog calls _exit_fn after max_seconds |
 | `plugins/pd/mcp/entity_server.py` | MODIFY | Remove local PID functions, add watchdog + degraded mode |
 | `plugins/pd/mcp/workflow_state_server.py` | MODIFY | Remove local PID functions, add watchdog + degraded mode |
 | `plugins/pd/mcp/memory_server.py` | MODIFY | Add PID management + parent watchdog |
 | `plugins/pd/ui/__main__.py` | MODIFY | Add PID management + lifetime watchdog (call before `uvicorn.run()`, cleanup via `atexit.register()` since uvicorn handles SIGTERM gracefully) |
 | `plugins/pd/hooks/lib/entity_registry/backfill.py` | MODIFY | Replace db._conn with db.transaction() batches |
 | `plugins/pd/hooks/session-start.sh` | MODIFY | Add cleanup_stale_mcp_servers() |
+| `plugins/pd/hooks/tests/test_session_start_cleanup.sh` | CREATE | Integration test for stale MCP server cleanup |
 | `plugins/pd/hooks/lib/doctor/checks.py` | MODIFY | Enhance lock diagnostic with holder ID |
