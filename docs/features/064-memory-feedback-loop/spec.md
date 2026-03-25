@@ -84,7 +84,7 @@ Dispatch agent:
 1. Before dispatch: the command calls `search_memory` and receives a list of entry results. Each result contains a `name` field.
 2. The command stores the list of entry names (e.g., `["Always validate hook JSON output", "FTS5 query sanitization required"]`).
 3. After the subagent completes: the command scans the subagent's output text for exact substring matches on each stored entry name.
-4. For each match: call `record_influence(entry_name=<name>, agent_role=<subagent_type>, feature_type_id=<current_feature_type_id>)` where `current_feature_type_id` is resolved at runtime from the feature's `.meta.json` (e.g., `"feature:064-memory-feedback-loop"`).
+4. For each match: call `record_influence(entry_name=<name>, agent_role=<subagent_type>, feature_type_id=<current_feature_type_id>)` where `current_feature_type_id` is resolved at runtime from the feature's `.meta.json` (e.g., `"feature:064-memory-feedback-loop"`). If `.meta.json` is missing or `type_id` cannot be resolved (e.g., ad-hoc usage outside feature context): skip influence recording with a warning (same non-blocking pattern as MCP failure).
 5. If `record_influence` MCP call fails: log warning, do not block.
 
 **Command template addition (after each Task result block):**
@@ -147,6 +147,8 @@ if promoted:
     set_parts.append("confidence = ?")
     params.append(new_confidence)
 ```
+
+**Implementation note:** The current `merge_duplicate()` uses a hardcoded SQL UPDATE string (database.py:481-484), not a dynamic `set_parts` builder. The pseudocode above is illustrative. Implementation will need to either refactor to a dynamic builder or add a second conditional UPDATE for confidence after the existing one.
 
 **Source semantics clarified:** The `source == "retro"` check refers to the ORIGINAL source of the entry (the `source` column in the entries table), not the source of the current merge trigger. This means only entries that were first captured during a retrospective can reach `"high"` confidence. This is intentional: retro-originated entries have been through structured AORTA analysis and represent higher-quality learnings than session captures. A session-captured entry that is later reinforced during a retro would NOT promote to high because its original source remains `"session-capture"`.
 
@@ -263,8 +265,11 @@ if promoted:
 13. `test_record_influence_latency` — unit test that times `db.record_influence()` call and asserts < 100ms (SQLite local write on typical hardware)
 14. NFR-1 (session-start p95 < 5s) — manual validation: run 5 session starts with the changes and confirm injection completes within timeout (no automated test — depends on environment)
 
+### Deprecation Test
+15. `test_deprecation_warning_on_legacy_toggle` — when `memory_semantic_enabled=false` in config, session-start output includes deprecation warning string "memory_semantic_enabled=false is deprecated"
+
 ### Migration Validation
-15. `test_keyword_backfill_coverage` — after running backfill, <10% entries have empty keywords
+16. `test_keyword_backfill_coverage` — after running backfill, <10% entries have empty keywords
 
 ## File Change Summary
 
@@ -276,8 +281,8 @@ if promoted:
 | `plugins/pd/commands/create-tasks.md` | Edit | Move memory section inside prompt:, add influence tracking |
 | `plugins/pd/commands/implement.md` | Edit | Move memory section inside prompt:, add influence tracking |
 | `plugins/pd/hooks/lib/semantic_memory/database.py` | Edit | Add confidence promotion in merge_duplicate() |
-| `plugins/pd/hooks/lib/semantic_memory/config.py` | Edit | Add 3 new config keys |
+| `plugins/pd/hooks/lib/semantic_memory/config.py` | Edit | Add 3 new config keys: memory_auto_promote, memory_promote_low_threshold, memory_promote_medium_threshold |
 | `plugins/pd/mcp/memory_server.py` | Edit | Pass promotion config to merge path |
-| `plugins/pd/hooks/session-start.sh` | Edit | Default memory_semantic_enabled=true, add deprecation warning |
+| `plugins/pd/hooks/session-start.sh` | Edit | Add deprecation warning when memory_semantic_enabled explicitly set to false |
 | `plugins/pd/mcp/test_memory_server.py` | Edit | Add promotion tests |
 | `plugins/pd/hooks/lib/semantic_memory/test_database.py` | Edit | Add promotion unit tests |
