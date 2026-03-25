@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Shared `sqlite_retry` module (`with_retry` decorator + `is_transient` classifier) for consistent retry coverage across all MCP servers
+- Concurrent-write integration tests validating multi-process SQLite contention handling
+
+### Changed
+- Entity server: 10 write handlers now have `@with_retry("entity")` retry coverage
+- Memory server: 3 write handlers now have `@with_retry("memory")` retry coverage
+- `MemoryDatabase` `busy_timeout` standardized from 5000ms to 15000ms (matching entity DB)
+- `_run_cascade()` Phase B operations (cascade_unblock + rollup_parent) are now atomic within a single transaction
+- `transaction()` context manager is now re-entrant (safe for nested calls)
+
+### Fixed
+- Silent partial commits under concurrent MCP server access — multi-statement writes now use `BEGIN IMMEDIATE`
+- Entity server handlers with narrow exception clauses (ValueError only) now catch all exceptions for structured error responses
+
 ## [5.0.0] - 2026-03-25
 
 ### Added
