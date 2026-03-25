@@ -165,7 +165,7 @@ memory_server.py:_process_store_memory(config=_config)
    - `memory_auto_promote`: `False`
    - `memory_promote_low_threshold`: `3`
    - `memory_promote_medium_threshold`: `5`
-4. Promotion code uses bare `config["memory_auto_promote"]` (no `.get()` fallback) — DEFAULTS is the single source of truth
+4. Promotion code uses `config.get()` with fallback defaults matching DEFAULTS for defense-in-depth
 
 **Promotion logic — transaction-aware placement:**
 
@@ -251,6 +251,7 @@ if [ "$memory_semantic_enabled" = "false" ]; then
     # Output deprecation to stdout (not stderr — stderr is suppressed in hooks per CLAUDE.md)
     # This appears in the session context as a warning line
     deprecation_warning="[DEPRECATED] memory_semantic_enabled=false — legacy memory.py injection will be removed next release."
+    echo "$deprecation_warning"  # appears in session context output (visible to model + user)
     # legacy memory.py path
 else
     # semantic injector path (default)
