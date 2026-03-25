@@ -242,7 +242,7 @@ Note: run_backfill operates on a small set (only rows with workflow_phase IS NUL
    - Daemon thread, retry EntityDatabase() every poll_interval
    - On success: set global `_db`, clear `_db_unavailable`, log "DB recovered — backfill skipped", exit thread
 4. Implement `_check_db_available()` helper — returns error dict if `_db_unavailable`
-5. Add `_check_db_available()` guard at top of ALL tool handlers (enumerate: register_entity, update_entity, get_entity, search_entities, get_lineage, export_entities, add_dependency, query_dependencies, delete_entity, etc.)
+5. Add `_check_db_available()` guard at top of ALL tool handlers. To enumerate: run `grep -n "@mcp.tool\|@server.tool" plugins/pd/mcp/entity_server.py` and add the guard to every handler found. This makes completeness binary-verifiable
 6. Modify `lifespan()`: replace `EntityDatabase()` with `_init_db_with_retry()`, start recovery thread on failure
 7. Run tests: `plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_entity_server_degraded.py -v`
 8. All 5 tests pass (GREEN)
@@ -314,9 +314,9 @@ Note: run_backfill operates on a small set (only rows with workflow_phase IS NUL
        # Find Python processes with PPID=1 holding DB files
        lsof "$HOME/.claude/pd/entities/entities.db" "$HOME/.claude/pd/memory/memory.db" 2>/dev/null | \
          awk 'NR>1{print $2}' | sort -u | while read -r pid; do
-           local ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+           ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
            [[ "$ppid" == "1" ]] || continue
-           local comm=$(ps -o comm= -p "$pid" 2>/dev/null)
+           comm=$(ps -o comm= -p "$pid" 2>/dev/null)
            echo "$comm" | grep -iq python || continue
            kill -TERM "$pid" 2>/dev/null
            sleep 5
@@ -346,9 +346,10 @@ Note: run_backfill operates on a small set (only rows with workflow_phase IS NUL
    - Test 2: Missing PID directory → function returns 0 (no error)
    - Test 3: PID file with invalid content → file removed
    - Test 4: PID file with running non-orphaned process → file NOT removed
+   - Test 5: Spawn a detached Python process (double-fork to PPID=1), write PID file for it, call `cleanup_stale_mcp_servers`, verify process is dead (`kill -0` returns nonzero) and PID file removed — this tests the core kill-orphan path
 2. Run: `bash plugins/pd/hooks/tests/test_session_start_cleanup.sh`
 
-**Done when:** All 4 test cases pass
+**Done when:** All 5 test cases pass
 
 ---
 
