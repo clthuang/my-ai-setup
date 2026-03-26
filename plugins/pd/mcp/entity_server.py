@@ -259,7 +259,7 @@ async def lifespan(server):
 
         # Backfill existing artifacts (idempotency guard inside run_backfill).
         try:
-            run_backfill(_db, _artifacts_root)
+            run_backfill(_db, _artifacts_root, project_id=_project_id)
         except Exception as exc:
             print(f"entity-server: backfill failed: {exc}", file=sys.stderr)
 
@@ -269,7 +269,7 @@ async def lifespan(server):
         try:
             from entity_registry.backfill import backfill_workflow_phases
 
-            result = backfill_workflow_phases(_db, _artifacts_root)
+            result = backfill_workflow_phases(_db, _artifacts_root, project_id=_project_id)
             if result["created"] > 0:
                 print(
                     f"entity-server: workflow_phases backfill created {result['created']} rows",

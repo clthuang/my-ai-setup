@@ -22,6 +22,7 @@ from entity_registry.database import (
 )
 
 from entity_registry.database import EXPORT_SCHEMA_VERSION
+from entity_registry.test_helpers import TEST_PROJECT_ID
 
 
 # ---------------------------------------------------------------------------
@@ -5506,7 +5507,7 @@ class TestNextSequenceValue:
                     "(uuid, type_id, project_id, entity_type, entity_id, name, "
                     "created_at, updated_at) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (uid, f"feature:{eid}", "__test__", "feature", eid, name, now, now),
+                    (uid, f"feature:{eid}", TEST_PROJECT_ID, "feature", eid, name, now, now),
                 )
             db._conn.commit()
             db._conn.execute("PRAGMA foreign_keys = ON")
@@ -5517,7 +5518,7 @@ class TestNextSequenceValue:
             )
             db._conn.commit()
             db._conn.execute("PRAGMA foreign_keys = ON")
-            val = db.next_sequence_value("__test__", "feature")
+            val = db.next_sequence_value(TEST_PROJECT_ID, "feature")
             # Should bootstrap from max(5, 10) = 10, so next = 11
             assert val == 11
         finally:
@@ -5527,9 +5528,9 @@ class TestNextSequenceValue:
         """Sequential calls return incrementing values."""
         db = EntityDatabase(":memory:")
         try:
-            v1 = db.next_sequence_value("__test__", "task")
-            v2 = db.next_sequence_value("__test__", "task")
-            v3 = db.next_sequence_value("__test__", "task")
+            v1 = db.next_sequence_value(TEST_PROJECT_ID, "task")
+            v2 = db.next_sequence_value(TEST_PROJECT_ID, "task")
+            v3 = db.next_sequence_value(TEST_PROJECT_ID, "task")
             assert v1 == 1
             assert v2 == 2
             assert v3 == 3
@@ -5557,7 +5558,7 @@ class TestNextSequenceValue:
         """
         db = EntityDatabase(":memory:")
         try:
-            val = db.next_sequence_value("__test__", "task")
+            val = db.next_sequence_value(TEST_PROJECT_ID, "task")
             assert val == 1
             row = db._conn.execute(
                 "SELECT next_val FROM sequences "
@@ -5579,7 +5580,7 @@ class TestResolveIdentifierProject:
     def test_uuid_lookup_unchanged(self, mem_db):
         """UUID lookup ignores project_id (UUID is globally unique)."""
         uid = mem_db.register_entity(
-            "feature", "f1", "F1", project_id="__test__"
+            "feature", "f1", "F1", project_id=TEST_PROJECT_ID
         )
         result_uuid, result_tid = mem_db._resolve_identifier(uid)
         assert result_uuid == uid
@@ -5588,13 +5589,13 @@ class TestResolveIdentifierProject:
     def test_type_id_with_project_id(self, mem_db):
         """type_id + project_id filters correctly."""
         uid1 = mem_db.register_entity(
-            "feature", "f1", "F1 test", project_id="__test__"
+            "feature", "f1", "F1 test", project_id=TEST_PROJECT_ID
         )
         uid2 = mem_db.register_entity(
             "feature", "f1", "F1 other", project_id="__other__"
         )
         resolved_uuid, _ = mem_db._resolve_identifier(
-            "feature:f1", project_id="__test__"
+            "feature:f1", project_id=TEST_PROJECT_ID
         )
         assert resolved_uuid == uid1
         resolved_uuid2, _ = mem_db._resolve_identifier(
@@ -5605,7 +5606,7 @@ class TestResolveIdentifierProject:
     def test_type_id_globally_unique(self, mem_db):
         """type_id without project_id returns if globally unique."""
         uid = mem_db.register_entity(
-            "feature", "unique1", "Unique", project_id="__test__"
+            "feature", "unique1", "Unique", project_id=TEST_PROJECT_ID
         )
         resolved_uuid, _ = mem_db._resolve_identifier("feature:unique1")
         assert resolved_uuid == uid
@@ -5613,7 +5614,7 @@ class TestResolveIdentifierProject:
     def test_type_id_ambiguity_error(self, mem_db):
         """type_id without project_id raises ambiguity if in multiple projects."""
         mem_db.register_entity(
-            "feature", "dup1", "Dup test", project_id="__test__"
+            "feature", "dup1", "Dup test", project_id=TEST_PROJECT_ID
         )
         mem_db.register_entity(
             "feature", "dup1", "Dup other", project_id="__other__"
@@ -5628,13 +5629,13 @@ class TestResolveRefAndPrefixProject:
     def test_prefix_search_filtered_by_project(self, mem_db):
         """search_by_type_id_prefix respects project_id filter."""
         mem_db.register_entity(
-            "feature", "055-alpha", "Alpha", project_id="__test__"
+            "feature", "055-alpha", "Alpha", project_id=TEST_PROJECT_ID
         )
         mem_db.register_entity(
             "feature", "055-beta", "Beta", project_id="__other__"
         )
         results = mem_db.search_by_type_id_prefix(
-            "feature:055", project_id="__test__"
+            "feature:055", project_id=TEST_PROJECT_ID
         )
         assert len(results) == 1
         assert results[0]["entity_id"] == "055-alpha"
@@ -5650,17 +5651,17 @@ class TestRegisterEntityProject:
     def test_idempotency_same_project(self, mem_db):
         """Same type_id + project returns existing UUID."""
         uid1 = mem_db.register_entity(
-            "feature", "f1", "F1", project_id="__test__"
+            "feature", "f1", "F1", project_id=TEST_PROJECT_ID
         )
         uid2 = mem_db.register_entity(
-            "feature", "f1", "F1", project_id="__test__"
+            "feature", "f1", "F1", project_id=TEST_PROJECT_ID
         )
         assert uid1 == uid2
 
     def test_different_project_creates_new(self, mem_db):
         """Same type_id in different project creates a new entity."""
         uid1 = mem_db.register_entity(
-            "feature", "f1", "F1 test", project_id="__test__"
+            "feature", "f1", "F1 test", project_id=TEST_PROJECT_ID
         )
         uid2 = mem_db.register_entity(
             "feature", "f1", "F1 other", project_id="__other__"
@@ -5670,7 +5671,7 @@ class TestRegisterEntityProject:
     def test_parent_resolved_within_project(self, mem_db):
         """Parent is resolved within the same project scope."""
         mem_db.register_entity(
-            "project", "p1", "Project", project_id="__test__"
+            "project", "p1", "Project", project_id=TEST_PROJECT_ID
         )
         mem_db.register_entity(
             "project", "p1", "Other Project", project_id="__other__"
@@ -5678,13 +5679,13 @@ class TestRegisterEntityProject:
         uid = mem_db.register_entity(
             "feature", "f1", "F1",
             parent_type_id="project:p1",
-            project_id="__test__",
+            project_id=TEST_PROJECT_ID,
         )
         entity = mem_db.get_entity_by_uuid(uid)
         assert entity["parent_type_id"] == "project:p1"
         # parent_uuid should be the __test__ project's project entity
         test_project_uuid = mem_db._resolve_identifier(
-            "project:p1", project_id="__test__"
+            "project:p1", project_id=TEST_PROJECT_ID
         )[0]
         assert entity["parent_uuid"] == test_project_uuid
 
@@ -5698,8 +5699,8 @@ class TestRegisterEntitiesBatchProject:
             {"entity_type": "feature", "entity_id": "b1", "name": "B1"},
             {"entity_type": "feature", "entity_id": "b2", "name": "B2"},
         ]
-        uuids1 = mem_db.register_entities_batch(batch, project_id="__test__")
-        uuids2 = mem_db.register_entities_batch(batch, project_id="__test__")
+        uuids1 = mem_db.register_entities_batch(batch, project_id=TEST_PROJECT_ID)
+        uuids2 = mem_db.register_entities_batch(batch, project_id=TEST_PROJECT_ID)
         assert uuids1 == uuids2
 
 
@@ -5707,36 +5708,36 @@ class TestProjectScopedQueryListEntities:
     """T3.5: Query methods with project_id."""
 
     def test_project_scoped_query_list_entities(self, mem_db):
-        mem_db.register_entity("feature", "q1", "Q1", project_id="__test__")
+        mem_db.register_entity("feature", "q1", "Q1", project_id=TEST_PROJECT_ID)
         mem_db.register_entity("feature", "q2", "Q2", project_id="__other__")
-        result = mem_db.list_entities(project_id="__test__")
+        result = mem_db.list_entities(project_id=TEST_PROJECT_ID)
         assert len(result) == 1
         assert result[0]["entity_id"] == "q1"
         all_result = mem_db.list_entities()
         assert len(all_result) == 2
 
     def test_project_scoped_query_search_entities(self, mem_db):
-        mem_db.register_entity("feature", "searchme", "Search Me", project_id="__test__")
+        mem_db.register_entity("feature", "searchme", "Search Me", project_id=TEST_PROJECT_ID)
         mem_db.register_entity("feature", "searchother", "Search Other", project_id="__other__")
-        result = mem_db.search_entities("search", project_id="__test__")
+        result = mem_db.search_entities("search", project_id=TEST_PROJECT_ID)
         assert len(result) == 1
         assert result[0]["entity_id"] == "searchme"
         all_result = mem_db.search_entities("search")
         assert len(all_result) == 2
 
     def test_project_scoped_query_export_entities_json(self, mem_db):
-        mem_db.register_entity("feature", "e1", "E1", project_id="__test__")
+        mem_db.register_entity("feature", "e1", "E1", project_id=TEST_PROJECT_ID)
         mem_db.register_entity("feature", "e2", "E2", project_id="__other__")
-        result = mem_db.export_entities_json(project_id="__test__")
+        result = mem_db.export_entities_json(project_id=TEST_PROJECT_ID)
         assert result["entity_count"] == 1
         assert result["entities"][0]["entity_id"] == "e1"
         all_result = mem_db.export_entities_json()
         assert all_result["entity_count"] == 2
 
     def test_project_scoped_query_export_lineage_markdown(self, mem_db):
-        mem_db.register_entity("project", "p1", "P1", project_id="__test__")
+        mem_db.register_entity("project", "p1", "P1", project_id=TEST_PROJECT_ID)
         mem_db.register_entity("project", "p2", "P2", project_id="__other__")
-        result = mem_db.export_lineage_markdown(project_id="__test__")
+        result = mem_db.export_lineage_markdown(project_id=TEST_PROJECT_ID)
         assert "P1" in result
         assert "P2" not in result
         all_result = mem_db.export_lineage_markdown()
@@ -5744,9 +5745,9 @@ class TestProjectScopedQueryListEntities:
         assert "P2" in all_result
 
     def test_project_scoped_query_scan_entity_ids(self, mem_db):
-        mem_db.register_entity("feature", "s1", "S1", project_id="__test__")
+        mem_db.register_entity("feature", "s1", "S1", project_id=TEST_PROJECT_ID)
         mem_db.register_entity("feature", "s2", "S2", project_id="__other__")
-        result = mem_db.scan_entity_ids("feature", project_id="__test__")
+        result = mem_db.scan_entity_ids("feature", project_id=TEST_PROJECT_ID)
         assert result == ["s1"]
         all_result = mem_db.scan_entity_ids("feature")
         assert sorted(all_result) == ["s1", "s2"]
@@ -5757,16 +5758,16 @@ class TestSetParentProject:
 
     def test_set_parent_project_scoped(self, mem_db):
         """set_parent resolves both entities within the project scope."""
-        mem_db.register_entity("project", "p1", "P1 test", project_id="__test__")
+        mem_db.register_entity("project", "p1", "P1 test", project_id=TEST_PROJECT_ID)
         uid_child = mem_db.register_entity(
-            "feature", "f1", "F1 test", project_id="__test__"
+            "feature", "f1", "F1 test", project_id=TEST_PROJECT_ID
         )
         # Also register same type_ids in another project
         mem_db.register_entity("project", "p1", "P1 other", project_id="__other__")
         mem_db.register_entity("feature", "f1", "F1 other", project_id="__other__")
 
         result_uuid = mem_db.set_parent(
-            "feature:f1", "project:p1", project_id="__test__"
+            "feature:f1", "project:p1", project_id=TEST_PROJECT_ID
         )
         assert result_uuid == uid_child
         entity = mem_db.get_entity_by_uuid(uid_child)
@@ -5786,13 +5787,13 @@ class TestDeleteCascade:
     def test_delete_cascade_tags_deps_okr(self, mem_db):
         """Delete cleans up entity_tags, entity_dependencies, entity_okr_alignment."""
         uid = mem_db.register_entity(
-            "feature", "del1", "Deletable", project_id="__test__"
+            "feature", "del1", "Deletable", project_id=TEST_PROJECT_ID
         )
         kr_uid = mem_db.register_entity(
-            "key_result", "kr1", "KR1", project_id="__test__"
+            "key_result", "kr1", "KR1", project_id=TEST_PROJECT_ID
         )
         blocker_uid = mem_db.register_entity(
-            "feature", "blocker1", "Blocker", project_id="__test__"
+            "feature", "blocker1", "Blocker", project_id=TEST_PROJECT_ID
         )
 
         # Add tags, deps, OKR
@@ -5807,7 +5808,7 @@ class TestDeleteCascade:
         assert len(mem_db.get_okr_alignments(uid)) == 1
 
         # Delete
-        mem_db.delete_entity("feature:del1", project_id="__test__")
+        mem_db.delete_entity("feature:del1", project_id=TEST_PROJECT_ID)
 
         # Verify all junction table rows are gone
         assert len(mem_db.get_tags(uid)) == 0
@@ -5817,13 +5818,13 @@ class TestDeleteCascade:
     def test_delete_cascade_project_scoped(self, mem_db):
         """Delete resolves entity within project scope."""
         uid_test = mem_db.register_entity(
-            "feature", "same-id", "Test One", project_id="__test__"
+            "feature", "same-id", "Test One", project_id=TEST_PROJECT_ID
         )
         uid_other = mem_db.register_entity(
             "feature", "same-id", "Other One", project_id="__other__"
         )
 
-        mem_db.delete_entity("feature:same-id", project_id="__test__")
+        mem_db.delete_entity("feature:same-id", project_id=TEST_PROJECT_ID)
 
         # Test entity gone
         assert mem_db.get_entity_by_uuid(uid_test) is None
@@ -5836,13 +5837,13 @@ class TestReattribution:
 
     def test_basic_project_id_resolution(self, mem_db):
         """update_entity resolves via project_id."""
-        mem_db.register_entity("feature", "r1", "R1", project_id="__test__")
+        mem_db.register_entity("feature", "r1", "R1", project_id=TEST_PROJECT_ID)
         mem_db.register_entity("feature", "r1", "R1 other", project_id="__other__")
         mem_db.update_entity(
-            "feature:r1", name="R1 Updated", project_id="__test__"
+            "feature:r1", name="R1 Updated", project_id=TEST_PROJECT_ID
         )
         test_uid = mem_db._resolve_identifier(
-            "feature:r1", project_id="__test__"
+            "feature:r1", project_id=TEST_PROJECT_ID
         )[0]
         entity = mem_db.get_entity_by_uuid(test_uid)
         assert entity["name"] == "R1 Updated"
@@ -5856,25 +5857,25 @@ class TestReattribution:
     def test_reattribution_preserves_data(self, mem_db):
         """Re-attribution preserves UUID, tags, deps, OKR, workflow_phases."""
         uid = mem_db.register_entity(
-            "feature", "reattr1", "Reattr", project_id="__test__"
+            "feature", "reattr1", "Reattr", project_id=TEST_PROJECT_ID
         )
         mem_db.add_tag(uid, "important")
         blocker_uid = mem_db.register_entity(
-            "feature", "blk", "Blocker", project_id="__test__"
+            "feature", "blk", "Blocker", project_id=TEST_PROJECT_ID
         )
         mem_db.add_dependency(uid, blocker_uid)
         kr_uid = mem_db.register_entity(
-            "key_result", "kr1", "KR1", project_id="__test__"
+            "key_result", "kr1", "KR1", project_id=TEST_PROJECT_ID
         )
         mem_db.add_okr_alignment(uid, kr_uid)
         mem_db.upsert_workflow_phase(
-            "feature:reattr1", project_id="__test__",
+            "feature:reattr1", project_id=TEST_PROJECT_ID,
             workflow_phase="design",
         )
 
         # Re-attribute
         mem_db.update_entity(
-            "feature:reattr1", project_id="__test__",
+            "feature:reattr1", project_id=TEST_PROJECT_ID,
             new_project_id="__other__",
         )
 
@@ -5894,10 +5895,10 @@ class TestReattribution:
     def test_reattribution_fts_works(self, mem_db):
         """FTS search works after re-attribution."""
         mem_db.register_entity(
-            "feature", "ftstest", "FTS Re-attr Test", project_id="__test__"
+            "feature", "ftstest", "FTS Re-attr Test", project_id=TEST_PROJECT_ID
         )
         mem_db.update_entity(
-            "feature:ftstest", project_id="__test__",
+            "feature:ftstest", project_id=TEST_PROJECT_ID,
             new_project_id="__other__",
         )
         # Search in new project
@@ -5905,7 +5906,7 @@ class TestReattribution:
         assert len(results) == 1
         assert results[0]["entity_id"] == "ftstest"
         # Not in old project
-        results_old = mem_db.search_entities("FTS", project_id="__test__")
+        results_old = mem_db.search_entities("FTS", project_id=TEST_PROJECT_ID)
         assert len(results_old) == 0
 
     def test_reattribution_rollback_on_failure(self, mem_db):
@@ -5916,7 +5917,7 @@ class TestReattribution:
         violates UNIQUE(project_id, type_id).
         """
         uid = mem_db.register_entity(
-            "feature", "rollback1", "Rollback", project_id="__test__"
+            "feature", "rollback1", "Rollback", project_id=TEST_PROJECT_ID
         )
         # Create a conflict target: same type_id already in __other__
         mem_db.register_entity(
@@ -5925,13 +5926,13 @@ class TestReattribution:
 
         with pytest.raises(sqlite3.IntegrityError):
             mem_db.update_entity(
-                "feature:rollback1", project_id="__test__",
+                "feature:rollback1", project_id=TEST_PROJECT_ID,
                 new_project_id="__other__",
             )
 
         # Entity still in original project
         entity = mem_db.get_entity_by_uuid(uid)
-        assert entity["project_id"] == "__test__"
+        assert entity["project_id"] == TEST_PROJECT_ID
 
         # Trigger is restored — direct UPDATE should fail
         with pytest.raises(sqlite3.IntegrityError):
@@ -5947,10 +5948,10 @@ class TestUpsertWorkflowPhaseProject:
     def test_upsert_with_correct_project(self, mem_db):
         """upsert_workflow_phase succeeds when project matches."""
         mem_db.register_entity(
-            "feature", "wp1", "WP1", project_id="__test__"
+            "feature", "wp1", "WP1", project_id=TEST_PROJECT_ID
         )
         mem_db.upsert_workflow_phase(
-            "feature:wp1", project_id="__test__",
+            "feature:wp1", project_id=TEST_PROJECT_ID,
             workflow_phase="design",
         )
         wp = mem_db.get_workflow_phase("feature:wp1")
@@ -5960,7 +5961,7 @@ class TestUpsertWorkflowPhaseProject:
     def test_upsert_with_wrong_project_fails(self, mem_db):
         """upsert_workflow_phase fails when project doesn't match."""
         mem_db.register_entity(
-            "feature", "wp2", "WP2", project_id="__test__"
+            "feature", "wp2", "WP2", project_id=TEST_PROJECT_ID
         )
         with pytest.raises(ValueError, match="not found in project"):
             mem_db.upsert_workflow_phase(

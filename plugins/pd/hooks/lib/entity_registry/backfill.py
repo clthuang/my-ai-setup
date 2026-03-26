@@ -113,7 +113,8 @@ def _resolve_meta_path(
 
 
 def run_backfill(
-    db: EntityDatabase, artifacts_root: str, header_aware: bool = False
+    db: EntityDatabase, artifacts_root: str, header_aware: bool = False,
+    project_id: str = "__unknown__",
 ) -> None:
     """Scan artifact directories and register entities in topological order.
 
@@ -139,7 +140,7 @@ def run_backfill(
     # Backfill version tracks schema changes that require re-scanning
     # (e.g., name enrichment logic). Bump _BACKFILL_VERSION when scan
     # logic changes to trigger a one-time re-scan on existing DBs.
-    _BACKFILL_VERSION = "2"  # v2: entity name enrichment (title extraction)
+    _BACKFILL_VERSION = "3"  # v3: project_id scoping
 
     current_version = db.get_metadata("backfill_version") or "0"
     if db.get_metadata("backfill_complete") == "1" and current_version >= _BACKFILL_VERSION:
@@ -153,7 +154,7 @@ def run_backfill(
     }
 
     for entity_type in ENTITY_SCAN_ORDER:
-        scanners[entity_type](db, artifacts_root)
+        scanners[entity_type](db, artifacts_root, project_id=project_id)
 
     # Fix orphaned NULL workflow_phase values (e.g. abandoned entities)
     with db.transaction():
@@ -173,6 +174,7 @@ def run_backfill(
 def backfill_workflow_phases(
     db: EntityDatabase,
     artifacts_root: str,
+    project_id: str = "__unknown__",
 ) -> dict:
     """Backfill workflow_phases rows for all eligible entities.
 
@@ -271,6 +273,7 @@ def backfill_workflow_phases(
                         # Case 1: no row -> INSERT (upsert for idempotency)
                         db.upsert_workflow_phase(
                             type_id,
+                            project_id=project_id,
                             workflow_phase=workflow_phase,
                             kanban_column=kanban_column,
                         )
@@ -339,6 +342,7 @@ def backfill_workflow_phases(
                     # Upsert for idempotency (INSERT OR IGNORE + UPDATE)
                     db.upsert_workflow_phase(
                         type_id,
+                        project_id=project_id,
                         workflow_phase=workflow_phase,
                         kanban_column=kanban_column,
                         last_completed_phase=last_completed_phase,
@@ -357,7 +361,7 @@ def backfill_workflow_phases(
 # ---------------------------------------------------------------------------
 
 
-def _scan_backlog(db: EntityDatabase, artifacts_root: str) -> None:
+def _scan_backlog(db: EntityDatabase, artifacts_root: str, project_id: str = "__unknown__") -> None:
     """Parse backlog.md and register each row as a backlog entity."""
     backlog_path = os.path.join(artifacts_root, "backlog.md")
     if not os.path.isfile(backlog_path):
@@ -401,15 +405,17 @@ def _scan_backlog(db: EntityDatabase, artifacts_root: str) -> None:
             name=title,
             artifact_path=backlog_path,
             metadata={"description": description},
+            project_id=project_id,
         )
         db.update_entity(
             type_id=f"backlog:{item_id}",
+            project_id=project_id,
             name=title,
             metadata={"description": description},
         )
 
 
-def _scan_brainstorms(db: EntityDatabase, artifacts_root: str) -> None:
+def _scan_brainstorms(db: EntityDatabase, artifacts_root: str, project_id: str = "__unknown__") -> None:
     """Glob brainstorm files and register each as a brainstorm entity.
 
     .prd.md files are scanned first; .md files only for unregistered stems.
@@ -424,7 +430,7 @@ def _scan_brainstorms(db: EntityDatabase, artifacts_root: str) -> None:
     prd_files = sorted(glob.glob(os.path.join(bs_dir, "*.prd.md")))
     for path in prd_files:
         stem = _brainstorm_stem(path)
-        _register_brainstorm(db, path, stem)
+        _register_brainstorm(db, path, stem, project_id=project_id)
         registered_stems.add(stem)
 
     # Phase 2: .md files (only unregistered stems)
@@ -437,11 +443,11 @@ def _scan_brainstorms(db: EntityDatabase, artifacts_root: str) -> None:
         if stem in registered_stems:
             continue
 
-        _register_brainstorm(db, path, stem)
+        _register_brainstorm(db, path, stem, project_id=project_id)
         registered_stems.add(stem)
 
 
-def _scan_projects(db: EntityDatabase, artifacts_root: str) -> None:
+def _scan_projects(db: EntityDatabase, artifacts_root: str, project_id: str = "__unknown__") -> None:
     """Glob project .meta.json files and register each as a project entity."""
     proj_dir = os.path.join(artifacts_root, "projects")
     if not os.path.isdir(proj_dir):
@@ -453,22 +459,23 @@ def _scan_projects(db: EntityDatabase, artifacts_root: str) -> None:
         if meta is None:
             continue
 
-        project_id = meta.get("id", "")
-        name = meta.get("name", project_id)
+        proj_entity_id = meta.get("id", "")
+        name = meta.get("name", proj_entity_id)
 
         db.register_entity(
             entity_type="project",
-            entity_id=project_id,
+            entity_id=proj_entity_id,
             name=name,
             artifact_path=os.path.dirname(path),
+            project_id=project_id,
         )
 
         parent_type_id = _derive_parent("project", meta, None)
         if parent_type_id:
-            _safe_set_parent(db, f"project:{project_id}", parent_type_id)
+            _safe_set_parent(db, f"project:{proj_entity_id}", parent_type_id)
 
 
-def _scan_features(db: EntityDatabase, artifacts_root: str) -> None:
+def _scan_features(db: EntityDatabase, artifacts_root: str, project_id: str = "__unknown__") -> None:
     """Glob feature .meta.json files and register each as a feature entity."""
     feat_dir = os.path.join(artifacts_root, "features")
     if not os.path.isdir(feat_dir):
@@ -498,6 +505,7 @@ def _scan_features(db: EntityDatabase, artifacts_root: str) -> None:
             name=name,
             artifact_path=os.path.dirname(path),
             metadata=entity_meta,
+            project_id=project_id,
         )
 
         # Update name if existing entity has a slug-style name (no spaces)
@@ -511,7 +519,7 @@ def _scan_features(db: EntityDatabase, artifacts_root: str) -> None:
             # Ensure parent exists (register synthetic if needed)
             if db.get_entity(parent_type_id) is None:
                 _register_synthetic_for_missing_parent(
-                    db, parent_type_id, meta
+                    db, parent_type_id, meta, project_id=project_id,
                 )
             if db.get_entity(parent_type_id) is not None:
                 db.set_parent(type_id, parent_type_id)
@@ -524,6 +532,7 @@ def _scan_features(db: EntityDatabase, artifacts_root: str) -> None:
                 _register_synthetic(
                     db, "backlog", bl_id,
                     f"Backlog #{bl_id} (orphaned)", "orphaned",
+                    project_id=project_id,
                 )
             db.set_parent(type_id, bl_type_id)
 
@@ -601,6 +610,7 @@ def _register_synthetic(
     entity_id: str,
     name: str,
     status: str,
+    project_id: str = "__unknown__",
 ) -> str:
     """Register a synthetic entity (orphaned/external).
 
@@ -611,6 +621,7 @@ def _register_synthetic(
         entity_id=entity_id,
         name=name,
         status=status,
+        project_id=project_id,
     )
 
 
@@ -618,6 +629,7 @@ def _register_synthetic_for_missing_parent(
     db: EntityDatabase,
     parent_type_id: str,
     meta: dict,
+    project_id: str = "__unknown__",
 ) -> None:
     """Register a synthetic entity for a missing parent reference.
 
@@ -636,21 +648,25 @@ def _register_synthetic_for_missing_parent(
             _register_synthetic(
                 db, "brainstorm", p_id,
                 f"External: {bs_source}", "external",
+                project_id=project_id,
             )
         else:
             _register_synthetic(
                 db, "brainstorm", p_id,
                 f"Brainstorm {p_id} (orphaned)", "orphaned",
+                project_id=project_id,
             )
     elif p_type == "backlog":
         _register_synthetic(
             db, "backlog", p_id,
             f"Backlog #{p_id} (orphaned)", "orphaned",
+            project_id=project_id,
         )
     elif p_type == "project":
         _register_synthetic(
             db, "project", p_id,
             f"Project {p_id} (orphaned)", "orphaned",
+            project_id=project_id,
         )
 
 
@@ -695,7 +711,7 @@ def _extract_prd_title(content: str | None, stem: str) -> str:
     return _humanize_slug(stem)
 
 
-def _register_brainstorm(db: EntityDatabase, path: str, stem: str) -> None:
+def _register_brainstorm(db: EntityDatabase, path: str, stem: str, project_id: str = "__unknown__") -> None:
     """Read a brainstorm file, register it, and set its parent if derivable."""
     content = _read_file(path)
     title = _extract_prd_title(content, stem)
@@ -706,8 +722,9 @@ def _register_brainstorm(db: EntityDatabase, path: str, stem: str) -> None:
         entity_id=stem,
         name=title,
         artifact_path=path,
+        project_id=project_id,
     )
-    db.update_entity(type_id=f"brainstorm:{stem}", name=title)
+    db.update_entity(type_id=f"brainstorm:{stem}", name=title, project_id=project_id)
     if parent_type_id:
         _safe_set_parent(db, f"brainstorm:{stem}", parent_type_id)
 

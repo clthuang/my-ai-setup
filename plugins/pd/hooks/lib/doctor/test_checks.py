@@ -20,7 +20,7 @@ from doctor.models import CheckResult, DiagnosticReport, Issue
 
 
 def _make_db(tmp_path, name: str = "entities.db") -> str:
-    """Create a minimal entity DB with schema matching EntityDatabase v7.
+    """Create a minimal entity DB with schema matching EntityDatabase v8.
 
     Returns the path to the DB file.
     """
@@ -32,11 +32,12 @@ def _make_db(tmp_path, name: str = "entities.db") -> str:
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
-        INSERT OR REPLACE INTO _metadata(key, value) VALUES('schema_version', '7');
+        INSERT OR REPLACE INTO _metadata(key, value) VALUES('schema_version', '8');
 
         CREATE TABLE IF NOT EXISTS entities (
             uuid        TEXT NOT NULL PRIMARY KEY,
-            type_id     TEXT NOT NULL UNIQUE,
+            type_id     TEXT NOT NULL,
+            project_id  TEXT NOT NULL DEFAULT '__unknown__',
             entity_type TEXT NOT NULL,
             entity_id   TEXT NOT NULL,
             name        TEXT NOT NULL,
@@ -46,7 +47,31 @@ def _make_db(tmp_path, name: str = "entities.db") -> str:
             artifact_path  TEXT,
             created_at  TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
-            metadata    TEXT
+            metadata    TEXT,
+            UNIQUE(project_id, type_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS projects (
+            project_id      TEXT PRIMARY KEY,
+            name            TEXT NOT NULL,
+            root_commit_sha TEXT,
+            remote_url      TEXT,
+            normalized_url  TEXT,
+            remote_host     TEXT,
+            remote_owner    TEXT,
+            remote_repo     TEXT,
+            default_branch  TEXT,
+            project_root    TEXT,
+            is_git_repo     INTEGER NOT NULL DEFAULT 1,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS sequences (
+            project_id  TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            next_val    INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (project_id, entity_type)
         );
 
         CREATE TABLE IF NOT EXISTS workflow_phases (
@@ -89,8 +114,8 @@ def _register_feature(
     conn = sqlite3.connect(db_path)
     conn.execute(
         "INSERT OR IGNORE INTO entities "
-        "(uuid, type_id, entity_type, entity_id, name, status, created_at, updated_at) "
-        "VALUES (?, ?, 'feature', ?, ?, ?, datetime('now'), datetime('now'))",
+        "(uuid, type_id, project_id, entity_type, entity_id, name, status, created_at, updated_at) "
+        "VALUES (?, ?, '__unknown__', 'feature', ?, ?, ?, datetime('now'), datetime('now'))",
         (str(uuid_mod.uuid4()), type_id, slug, f"Test Feature {slug}", status),
     )
     conn.commit()
@@ -655,8 +680,8 @@ def _setup_workflow_feature(db_path, slug, *, wp="design", lcp="specify",
     conn = sqlite3.connect(db_path)
     conn.execute(
         "INSERT OR IGNORE INTO entities "
-        "(uuid, type_id, entity_type, entity_id, name, status, created_at, updated_at) "
-        "VALUES (?, ?, 'feature', ?, ?, 'active', datetime('now'), datetime('now'))",
+        "(uuid, type_id, project_id, entity_type, entity_id, name, status, created_at, updated_at) "
+        "VALUES (?, ?, '__unknown__', 'feature', ?, ?, 'active', datetime('now'), datetime('now'))",
         (entity_uuid, type_id, slug, f"Feature {slug}"),
     )
     conn.execute(
@@ -854,8 +879,8 @@ def _register_brainstorm(db_path, entity_id, status="active"):
     conn = sqlite3.connect(db_path)
     conn.execute(
         "INSERT OR IGNORE INTO entities "
-        "(uuid, type_id, entity_type, entity_id, name, status, created_at, updated_at) "
-        "VALUES (?, ?, 'brainstorm', ?, ?, ?, datetime('now'), datetime('now'))",
+        "(uuid, type_id, project_id, entity_type, entity_id, name, status, created_at, updated_at) "
+        "VALUES (?, ?, '__unknown__', 'brainstorm', ?, ?, ?, datetime('now'), datetime('now'))",
         (entity_uuid, type_id, entity_id, f"Brainstorm {entity_id}", status),
     )
     conn.commit()
@@ -932,8 +957,8 @@ class TestCheck3EntityDepsFallback:
         conn = sqlite3.connect(db_path)
         conn.execute(
             "INSERT INTO entities "
-            "(uuid, type_id, entity_type, entity_id, name, status, created_at, updated_at) "
-            "VALUES (?, 'feature:002-beta', 'feature', '002-beta', 'Beta', 'completed', "
+            "(uuid, type_id, project_id, entity_type, entity_id, name, status, created_at, updated_at) "
+            "VALUES (?, 'feature:002-beta', '__unknown__', 'feature', '002-beta', 'Beta', 'completed', "
             "datetime('now'), datetime('now'))",
             (feat_uuid,),
         )
@@ -1010,8 +1035,8 @@ def _register_backlog(db_path, entity_id, status="active"):
     conn = sqlite3.connect(db_path)
     conn.execute(
         "INSERT OR IGNORE INTO entities "
-        "(uuid, type_id, entity_type, entity_id, name, status, created_at, updated_at) "
-        "VALUES (?, ?, 'backlog', ?, ?, ?, datetime('now'), datetime('now'))",
+        "(uuid, type_id, project_id, entity_type, entity_id, name, status, created_at, updated_at) "
+        "VALUES (?, ?, '__unknown__', 'backlog', ?, ?, ?, datetime('now'), datetime('now'))",
         (str(uuid_mod.uuid4()), type_id, entity_id, f"Backlog {entity_id}", status),
     )
     conn.commit()
@@ -1746,9 +1771,9 @@ def _register_entity_with_uuid(db_path, type_id, entity_type, entity_id,
     conn = sqlite3.connect(db_path)
     conn.execute(
         "INSERT OR IGNORE INTO entities "
-        "(uuid, type_id, entity_type, entity_id, name, status, "
+        "(uuid, type_id, project_id, entity_type, entity_id, name, status, "
         "parent_type_id, parent_uuid, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, 'active', ?, ?, datetime('now'), datetime('now'))",
+        "VALUES (?, ?, '__unknown__', ?, ?, ?, 'active', ?, ?, datetime('now'), datetime('now'))",
         (uuid_val, type_id, entity_type, entity_id,
          f"Entity {entity_id}", parent_type_id, parent_uuid),
     )

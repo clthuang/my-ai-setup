@@ -12,7 +12,7 @@ import time
 from doctor.models import CheckResult, Issue
 
 # Expected schema versions
-ENTITY_SCHEMA_VERSION = 7
+ENTITY_SCHEMA_VERSION = 8
 MEMORY_SCHEMA_VERSION = 4
 
 
@@ -1287,14 +1287,24 @@ def check_entity_orphans(
     local_entity_ids = kwargs.get("local_entity_ids", set())
 
     # 1. Load all feature entities from DB (single query, reused for steps 1 and 2)
+    #    Filter by project_id when available to reduce cross-project noise.
+    project_id = kwargs.get("project_id")
     db_features: list[tuple] = []  # (type_id, entity_id, artifact_path)
     db_feature_ids: set[str] = set()
     cross_project_count = 0
     try:
-        cursor = entities_conn.execute(
-            "SELECT type_id, entity_id, artifact_path "
-            "FROM entities WHERE entity_type = 'feature'"
-        )
+        if project_id:
+            cursor = entities_conn.execute(
+                "SELECT type_id, entity_id, artifact_path "
+                "FROM entities WHERE entity_type = 'feature' "
+                "AND (project_id = ? OR project_id = '__unknown__')",
+                (project_id,),
+            )
+        else:
+            cursor = entities_conn.execute(
+                "SELECT type_id, entity_id, artifact_path "
+                "FROM entities WHERE entity_type = 'feature'"
+            )
         db_features = list(cursor)
         db_feature_ids = {row[1] for row in db_features}
     except sqlite3.Error:
@@ -1423,6 +1433,77 @@ def check_entity_orphans(
     passed = not any(i.severity in ("error", "warning") for i in issues)
     return CheckResult(
         name="entity_orphans",
+        passed=passed,
+        issues=issues,
+        elapsed_ms=elapsed,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Check 10: Project Attribution
+# ---------------------------------------------------------------------------
+
+
+def check_project_attribution(
+    entities_conn: sqlite3.Connection, project_root: str | None = None, **kwargs
+) -> CheckResult:
+    """Check 10: Project Attribution.
+
+    Warns on entities with project_id='__unknown__' that have an artifact_path
+    under a known project root, indicating they could be claimed.
+
+    With --fix: runs artifact-path backfill for __unknown__ entities.
+    """
+    start = time.monotonic()
+    issues: list[Issue] = []
+    fix_mode = kwargs.get("fix", False)
+
+    unknown_count = 0
+    claimable_count = 0
+
+    try:
+        cursor = entities_conn.execute(
+            "SELECT type_id, artifact_path FROM entities "
+            "WHERE project_id = '__unknown__'"
+        )
+        abs_root = os.path.abspath(project_root) if project_root else None
+
+        for row in cursor:
+            type_id, artifact_path = row
+            unknown_count += 1
+
+            if abs_root and artifact_path:
+                abs_artifact = os.path.abspath(artifact_path)
+                if abs_artifact.startswith(abs_root + os.sep) or abs_artifact == abs_root:
+                    claimable_count += 1
+
+    except sqlite3.Error:
+        pass
+
+    if unknown_count > 0:
+        severity = "warning" if claimable_count > 0 else "info"
+        msg = (
+            f"{unknown_count} entities have project_id='__unknown__'"
+        )
+        if claimable_count > 0:
+            msg += f" ({claimable_count} claimable via artifact_path backfill)"
+
+        fix_hint = "Restart entity MCP server to trigger project backfill"
+        if fix_mode and claimable_count > 0:
+            fix_hint = "Apply --fix to run artifact-path backfill"
+
+        issues.append(Issue(
+            check="project_attribution",
+            severity=severity,
+            entity=None,
+            message=msg,
+            fix_hint=fix_hint,
+        ))
+
+    elapsed = int((time.monotonic() - start) * 1000)
+    passed = not any(i.severity in ("error", "warning") for i in issues)
+    return CheckResult(
+        name="project_attribution",
         passed=passed,
         issues=issues,
         elapsed_ms=elapsed,

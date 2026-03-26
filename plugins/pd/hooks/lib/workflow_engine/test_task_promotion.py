@@ -12,6 +12,7 @@ import pytest
 from entity_registry.database import EntityDatabase
 from entity_registry.dependencies import DependencyManager
 from entity_registry.id_generator import generate_entity_id
+from entity_registry.test_helpers import TEST_PROJECT_ID
 from workflow_engine.task_promotion import (
     TaskAlreadyPromotedError,
     TaskNotFoundError,
@@ -23,6 +24,13 @@ from workflow_engine.task_promotion import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _patch_detect_project_id(monkeypatch):
+    """Ensure detect_project_id returns TEST_PROJECT_ID in all tests."""
+    import workflow_engine.task_promotion as _tp_mod
+    monkeypatch.setattr(_tp_mod, "detect_project_id", lambda *a, **kw: TEST_PROJECT_ID)
 
 
 def _make_db() -> EntityDatabase:
@@ -43,6 +51,7 @@ def _register_feature(
         entity_id=slug,
         name=f"Test Feature {slug}",
         status=status,
+        project_id=TEST_PROJECT_ID,
     )
     db.create_workflow_phase(type_id, mode=mode, workflow_phase="implement")
     return type_id, uuid

@@ -11,6 +11,7 @@ from entity_registry.id_generator import (
     _slugify,
     generate_entity_id,
 )
+from entity_registry.test_helpers import TEST_PROJECT_ID
 
 
 # ---------------------------------------------------------------------------
@@ -80,9 +81,9 @@ class TestSlugify:
 class TestGenerateEntityId:
     def test_generation_works_and_increments(self, db: EntityDatabase):
         """generate_entity_id returns sequential IDs via sequences table."""
-        id1 = generate_entity_id(db, "backlog", "test item", project_id="__test__")
+        id1 = generate_entity_id(db, "backlog", "test item", project_id=TEST_PROJECT_ID)
         assert id1 == "001-test-item"
-        id2 = generate_entity_id(db, "backlog", "second item", project_id="__test__")
+        id2 = generate_entity_id(db, "backlog", "second item", project_id=TEST_PROJECT_ID)
         assert id2 == "002-second-item"
 
     def test_scan_existing_max_seq_deleted(self):
@@ -91,43 +92,43 @@ class TestGenerateEntityId:
 
     def test_first_id_for_new_type(self, db: EntityDatabase):
         """New type with no existing entities starts at 001."""
-        result = generate_entity_id(db, "task", "My First Task", project_id="__test__")
+        result = generate_entity_id(db, "task", "My First Task", project_id=TEST_PROJECT_ID)
         assert result == "001-my-first-task"
 
     def test_sequential_ids(self, db: EntityDatabase):
         """Multiple calls increment the sequence."""
-        id1 = generate_entity_id(db, "task", "Task One", project_id="__test__")
-        id2 = generate_entity_id(db, "task", "Task Two", project_id="__test__")
-        id3 = generate_entity_id(db, "task", "Task Three", project_id="__test__")
+        id1 = generate_entity_id(db, "task", "Task One", project_id=TEST_PROJECT_ID)
+        id2 = generate_entity_id(db, "task", "Task Two", project_id=TEST_PROJECT_ID)
+        id3 = generate_entity_id(db, "task", "Task Three", project_id=TEST_PROJECT_ID)
         assert id1 == "001-task-one"
         assert id2 == "002-task-two"
         assert id3 == "003-task-three"
 
     def test_per_type_counters(self, db: EntityDatabase):
         """Each entity type has its own independent counter."""
-        id_task = generate_entity_id(db, "task", "A Task", project_id="__test__")
-        id_init = generate_entity_id(db, "initiative", "An Initiative", project_id="__test__")
+        id_task = generate_entity_id(db, "task", "A Task", project_id=TEST_PROJECT_ID)
+        id_init = generate_entity_id(db, "initiative", "An Initiative", project_id=TEST_PROJECT_ID)
         assert id_task == "001-a-task"
         assert id_init == "001-an-initiative"
 
     def test_slug_max_30_chars(self, db: EntityDatabase):
         long_name = "A Very Long Entity Name That Definitely Exceeds Thirty Characters"
-        result = generate_entity_id(db, "task", long_name, project_id="__test__")
+        result = generate_entity_id(db, "task", long_name, project_id=TEST_PROJECT_ID)
         # Extract slug (everything after "NNN-")
         slug = result.split("-", 1)[1]
         assert len(slug) <= 30
 
     def test_slug_lowercase_hyphens(self, db: EntityDatabase):
-        result = generate_entity_id(db, "initiative", "Enterprise Reliability", project_id="__test__")
+        result = generate_entity_id(db, "initiative", "Enterprise Reliability", project_id=TEST_PROJECT_ID)
         assert result == "001-enterprise-reliability"
 
     def test_empty_name_fallback(self, db: EntityDatabase):
         """Empty name produces 'unnamed' slug."""
-        result = generate_entity_id(db, "task", "", project_id="__test__")
+        result = generate_entity_id(db, "task", "", project_id=TEST_PROJECT_ID)
         assert result == "001-unnamed"
 
     def test_special_chars_in_name(self, db: EntityDatabase):
-        result = generate_entity_id(db, "task", "Fix bug #123 (urgent!)", project_id="__test__")
+        result = generate_entity_id(db, "task", "Fix bug #123 (urgent!)", project_id=TEST_PROJECT_ID)
         assert result == "001-fix-bug-123-urgent"
 
     def test_project_id_required(self, db: EntityDatabase):
@@ -143,5 +144,5 @@ class TestGenerateEntityId:
             "VALUES('__test__', 'feature', 53)"
         )
         db._conn.commit()
-        result = generate_entity_id(db, "feature", "Structured Logging", project_id="__test__")
+        result = generate_entity_id(db, "feature", "Structured Logging", project_id=TEST_PROJECT_ID)
         assert result == "053-structured-logging"

@@ -25,7 +25,7 @@ from doctor.models import (
 
 
 def _make_db(tmp_path, name: str = "entities.db") -> str:
-    """Create a minimal entity DB with schema matching EntityDatabase v7."""
+    """Create a minimal entity DB with schema matching EntityDatabase v8."""
     db_path = str(tmp_path / name)
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -34,11 +34,12 @@ def _make_db(tmp_path, name: str = "entities.db") -> str:
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
-        INSERT OR REPLACE INTO _metadata(key, value) VALUES('schema_version', '7');
+        INSERT OR REPLACE INTO _metadata(key, value) VALUES('schema_version', '8');
 
         CREATE TABLE IF NOT EXISTS entities (
             uuid        TEXT NOT NULL PRIMARY KEY,
-            type_id     TEXT NOT NULL UNIQUE,
+            type_id     TEXT NOT NULL,
+            project_id  TEXT NOT NULL DEFAULT '__unknown__',
             entity_type TEXT NOT NULL,
             entity_id   TEXT NOT NULL,
             name        TEXT NOT NULL,
@@ -48,7 +49,31 @@ def _make_db(tmp_path, name: str = "entities.db") -> str:
             artifact_path  TEXT,
             created_at  TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
-            metadata    TEXT
+            metadata    TEXT,
+            UNIQUE(project_id, type_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS projects (
+            project_id      TEXT PRIMARY KEY,
+            name            TEXT NOT NULL,
+            root_commit_sha TEXT,
+            remote_url      TEXT,
+            normalized_url  TEXT,
+            remote_host     TEXT,
+            remote_owner    TEXT,
+            remote_repo     TEXT,
+            default_branch  TEXT,
+            project_root    TEXT,
+            is_git_repo     INTEGER NOT NULL DEFAULT 1,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS sequences (
+            project_id  TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            next_val    INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (project_id, entity_type)
         );
 
         CREATE TABLE IF NOT EXISTS workflow_phases (
@@ -114,8 +139,8 @@ def _register_feature(db_path: str, slug: str = "008-test-feature", status: str 
     conn = sqlite3.connect(db_path)
     conn.execute(
         "INSERT OR IGNORE INTO entities "
-        "(uuid, type_id, entity_type, entity_id, name, status, created_at, updated_at) "
-        "VALUES (?, ?, 'feature', ?, ?, ?, datetime('now'), datetime('now'))",
+        "(uuid, type_id, project_id, entity_type, entity_id, name, status, created_at, updated_at) "
+        "VALUES (?, ?, '__unknown__', 'feature', ?, ?, ?, datetime('now'), datetime('now'))",
         (str(uuid_mod.uuid4()), type_id, slug, f"Test Feature {slug}", status),
     )
     conn.commit()
@@ -468,13 +493,13 @@ class TestFixActions:
 
         conn = sqlite3.connect(db_path)
         conn.execute(
-            "INSERT INTO entities (uuid, type_id, entity_type, entity_id, name, status) "
-            "VALUES (?, 'project:alpha', 'project', 'alpha', 'Alpha', 'active')",
+            "INSERT INTO entities (uuid, type_id, project_id, entity_type, entity_id, name, status) "
+            "VALUES (?, 'project:alpha', '__unknown__', 'project', 'alpha', 'Alpha', 'active')",
             (parent_uuid,),
         )
         conn.execute(
-            "INSERT INTO entities (uuid, type_id, entity_type, entity_id, name, status, parent_type_id) "
-            "VALUES (?, 'feature:001-child', 'feature', '001-child', 'Child', 'active', 'project:alpha')",
+            "INSERT INTO entities (uuid, type_id, project_id, entity_type, entity_id, name, status, parent_type_id) "
+            "VALUES (?, 'feature:001-child', '__unknown__', 'feature', '001-child', 'Child', 'active', 'project:alpha')",
             (child_uuid,),
         )
         conn.commit()
@@ -505,8 +530,8 @@ class TestFixActions:
         entity_uuid = str(uuid_mod.uuid4())
         conn = sqlite3.connect(db_path)
         conn.execute(
-            "INSERT INTO entities (uuid, type_id, entity_type, entity_id, name, status, parent_type_id) "
-            "VALUES (?, 'feature:001-self', 'feature', '001-self', 'Self', 'active', 'feature:001-self')",
+            "INSERT INTO entities (uuid, type_id, project_id, entity_type, entity_id, name, status, parent_type_id) "
+            "VALUES (?, 'feature:001-self', '__unknown__', 'feature', '001-self', 'Self', 'active', 'feature:001-self')",
             (entity_uuid,),
         )
         conn.commit()
