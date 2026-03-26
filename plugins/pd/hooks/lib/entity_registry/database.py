@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -2181,6 +2182,14 @@ class EntityDatabase:
         int
             Number of entities whose ``project_id`` was updated.
         """
+        if not project_root or not os.path.isabs(project_root):
+            raise ValueError(
+                f"project_root must be a non-empty absolute path, got {project_root!r}"
+            )
+        if self._in_transaction:
+            raise RuntimeError(
+                "backfill_project_ids cannot be called inside an active transaction"
+            )
         # Escape LIKE special characters in project_root
         escaped = (
             project_root
