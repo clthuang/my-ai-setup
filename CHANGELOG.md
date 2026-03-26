@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.14.0] - 2026-03-26
+
 ### Added
 - Project scoping for the global entity registry — each entity is now associated with the project it was created in, enabling cross-project isolation and per-project entity queries
 - `list_projects` MCP tool — lists all projects registered in the entity DB with their git metadata
