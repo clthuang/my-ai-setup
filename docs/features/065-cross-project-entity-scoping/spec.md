@@ -211,7 +211,7 @@ In `lifespan()`, after DB initialization:
 | Tool | New param | Default | Notes |
 |------|-----------|---------|-------|
 | `register_entity` | `project_id: str \| None`, `auto_id: bool` | `_project_id`, `false` | When `auto_id=true` and `entity_id` omitted: calls `generate_entity_id(db, entity_type, name, project_id)`. When `auto_id=true` and `entity_id` provided: error (conflict). |
-| `update_entity` | `project_id: str \| None`, `new_project_id: str \| None` | `_project_id`, `None` | `project_id` for resolution context. `new_project_id` for re-attribution (DELETE+INSERT bypass). |
+| `update_entity` | `project_id: str \| None`, `new_project_id: str \| None` | `_project_id`, `None` | `project_id` for resolution context. `new_project_id` for re-attribution (trigger-drop approach, design TD-8). |
 | `search_entities` | `project_id: str \| None` | `_project_id` | `"*"` for all projects |
 | `export_entities` | `project_id: str \| None` | `_project_id` | `"*"` for all projects |
 | `export_lineage_markdown` | `project_id: str \| None` | `_project_id` | `"*"` for all projects |
@@ -306,7 +306,7 @@ New method on `EntityDatabase`:
 - `test_database.py` migration (~15 tests): covers AC-2.1 through AC-2.13 — migration 8 DDL, backfill correctness, composite UNIQUE enforcement, trigger verification, FTS rebuild, sequence migration, rollback safety
 - `test_database.py` sequences (~5 tests): covers AC-5.1 through AC-5.4 — next_sequence_value bootstrap, increment, project scoping
 - `test_database.py` queries (~6 tests): covers AC-3.2.1 through AC-3.2.4 — _resolve_identifier project scoping, register_entity idempotency change, parent resolution
-- `test_database.py` re-attribution (~4 tests): covers AC-3.3.1 through AC-3.3.3 — DELETE+INSERT bypass, related data preservation, rollback on failure
+- `test_database.py` re-attribution (~4 tests): covers AC-3.3.1 through AC-3.3.4 — trigger-drop approach, data preservation, rollback on failure, FTS sync
 - Doctor tests (~5 tests): covers AC-6.4, AC-6.5 — schema version, project-scoped orphan checks, attribution warnings, auto-fix
 
 ### Existing Test Files Requiring Updates

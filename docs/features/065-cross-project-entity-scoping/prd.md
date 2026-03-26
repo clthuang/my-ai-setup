@@ -182,7 +182,8 @@ The `project_id` concept already exists in the codebase as a **metadata-level fi
   - `scan_entity_ids(project_id: str | None)` — optional, for sequence bootstrap filtering
   - `_resolve_identifier(project_id: str | None)` — see FR-10
   - `next_sequence_value(project_id: str, entity_type: str)` — new method, always project-scoped
-  **Unchanged methods** (operate on UUID which remains globally unique): `get_entity_by_uuid`, `get_children_by_uuid`, `set_parent`, `delete_entity`, `add_tag`, `remove_tag`, `get_tags`, `query_by_tag`, `add_dependency`, `remove_dependency`, `query_dependencies`, `add_okr_alignment`, `get_okr_alignments`, workflow phase methods.
+  **Unchanged methods** (operate on UUID which remains globally unique): `get_entity_by_uuid`, `get_children_by_uuid`, `add_tag`, `remove_tag`, `get_tags`, `query_by_tag`, `add_dependency`, `remove_dependency`, `query_dependencies`, `add_okr_alignment`, `get_okr_alignments`, workflow phase methods (except `upsert_workflow_phase`).
+  **Note:** `set_parent`, `delete_entity`, `update_entity`, `resolve_ref`, `search_by_type_id_prefix` also gain `project_id` parameter — see spec FS-3.1 for full enumeration.
 - FR-6: `detect_project_id()` and `collect_git_info()` function contracts:
   - **`detect_project_id(working_dir)`:**
     - **Input:** working directory path (defaults to cwd)
@@ -202,7 +203,7 @@ The `project_id` concept already exists in the codebase as a **metadata-level fi
   3. CREATE TABLE `projects` (FR-2 DDL)
   4. CREATE TABLE `sequences` (FR-4 DDL)
   5. CREATE TABLE `entities_new` (FR-3 target DDL)
-  6. INSERT INTO `entities_new` — backfill: `COALESCE(json_extract(metadata, '$.project_id'), '__unknown__')` as project_id
+  6. INSERT INTO `entities_new` — all existing entities get `'__unknown__'` as project_id (see TD-1 in design.md for rationale: metadata.project_id format mismatch)
   7. DROP TABLE `entities` / RENAME `entities_new` → `entities`
   8. Recreate all 9 triggers (8 existing + `enforce_immutable_project_id`)
   9. Recreate all indexes + new `idx_project_id`, `idx_project_entity_type`

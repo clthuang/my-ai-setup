@@ -133,7 +133,7 @@ CREATE TRIGGER enforce_immutable_project_id
     BEGIN SELECT RAISE(ABORT, 'project_id is immutable — use re-attribution API'); END;
 COMMIT;
 ```
-**Rationale:** 3 statements vs ~12 for DELETE+re-INSERT cascade. No risk of losing related data (tags, deps, OKR, workflow_phases). DDL within transactions is valid in SQLite and already used by the migration itself. FTS sync uses the same DELETE+INSERT-by-rowid pattern as regular `update_entity`.
+**Rationale:** 3 statements vs ~12 for DELETE+re-INSERT cascade. No risk of losing related data (tags, deps, OKR, workflow_phases). DDL within transactions is valid in SQLite and already used by the migration itself. FTS sync uses the same DELETE+INSERT-by-rowid pattern as regular `update_entity`. Note: `PRAGMA foreign_keys` affects DML only; DROP/CREATE TRIGGER is DDL and is unaffected by the PRAGMA setting.
 
 ### TD-7: Shallow clone detection
 **Decision:** Add `git rev-parse --is-shallow-repository` check before `rev-list`. If shallow, skip directly to HEAD SHA fallback.
@@ -300,9 +300,6 @@ async def list_projects() -> list[dict]:
 
 # Startup functions (added to lifespan)
 def _upsert_project(db, info: GitProjectInfo) -> None:
-    """INSERT OR REPLACE into projects table."""
-
-def _upsert_project(db, info: GitProjectInfo) -> None:
     """INSERT INTO projects (...) VALUES (...) ON CONFLICT(project_id) DO UPDATE SET
     name=excluded.name, remote_url=excluded.remote_url, ...
     (omits created_at from UPDATE SET to preserve original creation time)."""
@@ -315,7 +312,19 @@ def _backfill_project_ids(db, project_root: str, project_id: str) -> int:
     '__unknown__' and are reported by doctor check_project_attribution."""
 ```
 
-### I-5: `server_helpers.py` Changed Functions
+### I-5: `entity_server.py` Resolution Helper
+
+```python
+def _resolve_ref_param(db, type_id=None, ref=None, is_mutation=False,
+                       project_id: str | None = None) -> tuple[str, str]:
+    """Add project_id param. Passes through to db.resolve_ref(ref, project_id=project_id).
+    Called by: get_entity, get_lineage, get_entity_tags, add_entity_tag,
+    remove_entity_tag, set_parent (MCP), add_dependency, remove_dependency,
+    get_okr_alignments, add_okr_alignment, delete_entity (MCP), update_entity (MCP).
+    All callers pass _project_id from module global — no user-facing param needed."""
+```
+
+### I-6: `server_helpers.py` Changed Functions
 
 ```python
 def _process_register_entity(db, entity_type, entity_id, name, ...,
