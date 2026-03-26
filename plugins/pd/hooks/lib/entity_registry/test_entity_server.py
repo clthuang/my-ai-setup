@@ -275,3 +275,133 @@ class TestMetadataDictCoercion:
         )
         # Should succeed (parse_metadata returns {"error": "..."} for invalid JSON)
         assert "Registered:" in result
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Cross-project entity scoping — startup and project tools
+# ---------------------------------------------------------------------------
+
+
+class TestProjectStartup:
+    """T4.1: entity_server startup with project_id detection."""
+
+    def test_project_id_set_after_detection(self, db, monkeypatch):
+        """Monkeypatch detect_project_id and verify _project_id is set."""
+        monkeypatch.setattr(entity_server, "_project_id", "")
+        monkeypatch.setattr(
+            "entity_server.detect_project_id", lambda _root: "abc123def456"
+        )
+        monkeypatch.setattr(
+            "entity_server.collect_git_info",
+            lambda _root: entity_server.GitProjectInfo(
+                project_id="abc123def456",
+                root_commit_sha="a" * 40,
+                name="test-project",
+                remote_url="",
+                normalized_url="",
+                remote_host="",
+                remote_owner="",
+                remote_repo="",
+                default_branch="main",
+                project_root="/tmp/test",
+                is_git_repo=True,
+            ),
+        )
+        # Simulate the startup sequence
+        entity_server._project_id = entity_server.detect_project_id("/tmp/test")
+        info = entity_server.collect_git_info("/tmp/test")
+        entity_server._upsert_project(db, info)
+
+        assert entity_server._project_id == "abc123def456"
+        # Verify project was inserted
+        row = db._conn.execute(
+            "SELECT * FROM projects WHERE project_id = ?", ("abc123def456",)
+        ).fetchone()
+        assert row is not None
+        assert row["name"] == "test-project"
+
+    def test_backfill_claims_unknown_entities(self, db, monkeypatch):
+        """Pre-populate __unknown__ entity with matching artifact_path, verify claimed."""
+        project_root = "/tmp/my-project"
+        project_id = "testproj1234"
+
+        # Register an entity with __unknown__ project_id and matching artifact_path
+        db.register_entity(
+            "feature", "bf-test", "Backfill Test",
+            artifact_path="/tmp/my-project/docs/features/test/design.md",
+            project_id="__unknown__",
+        )
+        # Verify starts as __unknown__
+        entity = db.get_entity("feature:bf-test")
+        assert entity["project_id"] == "__unknown__"
+
+        # Run backfill
+        count = entity_server._backfill_project_ids(db, project_root, project_id)
+        assert count == 1
+
+        # Verify entity was claimed
+        entity = db.get_entity("feature:bf-test")
+        assert entity["project_id"] == project_id
+
+
+class TestListProjects:
+    """T4.5: list_projects MCP tool."""
+
+    def test_list_projects_returns_inserted_project(self, db, monkeypatch):
+        """Insert a project via _upsert_project, then list_projects returns it."""
+        from entity_registry.project_identity import GitProjectInfo
+
+        monkeypatch.setattr(entity_server, "_db", db)
+        info = GitProjectInfo(
+            project_id="proj12345678",
+            root_commit_sha="b" * 40,
+            name="list-test-project",
+            remote_url="https://github.com/test/repo.git",
+            normalized_url="github.com/test/repo",
+            remote_host="github.com",
+            remote_owner="test",
+            remote_repo="repo",
+            default_branch="main",
+            project_root="/tmp/list-test",
+            is_git_repo=True,
+        )
+        entity_server._upsert_project(db, info)
+
+        import asyncio
+        result = asyncio.run(entity_server.list_projects())
+        parsed = json.loads(result)
+        assert isinstance(parsed, list)
+        assert len(parsed) >= 1
+        project_ids = [p["project_id"] for p in parsed]
+        assert "proj12345678" in project_ids
+        matched = [p for p in parsed if p["project_id"] == "proj12345678"][0]
+        assert matched["name"] == "list-test-project"
+
+
+class TestSearchProjectFiltering:
+    """T4.3: search_entities project_id filtering."""
+
+    @pytest.mark.asyncio
+    async def test_search_filters_by_project(self, db, monkeypatch):
+        """Search with project_id filters results to that project."""
+        # Register entities under different projects
+        db.register_entity(
+            "feature", "proj-a-feat", "Project A Feature",
+            status="active", project_id="project_aaa",
+        )
+        db.register_entity(
+            "feature", "proj-b-feat", "Project B Feature",
+            status="active", project_id="project_bbb",
+        )
+
+        monkeypatch.setattr(entity_server, "_project_id", "project_aaa")
+
+        # Default search (scoped to project_aaa)
+        result = await entity_server.search_entities(query="Feature")
+        assert "proj-a-feat" in result
+        assert "proj-b-feat" not in result
+
+        # Wildcard search (all projects)
+        result = await entity_server.search_entities(query="Feature", project_id="*")
+        assert "proj-a-feat" in result
+        assert "proj-b-feat" in result

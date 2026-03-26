@@ -54,7 +54,8 @@ class TestExportEntitiesTool:
                 )
             )
             mock_helper.assert_called_once_with(
-                mock_db, "feature", "active", None, False, mock_artifacts_root
+                mock_db, "feature", "active", None, False, mock_artifacts_root,
+                fields=None, project_id=None,
             )
 
     def test_include_lineage_default_true(self):
@@ -69,7 +70,8 @@ class TestExportEntitiesTool:
             mock_helper.return_value = "{}"
             _run(entity_server.export_entities())
             mock_helper.assert_called_once_with(
-                mock_db, None, None, None, True, mock_artifacts_root
+                mock_db, None, None, None, True, mock_artifacts_root,
+                fields=None, project_id=None,
             )
 
     def test_returns_helper_result(self):

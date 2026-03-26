@@ -1142,7 +1142,7 @@ class TestProcessExportEntities:
                 include_lineage=False,
                 artifacts_root="/tmp",
             )
-            mock_export.assert_called_once_with(None, None, False)
+            mock_export.assert_called_once_with(None, None, False, project_id=None)
 
     def test_confirmation_message_format(self, db: EntityDatabase, tmp_path):
         """Returns 'Exported {n} entities to {path}' with correct count."""
