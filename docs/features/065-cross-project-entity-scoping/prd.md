@@ -109,26 +109,130 @@ The `project_id` concept already exists in the codebase as a **metadata-level fi
 ## Requirements
 
 ### Functional
-- FR-1: Promote `project_id` from metadata JSON to a first-class `project_id TEXT` column on `entities` table. Migration must backfill from existing `metadata` JSON `project_id` values where present.
-- FR-2: Add `projects` table: `(project_id TEXT PK, name TEXT, root_commit_sha TEXT, remote_url TEXT, created_at TEXT)`
-- FR-3: Change `type_id` UNIQUE constraint to `UNIQUE(project_id, type_id)` — allowing same type_id across projects. Implementation note: requires table-rebuild migration pattern (CREATE-COPY-DROP-RENAME) already established in `_migrate_to_uuid_pk`. All 8 immutability/self-parent triggers must be recreated on the new table. No triggers need modification — only recreation.
-- FR-4: Add `sequences` table: `(project_id TEXT, entity_type TEXT, next_val INTEGER, PRIMARY KEY(project_id, entity_type))` — replacing `_metadata` `next_seq_*` keys
-- FR-5: Add `project_id` parameter to MCP tools. Affected tools: `register_entity` (required, auto-detected from MCP server context), `update_entity` (optional, for re-attribution), `search_entities` (optional, defaults to current project), `list_entities` (optional, defaults to current project), `export_entities` (optional, defaults to current project), `export_lineage_markdown` (optional, defaults to current project). `get_entity` does NOT need project_id — lookup by type_id + project context.
-- FR-6: `detect_project_id()` function contract:
-  - **Input:** working directory path (defaults to cwd)
-  - **Output:** string, 12-char truncated hex SHA (e.g., `a1b2c3d4e5f6`)
-  - **Primary:** `git rev-list --max-parents=0 HEAD` in the working directory, truncated to first 12 characters
-  - **Fallback chain:** (1) if `git rev-list` fails (no git, corrupt repo, shallow clone with no root): use `git rev-parse --short=12 HEAD` (current HEAD, less stable but available); (2) if no git at all: use `hashlib.sha256(os.path.basename(cwd)).hexdigest()[:12]` (deterministic but path-dependent)
-  - **Relationship to project entities:** `detect_project_id()` produces the DB `project_id` column value. This is distinct from the `project` entity type (`project:P001`) which is a user-created organizational entity. A project entity's `project_id` column would contain the same root commit SHA as all entities in that repo.
-  - **Caching:** Result should be cached per-process (root commit SHA is immutable). MCP server resolves once at startup from `PROJECT_ROOT` env var.
-- FR-7: Next available migration version (currently 8, may change if other features land first): add `project_id` column, create `projects` and `sequences` tables, backfill existing entities from metadata JSON `project_id` values and artifact_path heuristics
-- FR-8: Update `add-to-backlog` to use `sequences` table instead of parsing markdown
-- FR-9: Update doctor `check_backlog_status` to scope checks by project
+- FR-1: Promote `project_id` from metadata JSON to a first-class `project_id TEXT NOT NULL DEFAULT '__unknown__'` column on `entities` table. Migration must backfill from existing `metadata` JSON `project_id` values where present. Sentinel value `'__unknown__'` used instead of NULL to preserve UNIQUE enforcement.
+- FR-2: Add `projects` table — git-aware project registry, auto-populated at MCP server startup:
+  ```sql
+  CREATE TABLE projects (
+      project_id      TEXT PRIMARY KEY,    -- 12-char hex from detect_project_id()
+      name            TEXT NOT NULL,       -- human-readable (from remote URL or dir basename)
+      root_commit_sha TEXT,                -- full 40-char SHA (NULL for non-git dirs)
+      remote_url      TEXT,                -- raw git remote origin URL
+      normalized_url  TEXT,                -- canonical: "github.com/terry/pedantic-drip"
+      remote_host     TEXT,                -- parsed: "github.com"
+      remote_owner    TEXT,                -- parsed: "terry"
+      remote_repo     TEXT,                -- parsed: "pedantic-drip"
+      default_branch  TEXT,                -- "main", "develop", etc.
+      project_root    TEXT,                -- absolute path to git root
+      is_git_repo     INTEGER NOT NULL DEFAULT 1,  -- 0 for non-git dirs
+      created_at      TEXT NOT NULL,
+      updated_at      TEXT NOT NULL
+  )
+  ```
+  Auto-upsert requirement: each MCP server startup calls `collect_git_info()` and upserts the current project. This keeps remote_url, project_root, etc. current across renames and protocol changes. `normalize_remote_url()` strips scheme, user@, SCP-style colons, `.git` suffix → canonical `host/owner/repo` form, enabling SSH/HTTPS matching.
+- FR-3: Change `type_id` UNIQUE constraint to `UNIQUE(project_id, type_id)` — allowing same type_id across projects. Implementation notes:
+  - Requires table-rebuild migration pattern (CREATE-COPY-DROP-RENAME) established in `_migrate_to_uuid_pk`.
+  - **Parent FK change:** `parent_type_id TEXT REFERENCES entities(type_id)` is no longer valid since type_id is not globally UNIQUE. Resolution: drop the `REFERENCES entities(type_id)` FK constraint on `parent_type_id` — keep the column as denormalized data. `parent_uuid REFERENCES entities(uuid)` remains the real FK and is unaffected (uuid is PK, globally unique).
+  - **Trigger recreation:** All 8 existing immutability/self-parent triggers must be recreated + 1 new `enforce_immutable_project_id` trigger (project_id is immutable — re-attribution requires explicit `update_entity` with a dedicated code path, not casual UPDATE). Total: **9 triggers**.
+  - **FTS5 rebuild:** Table rebuild changes rowids. `entities_fts` must be DROP + CREATE + backfilled (same pattern as migration 7, `_fix_fts_content_mode`). FTS schema unchanged (project_id not needed in FTS — project filtering is via WHERE clause on main table joined to FTS).
+  - Post-migration target DDL for entities table:
+  ```sql
+  CREATE TABLE entities (
+      uuid           TEXT NOT NULL PRIMARY KEY,
+      type_id        TEXT NOT NULL,
+      project_id     TEXT NOT NULL DEFAULT '__unknown__',
+      entity_type    TEXT NOT NULL,
+      entity_id      TEXT NOT NULL,
+      name           TEXT NOT NULL,
+      status         TEXT,
+      parent_type_id TEXT,                    -- denormalized, no FK constraint
+      parent_uuid    TEXT REFERENCES entities(uuid),
+      artifact_path  TEXT,
+      created_at     TEXT NOT NULL,
+      updated_at     TEXT NOT NULL,
+      metadata       TEXT,
+      UNIQUE(project_id, type_id)
+  )
+  ```
+- FR-4: Add `sequences` table:
+  ```sql
+  CREATE TABLE sequences (
+      project_id  TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      next_val    INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY (project_id, entity_type)
+  )
+  ```
+  Replaces `_metadata` `next_seq_*` keys. Migration moves existing counters to `sequences` with `project_id='__unknown__'`, then deletes the `_metadata` keys.
+- FR-5: Add `project_id` parameter to both MCP tools AND underlying `EntityDatabase` methods.
+  **MCP tools:**
+  - `register_entity` — required, auto-detected from MCP server `_project_id` global
+  - `update_entity` — optional, for explicit re-attribution (bypasses immutability trigger via dedicated code path)
+  - `search_entities` — optional, defaults to current project; `"*"` for all projects
+  - `export_entities` — optional, defaults to current project; `"*"` for all projects
+  - `export_lineage_markdown` — optional, defaults to current project
+  - `get_entity` — project context used internally for resolution (see FR-10)
+  - `list_projects` — **NEW** tool returning all registered projects from projects table
+  **EntityDatabase methods requiring `project_id` parameter:**
+  - `register_entity(project_id: str)` — required (no default at DB layer; MCP/backfill must supply)
+  - `register_entities_batch(project_id: str)` — required, applied to all entities in batch
+  - `list_entities(project_id: str | None)` — optional, `None` = all projects
+  - `search_entities(project_id: str | None)` — optional, `None` = all projects
+  - `export_entities_json(project_id: str | None)` — optional, `None` = all projects
+  - `export_lineage_markdown(project_id: str | None)` — optional, `None` = all projects
+  - `scan_entity_ids(project_id: str | None)` — optional, for sequence bootstrap filtering
+  - `_resolve_identifier(project_id: str | None)` — see FR-10
+  - `next_sequence_value(project_id: str, entity_type: str)` — new method, always project-scoped
+  **Unchanged methods** (operate on UUID which remains globally unique): `get_entity_by_uuid`, `get_children_by_uuid`, `set_parent`, `delete_entity`, `add_tag`, `remove_tag`, `get_tags`, `query_by_tag`, `add_dependency`, `remove_dependency`, `query_dependencies`, `add_okr_alignment`, `get_okr_alignments`, workflow phase methods.
+- FR-6: `detect_project_id()` and `collect_git_info()` function contracts:
+  - **`detect_project_id(working_dir)`:**
+    - **Input:** working directory path (defaults to cwd)
+    - **Output:** string, 12-char truncated hex SHA (e.g., `a1b2c3d4e5f6`). 12 chars chosen for readability while providing >2^47 collision resistance — ample for <100 projects.
+    - **Primary:** `git rev-list --max-parents=0 HEAD` in the working directory, truncated to first 12 characters
+    - **Fallback chain:** (1) if `git rev-list` fails (no git, corrupt repo, shallow clone with no root): use `git rev-parse --short=12 HEAD` (current HEAD, less stable but available); (2) if no git at all: use `hashlib.sha256(os.path.abspath(cwd)).hexdigest()[:12]` (deterministic, uses full absolute path to avoid basename collisions)
+    - **Shallow clone note:** `git rev-list --max-parents=0 HEAD` may fail in depth=1 shallow clones (common in CI). Fallback to HEAD SHA means the same repo gets different project_ids locally vs CI. This is acceptable: entity registration is primarily a local developer workflow. CI environments needing stable identity should use `--unshallow` or set `ENTITY_PROJECT_ID` env var override.
+    - **Caching:** Result cached per-process via `lru_cache(maxsize=1)`. MCP server resolves once at startup from `PROJECT_ROOT` env var.
+  - **`collect_git_info(working_dir)`:**
+    - Returns `GitProjectInfo` dataclass with all fields needed for the `projects` table
+    - Each git query is independent — partial failures don't block other fields
+    - `normalize_remote_url()` applied to raw remote URL for canonical form
+  - **Relationship to project entities:** `detect_project_id()` produces the DB `project_id` column value. This is distinct from the `project` entity type (`project:P001`) which is a user-created organizational entity. A project entity's `project_id` column would contain the same root commit SHA as all entities in that repo. Both `entities.project_id` and `projects.project_id` store the same 12-char value.
+- FR-7: Next available migration version (currently 8, may change if other features land first). Migration steps:
+  1. `PRAGMA foreign_keys = OFF`
+  2. `BEGIN IMMEDIATE`
+  3. CREATE TABLE `projects` (FR-2 DDL)
+  4. CREATE TABLE `sequences` (FR-4 DDL)
+  5. CREATE TABLE `entities_new` (FR-3 target DDL)
+  6. INSERT INTO `entities_new` — backfill: `COALESCE(json_extract(metadata, '$.project_id'), '__unknown__')` as project_id
+  7. DROP TABLE `entities` / RENAME `entities_new` → `entities`
+  8. Recreate all 9 triggers (8 existing + `enforce_immutable_project_id`)
+  9. Recreate all indexes + new `idx_project_id`, `idx_project_entity_type`
+  10. Migrate `_metadata` counters → `sequences` table (project_id='__unknown__'), delete old keys
+  11. Rebuild FTS5: DROP `entities_fts`, CREATE + backfill (migration 7 pattern)
+  12. Update schema_version, COMMIT
+  13. `PRAGMA foreign_keys = ON`, post-commit FK check
+- FR-8: Update `add-to-backlog` to use `sequences` table instead of parsing markdown. Mechanism: the `register_entity` MCP tool will accept an optional `auto_id: true` parameter that calls `next_sequence_value(project_id, entity_type)` to generate the entity_id. The add-to-backlog command calls `register_entity(entity_type="backlog", auto_id=true, ...)` — no file parsing needed.
+- FR-9: Update doctor `check_backlog_status` to scope checks by project. Add new `check_project_attribution` doctor check that warns on `'__unknown__'` entities.
+- FR-10: Update `_resolve_identifier()` for project-scoped type_id lookup. After FR-3, type_id is not globally unique. Resolution strategy:
+  - UUID lookups: unchanged (uuid is globally unique PK)
+  - type_id lookups: add `project_id` parameter. If provided, filter `WHERE type_id = ? AND project_id = ?`. If not provided, query all projects — if exactly one match, return it; if multiple matches, raise ambiguity error listing the projects.
+  - All callers of `_resolve_identifier` that pass type_id must be audited: `resolve_ref`, `get_entity`, `set_parent`, `register_entity` (for parent resolution), `update_entity`, `delete_entity`. MCP server passes `_project_id` from its global.
+- FR-11: Update `backfill.py` and reconciliation orchestrator to pass `project_id` when calling `register_entity` / `register_entities_batch` post-migration. `project_id` derived from `detect_project_id(project_root)` where `project_root` comes from `PROJECT_ROOT` env var.
 
 ### Non-Functional
-- NFR-1: Migration must be backward-compatible — entities with NULL `project_id` continue to work. Note: SQLite treats each NULL as distinct in UNIQUE constraints, so `UNIQUE(NULL, 'backlog:00021')` would NOT conflict with another `UNIQUE(NULL, 'backlog:00021')`. This means the UNIQUE constraint is effectively disabled for unmigrated entities. Acceptable as temporary state during migration window. Consider using a sentinel value (e.g., `'__unknown__'`) instead of NULL for truly unattributable entities to preserve UNIQUE enforcement.
+- NFR-1: Sentinel value `'__unknown__'` used for all unattributable entities (NOT NULL). Analysis: existing cross-project duplicate type_ids (e.g., `backlog:00001` from two projects) already failed `INSERT OR IGNORE` — only one copy exists in the DB. Therefore at most one entity per type_id will receive `'__unknown__'`, and `UNIQUE('__unknown__', type_id)` will not collide. The artifact-path backfill (runs at each MCP server startup) progressively claims `'__unknown__'` entities for the correct project.
 - NFR-2: `detect_project_id()` must complete in <100ms (git rev-list is fast)
 - NFR-3: Sequential ID generation must be atomic (BEGIN IMMEDIATE + increment + INSERT in one transaction)
+
+### Migration Row States
+
+| Entity Category | Pre-Migration | Post-Migration project_id | Migration Action |
+|----------------|---------------|--------------------------|-----------------|
+| Feature with `metadata.project_id = "P001"` | project_id only in JSON blob | `"P001"` | `json_extract(metadata, '$.project_id')` |
+| Feature with parent `project:P001` but no metadata project_id | project_id derivable from parent | `"__unknown__"` | Backfill misses — claimed by artifact-path heuristic at next startup |
+| Backlog from current project | No project_id anywhere | `"__unknown__"` | Claimed by artifact-path heuristic at startup |
+| Backlog from other project (e.g., cast-below) | No project_id, different artifact_path | `"__unknown__"` | Claimed when cast-below's MCP server starts |
+| Brainstorm entity | No project_id | `"__unknown__"` | Claimed by artifact-path heuristic |
+| Newly registered entity (post-migration) | N/A | `"a1b2c3d4e5f6"` (detected) | `register_entity` requires project_id |
 
 ## Non-Goals
 - Per-project separate DB files — Rationale: would break cross-project querying and the global knowledge bank model
@@ -327,9 +431,46 @@ Ship query-time filtering immediately. Plan schema migration as a separate featu
 - Enumerated affected MCP tools in FR-5 — Reason: suggestion
 
 ## Open Questions
-- Should cross-project queries remain possible? **Deferred to implementation** — implementer decides. Recommended: `--all-projects` flag on MCP tools, default to current project.
+- Should cross-project queries remain possible? **Decision: Yes** — `project_id="*"` on MCP tools returns all projects, default is current project.
 - Should the `type_id` format change to include project prefix? **Decision: No** — keep `type_id` as-is, enforce uniqueness via composite index `UNIQUE(project_id, type_id)`. Simpler, no migration of existing type_id values needed.
-- What is the backfill strategy for unattributable entities? **Decision:** Use sentinel value `'__unknown__'` for entities whose artifact_path doesn't match any known project root. Doctor check flags these for manual resolution.
+- What is the backfill strategy for unattributable entities? **Decision:** Use sentinel value `'__unknown__'` for entities whose artifact_path doesn't match any known project root. Progressive artifact-path backfill at each MCP startup claims entities. Doctor check flags remaining `'__unknown__'` entities.
 
 ## Next Steps
-Ready for /pd:create-feature to begin implementation.
+Ready for /pd:specify to begin specification.
+
+### Review 2 (2026-03-26) — prd-reviewer
+**Findings:**
+- [blocker] `_resolve_identifier` and all type_id-based lookups become ambiguous after removing global type_id uniqueness — no mechanism for injecting project context
+- [blocker] `parent_type_id REFERENCES entities(type_id)` FK breaks when type_id is no longer globally UNIQUE
+- [blocker] FTS index rebuild acknowledged but missing from migration spec (FR-7)
+- [blocker] Projects table too thin — no `normalized_url` for SSH/HTTPS matching, no auto-upsert mechanism
+- [warning] Sentinel `'__unknown__'` collision case not analyzed
+- [warning] `register_entity` INSERT OR IGNORE semantics change with composite UNIQUE — project_id flow unspecified
+- [warning] Trigger count claim wrong (8 → should be 9 with immutable project_id)
+- [warning] No requirement for backfill.py/reconciliation orchestrator to pass project_id
+- [warning] No enumeration of EntityDatabase public methods needing project_id
+- [warning] Shallow clone fallback chain may split entity attribution between local and CI
+- [warning] Migration described in prose without DDL examples (memory: anti-pattern)
+- [warning] No enumeration of database row states during/after migration (memory: anti-pattern)
+- [suggestion] No `list_projects` MCP tool requirement
+- [suggestion] 12-char truncation rationale missing
+- [suggestion] Hash-of-basename fallback fragile for common directory names — use full abs path
+- [suggestion] FR-8 add-to-backlog mechanism unspecified
+
+**Corrections Applied:**
+- Added FR-10: `_resolve_identifier` project-scoped lookup with ambiguity handling — Reason: blocker #1
+- Dropped parent_type_id FK constraint in FR-3, parent_uuid remains real FK — Reason: blocker #2
+- Added FTS5 rebuild as explicit step in FR-7 migration sequence — Reason: blocker #3
+- Expanded FR-2 with full DDL including normalized_url, remote_host/owner/repo, project_root, updated_at; added auto-upsert requirement — Reason: blocker #4
+- Analyzed sentinel collision: at most one entity per type_id survives INSERT OR IGNORE, so no collision — Reason: warning
+- Added project_id as required param on EntityDatabase.register_entity in FR-5 — Reason: warning
+- Updated trigger count to 9 (added enforce_immutable_project_id) with explicit rationale — Reason: warning
+- Added FR-11: backfill.py and reconciliation orchestrator must pass project_id — Reason: warning
+- Added full EntityDatabase method enumeration to FR-5 with changed/unchanged lists — Reason: warning
+- Added shallow clone note and ENTITY_PROJECT_ID env var override to FR-6 — Reason: warning
+- Added target DDL for entities, projects, sequences tables — Reason: warning (memory)
+- Added Migration Row States table — Reason: warning (memory)
+- Added list_projects to FR-5 MCP tools — Reason: suggestion
+- Added 12-char rationale (>2^47 collision resistance) to FR-6 — Reason: suggestion
+- Changed fallback hash to use full absolute path instead of basename — Reason: suggestion
+- Added auto_id mechanism to FR-8 — Reason: suggestion
