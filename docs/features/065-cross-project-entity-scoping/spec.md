@@ -44,7 +44,7 @@ Add project scoping to the global entity registry DB so that entities from diffe
 - [ ] AC-1.1.4: Falls back to HEAD when root commit unavailable (shallow clone)
 - [ ] AC-1.1.5: Falls back to path hash when no git at all
 - [ ] AC-1.1.6: `ENTITY_PROJECT_ID` env var overrides all detection
-- [ ] AC-1.1.7: Second call does not spawn subprocess (cache hit)
+- [ ] AC-1.1.7: Second call with same arguments does not spawn subprocess (cache hit). Note: `lru_cache(maxsize=1)` is intentional — MCP servers call once with the same project_root.
 
 #### FS-1.2: `collect_git_info(working_dir: str | None = None) -> GitProjectInfo`
 
@@ -101,7 +101,7 @@ Self-managed transaction following the established pattern in `_schema_expansion
 3. CREATE TABLE `projects` (FR-2 DDL from PRD)
 4. CREATE TABLE `sequences` (FR-4 DDL from PRD)
 5. CREATE TABLE `entities_new` (FR-3 target DDL from PRD — includes `project_id TEXT NOT NULL DEFAULT '__unknown__'`, `UNIQUE(project_id, type_id)`, `parent_type_id TEXT` without FK constraint)
-6. INSERT INTO `entities_new` SELECT with `COALESCE(json_extract(metadata, '$.project_id'), '__unknown__')` as project_id
+6. INSERT INTO `entities_new` SELECT with `'__unknown__'` as project_id for ALL existing entities. **Rationale:** existing `metadata.project_id` values are project entity IDs (e.g., `"P001"`) — NOT the 12-char hex SHA format that `detect_project_id()` produces. Using `json_extract` would create format-mismatched project_ids that never match the detected ID. Instead, all existing entities start as `'__unknown__'` and the artifact-path backfill at MCP startup claims them with the correct 12-char SHA.
 7. DROP TABLE `entities` / ALTER TABLE `entities_new` RENAME TO `entities`
 8. Recreate 9 triggers (8 existing + `enforce_immutable_project_id`)
 9. Recreate all indexes + `idx_project_id`, `idx_project_entity_type`
@@ -132,8 +132,8 @@ Self-managed transaction following the established pattern in `_schema_expansion
 
 | Method | `project_id` param | Behavior |
 |--------|-------------------|----------|
-| `register_entity` | Required `str` | Stored in column; no default at DB layer |
-| `register_entities_batch` | Required `str` | Applied to all entities in batch |
+| `register_entity` | Required `str` | Stored in column; no default at DB layer. **Idempotency change:** `INSERT OR IGNORE` now deduplicates on `(project_id, type_id)` — same type_id in different project creates new entity. Post-insert UUID lookup: `WHERE type_id = ? AND project_id = ?`. **Parent resolution:** `parent_type_id` lookup at database.py:1388-1391 must add `AND project_id = ?` filter (parents assumed in same project). |
+| `register_entities_batch` | Required `str` | Applied to all entities in batch. Same idempotency change as `register_entity`. |
 | `list_entities` | Optional `str \| None` | `None` = all projects, string = filter |
 | `search_entities` | Optional `str \| None` | `None` = all projects, string = filter; FTS query unchanged, project filter via WHERE on joined entities table |
 | `export_entities_json` | Optional `str \| None` | `None` = all projects |
@@ -142,7 +142,11 @@ Self-managed transaction following the established pattern in `_schema_expansion
 | `_resolve_identifier` | Optional `str \| None` | See FS-3.2 |
 | `next_sequence_value` | Required `str` | New method — always project-scoped |
 
-**Unchanged methods** (operate on UUID): `get_entity_by_uuid`, `get_children_by_uuid`, `set_parent`, `delete_entity`, tag/dependency/OKR methods, workflow phase methods.
+**Unchanged methods** (operate on UUID, no type_id lookup): `get_entity_by_uuid`, `get_children_by_uuid`, `delete_entity`, tag/dependency/OKR methods, workflow phase methods.
+
+**Note on `set_parent`:** `set_parent(type_id, parent_type_id)` resolves both identifiers via `_resolve_identifier`. Post-migration, `_resolve_identifier` gains `project_id` context (FS-3.2). The MCP server passes `_project_id` to the DB method. No signature change at DB layer is needed — `set_parent` will pass its `project_id` param through to `_resolve_identifier` for resolution. Add `project_id: str | None = None` parameter to `set_parent`.
+
+**Note on `update_entity`:** `update_entity(type_id, ...)` resolves type_id via `_resolve_identifier`. Add `project_id: str | None = None` parameter. For **re-attribution** (changing an entity's project_id), `update_entity` must bypass the `enforce_immutable_project_id` trigger. Mechanism: use a two-step approach — (1) `DELETE FROM entities WHERE uuid = ?`, (2) re-INSERT with new project_id. This preserves UUID and avoids trigger. Alternative: temporarily disable the trigger (fragile). The DELETE+INSERT approach is safer and atomic within a transaction. Add `new_project_id: str | None = None` parameter for explicit re-attribution.
 
 #### FS-3.2: `_resolve_identifier` project-scoped resolution
 
@@ -178,6 +182,8 @@ In `lifespan()`, after DB initialization:
 
 **Concurrent claim safety (from brainstorm-reviewer warning):** The artifact-path backfill uses `UPDATE entities SET project_id = ? WHERE project_id = '__unknown__' AND artifact_path LIKE ? || '%'` inside a `BEGIN IMMEDIATE` transaction. If two MCP servers race to claim the same entity, the `WHERE project_id = '__unknown__'` clause ensures only the first writer succeeds — the second sees `project_id` already changed and updates 0 rows. This is correct: the entity belongs to whichever project's root contains its artifact_path.
 
+**LIKE escaping:** The `project_root` value used in the LIKE pattern must have `%` and `_` characters escaped before concatenation (replace `%` with `\%`, `_` with `\_`, use `ESCAPE '\'`). While rare in filesystem paths, this prevents incorrect matching.
+
 **Acceptance Criteria:**
 - [ ] AC-4.1.1: `_project_id` is populated before first tool call
 - [ ] AC-4.1.2: Project is registered in `projects` table at startup
@@ -188,12 +194,15 @@ In `lifespan()`, after DB initialization:
 
 | Tool | New param | Default | Notes |
 |------|-----------|---------|-------|
-| `register_entity` | `project_id: str \| None` | `_project_id` | Auto-detected; pass-through to DB |
+| `register_entity` | `project_id: str \| None`, `auto_id: bool` | `_project_id`, `false` | When `auto_id=true` and `entity_id` omitted: calls `generate_entity_id(db, entity_type, name, project_id)`. When `auto_id=true` and `entity_id` provided: error (conflict). |
+| `update_entity` | `project_id: str \| None`, `new_project_id: str \| None` | `_project_id`, `None` | `project_id` for resolution context. `new_project_id` for re-attribution (DELETE+INSERT bypass). |
 | `search_entities` | `project_id: str \| None` | `_project_id` | `"*"` for all projects |
 | `export_entities` | `project_id: str \| None` | `_project_id` | `"*"` for all projects |
 | `export_lineage_markdown` | `project_id: str \| None` | `_project_id` | `"*"` for all projects |
 | `get_entity` | No new param | — | Uses `_project_id` internally via `_resolve_identifier` |
 | `list_projects` | None | — | **NEW tool** — returns all rows from projects table |
+
+**Sentinel mapping:** MCP tools receive `"*"` string for "all projects" → MCP handler converts to `None` before passing to DB methods (where `None` = all projects). This conversion happens in the MCP tool function, not at the DB layer.
 
 #### FS-4.3: Workflow State Server
 
@@ -240,7 +249,10 @@ New method on `EntityDatabase`:
 - `sync_entity_statuses` must pass `project_id` when registering entities
 - `project_id` derived from `PROJECT_ROOT` env var via `detect_project_id()`
 
-#### FS-6.4: Doctor Checks
+#### FS-6.4: `show-status` command
+- **Traceability note:** `show-status` calls `export_entities` and `list_features_by_phase` MCP tools, which are already covered by FS-4.2 and FS-4.3 (both gain project_id filtering). No additional show-status-specific changes are needed — project scoping flows through automatically from the MCP tool defaults.
+
+#### FS-6.5: Doctor Checks
 - Bump `ENTITY_SCHEMA_VERSION` to 8
 - `check_entity_orphans`: filter by `project_id` (DB column) instead of heuristic artifact_path matching
 - New `check_project_attribution`: warn on `'__unknown__'` entities with determinable project
@@ -268,10 +280,11 @@ New method on `EntityDatabase`:
 ## Testing Requirements
 
 ### Unit Tests
-- `test_project_identity.py` (~12 tests): detect_project_id fallback chain, collect_git_info fields, normalize_remote_url formats, caching, env var override
-- `test_database.py` (~15 tests): migration 8 DDL, backfill correctness, composite UNIQUE enforcement, trigger verification, FTS rebuild, sequence migration, rollback safety
-- `test_database.py` (~5 tests): next_sequence_value bootstrap, increment, project scoping
-- Doctor tests (~5 tests): schema version, project-scoped orphan checks, attribution warnings, auto-fix
+- `test_project_identity.py` (~12 tests): covers AC-1.1.1 through AC-1.3.5 — detect_project_id fallback chain, collect_git_info fields, normalize_remote_url formats, caching, env var override
+- `test_database.py` migration (~15 tests): covers AC-2.1 through AC-2.13 — migration 8 DDL, backfill correctness, composite UNIQUE enforcement, trigger verification, FTS rebuild, sequence migration, rollback safety
+- `test_database.py` sequences (~5 tests): covers AC-5.1 through AC-5.4 — next_sequence_value bootstrap, increment, project scoping
+- `test_database.py` queries (~6 tests): covers AC-3.2.1 through AC-3.2.4 — _resolve_identifier project scoping, register_entity idempotency change, parent resolution
+- Doctor tests (~5 tests): covers AC-6.4, AC-6.5 — schema version, project-scoped orphan checks, attribution warnings, auto-fix
 
 ### Integration Tests
 - MCP tool tests (~8 tests): register with project_id, search filtering, export filtering, list_projects, get_entity resolution
