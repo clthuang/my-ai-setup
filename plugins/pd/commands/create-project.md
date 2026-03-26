@@ -35,24 +35,7 @@ If no `--prd` argument: ask user for PRD path via AskUserQuestion.
 1. Extract title from PRD first heading (e.g., `# PRD: Feature Name` → `feature-name`)
 2. Lowercase, replace spaces/special chars with hyphens, max 30 chars, trim trailing hyphens
 
-## Step 5: Prompt Expected Lifetime
-
-```
-AskUserQuestion:
-  questions: [{
-    "question": "What is the expected project lifetime?",
-    "header": "Lifetime",
-    "options": [
-      {"label": "3-months", "description": "Short-lived project"},
-      {"label": "6-months", "description": "Medium-term project"},
-      {"label": "1-year (Recommended)", "description": "Standard project lifetime"},
-      {"label": "2-years", "description": "Long-lived project"}
-    ],
-    "multiSelect": false
-  }]
-```
-
-## Step 6: Create Project Directory
+## Step 5: Create Project Directory
 
 1. Create `{pd_artifacts_root}/projects/` if it doesn't exist
 2. Create `{pd_artifacts_root}/projects/P{NNN}-{slug}/`
@@ -143,7 +126,6 @@ register_entity(
 
 ```
 Project P{NNN}-{slug} created
-  Lifetime: {expected_lifetime}
   Directory: {pd_artifacts_root}/projects/P{NNN}-{slug}/
   PRD: Copied
 
@@ -155,7 +137,6 @@ Invoking decomposition...
 Invoke the decomposing skill as inline continuation (not subprocess). Pass context:
 - `project_dir`: `{pd_artifacts_root}/projects/P{NNN}-{slug}/`
 - `prd_content`: full PRD markdown text
-- `expected_lifetime`: selected lifetime value
 
 Follow the decomposing skill steps from this point forward.
 

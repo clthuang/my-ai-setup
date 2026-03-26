@@ -16,7 +16,6 @@ Decomposes a project PRD into modules and features through an AI decomposer/revi
 Expects inputs:
 - `project_dir` (string): path to `{pd_artifacts_root}/projects/{id}-{slug}/`
 - `prd_content` (string): full PRD markdown text
-- `expected_lifetime` (string): e.g. "3-months", "6-months", "1-year", "2-years"
 
 ## Stage 1: Invoke Decomposer Agent
 
@@ -33,12 +32,10 @@ prompt: |
   {prd_content}
 
   ## Constraints
-  - Expected lifetime: {expected_lifetime}
   - Each feature must be a vertical slice (end-to-end value)
   - 100% coverage: every PRD requirement maps to at least one feature
   - Minimize cross-feature dependencies
   - Module boundaries should align with functional domains
-  - Complexity should match expected lifetime ({shorter -> simpler})
 
   ## Output Format
   Return JSON:
@@ -93,9 +90,6 @@ prompt: |
   ## Decomposition
   {decomposition_json}
 
-  ## Project Context
-  Expected lifetime: {expected_lifetime}
-
   ## Evaluation Criteria
   1. Organisational cohesion
   2. Engineering best practices (no circular deps, no god-modules)
@@ -141,7 +135,6 @@ Max 3 iterations. After Stage 3 returns `review_result`:
        {review_result.issues formatted as list}
 
        ## Constraints
-       - Expected lifetime: {expected_lifetime}
        - Address all blocker AND warning issues
        - Preserve structure that was not flagged
        - Return the complete revised JSON (same schema)
