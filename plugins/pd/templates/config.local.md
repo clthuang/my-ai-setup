@@ -22,8 +22,6 @@ yolo_usage_limit: 0
 yolo_usage_wait: true
 # Cooldown in seconds before resuming after usage limit hit
 yolo_usage_cooldown: 18000
-# Secretary activation mode: manual | aware | yolo
-activation_mode: manual
 # Require plan-reviewer gate before exiting plan mode
 plan_mode_review: true
 # Max parallel Task (subagent) dispatches per batch

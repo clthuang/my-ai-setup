@@ -55,11 +55,25 @@ check_preconditions() {
 }
 
 check_tag_not_exists() {
-    local tag="v$1"
+    local version="$1"
+    local tag="v$version"
     if git ls-remote --tags origin "$tag" | grep -q "$tag"; then
-        error "Tag '$tag' already exists on remote. Delete it first: git push origin :refs/tags/$tag"
+        if [[ "$CI_MODE" == "true" ]]; then
+            # In CI mode, auto-increment patch until we find an available tag
+            warn "Tag '$tag' already exists on remote. Auto-incrementing..."
+            IFS='.' read -r major minor patch <<< "$version"
+            while git ls-remote --tags origin "v${major}.${minor}.${patch}" | grep -q "v${major}.${minor}.${patch}"; do
+                patch=$((patch + 1))
+            done
+            RELEASE_VERSION="${major}.${minor}.${patch}"
+            success "Auto-incremented to v${RELEASE_VERSION}"
+            return
+        else
+            error "Tag '$tag' already exists on remote. Delete it first: git push origin :refs/tags/$tag"
+        fi
     fi
-    success "Tag $tag is available"
+    RELEASE_VERSION="$version"
+    success "Tag v${RELEASE_VERSION} is available"
 }
 
 #############################################
@@ -338,11 +352,13 @@ main() {
     last_version="${last_tag#v}"  # v1.6.0 → 1.6.0
     new_version=$(bump_version "$last_version" "$bump_type")
 
+    # Verify tag doesn't already exist on remote (may auto-increment in CI mode)
+    RELEASE_VERSION=""
+    check_tag_not_exists "$new_version"
+    new_version="$RELEASE_VERSION"
+
     echo "Release version: $new_version"
     echo ""
-
-    # Verify tag doesn't already exist on remote
-    check_tag_not_exists "$new_version"
 
     # Confirm
     if [[ "$CI_MODE" == "true" ]]; then

@@ -17,7 +17,6 @@ DEFAULTS: dict[str, bool | int | float | str] = {
     "base_branch": "auto",
     "release_script": "",
     "backfill_scan_dirs": "",
-    "activation_mode": "manual",
     "memory_semantic_enabled": True,
     "memory_vector_weight": 0.5,
     "memory_keyword_weight": 0.2,

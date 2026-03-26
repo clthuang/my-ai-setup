@@ -28,7 +28,6 @@ yolo_max_stop_blocks: 50
 yolo_usage_limit: 0
 yolo_usage_wait: true
 yolo_usage_cooldown: 18000
-activation_mode: manual
 
 # Memory
 memory_injection_enabled: true
