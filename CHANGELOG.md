@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.14.3] - 2026-03-27
+
 ### Removed
 - Secretary `mode` subcommand and `activation_mode` config field — YOLO autonomy now controlled solely by `/pd:yolo`
 - `aware` mode injection in `inject-secretary-context.sh` — redundant with YOLO mode context injection
