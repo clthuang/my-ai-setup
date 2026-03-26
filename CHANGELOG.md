@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.14.2] - 2026-03-27
+
 ### Changed
 - Replaced custom `pd:code-simplifier` agent with Claude Code's native `/simplify` skill in implement command Step 5
 
