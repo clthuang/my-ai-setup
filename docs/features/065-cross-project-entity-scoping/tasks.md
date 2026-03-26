@@ -71,7 +71,7 @@
 ### T2.2: Write migration 8 data tests
 - **File:** `test_database.py`
 - **Plan ref:** 2.1
-- **AC:** Tests written that assert: (a) all existing entities get project_id='__unknown__', (b) same type_id in different projects coexist, (c) same type_id in same project rejected, (d) _metadata next_seq_* migrated to sequences table with project_id='__unknown__', (e) _metadata next_seq_* keys deleted, (f) FTS search works post-migration, (g) all 9 triggers exist (query sqlite_master for trigger count), (h) enforce_immutable_project_id trigger fires on UPDATE (assert sqlite3.IntegrityError), (i) rollback test: monkeypatch conn.execute to raise sqlite3.OperationalError after DROP TABLE entities step — assert original schema unchanged post-exception, (j) migration is idempotent (open DB twice, second open is no-op)
+- **AC:** Tests written that assert: (a) all existing entities get project_id='__unknown__', (b) same type_id in different projects coexist, (c) same type_id in same project rejected, (d) _metadata next_seq_* migrated to sequences table with project_id='__unknown__', (e) _metadata next_seq_* keys deleted, (f) FTS search works post-migration, (g) all 9 triggers exist (query sqlite_master for trigger count), (h) enforce_immutable_project_id trigger fires on UPDATE (assert sqlite3.IntegrityError), (i) rollback test: wrap conn.execute, raise OperationalError when SQL matches "ALTER TABLE entities_new RENAME" — assert original entities table has no project_id column post-exception, (j) migration is idempotent (open DB twice, second open is no-op)
 - **Depends on:** none
 
 ### T2.3a: Implement migration 8 — table creation and data copy (steps 1-7)
@@ -91,7 +91,7 @@
 ### T2.3c: Implement migration 8 — sequence migration, FTS, finalize (steps 10-14)
 - **File:** `database.py`
 - **Plan ref:** 2.1
-- **AC:** Migrate _metadata next_seq_* to sequences table, delete old keys, rebuild FTS5, update schema_version, COMMIT, PRAGMA FK on. All T2.1 and T2.2 tests pass including rollback (i) and idempotency (j).
+- **AC:** Migrate _metadata next_seq_* to sequences table, delete old keys, rebuild FTS5, update schema_version, COMMIT, PRAGMA FK on. All T2.1 and T2.2 tests pass including rollback (i) and idempotency (j). **Checkpoint:** after tests pass, run `cp ~/.claude/pd/entities/entities.db ~/.claude/pd/entities/entities.db.pre-migration-8.bak` before proceeding to Phase 3.
 - **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_database.py -v -k "migration_8"`
 - **Depends on:** T2.3b
 
@@ -125,6 +125,8 @@
 
 ## Phase 3: Core DB API Changes
 
+**Parallelism:** T3.1 is the gateway. After T3.1, T3.2 depends on T3.1, T3.3 depends on T3.1, T3.4 depends on T3.3. T3.5-T3.9 are independent of each other and of T3.3/T3.4 — they can run in parallel after T3.1.
+
 ### T3.1: Update _resolve_identifier with project_id
 - **File:** `database.py`
 - **Plan ref:** 3.1
@@ -157,7 +159,8 @@
 ### T3.5: Update query methods with project_id
 - **File:** `database.py`
 - **Plan ref:** 3.3
-- **AC:** 5 tests in `test_database.py`: one per method (list_entities, search_entities, export_entities_json, export_lineage_markdown, scan_entity_ids). Each test: register two entities under different project_ids (`TEST_PROJECT_ID` and `'__other__'`), assert passing `project_id=TEST_PROJECT_ID` returns only the test entity, passing `project_id=None` returns both. Verify: `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_database.py -v -k "project_scoped_query"`
+- **AC:** 5 tests in `test_database.py` (name convention: `test_project_scoped_query_list_entities`, etc.). Each test: register two entities under different project_ids (`"__test__"` and `"__other__"`), assert passing `project_id="__test__"` returns only the test entity, passing `project_id=None` returns both. For `export_lineage_markdown`: filter root entities by project_id (children included via existing tree-walk from filtered roots).
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_database.py -v -k "project_scoped_query"`
 - **Depends on:** T2.3c (migration must have run to create project_id column)
 
 ### T3.6: Update set_parent with project_id
@@ -210,7 +213,7 @@
 ### T4.3: Update search/export/lineage MCP tools with project_id
 - **File:** `plugins/pd/mcp/entity_server.py`
 - **Plan ref:** 4.2
-- **AC:** Each tool accepts project_id, defaults to _project_id, `"*"` maps to None (all projects).
+- **AC:** Update these 3 tools: `search_entities`, `export_entities`, `export_lineage_markdown`. Each accepts project_id param, defaults to `_project_id`, `"*"` maps to `None`. Add 1 project_id filtering test per tool in existing test files (no new test files needed).
 - **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_search_mcp.py plugins/pd/mcp/test_export_entities.py -v`
 - **Depends on:** T4.1, T3.5
 
@@ -241,7 +244,7 @@
 - **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_workflow_state_server.py -v -k "project"`
 - **Depends on:** T1.4, T3.5
 
-**Verify Phase 4:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_search_mcp.py plugins/pd/mcp/test_workflow_state_server.py plugins/pd/mcp/test_export_entities.py -v`
+**Verify Phase 4:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_entity_server.py plugins/pd/mcp/test_search_mcp.py plugins/pd/mcp/test_workflow_state_server.py plugins/pd/mcp/test_export_entities.py -v`
 
 ---
 
@@ -287,7 +290,7 @@
 - **File:** Create `plugins/pd/hooks/lib/entity_registry/test_helpers.py` with `TEST_PROJECT_ID = '__test__'`.
 - **Group B files (14):** `test_backfill.py`, `test_backfill_parent_uuid.py`, `test_frontmatter_sync.py`, `test_frontmatter.py`, `test_search.py`, `test_server_helpers.py`, `test_entity_server.py`, `test_entity_lifecycle.py`, `test_ref_resolution.py`, `test_id_generator.py`, `test_dependencies.py`, `test_database_052.py`, `doctor/test_checks.py`, `doctor/test_fixer.py`
 - **Plan ref:** 5.5
-- **AC:** (a) test_helpers.py exists with TEST_PROJECT_ID constant, (b) all register_entity/register_entities_batch calls in Group B files import and use TEST_PROJECT_ID, (c) capture baseline before changes: `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/ -v --tb=no -q 2>&1 | tail -5`. Done when same command shows no NEW failures.
+- **AC:** (a) test_helpers.py exists with TEST_PROJECT_ID constant, (b) all register_entity/register_entities_batch calls in Group B files import and use TEST_PROJECT_ID, (c) also replace any inline `project_id="__test__"` strings from Phase 2/3 test additions with the import for consistency, (d) capture baseline before changes: `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/ -v --tb=no -q 2>&1 | tail -5`. Done when same command shows no NEW failures.
 - **Depends on:** T3.3, T3.4
 
 ### T5.7: Update Group C test files (reconciliation/workflow)
