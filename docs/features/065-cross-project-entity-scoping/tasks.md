@@ -61,20 +61,35 @@
 ### T2.2: Write migration 8 data tests
 - **File:** `test_database.py`
 - **Plan ref:** 2.1
-- **AC:** Tests written that assert: (a) all existing entities get project_id='__unknown__', (b) same type_id in different projects coexist, (c) same type_id in same project rejected, (d) _metadata next_seq_* migrated to sequences table with project_id='__unknown__', (e) _metadata next_seq_* keys deleted, (f) FTS search works post-migration, (g) all 9 triggers exist, (h) enforce_immutable_project_id trigger fires on UPDATE, (i) migration rolls back on failure, (j) migration is idempotent
+- **AC:** Tests written that assert: (a) all existing entities get project_id='__unknown__', (b) same type_id in different projects coexist, (c) same type_id in same project rejected, (d) _metadata next_seq_* migrated to sequences table with project_id='__unknown__', (e) _metadata next_seq_* keys deleted, (f) FTS search works post-migration, (g) all 9 triggers exist (query sqlite_master for trigger count), (h) enforce_immutable_project_id trigger fires on UPDATE (assert sqlite3.IntegrityError), (i) rollback test: monkeypatch conn.execute to raise sqlite3.OperationalError after DROP TABLE entities step — assert original schema unchanged post-exception, (j) migration is idempotent (open DB twice, second open is no-op)
 - **Depends on:** none
 
-### T2.3: Implement _add_project_scoping migration function
+### T2.3a: Implement migration 8 — table creation and data copy (steps 1-7)
 - **File:** `plugins/pd/hooks/lib/entity_registry/database.py`
 - **Plan ref:** 2.1
-- **AC:** All T2.1 and T2.2 tests pass. Function registered in MIGRATIONS dict as key 8. Uses exact DDL from design I-7. Self-managed transaction with rollback.
+- **AC:** PRAGMA FK off, BEGIN IMMEDIATE, CREATE projects/sequences/entities_new tables, INSERT data copy with '__unknown__', DROP+RENAME. T2.1 schema tests pass. Register as `_add_project_scoping` in MIGRATIONS dict key 8.
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_database.py -v -k "migration_8_schema"`
 - **Depends on:** T2.1, T2.2
+
+### T2.3b: Implement migration 8 — triggers and indexes (steps 8-9)
+- **File:** `database.py`
+- **Plan ref:** 2.1
+- **AC:** Recreate all 9 triggers (8 existing + enforce_immutable_project_id) and 6 indexes (4 existing + idx_project_id + idx_project_entity_type). T2.2 trigger tests (g, h) pass.
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_database.py -v -k "migration_8_trigger"`
+- **Depends on:** T2.3a
+
+### T2.3c: Implement migration 8 — sequence migration, FTS, finalize (steps 10-14)
+- **File:** `database.py`
+- **Plan ref:** 2.1
+- **AC:** Migrate _metadata next_seq_* to sequences table, delete old keys, rebuild FTS5, update schema_version, COMMIT, PRAGMA FK on. All T2.1 and T2.2 tests pass including rollback (i) and idempotency (j).
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_database.py -v -k "migration_8"`
+- **Depends on:** T2.3b
 
 ### T2.4: Write next_sequence_value tests
 - **File:** `test_database.py`
 - **Plan ref:** 2.2
-- **AC:** 4 tests pass: (a) bootstrap from empty sequences table scans entities, (b) increment returns sequential values, (c) different projects get independent counters, (d) atomic under BEGIN IMMEDIATE
-- **Depends on:** T2.3 (needs migration to create sequences table)
+- **AC:** 4 tests pass: (a) bootstrap from empty sequences table scans entities, (b) increment returns sequential values, (c) different projects get independent counters, (d) structural atomicity test: monkeypatch conn.execute to capture SQL, call next_sequence_value, assert "BEGIN IMMEDIATE" appears (concurrent correctness covered by test_sqlite_retry_integration.py)
+- **Depends on:** T2.3c (needs migration to create sequences table)
 
 ### T2.5: Implement next_sequence_value method
 - **File:** `database.py`
@@ -103,13 +118,15 @@
 ### T3.1: Update _resolve_identifier with project_id
 - **File:** `database.py`
 - **Plan ref:** 3.1
-- **AC:** (a) UUID lookup unchanged, (b) type_id + project_id filters correctly, (c) type_id without project_id returns if globally unique, (d) ambiguity error lists projects. 4 tests pass.
-- **Depends on:** T2.3 (migration)
+- **AC:** (a) UUID lookup unchanged, (b) type_id + project_id filters correctly, (c) type_id without project_id returns if globally unique, (d) ambiguity error lists projects. 4 tests in `test_database.py`.
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_database.py -v -k "resolve_identifier_project"`
+- **Depends on:** T2.3c (migration)
 
 ### T3.2: Update resolve_ref and search_by_type_id_prefix with project_id
 - **File:** `database.py`
 - **Plan ref:** 3.1
-- **AC:** (a) resolve_ref passes project_id to all three resolution paths, (b) search_by_type_id_prefix adds AND project_id=?, (c) return type unchanged (str for resolve_ref)
+- **AC:** (a) resolve_ref passes project_id to all three resolution paths, (b) search_by_type_id_prefix adds AND project_id=?, (c) return type unchanged (str for resolve_ref). 1 test: register two entities with identical type_id prefixes in different projects, call search_by_type_id_prefix with project_id=TEST_PROJECT_ID, assert only test entity returned.
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_database.py -v -k "resolve_ref_project or prefix_project"`
 - **Depends on:** T3.1
 
 ### T3.3: Update register_entity with project_id
@@ -121,7 +138,8 @@
 ### T3.4: Update register_entities_batch with project_id
 - **File:** `database.py`
 - **Plan ref:** 3.2
-- **AC:** project_id required, applied to all entities in batch. Same idempotency semantics as T3.3.
+- **AC:** project_id required, applied to all entities in batch. 1 test: call register_entities_batch twice with same entities (same project_id, same type_ids) and assert UUIDs unchanged (idempotent).
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_database.py -v -k "batch_project"`
 - **Depends on:** T3.3
 
 ### T3.5: Update query methods with project_id
@@ -139,19 +157,22 @@
 ### T3.7: Update delete_entity with project_id and extended cascade
 - **File:** `database.py`
 - **Plan ref:** 3.4, TD-6
-- **AC:** (a) resolves type_id via _resolve_identifier with project_id, (b) deletes by UUID not type_id, (c) cascade: entity_tags, entity_dependencies, entity_okr_alignment, workflow_phases, entities_fts, entities. 2 tests verify junction table cleanup.
+- **AC:** (a) resolves type_id via _resolve_identifier with project_id, (b) deletes by UUID not type_id, (c) cascade: entity_tags, entity_dependencies, entity_okr_alignment, workflow_phases, entities_fts, entities. 2 tests: register entity with tags+deps+OKR, delete it, assert all junction table rows gone.
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_database.py -v -k "delete_cascade"`
 - **Depends on:** T3.1
 
 ### T3.8: Update update_entity with project_id and re-attribution
 - **File:** `database.py`
 - **Plan ref:** 3.4, TD-8
-- **AC:** (a) project_id for _resolve_identifier, (b) new_project_id triggers trigger-drop: DROP TRIGGER, UPDATE project_id, FTS sync, CREATE TRIGGER, (c) preserves UUID/tags/deps/OKR/workflow_phases, (d) atomic rollback on failure. 4 tests pass.
+- **AC:** (a) project_id for _resolve_identifier, (b) new_project_id triggers trigger-drop: DROP TRIGGER, UPDATE project_id, FTS sync, CREATE TRIGGER, (c) preserves UUID/tags/deps/OKR/workflow_phases, (d) atomic rollback on failure. 4 tests.
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_database.py -v -k "reattribution"`
 - **Depends on:** T3.1
 
 ### T3.9: Update upsert_workflow_phase with required project_id
 - **File:** `database.py`
 - **Plan ref:** 3.4, TD-4
-- **AC:** project_id required for entity existence check. Callers must resolve type_id within project scope first.
+- **AC:** project_id required for entity existence check. 1 test: register entity under TEST_PROJECT_ID, call upsert_workflow_phase with project_id=TEST_PROJECT_ID (succeeds); call with project_id='__other__' (assert ValueError — entity not found in that project).
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_database.py -v -k "upsert_workflow_phase_project"`
 - **Depends on:** T3.1
 
 **Verify Phase 3:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_database.py -v`
@@ -163,31 +184,36 @@
 ### T4.1: Update entity_server startup with project_id detection
 - **File:** `plugins/pd/mcp/entity_server.py`
 - **Plan ref:** 4.1
-- **AC:** (a) _project_id and _git_info module globals added, (b) lifespan() calls detect_project_id, (c) _upsert_project using ON CONFLICT DO UPDATE (preserves created_at), (d) _backfill_project_ids with LIKE escaping + log count, (e) _resolve_ref_param passes _project_id. 2 tests in `test_entity_server.py`: (1) monkeypatch detect_project_id → "abc123def456", assert _project_id set after lifespan; (2) pre-populate DB with __unknown__ entity matching project_root, call _backfill_project_ids, assert entity claimed. Verify: `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_entity_server.py -v -k "startup"`
+- **AC:** (a) _project_id and _git_info module globals added, (b) lifespan() calls detect_project_id, (c) _upsert_project using ON CONFLICT DO UPDATE (preserves created_at), (d) _backfill_project_ids with LIKE escaping + log count, (e) _resolve_ref_param passes _project_id. 2 tests in `plugins/pd/hooks/lib/entity_registry/test_entity_server.py` (MCP startup tests are co-located here for historical reasons): (1) monkeypatch detect_project_id → "abc123def456", assert _project_id set after lifespan; (2) pre-populate DB with __unknown__ entity matching project_root, call _backfill_project_ids, assert entity claimed.
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_entity_server.py -v -k "startup"`
 - **Depends on:** T1.6, T3.1
 
 ### T4.2: Update register_entity MCP tool with project_id and auto_id
-- **File:** `entity_server.py`
+- **File:** `plugins/pd/mcp/entity_server.py`
 - **Plan ref:** 4.2
 - **AC:** (a) project_id defaults to _project_id, (b) auto_id=true + no entity_id calls generate_entity_id, (c) auto_id=true + entity_id raises error, (d) `"*"` not supported for register (always single project)
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_entity_server.py -v -k "register"`
 - **Depends on:** T4.1, T3.3
 
 ### T4.3: Update search/export/lineage MCP tools with project_id
-- **File:** `entity_server.py`
+- **File:** `plugins/pd/mcp/entity_server.py`
 - **Plan ref:** 4.2
 - **AC:** Each tool accepts project_id, defaults to _project_id, `"*"` maps to None (all projects).
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_search_mcp.py plugins/pd/mcp/test_export_entities.py -v`
 - **Depends on:** T4.1, T3.5
 
 ### T4.4: Update update_entity MCP tool with project_id and new_project_id
-- **File:** `entity_server.py`
+- **File:** `plugins/pd/mcp/entity_server.py`
 - **Plan ref:** 4.2
 - **AC:** project_id for resolution, new_project_id for re-attribution pass-through.
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_entity_server.py -v -k "update"`
 - **Depends on:** T4.1, T3.8
 
 ### T4.5: Implement list_projects MCP tool
-- **File:** `entity_server.py`
+- **File:** `plugins/pd/mcp/entity_server.py`
 - **Plan ref:** 4.2
-- **AC:** Returns all projects ordered by created_at. No filters in v1. 1 test.
+- **AC:** Returns all projects ordered by created_at. No filters in v1. 1 test in test_entity_server.py.
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_entity_server.py -v -k "list_projects"`
 - **Depends on:** T4.1
 
 ### T4.6: Update server_helpers with project_id
@@ -197,9 +223,10 @@
 - **Depends on:** T3.3, T3.5
 
 ### T4.7: Update workflow_state_server with project_id
-- **File:** `workflow_state_server.py`
+- **File:** `plugins/pd/mcp/workflow_state_server.py`
 - **Plan ref:** 4.4
 - **AC:** _project_id global at startup. list_features_by_phase/status accept project_id, default _project_id. 2 tests.
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_workflow_state_server.py -v -k "project"`
 - **Depends on:** T1.4, T3.5
 
 **Verify Phase 4:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_search_mcp.py plugins/pd/mcp/test_workflow_state_server.py plugins/pd/mcp/test_export_entities.py -v`
@@ -209,15 +236,17 @@
 ## Phase 5: Consumer Updates
 
 ### T5.1: Update backfill.py with project_id
-- **File:** `backfill.py`
+- **File:** `plugins/pd/hooks/lib/entity_registry/backfill.py`
 - **Plan ref:** 5.1
 - **AC:** (a) _BACKFILL_VERSION bumped to "3", (b) run_backfill accepts project_id, passes to register_entity, (c) backfill_workflow_phases accepts project_id, passes to upsert_workflow_phase. 3 tests.
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_backfill.py -v -k "project"`
 - **Depends on:** T3.3, T3.9
 
 ### T5.2: Update reconciliation_orchestrator with project_id
-- **File:** `reconciliation_orchestrator/brainstorm_registry.py`, `entity_status.py`, `__main__.py`
+- **File:** `plugins/pd/hooks/lib/reconciliation_orchestrator/brainstorm_registry.py`, `entity_status.py`, `__main__.py`
 - **Plan ref:** 5.2
 - **AC:** (a) brainstorm_registry passes project_id to register_entity, (b) entity_status passes project_id to update_entity, (c) __main__ derives project_id via detect_project_id.
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/reconciliation_orchestrator/ -v`
 - **Depends on:** T1.4, T3.3, T3.8
 
 ### T5.3: Update add-to-backlog command
@@ -230,7 +259,8 @@
 - **File:** `plugins/pd/hooks/lib/doctor/checks.py`
 - **Plan ref:** 5.4
 - **AC:** (a) ENTITY_SCHEMA_VERSION=8, (b) check_entity_orphans filters by project_id, (c) check_project_attribution warns on __unknown__, (d) --fix runs artifact-path backfill. 5 tests.
-- **Depends on:** T2.3, T4.1
+- **Verify:** `PYTHONPATH=plugins/pd/hooks/lib plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/doctor/ -v -k "project or attribution or schema_version"`
+- **Depends on:** T2.3c, T4.1
 
 ### T5.5: Update source files with project_id plumbing
 - **File:** `plugins/pd/hooks/lib/workflow_engine/feature_lifecycle.py`, `plugins/pd/hooks/lib/workflow_engine/task_promotion.py`
@@ -246,15 +276,17 @@
 - **Depends on:** T3.3, T3.4
 
 ### T5.7: Update Group C test files (reconciliation/workflow)
-- **File:** 10 test files listed in plan 5.5 Group C
+- **Files (10):** `reconciliation_orchestrator/test_orchestrator.py`, `reconciliation_orchestrator/test_entity_status.py`, `reconciliation_orchestrator/test_brainstorm_registry.py`, `workflow_engine/test_reconciliation.py`, `workflow_engine/test_entity_engine.py`, `workflow_engine/test_feature_lifecycle.py`, `workflow_engine/test_secretary_intelligence.py`, `workflow_engine/test_task_promotion.py`, `workflow_engine/test_rollup.py`, `workflow_engine/test_engine.py`
 - **Plan ref:** 5.5
-- **AC:** All register_entity/update_entity calls include project_id. All tests pass.
+- **AC:** All register_entity/update_entity calls include project_id. Capture baseline before changes: `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/workflow_engine/ plugins/pd/hooks/lib/reconciliation_orchestrator/ -v --tb=no -q 2>&1 | tail -5`. Done when no NEW failures beyond baseline.
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/workflow_engine/ plugins/pd/hooks/lib/reconciliation_orchestrator/ -v --tb=short`
 - **Depends on:** T5.2, T5.5, T5.6
 
 ### T5.8: Update Group D test files (semantic_memory, UI)
-- **File:** `semantic_memory/test_keywords.py`, `ui/tests/test_entities.py`
+- **File:** `plugins/pd/hooks/lib/semantic_memory/test_keywords.py`, `plugins/pd/ui/tests/test_entities.py`
 - **Plan ref:** 5.5
 - **AC:** All register_entity calls include project_id. All tests pass.
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/semantic_memory/test_keywords.py -v && PYTHONPATH="plugins/pd/hooks/lib:plugins/pd" plugins/pd/.venv/bin/python -m pytest plugins/pd/ui/tests/test_entities.py -v`
 - **Depends on:** T5.6
 
 **Verify Phase 5:**
