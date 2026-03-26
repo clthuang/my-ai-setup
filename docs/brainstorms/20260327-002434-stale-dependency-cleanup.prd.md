@@ -16,9 +16,10 @@ When an entity completes, `cascade_unblock()` in Phase B removes its `blocked_by
 - No code path directly queries: "Are there dependency edges pointing to completed entities?"
 
 ## Goals
-1. Detect stale `blocked_by` edges at session start (reconciliation) and on-demand (doctor)
-2. Automatically remove stale edges and unblock dependents — no LLM involvement
-3. Zero new dependencies — uses existing `DependencyManager.cascade_unblock()` and doctor check patterns
+1. **Prevent** stale edges from accumulating — event-driven cascade at DB layer fires on every status→completed transition
+2. **Detect** any remaining stale edges at session start (reconciliation) and on-demand (doctor)
+3. **Automatically fix** stale edges — no LLM involvement, pure code
+4. Zero new dependencies — uses existing `DependencyManager.cascade_unblock()` and doctor check patterns
 
 ## Success Criteria
 - [ ] Doctor check detects stale `blocked_by` edges (completed blockers)
@@ -29,10 +30,11 @@ When an entity completes, `cascade_unblock()` in Phase B removes its `blocked_by
 ## Scope
 
 ### In Scope
+- Event-driven cascade: auto-unblock dependents when entity status changes to `completed` (DB layer)
 - New doctor check: `check_stale_dependencies`
 - New doctor fix action: `_fix_stale_dependency`
 - New reconciliation task: `dependency_freshness.py`
-- Tests for all three
+- Tests for all four
 
 ### Out of Scope
 - Changing the Phase A/B separation in entity_engine.py (that's feature 062's domain)
@@ -67,6 +69,14 @@ When an entity completes, `cascade_unblock()` in Phase B removes its `blocked_by
   5. Return count of cleaned edges
   Runs at session start as Task 5 in the orchestrator, after workflow reconciliation (Task 4). Must be placed inside the existing try block in `__main__.py:run()`, between Task 4 and the except clause. Result key: `"dependency_cleanup"` (integer count of cleaned edges).
 
+- FR-5: Event-driven cascade — make `cascade_unblock` fire automatically when an entity's status changes to `completed`, rather than relying on callers to invoke it explicitly.
+  **Mechanism:** Add a post-status-change hook inside `EntityDatabase.update_entity()`. When `status` is being set to `completed`:
+  1. After the UPDATE commits, call `DependencyManager().cascade_unblock(self, entity_uuid)`
+  2. This is the same call that `entity_engine._run_cascade()` Phase B makes, but now it's at the DB layer — every code path that completes an entity triggers the cascade automatically
+  **Why DB layer, not entity_engine:** Currently `cascade_unblock` is called from `entity_engine._run_cascade()` which is only reached via MCP `complete_phase` tool. Direct `db.update_entity(type_id, status="completed")` calls (from reconciliation, doctor --fix, manual scripts) bypass the engine entirely and never cascade. Moving the trigger to the DB layer catches all paths.
+  **Idempotency:** `cascade_unblock` is idempotent — if Phase B in entity_engine already ran the cascade, the DB-layer cascade finds zero edges and is a no-op.
+  **Implementation:** In `database.py update_entity()`, after the status UPDATE and FTS sync, check `if status == "completed"` and call cascade. Import DependencyManager lazily to avoid circular imports.
+
 - FR-4: Wire into existing infrastructure:
   - `check_stale_dependencies` added to `CHECK_ORDER` in `doctor/__init__.py` and `_ENTITY_DB_CHECKS`
   - `_fix_stale_dependency` registered in `_SAFE_PATTERNS` in `fixer.py` with prefix `"Remove stale dependency"`
@@ -92,6 +102,7 @@ When an entity completes, `cascade_unblock()` in Phase B removes its `blocked_by
 | `plugins/pd/hooks/lib/doctor/__init__.py` | Add to CHECK_ORDER + _ENTITY_DB_CHECKS |
 | `plugins/pd/hooks/lib/doctor/fix_actions.py` | Add `_fix_stale_dependency` |
 | `plugins/pd/hooks/lib/doctor/fixer.py` | Add to _SAFE_PATTERNS |
+| `plugins/pd/hooks/lib/entity_registry/database.py` | Add post-completion cascade in `update_entity()` |
 | `plugins/pd/hooks/lib/reconciliation_orchestrator/dependency_freshness.py` | New module |
 | `plugins/pd/hooks/lib/reconciliation_orchestrator/__main__.py` | Add Task 5 |
 
@@ -99,4 +110,9 @@ When an entity completes, `cascade_unblock()` in Phase B removes its `blocked_by
 ~100 lines of new code, ~100-150 lines of test code. Small, focused feature.
 
 ## Decision
-Implement both doctor check AND reconciliation task. The doctor provides on-demand detection with `--fix`, while reconciliation provides automatic cleanup at every session start. Belt and suspenders — either one alone would be sufficient, but together they guarantee no stale edges persist beyond one session start.
+Three-layer defense:
+1. **Event-driven cascade** (FR-5) — prevents stale edges at the source. Every `update_entity(status="completed")` auto-cascades at the DB layer.
+2. **Reconciliation task** (FR-3) — catches any edges that slipped through (e.g., DB contention during cascade, pre-existing stale edges from before FR-5).
+3. **Doctor check** (FR-1/FR-2) — on-demand detection and `--fix` for manual auditing.
+
+FR-5 is the primary fix. FR-3 and FR-1 are safety nets.
