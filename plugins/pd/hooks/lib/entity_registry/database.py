@@ -1298,13 +1298,20 @@ class EntityDatabase:
     # Internal: identifier resolution
     # ------------------------------------------------------------------
 
-    def _resolve_identifier(self, identifier: str) -> tuple[str, str]:
+    def _resolve_identifier(
+        self, identifier: str, project_id: str | None = None,
+    ) -> tuple[str, str]:
         """Resolve a UUID or type_id to a (uuid, type_id) tuple.
 
         Parameters
         ----------
         identifier:
             Either a UUID v4 string or a type_id string.
+        project_id:
+            If provided, restrict type_id lookup to this project.
+            UUID lookups are unchanged (UUID is globally unique).
+            If None, type_id must be globally unique or an ambiguity
+            error is raised listing the projects that contain it.
 
         Returns
         -------
@@ -1314,21 +1321,45 @@ class EntityDatabase:
         Raises
         ------
         ValueError
-            If no entity matches the identifier.
+            If no entity matches the identifier, or if the type_id
+            is ambiguous across projects (when project_id is None).
         """
         if _UUID_V4_RE.match(identifier.lower()):
             row = self._conn.execute(
                 "SELECT uuid, type_id FROM entities WHERE uuid = ?",
                 (identifier.lower(),),
             ).fetchone()
-        else:
+            if row is None:
+                raise ValueError(f"Entity not found: {identifier!r}")
+            return (row["uuid"], row["type_id"])
+
+        # type_id path: optionally scoped by project_id
+        if project_id is not None:
             row = self._conn.execute(
-                "SELECT uuid, type_id FROM entities WHERE type_id = ?",
-                (identifier,),
+                "SELECT uuid, type_id FROM entities "
+                "WHERE type_id = ? AND project_id = ?",
+                (identifier, project_id),
             ).fetchone()
-        if row is None:
+            if row is None:
+                raise ValueError(f"Entity not found: {identifier!r}")
+            return (row["uuid"], row["type_id"])
+
+        # No project_id: must be globally unique
+        rows = self._conn.execute(
+            "SELECT uuid, type_id, project_id FROM entities "
+            "WHERE type_id = ?",
+            (identifier,),
+        ).fetchall()
+        if len(rows) == 0:
             raise ValueError(f"Entity not found: {identifier!r}")
-        return (row["uuid"], row["type_id"])
+        if len(rows) == 1:
+            return (rows[0]["uuid"], rows[0]["type_id"])
+        # Ambiguous: list projects
+        projects = [r["project_id"] for r in rows]
+        raise ValueError(
+            f"Ambiguous type_id {identifier!r} exists in multiple "
+            f"projects: {projects}. Specify project_id to disambiguate."
+        )
 
     # ------------------------------------------------------------------
     # UUID lookup and flexible ref resolution (Task 1b.3a)
@@ -1344,13 +1375,13 @@ class EntityDatabase:
         ).fetchone()
         return dict(row) if row else None
 
-    def resolve_ref(self, ref: str) -> str:
+    def resolve_ref(self, ref: str, project_id: str | None = None) -> str:
         """Resolve a flexible reference to a single entity UUID.
 
         Resolution order:
         1. If ref looks like a UUID (36 chars, has dashes), look up by uuid.
-        2. Try as exact type_id.
-        3. Try as type_id prefix.
+        2. Try as exact type_id (scoped by project_id if provided).
+        3. Try as type_id prefix (scoped by project_id if provided).
            - Single match: return that uuid.
            - Multiple matches: raise ValueError with candidate list.
            - No matches: raise ValueError.
@@ -1359,6 +1390,8 @@ class EntityDatabase:
         ----------
         ref:
             UUID string, full type_id, or type_id prefix.
+        project_id:
+            If provided, restrict type_id and prefix lookups to this project.
 
         Returns
         -------
@@ -1370,7 +1403,7 @@ class EntityDatabase:
         ValueError
             If ref is ambiguous (multiple prefix matches) or not found.
         """
-        # 1. Try as UUID
+        # 1. Try as UUID (globally unique, project_id not needed)
         if _UUID_V4_RE.match(ref.lower()):
             entity = self.get_entity_by_uuid(ref.lower())
             if entity is not None:
@@ -1378,14 +1411,20 @@ class EntityDatabase:
             raise ValueError(f"No entity found matching ref: {ref!r}")
 
         # 2. Try as exact type_id
-        row = self._conn.execute(
-            "SELECT uuid FROM entities WHERE type_id = ?", (ref,)
-        ).fetchone()
+        if project_id is not None:
+            row = self._conn.execute(
+                "SELECT uuid FROM entities WHERE type_id = ? AND project_id = ?",
+                (ref, project_id),
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT uuid FROM entities WHERE type_id = ?", (ref,)
+            ).fetchone()
         if row is not None:
             return row["uuid"]
 
         # 3. Try as prefix
-        matches = self.search_by_type_id_prefix(ref)
+        matches = self.search_by_type_id_prefix(ref, project_id=project_id)
         if len(matches) == 1:
             return matches[0]["uuid"]
         if len(matches) > 1:
@@ -1419,13 +1458,17 @@ class EntityDatabase:
     # Prefix search and transaction helpers (Task 1b.3b)
     # ------------------------------------------------------------------
 
-    def search_by_type_id_prefix(self, prefix: str) -> list[dict]:
+    def search_by_type_id_prefix(
+        self, prefix: str, project_id: str | None = None,
+    ) -> list[dict]:
         """Search for entities whose type_id starts with the given prefix.
 
         Parameters
         ----------
         prefix:
             The type_id prefix to match (e.g. "feature:05").
+        project_id:
+            If provided, restrict results to this project.
 
         Returns
         -------
@@ -1435,10 +1478,17 @@ class EntityDatabase:
         # Use LIKE with escaped prefix for efficient prefix search.
         # Escape any existing % or _ in the prefix to prevent SQL injection.
         escaped = prefix.replace("%", "\\%").replace("_", "\\_")
-        rows = self._conn.execute(
-            "SELECT * FROM entities WHERE type_id LIKE ? ESCAPE '\\'",
-            (escaped + "%",),
-        ).fetchall()
+        if project_id is not None:
+            rows = self._conn.execute(
+                "SELECT * FROM entities WHERE type_id LIKE ? ESCAPE '\\' "
+                "AND project_id = ?",
+                (escaped + "%", project_id),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM entities WHERE type_id LIKE ? ESCAPE '\\'",
+                (escaped + "%",),
+            ).fetchall()
         return [dict(row) for row in rows]
 
     @contextmanager
@@ -1644,6 +1694,7 @@ class EntityDatabase:
         status: str | None = None,
         parent_type_id: str | None = None,
         metadata: dict | None = None,
+        project_id: str = "__unknown__",
     ) -> str:
         """Register an entity with INSERT OR IGNORE semantics.
 
@@ -1664,6 +1715,9 @@ class EntityDatabase:
             Optional type_id of the parent entity (must exist).
         metadata:
             Optional dict stored as JSON TEXT.
+        project_id:
+            Project scope for the entity. Required at DB layer for
+            cross-project uniqueness (UNIQUE(project_id, type_id)).
 
         Returns
         -------
@@ -1685,8 +1739,8 @@ class EntityDatabase:
         parent_uuid = None
         if parent_type_id is not None:
             parent_row = self._conn.execute(
-                "SELECT uuid FROM entities WHERE type_id = ?",
-                (parent_type_id,),
+                "SELECT uuid FROM entities WHERE type_id = ? AND project_id = ?",
+                (parent_type_id, project_id),
             ).fetchone()
             if parent_row is not None:
                 parent_uuid = parent_row["uuid"]
@@ -1696,13 +1750,13 @@ class EntityDatabase:
         with self.transaction():
             cursor = self._conn.execute(
                 "INSERT OR IGNORE INTO entities "
-                "(uuid, type_id, entity_type, entity_id, name, status, "
+                "(uuid, type_id, project_id, entity_type, entity_id, name, status, "
                 "parent_type_id, parent_uuid, artifact_path, "
                 "created_at, updated_at, metadata) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (entity_uuid, type_id, entity_type, entity_id, name, status,
-                 parent_type_id, parent_uuid, artifact_path, now, now,
-                 metadata_json),
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (entity_uuid, type_id, project_id, entity_type, entity_id,
+                 name, status, parent_type_id, parent_uuid, artifact_path,
+                 now, now, metadata_json),
             )
             if cursor.rowcount == 1:
                 row = self._conn.execute(
@@ -1721,11 +1775,15 @@ class EntityDatabase:
                 )
             self._commit()  # no-op inside transaction(); commit handled by context manager
         result = self._conn.execute(
-            "SELECT uuid FROM entities WHERE type_id = ?", (type_id,)
+            "SELECT uuid FROM entities WHERE type_id = ? AND project_id = ?",
+            (type_id, project_id),
         ).fetchone()
         return result["uuid"]
 
-    def set_parent(self, type_id: str, parent_type_id: str) -> str:
+    def set_parent(
+        self, type_id: str, parent_type_id: str,
+        project_id: str | None = None,
+    ) -> str:
         """Set or change the parent of an entity.
 
         Parameters
@@ -1734,6 +1792,9 @@ class EntityDatabase:
             The entity to update (UUID or type_id).
         parent_type_id:
             The new parent entity (UUID or type_id, must exist).
+        project_id:
+            If provided, scope both type_id and parent_type_id lookups
+            to this project.
 
         Returns
         -------
@@ -1746,9 +1807,11 @@ class EntityDatabase:
             If either entity is not found, or if the assignment would
             create a circular reference.
         """
-        child_uuid, child_type_id = self._resolve_identifier(type_id)
+        child_uuid, child_type_id = self._resolve_identifier(
+            type_id, project_id=project_id
+        )
         parent_uuid, parent_type_id_resolved = self._resolve_identifier(
-            parent_type_id
+            parent_type_id, project_id=project_id
         )
 
         # Self-parent check using UUIDs
@@ -1799,27 +1862,39 @@ class EntityDatabase:
         ).fetchone()
         return dict(row) if row else None
 
-    def list_entities(self, entity_type: str | None = None) -> list[dict]:
-        """Return all entities, optionally filtered by entity_type.
+    def list_entities(
+        self, entity_type: str | None = None,
+        project_id: str | None = None,
+    ) -> list[dict]:
+        """Return all entities, optionally filtered by entity_type and project.
 
         Parameters
         ----------
         entity_type:
             If provided, only return entities of this type.
-            If None, return all entities.
+            If None, return all entity types.
+        project_id:
+            If provided, only return entities in this project.
+            If None, return entities across all projects.
 
         Returns
         -------
         list[dict]
             List of entity dicts with same keys as ``get_entity``.
         """
+        conditions: list[str] = []
+        params: list[str] = []
         if entity_type is not None:
-            cur = self._conn.execute(
-                "SELECT * FROM entities WHERE entity_type = ?",
-                (entity_type,),
-            )
-        else:
-            cur = self._conn.execute("SELECT * FROM entities")
+            conditions.append("entity_type = ?")
+            params.append(entity_type)
+        if project_id is not None:
+            conditions.append("project_id = ?")
+            params.append(project_id)
+
+        sql = "SELECT * FROM entities"
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
+        cur = self._conn.execute(sql, params)
         return [dict(row) for row in cur.fetchall()]
 
     def get_lineage(
@@ -1905,6 +1980,8 @@ class EntityDatabase:
         status: str | None = None,
         artifact_path: str | None = None,
         metadata: dict | None = None,
+        project_id: str | None = None,
+        new_project_id: str | None = None,
     ) -> None:
         """Update mutable fields of an existing entity.
 
@@ -1921,6 +1998,11 @@ class EntityDatabase:
         metadata:
             If provided, shallow-merges with existing metadata.
             An empty dict ``{}`` clears metadata to None.
+        project_id:
+            If provided, scope type_id resolution to this project.
+        new_project_id:
+            If provided, re-attribute the entity to a different project
+            using the trigger-drop approach (TD-8).
 
         Raises
         ------
@@ -1929,7 +2011,7 @@ class EntityDatabase:
         """
         # Resolve identifier directly (accepts both UUID and type_id).
         # Lets ValueError propagate naturally if entity not found.
-        entity_uuid, _ = self._resolve_identifier(type_id)
+        entity_uuid, _ = self._resolve_identifier(type_id, project_id=project_id)
 
         # FTS sync: capture old values before UPDATE
         old_row = self._conn.execute(
@@ -2015,17 +2097,89 @@ class EntityDatabase:
             )
             self._commit()  # no-op inside transaction(); commit handled by context manager
 
+        # Re-attribution (TD-8): move entity to a different project
+        if new_project_id is not None:
+            self._conn.commit()  # flush any implicit transaction
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                # Drop immutability trigger
+                self._conn.execute(
+                    "DROP TRIGGER IF EXISTS enforce_immutable_project_id"
+                )
+                # Update project_id
+                self._conn.execute(
+                    "UPDATE entities SET project_id = ? WHERE uuid = ?",
+                    (new_project_id, entity_uuid),
+                )
+                # FTS sync after re-attribution
+                reattr_row = self._conn.execute(
+                    "SELECT rowid, name, entity_id, entity_type, status, metadata "
+                    "FROM entities WHERE uuid = ?",
+                    (entity_uuid,),
+                ).fetchone()
+                reattr_meta_text = flatten_metadata(
+                    json.loads(reattr_row["metadata"])
+                    if reattr_row["metadata"] else None
+                )
+                self._conn.execute(
+                    "DELETE FROM entities_fts WHERE rowid = ?",
+                    (reattr_row["rowid"],),
+                )
+                self._conn.execute(
+                    "INSERT INTO entities_fts(rowid, name, entity_id, "
+                    "entity_type, status, metadata_text) "
+                    "VALUES(?, ?, ?, ?, ?, ?)",
+                    (reattr_row["rowid"], reattr_row["name"],
+                     reattr_row["entity_id"], reattr_row["entity_type"],
+                     reattr_row["status"] or "", reattr_meta_text),
+                )
+                # Recreate immutability trigger
+                self._conn.execute("""
+                    CREATE TRIGGER enforce_immutable_project_id
+                    BEFORE UPDATE OF project_id ON entities
+                    BEGIN SELECT RAISE(ABORT,
+                        'project_id is immutable — use re-attribution API');
+                    END
+                """)
+                self._conn.execute("COMMIT")
+            except Exception:
+                try:
+                    self._conn.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass
+                # Ensure trigger is restored even on failure
+                try:
+                    self._conn.execute("""
+                        CREATE TRIGGER IF NOT EXISTS enforce_immutable_project_id
+                        BEFORE UPDATE OF project_id ON entities
+                        BEGIN SELECT RAISE(ABORT,
+                            'project_id is immutable — use re-attribution API');
+                        END
+                    """)
+                    self._conn.commit()
+                except sqlite3.Error:
+                    pass
+                raise
+
     # ------------------------------------------------------------------
     # Delete
     # ------------------------------------------------------------------
 
-    def delete_entity(self, type_id: str) -> None:
-        """Delete an entity and all associated data (FTS, workflow_phases).
+    def delete_entity(
+        self, type_id: str, project_id: str | None = None,
+    ) -> None:
+        """Delete an entity and all associated data.
+
+        Extended cascade (TD-6): deletes entity_tags, entity_dependencies,
+        entity_okr_alignment, workflow_phases, entities_fts, and the entity
+        row itself — all by UUID.
 
         Parameters
         ----------
         type_id : str
-            Entity type_id in format "{entity_type}:{entity_id}".
+            Entity type_id or UUID.
+        project_id:
+            If provided, scope type_id resolution to this project.
 
         Raises
         ------
@@ -2036,36 +2190,57 @@ class EntityDatabase:
         """
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            # 1. Validate + fetch old values for FTS cleanup
+            # 1. Resolve to UUID (project-scoped if provided)
+            entity_uuid, resolved_type_id = self._resolve_identifier(
+                type_id, project_id=project_id
+            )
+
+            # Fetch rowid for FTS cleanup
             row = self._conn.execute(
-                "SELECT uuid, rowid, name, entity_id, entity_type, status, metadata "
-                "FROM entities WHERE type_id = ?", (type_id,)
+                "SELECT rowid FROM entities WHERE uuid = ?",
+                (entity_uuid,),
             ).fetchone()
-            if row is None:
-                raise ValueError(f"Entity not found: {type_id}")
 
             # 2. Reject if has children
             child = self._conn.execute(
                 "SELECT 1 FROM entities WHERE parent_uuid = ? LIMIT 1",
-                (row["uuid"],),
+                (entity_uuid,),
             ).fetchone()
             if child is not None:
-                raise ValueError(f"Cannot delete entity with children: {type_id}")
+                raise ValueError(
+                    f"Cannot delete entity with children: {type_id}"
+                )
 
-            # Standalone FTS: delete by rowid (no old values needed)
-            # INVARIANT: rowid must match entities table rowid
+            # 3. Extended cascade: junction tables by UUID (TD-6)
+            self._conn.execute(
+                "DELETE FROM entity_tags WHERE entity_uuid = ?",
+                (entity_uuid,),
+            )
+            self._conn.execute(
+                "DELETE FROM entity_dependencies "
+                "WHERE entity_uuid = ? OR blocked_by_uuid = ?",
+                (entity_uuid, entity_uuid),
+            )
+            self._conn.execute(
+                "DELETE FROM entity_okr_alignment "
+                "WHERE entity_uuid = ? OR key_result_uuid = ?",
+                (entity_uuid, entity_uuid),
+            )
+
+            # 4. Delete FTS entry
             self._conn.execute(
                 "DELETE FROM entities_fts WHERE rowid = ?", (row["rowid"],)
             )
 
-            # 4. Delete workflow_phases (FK: must precede entity delete)
+            # 5. Delete workflow_phases
             self._conn.execute(
-                "DELETE FROM workflow_phases WHERE type_id = ?", (type_id,)
+                "DELETE FROM workflow_phases WHERE type_id = ?",
+                (resolved_type_id,),
             )
 
-            # 5. Delete entity row
+            # 6. Delete entity row by UUID
             self._conn.execute(
-                "DELETE FROM entities WHERE type_id = ?", (type_id,)
+                "DELETE FROM entities WHERE uuid = ?", (entity_uuid,)
             )
 
             self._commit()
@@ -2108,6 +2283,7 @@ class EntityDatabase:
         query: str,
         entity_type: str | None = None,
         limit: int = 20,
+        project_id: str | None = None,
     ) -> list[dict]:
         """Full-text search over entities.
 
@@ -2119,6 +2295,9 @@ class EntityDatabase:
             Optional filter by entity_type.
         limit:
             Max results (clamped to 1..100).
+        project_id:
+            If provided, restrict results to this project.
+            If None, search across all projects.
 
         Returns
         -------
@@ -2147,26 +2326,30 @@ class EntityDatabase:
             return []
 
         try:
+            # Build WHERE conditions beyond FTS MATCH
+            extra_conditions: list[str] = []
+            extra_params: list = []
             if entity_type is not None:
-                rows = self._conn.execute(
-                    "SELECT e.*, entities_fts.rank "
-                    "FROM entities_fts "
-                    "JOIN entities e ON entities_fts.rowid = e.rowid "
-                    "WHERE entities_fts MATCH ? AND e.entity_type = ? "
-                    "ORDER BY entities_fts.rank "
-                    "LIMIT ?",
-                    (fts_query, entity_type, limit),
-                ).fetchall()
-            else:
-                rows = self._conn.execute(
-                    "SELECT e.*, entities_fts.rank "
-                    "FROM entities_fts "
-                    "JOIN entities e ON entities_fts.rowid = e.rowid "
-                    "WHERE entities_fts MATCH ? "
-                    "ORDER BY entities_fts.rank "
-                    "LIMIT ?",
-                    (fts_query, limit),
-                ).fetchall()
+                extra_conditions.append("e.entity_type = ?")
+                extra_params.append(entity_type)
+            if project_id is not None:
+                extra_conditions.append("e.project_id = ?")
+                extra_params.append(project_id)
+
+            where_clause = "WHERE entities_fts MATCH ?"
+            if extra_conditions:
+                where_clause += " AND " + " AND ".join(extra_conditions)
+
+            sql = (
+                "SELECT e.*, entities_fts.rank "
+                "FROM entities_fts "
+                "JOIN entities e ON entities_fts.rowid = e.rowid "
+                f"{where_clause} "
+                "ORDER BY entities_fts.rank "
+                "LIMIT ?"
+            )
+            params = [fts_query] + extra_params + [limit]
+            rows = self._conn.execute(sql, params).fetchall()
         except sqlite3.OperationalError as exc:
             raise ValueError(f"invalid_search_query: {exc}") from exc
 
@@ -2177,7 +2360,8 @@ class EntityDatabase:
     # ------------------------------------------------------------------
 
     def export_lineage_markdown(
-        self, type_id: str | None = None
+        self, type_id: str | None = None,
+        project_id: str | None = None,
     ) -> str:
         """Export entity lineage as a markdown tree.
 
@@ -2186,6 +2370,9 @@ class EntityDatabase:
         type_id:
             If provided (UUID or type_id), export only the tree rooted
             at this entity.  If None, export all trees (all root entities).
+        project_id:
+            If provided, only include root entities from this project.
+            Children are included via existing tree-walk from filtered roots.
 
         Returns
         -------
@@ -2193,17 +2380,24 @@ class EntityDatabase:
             Markdown-formatted tree.
         """
         if type_id is not None:
-            root_uuid, _ = self._resolve_identifier(type_id)
+            root_uuid, _ = self._resolve_identifier(type_id, project_id=project_id)
             return self._export_tree(root_uuid)
 
         # Find all root entities (no parent).
         # Uses parent_type_id (not parent_uuid) — both are kept in sync by
         # set_parent(); parent_type_id is the authoritative column for root
         # detection since backfill populates it from artifact metadata.
-        cur = self._conn.execute(
-            "SELECT uuid FROM entities WHERE parent_type_id IS NULL "
-            "ORDER BY entity_type, name"
-        )
+        if project_id is not None:
+            cur = self._conn.execute(
+                "SELECT uuid FROM entities WHERE parent_type_id IS NULL "
+                "AND project_id = ? ORDER BY entity_type, name",
+                (project_id,),
+            )
+        else:
+            cur = self._conn.execute(
+                "SELECT uuid FROM entities WHERE parent_type_id IS NULL "
+                "ORDER BY entity_type, name"
+            )
         roots = [row["uuid"] for row in cur.fetchall()]
 
         if not roots:
@@ -2286,6 +2480,7 @@ class EntityDatabase:
         entity_type: str | None = None,
         status: str | None = None,
         include_lineage: bool = True,
+        project_id: str | None = None,
     ) -> dict:
         """Export entities as a structured dict with schema version metadata.
 
@@ -2299,6 +2494,9 @@ class EntityDatabase:
         include_lineage:
             If True, include parent_type_id in each entity dict.
             If False, omit parent_type_id.
+        project_id:
+            If provided, only export entities from this project.
+            If None, export entities across all projects.
 
         Returns
         -------
@@ -2324,6 +2522,9 @@ class EntityDatabase:
         if status is not None:
             conditions.append("status = ?")
             params.append(status)
+        if project_id is not None:
+            conditions.append("project_id = ?")
+            params.append(project_id)
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
         query += " ORDER BY created_at ASC, type_id ASC"
@@ -2538,7 +2739,9 @@ class EntityDatabase:
         ).fetchone()
         return dict(result)
 
-    def upsert_workflow_phase(self, type_id: str, **kwargs) -> None:
+    def upsert_workflow_phase(
+        self, type_id: str, project_id: str = "__unknown__", **kwargs,
+    ) -> None:
         """Insert or update a workflow_phases row atomically.
 
         Uses INSERT OR IGNORE followed by UPDATE to handle both new and
@@ -2549,6 +2752,9 @@ class EntityDatabase:
         ----------
         type_id:
             The entity type_id (e.g. ``"feature:my-feat"``).
+        project_id:
+            Project scope for entity existence check. Required to
+            ensure the entity belongs to the expected project.
         **kwargs:
             Mutable columns to set. Allowed keys: ``workflow_phase``,
             ``kanban_column``, ``last_completed_phase``, ``mode``,
@@ -2557,7 +2763,8 @@ class EntityDatabase:
         Raises
         ------
         ValueError
-            If any key in *kwargs* is not in the allow-list.
+            If entity not found in the specified project, or if any
+            key in *kwargs* is not in the allow-list.
         """
         ALLOWED_COLUMNS = {
             "workflow_phase",
@@ -2570,6 +2777,16 @@ class EntityDatabase:
         invalid = set(kwargs) - ALLOWED_COLUMNS
         if invalid:
             raise ValueError(f"Invalid workflow_phases columns: {invalid}")
+
+        # Entity existence check scoped by project_id
+        entity_row = self._conn.execute(
+            "SELECT uuid FROM entities WHERE type_id = ? AND project_id = ?",
+            (type_id, project_id),
+        ).fetchone()
+        if entity_row is None:
+            raise ValueError(
+                f"Entity {type_id!r} not found in project {project_id!r}"
+            )
 
         # Audit 062: 2 write SQL statements — wrapped in transaction() for BEGIN IMMEDIATE
         now = self._now_iso()
@@ -2802,23 +3019,35 @@ class EntityDatabase:
     # Utility methods
     # ------------------------------------------------------------------
 
-    def scan_entity_ids(self, entity_type: str) -> list[str]:
+    def scan_entity_ids(
+        self, entity_type: str, project_id: str | None = None,
+    ) -> list[str]:
         """Return all entity_id values for the given entity_type.
 
         Parameters
         ----------
         entity_type:
             The entity type to scan (e.g. "feature", "task").
+        project_id:
+            If provided, only return IDs from this project.
+            If None, return IDs across all projects.
 
         Returns
         -------
         list[str]
             List of entity_id strings.
         """
-        rows = self._conn.execute(
-            "SELECT entity_id FROM entities WHERE entity_type = ?",
-            (entity_type,),
-        ).fetchall()
+        if project_id is not None:
+            rows = self._conn.execute(
+                "SELECT entity_id FROM entities "
+                "WHERE entity_type = ? AND project_id = ?",
+                (entity_type, project_id),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT entity_id FROM entities WHERE entity_type = ?",
+                (entity_type,),
+            ).fetchall()
         return [row["entity_id"] for row in rows]
 
     def next_sequence_value(self, project_id: str, entity_type: str) -> int:
@@ -2904,7 +3133,9 @@ class EntityDatabase:
     # Batch registration
     # ------------------------------------------------------------------
 
-    def register_entities_batch(self, entities: list[dict]) -> list[str]:
+    def register_entities_batch(
+        self, entities: list[dict], project_id: str = "__unknown__",
+    ) -> list[str]:
         """Register multiple entities in a single transaction.
 
         Parameters
@@ -2912,6 +3143,8 @@ class EntityDatabase:
         entities:
             List of dicts, each with keys: entity_type, entity_id, name,
             and optional: artifact_path, status, parent_type_id, metadata.
+        project_id:
+            Project scope applied to all entities in the batch.
 
         Returns
         -------
@@ -2959,8 +3192,9 @@ class EntityDatabase:
                         parent_uuid = batch_uuids[parent_type_id]
                     else:
                         parent_row = self._conn.execute(
-                            "SELECT uuid FROM entities WHERE type_id = ?",
-                            (parent_type_id,),
+                            "SELECT uuid FROM entities "
+                            "WHERE type_id = ? AND project_id = ?",
+                            (parent_type_id, project_id),
                         ).fetchone()
                         if parent_row is not None:
                             parent_uuid = parent_row["uuid"]
@@ -2968,13 +3202,13 @@ class EntityDatabase:
                 entity_uuid = str(uuid_mod.uuid4())
                 cursor = self._conn.execute(
                     "INSERT OR IGNORE INTO entities "
-                    "(uuid, type_id, entity_type, entity_id, name, status, "
-                    "parent_type_id, parent_uuid, artifact_path, "
-                    "created_at, updated_at, metadata) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (entity_uuid, type_id, entity_type, entity_id, name,
-                     status, parent_type_id, parent_uuid, artifact_path,
-                     now, now, metadata_json),
+                    "(uuid, type_id, project_id, entity_type, entity_id, "
+                    "name, status, parent_type_id, parent_uuid, "
+                    "artifact_path, created_at, updated_at, metadata) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (entity_uuid, type_id, project_id, entity_type,
+                     entity_id, name, status, parent_type_id, parent_uuid,
+                     artifact_path, now, now, metadata_json),
                 )
 
                 if cursor.rowcount == 1:
@@ -2998,8 +3232,9 @@ class EntityDatabase:
                 else:
                     # Already existed — fetch existing UUID
                     existing = self._conn.execute(
-                        "SELECT uuid FROM entities WHERE type_id = ?",
-                        (type_id,),
+                        "SELECT uuid FROM entities "
+                        "WHERE type_id = ? AND project_id = ?",
+                        (type_id, project_id),
                     ).fetchone()
                     if existing:
                         batch_uuids[type_id] = existing["uuid"]
