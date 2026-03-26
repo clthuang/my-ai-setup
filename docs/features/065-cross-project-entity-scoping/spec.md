@@ -113,8 +113,8 @@ Self-managed transaction following the established pattern in `_schema_expansion
 
 **Acceptance Criteria:**
 - [ ] AC-2.1: Fresh DB (no entities) creates all 3 new tables with correct schema
-- [ ] AC-2.2: Existing entities with `metadata.project_id` get correct project_id column value
-- [ ] AC-2.3: Existing entities without `metadata.project_id` get `'__unknown__'`
+- [ ] AC-2.2: ALL existing entities get `project_id = '__unknown__'` regardless of metadata.project_id values (format mismatch: metadata stores project entity IDs like "P001", not 12-char SHA)
+- [ ] AC-2.3: Artifact-path backfill at startup claims `__unknown__` entities with correct 12-char SHA project_id
 - [ ] AC-2.4: Same type_id in different projects can coexist (composite UNIQUE)
 - [ ] AC-2.5: Same type_id in same project is rejected (composite UNIQUE)
 - [ ] AC-2.6: All 9 triggers exist and function post-migration
@@ -142,11 +142,17 @@ Self-managed transaction following the established pattern in `_schema_expansion
 | `_resolve_identifier` | Optional `str \| None` | See FS-3.2 |
 | `next_sequence_value` | Required `str` | New method — always project-scoped |
 
-**Unchanged methods** (operate on UUID, no type_id lookup): `get_entity_by_uuid`, `get_children_by_uuid`, `delete_entity`, tag/dependency/OKR methods, workflow phase methods.
+| `resolve_ref` | Optional `str \| None` | Exact type_id lookup (database.py:1082-1086) and prefix search (`search_by_type_id_prefix`) both need project_id filtering. Pass through to `_resolve_identifier`. |
+| `search_by_type_id_prefix` | Optional `str \| None` | Add `AND project_id = ?` to LIKE query; `None` = all projects |
+| `set_parent` | Optional `str \| None` | Resolves both type_id args via `_resolve_identifier` with project context |
+| `update_entity` | Optional `str \| None` | Resolves type_id via `_resolve_identifier`. See re-attribution note below. |
+| `delete_entity` | Optional `str \| None` | Resolves type_id via `_resolve_identifier` to get UUID, then deletes by UUID. Internal queries at database.py:1743,1764,1769 must resolve to UUID first, not use raw `WHERE type_id = ?`. |
 
-**Note on `set_parent`:** `set_parent(type_id, parent_type_id)` resolves both identifiers via `_resolve_identifier`. Post-migration, `_resolve_identifier` gains `project_id` context (FS-3.2). The MCP server passes `_project_id` to the DB method. No signature change at DB layer is needed — `set_parent` will pass its `project_id` param through to `_resolve_identifier` for resolution. Add `project_id: str | None = None` parameter to `set_parent`.
+**Unchanged methods** (operate on UUID only, no type_id lookup): `get_entity_by_uuid`, `get_children_by_uuid`, tag methods (`add_tag`, `remove_tag`, `get_tags`, `query_by_tag`), dependency methods (`add_dependency`, `remove_dependency`, `query_dependencies`), OKR methods.
 
-**Note on `update_entity`:** `update_entity(type_id, ...)` resolves type_id via `_resolve_identifier`. Add `project_id: str | None = None` parameter. For **re-attribution** (changing an entity's project_id), `update_entity` must bypass the `enforce_immutable_project_id` trigger. Mechanism: use a two-step approach — (1) `DELETE FROM entities WHERE uuid = ?`, (2) re-INSERT with new project_id. This preserves UUID and avoids trigger. Alternative: temporarily disable the trigger (fragile). The DELETE+INSERT approach is safer and atomic within a transaction. Add `new_project_id: str | None = None` parameter for explicit re-attribution.
+**Note on workflow phase methods:** `create_workflow_phase`, `get_workflow_phase`, `update_workflow_phase`, `upsert_workflow_phase`, `delete_workflow_phase`, `list_workflow_phases` all use `WHERE type_id = ?` on the `workflow_phases` table. Post-migration, type_id is no longer globally unique. However, workflow phase methods are always called after entity resolution (the caller already has a resolved type_id from a specific project context). The `workflow_phases` table does not need a `project_id` column because: (1) its `type_id` references the entities table, and after FR-3 the duplicate type_ids across projects will have different workflow_phase rows naturally, (2) workflow phase operations are always preceded by entity resolution that provides the correct type_id within project scope. **Safeguard:** Add `project_id` parameter to `upsert_workflow_phase` to scope the initial entity existence check, but the workflow_phases table itself does not gain a project_id column.
+
+**Note on `update_entity` re-attribution:** For changing an entity's project_id, `update_entity` must bypass the `enforce_immutable_project_id` trigger. Mechanism: DELETE + re-INSERT within a single `BEGIN IMMEDIATE` transaction. Steps: (1) read full entity row + related data (workflow_phases, tags, dependencies, OKR alignments), (2) DELETE entity (cascade: explicitly delete workflow_phases, tags, dependencies, OKR rows for this UUID first since there are no ON DELETE CASCADE constraints), (3) re-INSERT entity with new project_id preserving UUID, (4) re-INSERT all related data. Add `new_project_id: str | None = None` parameter for explicit re-attribution.
 
 #### FS-3.2: `_resolve_identifier` project-scoped resolution
 
@@ -184,6 +190,8 @@ In `lifespan()`, after DB initialization:
 
 **LIKE escaping:** The `project_root` value used in the LIKE pattern must have `%` and `_` characters escaped before concatenation (replace `%` with `\%`, `_` with `\_`, use `ESCAPE '\'`). While rare in filesystem paths, this prevents incorrect matching.
 
+**Artifact path format:** `artifact_path` is stored as an absolute path in the current codebase (verified: `entity_server.py` constructs paths via `os.path.join(project_root, ...)` and `backfill.py` uses `os.path.abspath()`). The LIKE match on `project_root` prefix is therefore valid.
+
 **Acceptance Criteria:**
 - [ ] AC-4.1.1: `_project_id` is populated before first tool call
 - [ ] AC-4.1.2: Project is registered in `projects` table at startup
@@ -211,15 +219,20 @@ In `lifespan()`, after DB initialization:
 - Add `_project_id` global, resolved at startup same as entity_server
 - `list_features_by_phase`, `list_features_by_status` — add optional `project_id` param defaulting to `_project_id`
 
+**Acceptance Criteria:**
+- [ ] AC-4.3.1: `list_features_by_phase` with default project_id returns only current project's features
+- [ ] AC-4.3.2: `list_features_by_status` with explicit project_id filters correctly
+
 ### FS-5: Sequential ID Generation
 
 #### FS-5.1: `next_sequence_value(project_id: str, entity_type: str) -> int`
 
 New method on `EntityDatabase`:
 1. Check `sequences` table for existing row
-2. If no row: bootstrap by scanning entities `WHERE project_id = ? AND entity_type = ?` for max sequential prefix, then INSERT
-3. Increment `next_val`, UPDATE, return the new value
-4. Entire operation within `BEGIN IMMEDIATE` transaction
+2. If no row: bootstrap by scanning entities `WHERE project_id = ? AND entity_type = ?` for max sequential prefix, INSERT with `next_val = max + 1`
+3. Read current `next_val` as the issued sequence number, UPDATE `next_val = next_val + 1` (so `next_val` always holds the NEXT value to be issued)
+4. Return the issued value (pre-increment)
+5. Entire operation within `BEGIN IMMEDIATE` transaction
 
 #### FS-5.2: `id_generator.py` changes
 
@@ -286,9 +299,17 @@ New method on `EntityDatabase`:
 - `test_database.py` queries (~6 tests): covers AC-3.2.1 through AC-3.2.4 — _resolve_identifier project scoping, register_entity idempotency change, parent resolution
 - Doctor tests (~5 tests): covers AC-6.4, AC-6.5 — schema version, project-scoped orphan checks, attribution warnings, auto-fix
 
+### Existing Test Files Requiring Updates
+- `test_database.py` — register_entity, delete_entity, set_parent, update_entity signatures gain project_id
+- `test_backfill.py` — run_backfill calls gain project_id parameter
+- `test_frontmatter_sync.py` — project_id derivation tests may need adjustment for new format
+- `test_search_mcp.py` — search_entities gains project_id filtering
+- `test_workflow_state_server.py` — list_features_by_phase/status gain project_id
+- `test_export_entities.py` — export gains project_id filtering
+
 ### Integration Tests
-- MCP tool tests (~8 tests): register with project_id, search filtering, export filtering, list_projects, get_entity resolution
-- Backfill tests (~3 tests): project_id passed through, reconciliation integration
+- MCP tool tests (~8 tests): covers AC-4.1.1 through AC-4.3.2 — register with project_id, search filtering, export filtering, list_projects (returns all projects ordered by created_at, no filtering in v1), get_entity resolution
+- Backfill tests (~3 tests): covers AC-6.2, AC-6.3 — project_id passed through, reconciliation integration
 
 ### Manual Verification
 - Backup real DB, start entity_server, verify migration completes
