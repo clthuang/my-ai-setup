@@ -44,10 +44,11 @@ class TestParentUuidPreference:
         db, artifacts_root = db_and_root
 
         # Register brainstorm with a child feature
-        bs_uuid = db.register_entity("brainstorm", "test-bs", "Test Brainstorm")
+        bs_uuid = db.register_entity("brainstorm", "test-bs", "Test Brainstorm", project_id="__unknown__")
         feat_uuid = db.register_entity(
             "feature", "001-child", "Child Feature",
             parent_type_id="brainstorm:test-bs",
+            project_id="__unknown__",
         )
 
         # Verify parent_uuid was set
@@ -70,7 +71,7 @@ class TestParentUuidPreference:
             json.dump(meta, f)
 
         # Run backfill_workflow_phases
-        result = backfill_workflow_phases(db, artifacts_root)
+        result = backfill_workflow_phases(db, artifacts_root, project_id="__unknown__")
 
         # Brainstorm should get a workflow_phases row
         # The child completion detection should have worked
@@ -81,12 +82,13 @@ class TestParentUuidPreference:
         db, artifacts_root = db_and_root
 
         # Register brainstorm
-        bs_uuid = db.register_entity("brainstorm", "legacy-bs", "Legacy BS")
+        bs_uuid = db.register_entity("brainstorm", "legacy-bs", "Legacy BS", project_id="__unknown__")
 
         # Register child feature
         feat_uuid = db.register_entity(
             "feature", "002-legacy", "Legacy Child",
             parent_type_id="brainstorm:legacy-bs",
+            project_id="__unknown__",
         )
 
         # Manually clear parent_uuid to simulate legacy data
@@ -116,7 +118,7 @@ class TestParentUuidPreference:
         with open(os.path.join(feat_dir, ".meta.json"), "w") as f:
             json.dump(meta, f)
 
-        result = backfill_workflow_phases(db, artifacts_root)
+        result = backfill_workflow_phases(db, artifacts_root, project_id="__unknown__")
         assert result["errors"] == []
 
     def test_parent_uuid_resolves_children_correctly(self, db_and_root):
@@ -124,13 +126,14 @@ class TestParentUuidPreference:
         db, artifacts_root = db_and_root
 
         # Register brainstorm parent
-        bs_uuid = db.register_entity("brainstorm", "parent-bs", "Parent BS")
+        bs_uuid = db.register_entity("brainstorm", "parent-bs", "Parent BS", project_id="__unknown__")
 
         # Register two child features with parent_uuid
         for i in range(1, 3):
             db.register_entity(
                 "feature", f"00{i}-c", f"Child {i}",
                 parent_type_id="brainstorm:parent-bs",
+                project_id="__unknown__",
             )
             db.update_entity(f"feature:00{i}-c", status="completed")
 
@@ -145,7 +148,7 @@ class TestParentUuidPreference:
             with open(os.path.join(feat_dir, ".meta.json"), "w") as f:
                 json.dump(meta, f)
 
-        result = backfill_workflow_phases(db, artifacts_root)
+        result = backfill_workflow_phases(db, artifacts_root, project_id="__unknown__")
         assert result["errors"] == []
 
         # Check brainstorm got completed kanban due to all children complete
@@ -157,12 +160,13 @@ class TestParentUuidPreference:
         """Some children have parent_uuid, some only parent_type_id."""
         db, artifacts_root = db_and_root
 
-        bs_uuid = db.register_entity("brainstorm", "mix-bs", "Mixed BS")
+        bs_uuid = db.register_entity("brainstorm", "mix-bs", "Mixed BS", project_id="__unknown__")
 
         # Child 1: has parent_uuid (normal)
         feat1_uuid = db.register_entity(
             "feature", "001-mix", "Mix Child 1",
             parent_type_id="brainstorm:mix-bs",
+            project_id="__unknown__",
         )
         db.update_entity("feature:001-mix", status="completed")
 
@@ -170,6 +174,7 @@ class TestParentUuidPreference:
         feat2_uuid = db.register_entity(
             "feature", "002-mix", "Mix Child 2",
             parent_type_id="brainstorm:mix-bs",
+            project_id="__unknown__",
         )
         db._conn.execute(
             "UPDATE entities SET parent_uuid = NULL WHERE uuid = ?",
@@ -186,7 +191,7 @@ class TestParentUuidPreference:
             with open(os.path.join(feat_dir, ".meta.json"), "w") as f:
                 json.dump(meta, f)
 
-        result = backfill_workflow_phases(db, artifacts_root)
+        result = backfill_workflow_phases(db, artifacts_root, project_id="__unknown__")
         assert result["errors"] == []
 
         # Both children should be found (via uuid or type_id fallback)

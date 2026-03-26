@@ -120,37 +120,20 @@ def _check_db_available():
 
 
 def _upsert_project(db: EntityDatabase, info: GitProjectInfo) -> None:
-    """Insert or update a project row, preserving created_at on conflict."""
-    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    db._conn.execute(
-        """INSERT INTO projects (
-               project_id, name, root_commit_sha, remote_url,
-               normalized_url, remote_host, remote_owner, remote_repo,
-               default_branch, project_root, is_git_repo,
-               created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(project_id) DO UPDATE SET
-               name=excluded.name,
-               root_commit_sha=excluded.root_commit_sha,
-               remote_url=excluded.remote_url,
-               normalized_url=excluded.normalized_url,
-               remote_host=excluded.remote_host,
-               remote_owner=excluded.remote_owner,
-               remote_repo=excluded.remote_repo,
-               default_branch=excluded.default_branch,
-               project_root=excluded.project_root,
-               is_git_repo=excluded.is_git_repo,
-               updated_at=excluded.updated_at
-        """,
-        (
-            info.project_id, info.name, info.root_commit_sha,
-            info.remote_url, info.normalized_url, info.remote_host,
-            info.remote_owner, info.remote_repo, info.default_branch,
-            info.project_root, int(info.is_git_repo),
-            now, now,
-        ),
+    """Insert or update a project row via db.upsert_project()."""
+    db.upsert_project(
+        project_id=info.project_id,
+        name=info.name,
+        root_commit_sha=info.root_commit_sha,
+        remote_url=info.remote_url,
+        normalized_url=info.normalized_url,
+        remote_host=info.remote_host,
+        remote_owner=info.remote_owner,
+        remote_repo=info.remote_repo,
+        default_branch=info.default_branch,
+        project_root=info.project_root,
+        is_git_repo=info.is_git_repo,
     )
-    db._conn.commit()
 
 
 def _effective_project_id(explicit: str | None = None) -> str | None:
@@ -168,35 +151,12 @@ def _backfill_project_ids(
 ) -> int:
     """Claim __unknown__ entities whose artifact_path is under project_root.
 
-    Temporarily drops the enforce_immutable_project_id trigger to allow
-    the UPDATE, then recreates it. This is the same pattern used by
-    re-attribution in database.py (TD-8).
+    Delegates to EntityDatabase.backfill_project_ids() which handles the
+    trigger-drop + UPDATE + trigger-recreate pattern internally.
 
     Returns count of claimed entities.
     """
-    # Escape LIKE special characters in project_root
-    escaped = project_root.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    conn = db._conn
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        conn.execute("DROP TRIGGER IF EXISTS enforce_immutable_project_id")
-        cur = conn.execute(
-            """UPDATE entities SET project_id = ?
-               WHERE project_id = '__unknown__'
-                 AND artifact_path LIKE ? ESCAPE '\\'""",
-            (project_id, escaped + "%"),
-        )
-        count = cur.rowcount
-        conn.execute(
-            """CREATE TRIGGER enforce_immutable_project_id
-               BEFORE UPDATE OF project_id ON entities
-               BEGIN SELECT RAISE(ABORT,
-                   'project_id is immutable — use re-attribution API'); END"""
-        )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
+    count = db.backfill_project_ids(project_root, project_id)
     if count > 0:
         _logger.info("backfill: claimed %d entities for project %s", count, project_id)
     return count
@@ -536,7 +496,6 @@ async def register_entity(
         artifact_path, status, parent_type_id,
         parse_metadata(metadata),
         project_id=resolved_project_id,
-        auto_id=auto_id,
     )
 
 
@@ -1163,10 +1122,7 @@ async def list_projects() -> str:
     if _db is None:
         return "Error: database not initialized (server not started)"
 
-    rows = _db._conn.execute(
-        "SELECT * FROM projects ORDER BY created_at"
-    ).fetchall()
-    projects = [dict(r) for r in rows]
+    projects = _db.list_projects()
     return json.dumps(projects)
 
 

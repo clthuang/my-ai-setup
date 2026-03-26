@@ -414,6 +414,7 @@ class TestFixActions:
             entity_id="009-brainstorm",
             name="Brainstorm 009",
             status="active",
+            project_id="__unknown__",
         )
 
         ctx = FixContext(

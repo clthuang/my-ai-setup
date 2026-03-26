@@ -783,7 +783,7 @@ class TestBackfillCompleteMarker:
             from entity_registry.backfill import run_backfill
 
             # Simulate partial: manually register one entity, no marker
-            db.register_entity("backlog", "00050", "Partial test")
+            db.register_entity("backlog", "00050", "Partial test", project_id="__unknown__")
 
             # Full run should succeed (INSERT OR IGNORE on existing entity)
             run_backfill(db, str(tmp_path))
@@ -1184,8 +1184,8 @@ class TestWorkflowPhaseBackfill:
         feat_dir.mkdir(parents=True)
         (feat_dir / ".meta.json").write_text('{"status": "active", "lastCompletedPhase": "specify"}')
 
-        db.register_entity("feature", "s1-test", "Status Test 1", artifact_path=str(feat_dir))
-        backfill_workflow_phases(db, str(tmp_path))
+        db.register_entity("feature", "s1-test", "Status Test 1", artifact_path=str(feat_dir), project_id="__unknown__")
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("feature:s1-test")
         assert wp is not None
@@ -1193,8 +1193,8 @@ class TestWorkflowPhaseBackfill:
 
     def test_status_from_db_when_no_meta_json(self, tmp_path, db):
         """Entity with no .meta.json and entities.status=completed -> uses completed."""
-        db.register_entity("feature", "s2-test", "Status Test 2", status="completed")
-        backfill_workflow_phases(db, str(tmp_path))
+        db.register_entity("feature", "s2-test", "Status Test 2", status="completed", project_id="__unknown__")
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("feature:s2-test")
         assert wp is not None
@@ -1202,8 +1202,8 @@ class TestWorkflowPhaseBackfill:
 
     def test_status_defaults_to_planned_when_no_source(self, tmp_path, db):
         """Entity with no .meta.json and entities.status=NULL -> defaults to planned -> backlog."""
-        db.register_entity("feature", "s3-test", "Status Test 3")
-        backfill_workflow_phases(db, str(tmp_path))
+        db.register_entity("feature", "s3-test", "Status Test 3", project_id="__unknown__")
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("feature:s3-test")
         assert wp is not None
@@ -1216,8 +1216,9 @@ class TestWorkflowPhaseBackfill:
         (feat_dir / ".meta.json").write_text('{"status": "active", "lastCompletedPhase": "design"}')
 
         db.register_entity("feature", "s4-test", "Status Test 4",
+                               project_id="__unknown__",
                            status="completed", artifact_path=str(feat_dir))
-        backfill_workflow_phases(db, str(tmp_path))
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("feature:s4-test")
         assert wp is not None
@@ -1227,10 +1228,10 @@ class TestWorkflowPhaseBackfill:
         """Unmapped status (e.g., 'draft') -> default to planned -> backlog, with warning."""
         import logging
 
-        db.register_entity("feature", "s5-test", "Status Test 5", status="draft")
+        db.register_entity("feature", "s5-test", "Status Test 5", status="draft", project_id="__unknown__")
 
         with caplog.at_level(logging.WARNING):
-            backfill_workflow_phases(db, str(tmp_path))
+            backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("feature:s5-test")
         assert wp is not None
@@ -1253,8 +1254,9 @@ class TestWorkflowPhaseBackfill:
         }))
 
         db.register_entity("feature", "f1-active", "Active Feature",
+                               project_id="__unknown__",
                            artifact_path=str(feat_dir), status="active")
-        result = backfill_workflow_phases(db, str(tmp_path))
+        result = backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("feature:f1-active")
         assert wp is not None
@@ -1275,8 +1277,9 @@ class TestWorkflowPhaseBackfill:
         }))
 
         db.register_entity("feature", "f2-done", "Done Feature",
+                               project_id="__unknown__",
                            artifact_path=str(feat_dir), status="completed")
-        backfill_workflow_phases(db, str(tmp_path))
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("feature:f2-done")
         assert wp is not None
@@ -1285,8 +1288,8 @@ class TestWorkflowPhaseBackfill:
 
     def test_backfill_planned_feature(self, tmp_path, db):
         """Planned feature -> kanban=backlog, workflow_phase=NULL."""
-        db.register_entity("feature", "f3-planned", "Planned Feature", status="planned")
-        backfill_workflow_phases(db, str(tmp_path))
+        db.register_entity("feature", "f3-planned", "Planned Feature", status="planned", project_id="__unknown__")
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("feature:f3-planned")
         assert wp is not None
@@ -1304,8 +1307,9 @@ class TestWorkflowPhaseBackfill:
         }))
 
         db.register_entity("feature", "f4-abandoned", "Abandoned Feature",
+                               project_id="__unknown__",
                            artifact_path=str(feat_dir), status="abandoned")
-        backfill_workflow_phases(db, str(tmp_path))
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("feature:f4-abandoned")
         assert wp is not None
@@ -1320,8 +1324,8 @@ class TestWorkflowPhaseBackfill:
 
     def test_backfill_brainstorm_entity(self, tmp_path, db):
         """Brainstorm entity -> workflow_phase=draft, kanban_column=wip."""
-        db.register_entity("brainstorm", "bs-test", "Test Brainstorm", status="active")
-        backfill_workflow_phases(db, str(tmp_path))
+        db.register_entity("brainstorm", "bs-test", "Test Brainstorm", status="active", project_id="__unknown__")
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("brainstorm:bs-test")
         assert wp is not None
@@ -1330,8 +1334,8 @@ class TestWorkflowPhaseBackfill:
 
     def test_backfill_backlog_entity(self, tmp_path, db):
         """Backlog entity -> workflow_phase=open, kanban_column=backlog."""
-        db.register_entity("backlog", "bl-test", "Test Backlog", status="planned")
-        backfill_workflow_phases(db, str(tmp_path))
+        db.register_entity("backlog", "bl-test", "Test Backlog", status="planned", project_id="__unknown__")
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("backlog:bl-test")
         assert wp is not None
@@ -1347,12 +1351,13 @@ class TestWorkflowPhaseBackfill:
 
         Gap S3 fix: brainstorms with completed children were stuck at backlog.
         """
-        db.register_entity("brainstorm", "bs-parent", "Parent Brainstorm")
+        db.register_entity("brainstorm", "bs-parent", "Parent Brainstorm", project_id="__unknown__")
         child_tid = db.register_entity(
-            "feature", "f-child", "Child Feature", status="completed"
+            "feature", "f-child", "Child Feature", status="completed",
+            project_id="__unknown__",
         )
         db.set_parent(child_tid, "brainstorm:bs-parent")
-        backfill_workflow_phases(db, str(tmp_path))
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("brainstorm:bs-parent")
         assert wp is not None
@@ -1360,12 +1365,13 @@ class TestWorkflowPhaseBackfill:
 
     def test_backlog_with_completed_child_gets_completed_kanban(self, tmp_path, db):
         """Backlog with all child features completed -> kanban=completed."""
-        db.register_entity("backlog", "bl-parent", "Parent Backlog")
+        db.register_entity("backlog", "bl-parent", "Parent Backlog", project_id="__unknown__")
         child_tid = db.register_entity(
-            "feature", "f-child2", "Child Feature 2", status="completed"
+            "feature", "f-child2", "Child Feature 2", status="completed",
+            project_id="__unknown__",
         )
         db.set_parent(child_tid, "backlog:bl-parent")
-        backfill_workflow_phases(db, str(tmp_path))
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("backlog:bl-parent")
         assert wp is not None
@@ -1373,12 +1379,12 @@ class TestWorkflowPhaseBackfill:
 
     def test_brainstorm_with_mixed_children_stays_at_default_kanban(self, tmp_path, db):
         """Brainstorm with mix of completed and active children -> no override, uses default wip."""
-        db.register_entity("brainstorm", "bs-mixed", "Mixed Brainstorm")
-        c1 = db.register_entity("feature", "f-done", "Done", status="completed")
-        c2 = db.register_entity("feature", "f-wip", "WIP", status="active")
+        db.register_entity("brainstorm", "bs-mixed", "Mixed Brainstorm", project_id="__unknown__")
+        c1 = db.register_entity("feature", "f-done", "Done", status="completed", project_id="__unknown__")
+        c2 = db.register_entity("feature", "f-wip", "WIP", status="active", project_id="__unknown__")
         db.set_parent(c1, "brainstorm:bs-mixed")
         db.set_parent(c2, "brainstorm:bs-mixed")
-        backfill_workflow_phases(db, str(tmp_path))
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("brainstorm:bs-mixed")
         assert wp is not None
@@ -1387,8 +1393,8 @@ class TestWorkflowPhaseBackfill:
 
     def test_brainstorm_with_no_children_stays_at_default_kanban(self, tmp_path, db):
         """Brainstorm with no child features -> kanban uses brainstorm default (wip)."""
-        db.register_entity("brainstorm", "bs-lonely", "Lonely Brainstorm")
-        backfill_workflow_phases(db, str(tmp_path))
+        db.register_entity("brainstorm", "bs-lonely", "Lonely Brainstorm", project_id="__unknown__")
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("brainstorm:bs-lonely")
         assert wp is not None
@@ -1400,9 +1406,9 @@ class TestWorkflowPhaseBackfill:
 
     def test_backfill_excludes_project_entities(self, tmp_path, db):
         """Project entities should NOT get workflow_phases rows."""
-        db.register_entity("project", "p1", "Test Project")
-        db.register_entity("feature", "f1", "Test Feature")
-        backfill_workflow_phases(db, str(tmp_path))
+        db.register_entity("project", "p1", "Test Project", project_id="__unknown__")
+        db.register_entity("feature", "f1", "Test Feature", project_id="__unknown__")
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         assert db.get_workflow_phase("project:p1") is None
         assert db.get_workflow_phase("feature:f1") is not None  # feature gets a row
@@ -1413,29 +1419,29 @@ class TestWorkflowPhaseBackfill:
 
     def test_backfill_idempotent_second_run_no_creates(self, tmp_path, db):
         """Second backfill run creates 0, skips all, no errors."""
-        db.register_entity("feature", "f1", "Feature 1")
-        result1 = backfill_workflow_phases(db, str(tmp_path))
+        db.register_entity("feature", "f1", "Feature 1", project_id="__unknown__")
+        result1 = backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
         assert result1["created"] >= 1
 
-        result2 = backfill_workflow_phases(db, str(tmp_path))
+        result2 = backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
         assert result2["created"] == 0
         assert result2["skipped"] >= 1
         assert len(result2["errors"]) == 0
 
     def test_backfill_idempotent_existing_rows_not_modified(self, tmp_path, db):
         """Existing rows should not be modified on re-run."""
-        db.register_entity("feature", "f1", "Feature 1")
-        backfill_workflow_phases(db, str(tmp_path))
+        db.register_entity("feature", "f1", "Feature 1", project_id="__unknown__")
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
         wp1 = db.get_workflow_phase("feature:f1")
 
-        backfill_workflow_phases(db, str(tmp_path))
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
         wp2 = db.get_workflow_phase("feature:f1")
 
         assert wp1["updated_at"] == wp2["updated_at"]
 
     def test_backfill_returns_dict_with_required_keys(self, tmp_path, db):
         """Return dict has created/skipped/errors keys."""
-        result = backfill_workflow_phases(db, str(tmp_path))
+        result = backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
         assert "created" in result
         assert "skipped" in result
         assert "errors" in result
@@ -1455,10 +1461,10 @@ class TestWorkflowPhaseBackfill:
         feat_dir.mkdir(parents=True)
         (feat_dir / ".meta.json").write_text("{ not valid json }")
 
-        db.register_entity("feature", "bad-json", "Bad JSON", artifact_path=str(feat_dir))
+        db.register_entity("feature", "bad-json", "Bad JSON", artifact_path=str(feat_dir), project_id="__unknown__")
 
         with caplog.at_level(logging.WARNING):
-            result = backfill_workflow_phases(db, str(tmp_path))
+            result = backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("feature:bad-json")
         assert wp is not None
@@ -1471,8 +1477,8 @@ class TestWorkflowPhaseBackfill:
 
     def test_backfill_missing_meta_json_uses_defaults(self, tmp_path, db):
         """Missing .meta.json -> defaults used, no error."""
-        db.register_entity("feature", "no-meta", "No Meta")
-        result = backfill_workflow_phases(db, str(tmp_path))
+        db.register_entity("feature", "no-meta", "No Meta", project_id="__unknown__")
+        result = backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("feature:no-meta")
         assert wp is not None
@@ -1491,10 +1497,10 @@ class TestWorkflowPhaseBackfill:
             "mode": "standard",
         }))
 
-        db.register_entity("feature", "bad-phase", "Bad Phase", artifact_path=str(feat_dir))
+        db.register_entity("feature", "bad-phase", "Bad Phase", artifact_path=str(feat_dir), project_id="__unknown__")
 
         with caplog.at_level(logging.WARNING):
-            backfill_workflow_phases(db, str(tmp_path))
+            backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("feature:bad-phase")
         assert wp is not None
@@ -1513,10 +1519,10 @@ class TestWorkflowPhaseBackfill:
             "mode": "invalid-mode",
         }))
 
-        db.register_entity("feature", "bad-mode", "Bad Mode", artifact_path=str(feat_dir))
+        db.register_entity("feature", "bad-mode", "Bad Mode", artifact_path=str(feat_dir), project_id="__unknown__")
 
         with caplog.at_level(logging.WARNING):
-            backfill_workflow_phases(db, str(tmp_path))
+            backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("feature:bad-mode")
         assert wp is not None
@@ -1545,6 +1551,7 @@ class TestWorkflowPhaseBackfill:
             "lastCompletedPhase": "finish",
         }))
         db.register_entity("feature", "comp-feat", "Completed",
+                               project_id="__unknown__",
                            artifact_path=str(done_dir), status="completed")
 
         # And an abandoned feature (lastCompletedPhase=design, stopped mid-work)
@@ -1555,10 +1562,11 @@ class TestWorkflowPhaseBackfill:
             "lastCompletedPhase": "design",
         }))
         db.register_entity("feature", "aband-feat", "Abandoned",
+                               project_id="__unknown__",
                            artifact_path=str(aband_dir), status="abandoned")
 
         # When backfill runs
-        backfill_workflow_phases(db, str(tmp_path))
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         # Then both have kanban_column='completed'
         completed = db.get_workflow_phase("feature:comp-feat")
@@ -1595,8 +1603,9 @@ class TestWorkflowPhaseBackfill:
             "lastCompletedPhase": "finish",
         }))
         db.register_entity("feature", "active-finish", "Active But Finish",
+                               project_id="__unknown__",
                            artifact_path=str(feat_dir), status="active")
-        backfill_workflow_phases(db, str(tmp_path))
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("feature:active-finish")
         assert wp is not None
@@ -1625,8 +1634,9 @@ class TestWorkflowPhaseBackfill:
             "status": "active",
         }))
         db.register_entity("feature", "active-nolcp", "Active No LCP",
+                               project_id="__unknown__",
                            artifact_path=str(feat_dir), status="active")
-        backfill_workflow_phases(db, str(tmp_path))
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("feature:active-nolcp")
         assert wp is not None
@@ -1656,8 +1666,9 @@ class TestWorkflowPhaseBackfill:
             "status": "abandoned",
         }))
         db.register_entity("feature", "aband-nolcp", "Abandoned No LCP",
+                               project_id="__unknown__",
                            artifact_path=str(feat_dir), status="abandoned")
-        backfill_workflow_phases(db, str(tmp_path))
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("feature:aband-nolcp")
         assert wp is not None
@@ -1680,10 +1691,10 @@ class TestWorkflowPhaseBackfill:
         derived_from: spec:D-4, dimension:mutation_mindset
         """
         # Given a feature entity
-        db.register_entity("feature", "manual-edit", "Manual Edit Test")
+        db.register_entity("feature", "manual-edit", "Manual Edit Test", project_id="__unknown__")
 
         # And first backfill creates a row
-        backfill_workflow_phases(db, str(tmp_path))
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
         wp_before = db.get_workflow_phase("feature:manual-edit")
         assert wp_before is not None
         assert wp_before["kanban_column"] == "backlog"
@@ -1696,7 +1707,7 @@ class TestWorkflowPhaseBackfill:
         )
 
         # When backfill runs again
-        result = backfill_workflow_phases(db, str(tmp_path))
+        result = backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         # Then the manually-updated values are preserved (INSERT OR IGNORE)
         wp_after = db.get_workflow_phase("feature:manual-edit")
@@ -1720,23 +1731,23 @@ class TestWorkflowPhaseBackfill:
         derived_from: dimension:error_propagation, spec:D-9
         """
         # Given: two features registered, plus a third added after initial backfill
-        db.register_entity("feature", "good-entity", "Good Entity")
-        db.register_entity("feature", "another-good", "Another Good")
+        db.register_entity("feature", "good-entity", "Good Entity", project_id="__unknown__")
+        db.register_entity("feature", "another-good", "Another Good", project_id="__unknown__")
 
         # When: backfill runs for both
-        result = backfill_workflow_phases(db, str(tmp_path))
+        result = backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         # Then: both succeed
         assert result["created"] == 2
         assert len(result["errors"]) == 0
 
         # Given: add a third feature, clear workflow_phases, re-backfill
-        db.register_entity("feature", "post-error", "Post Error")
+        db.register_entity("feature", "post-error", "Post Error", project_id="__unknown__")
         db._conn.execute("DELETE FROM workflow_phases")
         db._conn.commit()
 
         # When: re-backfill with all three
-        result2 = backfill_workflow_phases(db, str(tmp_path))
+        result2 = backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         # Then: all three get workflow_phases rows
         assert result2["created"] >= 3
@@ -1809,8 +1820,8 @@ class TestWorkflowPhaseBackfill:
 
     def test_backfill_brainstorm_no_row_creates_draft(self, tmp_path, db):
         """Brainstorm entity with no workflow_phases row -> INSERT with draft/wip."""
-        db.register_entity("brainstorm", "bs-new", "New Brainstorm")
-        result = backfill_workflow_phases(db, str(tmp_path))
+        db.register_entity("brainstorm", "bs-new", "New Brainstorm", project_id="__unknown__")
+        result = backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("brainstorm:bs-new")
         assert wp is not None
@@ -1820,8 +1831,8 @@ class TestWorkflowPhaseBackfill:
 
     def test_backfill_backlog_no_row_creates_open(self, tmp_path, db):
         """Backlog entity with no workflow_phases row -> INSERT with open/backlog."""
-        db.register_entity("backlog", "bl-new", "New Backlog")
-        result = backfill_workflow_phases(db, str(tmp_path))
+        db.register_entity("backlog", "bl-new", "New Backlog", project_id="__unknown__")
+        result = backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("backlog:bl-new")
         assert wp is not None
@@ -1831,7 +1842,7 @@ class TestWorkflowPhaseBackfill:
 
     def test_backfill_brainstorm_nonnull_phase_skipped(self, tmp_path, db):
         """Existing row with workflow_phase='reviewing' -> skipped, not overwritten."""
-        db.register_entity("brainstorm", "bs-managed", "Managed Brainstorm")
+        db.register_entity("brainstorm", "bs-managed", "Managed Brainstorm", project_id="__unknown__")
         # Pre-create a workflow_phases row with a non-null phase (simulating MCP-managed state)
         db._conn.execute(
             "INSERT INTO workflow_phases (type_id, workflow_phase, kanban_column, updated_at) "
@@ -1840,7 +1851,7 @@ class TestWorkflowPhaseBackfill:
         )
         db._conn.commit()
 
-        result = backfill_workflow_phases(db, str(tmp_path))
+        result = backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("brainstorm:bs-managed")
         assert wp["workflow_phase"] == "reviewing"  # preserved, not overwritten
@@ -1849,7 +1860,7 @@ class TestWorkflowPhaseBackfill:
 
     def test_backfill_brainstorm_null_phase_updated(self, tmp_path, db):
         """Existing row with NULL workflow_phase -> UPDATE to draft/wip."""
-        db.register_entity("brainstorm", "bs-legacy", "Legacy Brainstorm")
+        db.register_entity("brainstorm", "bs-legacy", "Legacy Brainstorm", project_id="__unknown__")
         # Pre-create a workflow_phases row with NULL phase (legacy backfill artifact)
         db._conn.execute(
             "INSERT INTO workflow_phases (type_id, workflow_phase, kanban_column, updated_at) "
@@ -1858,7 +1869,7 @@ class TestWorkflowPhaseBackfill:
         )
         db._conn.commit()
 
-        result = backfill_workflow_phases(db, str(tmp_path))
+        result = backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("brainstorm:bs-legacy")
         assert wp["workflow_phase"] == "draft"
@@ -1867,7 +1878,7 @@ class TestWorkflowPhaseBackfill:
 
     def test_backfill_backlog_null_phase_updated(self, tmp_path, db):
         """Existing row with NULL workflow_phase -> UPDATE to open/backlog."""
-        db.register_entity("backlog", "bl-legacy", "Legacy Backlog")
+        db.register_entity("backlog", "bl-legacy", "Legacy Backlog", project_id="__unknown__")
         # Pre-create a workflow_phases row with NULL phase
         db._conn.execute(
             "INSERT INTO workflow_phases (type_id, workflow_phase, kanban_column, updated_at) "
@@ -1876,7 +1887,7 @@ class TestWorkflowPhaseBackfill:
         )
         db._conn.commit()
 
-        result = backfill_workflow_phases(db, str(tmp_path))
+        result = backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("backlog:bl-legacy")
         assert wp["workflow_phase"] == "open"
@@ -1885,13 +1896,14 @@ class TestWorkflowPhaseBackfill:
 
     def test_backfill_child_completion_override_preserved(self, tmp_path, db):
         """Brainstorm with all completed child features -> kanban_column='completed'."""
-        db.register_entity("brainstorm", "bs-done-parent", "Done Parent")
+        db.register_entity("brainstorm", "bs-done-parent", "Done Parent", project_id="__unknown__")
         child_tid = db.register_entity(
-            "feature", "f-done-child", "Done Child", status="completed"
+            "feature", "f-done-child", "Done Child", status="completed",
+            project_id="__unknown__",
         )
         db.set_parent(child_tid, "brainstorm:bs-done-parent")
 
-        backfill_workflow_phases(db, str(tmp_path))
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         wp = db.get_workflow_phase("brainstorm:bs-done-parent")
         assert wp is not None
@@ -1900,8 +1912,8 @@ class TestWorkflowPhaseBackfill:
 
     def test_backfill_returns_updated_counter(self, tmp_path, db):
         """Return dict includes 'updated' key with correct count."""
-        db.register_entity("brainstorm", "bs-u1", "Update Test 1")
-        db.register_entity("backlog", "bl-u1", "Update Test 2")
+        db.register_entity("brainstorm", "bs-u1", "Update Test 1", project_id="__unknown__")
+        db.register_entity("backlog", "bl-u1", "Update Test 2", project_id="__unknown__")
         # Pre-create rows with NULL phases
         for tid in ("brainstorm:bs-u1", "backlog:bl-u1"):
             db._conn.execute(
@@ -1911,7 +1923,7 @@ class TestWorkflowPhaseBackfill:
             )
         db._conn.commit()
 
-        result = backfill_workflow_phases(db, str(tmp_path))
+        result = backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         assert "updated" in result
         assert isinstance(result["updated"], int)
@@ -1928,15 +1940,16 @@ class TestWorkflowPhaseBackfill:
         set kanban_column to 'completed'.
         """
         # Given a brainstorm with 3 feature children, all status='completed'
-        db.register_entity("brainstorm", "bs-multi-done", "Multi Done Parent")
+        db.register_entity("brainstorm", "bs-multi-done", "Multi Done Parent", project_id="__unknown__")
         for i in range(3):
             child_uuid = db.register_entity(
-                "feature", f"f-done-{i}", f"Done Child {i}", status="completed"
+                "feature", f"f-done-{i}", f"Done Child {i}", status="completed",
+                project_id="__unknown__",
             )
             db.set_parent(child_uuid, "brainstorm:bs-multi-done")
 
         # When running backfill
-        backfill_workflow_phases(db, str(tmp_path))
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         # Then brainstorm kanban_column is 'completed'
         wp = db.get_workflow_phase("brainstorm:bs-multi-done")
@@ -1952,18 +1965,20 @@ class TestWorkflowPhaseBackfill:
         one child is active).
         """
         # Given a brainstorm with 2 children: one completed, one active
-        db.register_entity("brainstorm", "bs-mixed", "Mixed Parent")
+        db.register_entity("brainstorm", "bs-mixed", "Mixed Parent", project_id="__unknown__")
         child1 = db.register_entity(
-            "feature", "f-mix-done", "Done Child", status="completed"
+            "feature", "f-mix-done", "Done Child", status="completed",
+            project_id="__unknown__",
         )
         child2 = db.register_entity(
-            "feature", "f-mix-active", "Active Child", status="active"
+            "feature", "f-mix-active", "Active Child", status="active",
+            project_id="__unknown__",
         )
         db.set_parent(child1, "brainstorm:bs-mixed")
         db.set_parent(child2, "brainstorm:bs-mixed")
 
         # When running backfill
-        backfill_workflow_phases(db, str(tmp_path))
+        backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         # Then brainstorm kanban_column should NOT be 'completed'
         wp = db.get_workflow_phase("brainstorm:bs-mixed")
@@ -2002,7 +2017,7 @@ class TestWorkflowPhaseBackfill:
 
         # Register 25 feature entities
         for i in range(25):
-            db.register_entity("feature", f"batch-f{i:03d}", f"Feature {i}")
+            db.register_entity("feature", f"batch-f{i:03d}", f"Feature {i}", project_id="__unknown__")
 
         # Instrument db.transaction() to count only top-level calls
         original_transaction = db.transaction
@@ -2029,7 +2044,7 @@ class TestWorkflowPhaseBackfill:
             return CountingContextManager(original_transaction())
 
         with patch.object(db, "transaction", counting_transaction):
-            backfill_workflow_phases(db, str(tmp_path))
+            backfill_workflow_phases(db, str(tmp_path), project_id="__unknown__")
 
         # 25 entities / batch size 20 = 2 batches
         assert top_level_count == 2, (

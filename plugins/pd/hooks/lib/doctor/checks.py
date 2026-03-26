@@ -1456,7 +1456,6 @@ def check_project_attribution(
     """
     start = time.monotonic()
     issues: list[Issue] = []
-    fix_mode = kwargs.get("fix", False)
 
     unknown_count = 0
     claimable_count = 0
@@ -1488,9 +1487,11 @@ def check_project_attribution(
         if claimable_count > 0:
             msg += f" ({claimable_count} claimable via artifact_path backfill)"
 
-        fix_hint = "Restart entity MCP server to trigger project backfill"
-        if fix_mode and claimable_count > 0:
-            fix_hint = "Apply --fix to run artifact-path backfill"
+        fix_hint: str | None = None
+        if claimable_count > 0:
+            fix_hint = (
+                f"Backfill project_id for {claimable_count} claimable entities"
+            )
 
         issues.append(Issue(
             check="project_attribution",

@@ -1476,8 +1476,8 @@ class EntityDatabase:
             List of matching entity dicts.
         """
         # Use LIKE with escaped prefix for efficient prefix search.
-        # Escape any existing % or _ in the prefix to prevent SQL injection.
-        escaped = prefix.replace("%", "\\%").replace("_", "\\_")
+        # Escape backslash first (it's the ESCAPE char), then % and _.
+        escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         if project_id is not None:
             rows = self._conn.execute(
                 "SELECT * FROM entities WHERE type_id LIKE ? ESCAPE '\\' "
@@ -1690,11 +1690,12 @@ class EntityDatabase:
         entity_type: str,
         entity_id: str,
         name: str,
+        *,
+        project_id: str,
         artifact_path: str | None = None,
         status: str | None = None,
         parent_type_id: str | None = None,
         metadata: dict | None = None,
-        project_id: str = "__unknown__",
     ) -> str:
         """Register an entity with INSERT OR IGNORE semantics.
 
@@ -2160,6 +2161,73 @@ class EntityDatabase:
                 except sqlite3.Error:
                     pass
                 raise
+
+    def backfill_project_ids(self, project_root: str, project_id: str) -> int:
+        """Claim ``__unknown__`` entities whose artifact_path is under *project_root*.
+
+        Temporarily drops the ``enforce_immutable_project_id`` trigger to allow
+        the UPDATE, then recreates it.  This is the same trigger-drop pattern
+        used by re-attribution in :meth:`update_entity` (TD-8).
+
+        Parameters
+        ----------
+        project_root:
+            Absolute path to the project root directory.
+        project_id:
+            Project identifier to assign to the claimed entities.
+
+        Returns
+        -------
+        int
+            Number of entities whose ``project_id`` was updated.
+        """
+        # Escape LIKE special characters in project_root
+        escaped = (
+            project_root
+            .replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+        )
+        self._conn.commit()  # flush any implicit transaction
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            self._conn.execute(
+                "DROP TRIGGER IF EXISTS enforce_immutable_project_id"
+            )
+            cur = self._conn.execute(
+                """UPDATE entities SET project_id = ?
+                   WHERE project_id = '__unknown__'
+                     AND artifact_path LIKE ? ESCAPE '\\'""",
+                (project_id, escaped + "%"),
+            )
+            count = cur.rowcount
+            self._conn.execute("""
+                CREATE TRIGGER enforce_immutable_project_id
+                BEFORE UPDATE OF project_id ON entities
+                BEGIN SELECT RAISE(ABORT,
+                    'project_id is immutable — use re-attribution API');
+                END
+            """)
+            self._conn.execute("COMMIT")
+        except Exception:
+            try:
+                self._conn.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+            # Ensure trigger is restored even on failure
+            try:
+                self._conn.execute("""
+                    CREATE TRIGGER IF NOT EXISTS enforce_immutable_project_id
+                    BEFORE UPDATE OF project_id ON entities
+                    BEGIN SELECT RAISE(ABORT,
+                        'project_id is immutable — use re-attribution API');
+                    END
+                """)
+                self._conn.commit()
+            except sqlite3.Error:
+                pass
+            raise
+        return count
 
     # ------------------------------------------------------------------
     # Delete
@@ -3134,7 +3202,7 @@ class EntityDatabase:
     # ------------------------------------------------------------------
 
     def register_entities_batch(
-        self, entities: list[dict], project_id: str = "__unknown__",
+        self, entities: list[dict], project_id: str,
     ) -> list[str]:
         """Register multiple entities in a single transaction.
 
@@ -3299,3 +3367,92 @@ class EntityDatabase:
                 ("schema_version", str(version)),
             )
             self._commit()
+
+    # ------------------------------------------------------------------
+    # Project table operations
+    # ------------------------------------------------------------------
+
+    def upsert_project(
+        self,
+        project_id: str,
+        name: str,
+        root_commit_sha: str | None,
+        remote_url: str | None,
+        normalized_url: str | None,
+        remote_host: str | None,
+        remote_owner: str | None,
+        remote_repo: str | None,
+        default_branch: str | None,
+        project_root: str,
+        is_git_repo: bool,
+    ) -> None:
+        """Insert or update a project row, preserving created_at on conflict.
+
+        Parameters
+        ----------
+        project_id:
+            Unique project identifier (e.g., SHA-based or path-based).
+        name:
+            Human-readable project name.
+        root_commit_sha:
+            SHA of the root commit (None for non-git projects).
+        remote_url:
+            Raw remote URL (None if no remote).
+        normalized_url:
+            Canonicalized remote URL for cross-machine matching.
+        remote_host:
+            Remote host (e.g., "github.com").
+        remote_owner:
+            Remote owner/org.
+        remote_repo:
+            Remote repository name.
+        default_branch:
+            Default branch name.
+        project_root:
+            Absolute path to the project root directory.
+        is_git_repo:
+            Whether the project is a git repository.
+        """
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._conn.execute(
+            """INSERT INTO projects (
+                   project_id, name, root_commit_sha, remote_url,
+                   normalized_url, remote_host, remote_owner, remote_repo,
+                   default_branch, project_root, is_git_repo,
+                   created_at, updated_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(project_id) DO UPDATE SET
+                   name=excluded.name,
+                   root_commit_sha=excluded.root_commit_sha,
+                   remote_url=excluded.remote_url,
+                   normalized_url=excluded.normalized_url,
+                   remote_host=excluded.remote_host,
+                   remote_owner=excluded.remote_owner,
+                   remote_repo=excluded.remote_repo,
+                   default_branch=excluded.default_branch,
+                   project_root=excluded.project_root,
+                   is_git_repo=excluded.is_git_repo,
+                   updated_at=excluded.updated_at
+            """,
+            (
+                project_id, name, root_commit_sha,
+                remote_url, normalized_url, remote_host,
+                remote_owner, remote_repo, default_branch,
+                project_root, int(is_git_repo),
+                now, now,
+            ),
+        )
+        self._commit()
+
+    def list_projects(self) -> list[dict]:
+        """Return all project rows ordered by created_at.
+
+        Returns
+        -------
+        list[dict]
+            Each dict contains all columns from the projects table.
+        """
+        rows = self._conn.execute(
+            "SELECT * FROM projects ORDER BY created_at"
+        ).fetchall()
+        return [dict(r) for r in rows]

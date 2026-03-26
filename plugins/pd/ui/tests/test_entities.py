@@ -421,10 +421,10 @@ def integration_client(tmp_path):
     db = EntityDatabase(str(tmp_path / "test.db"))
 
     # Seed entities via the DB API
-    db.register_entity("feature", "feat-alpha", "Alpha Feature", status="active")
-    db.register_entity("feature", "feat-beta", "Beta Feature", status="completed")
-    db.register_entity("brainstorm", "bs-one", "Brainstorm One", status="active")
-    db.register_entity("project", "proj-one", "Project One", status="active")
+    db.register_entity("feature", "feat-alpha", "Alpha Feature", status="active", project_id="__unknown__")
+    db.register_entity("feature", "feat-beta", "Beta Feature", status="completed", project_id="__unknown__")
+    db.register_entity("brainstorm", "bs-one", "Brainstorm One", status="active", project_id="__unknown__")
+    db.register_entity("project", "proj-one", "Project One", status="active", project_id="__unknown__")
 
     # Set parent relationship: feat-alpha -> proj-one
     db.set_parent("feature:feat-alpha", "project:proj-one")
@@ -567,7 +567,7 @@ def test_integration_search_fts_fallback(tmp_path):
     """When search_entities raises ValueError, fallback returns all entities
     with search input disabled."""
     db = EntityDatabase(str(tmp_path / "test.db"))
-    db.register_entity("feature", "fb-test", "Fallback Test", status="active")
+    db.register_entity("feature", "fb-test", "Fallback Test", status="active", project_id="__unknown__")
 
     from ui import create_app
 
@@ -642,8 +642,8 @@ def test_entity_list_sorted_by_updated_at_descending(tmp_path):
     # Given entities with different updated_at timestamps
     db_file = str(tmp_path / "test.db")
     db = EntityDatabase(db_file)
-    db.register_entity("feature", "older", "Older Feature", status="active")
-    db.register_entity("feature", "newer", "Newer Feature", status="active")
+    db.register_entity("feature", "older", "Older Feature", status="active", project_id="__unknown__")
+    db.register_entity("feature", "newer", "Newer Feature", status="active", project_id="__unknown__")
 
     # Manually set different updated_at values via raw SQL
     conn = sqlite3.connect(db_file)
@@ -908,7 +908,7 @@ def test_entity_list_single_entity(tmp_path):
     """
     db_file = str(tmp_path / "test.db")
     db = EntityDatabase(db_file)
-    db.register_entity("feature", "solo", "Solo Feature", status="active")
+    db.register_entity("feature", "solo", "Solo Feature", status="active", project_id="__unknown__")
 
     from ui import create_app
 
@@ -932,7 +932,7 @@ def test_entity_detail_with_null_fields(tmp_path):
     """
     db_file = str(tmp_path / "test.db")
     db = EntityDatabase(db_file)
-    db.register_entity("brainstorm", "minimal", "Minimal Entity", status="active")
+    db.register_entity("brainstorm", "minimal", "Minimal Entity", status="active", project_id="__unknown__")
 
     from ui import create_app
 
@@ -1042,6 +1042,7 @@ def test_entity_list_xss_in_entity_name(tmp_path):
         "feature", "xss-test",
         '<script>alert("xss")</script>',
         status="active",
+        project_id="__unknown__",
     )
 
     from ui import create_app
@@ -1089,7 +1090,7 @@ def test_entity_detail_lineage_error_shows_error_page(tmp_path):
     """
     db_file = str(tmp_path / "test.db")
     db = EntityDatabase(db_file)
-    db.register_entity("feature", "lin-err", "Lineage Error Test", status="active")
+    db.register_entity("feature", "lin-err", "Lineage Error Test", status="active", project_id="__unknown__")
 
     from ui import create_app
 
@@ -1114,7 +1115,7 @@ def test_entity_detail_workflow_error_shows_error_page(tmp_path):
     """
     db_file = str(tmp_path / "test.db")
     db = EntityDatabase(db_file)
-    db.register_entity("feature", "wf-err", "Workflow Error Test", status="active")
+    db.register_entity("feature", "wf-err", "Workflow Error Test", status="active", project_id="__unknown__")
 
     from ui import create_app
 
@@ -1140,7 +1141,7 @@ def test_entity_list_workflow_lookup_error_shows_error_page(tmp_path):
     """
     db_file = str(tmp_path / "test.db")
     db = EntityDatabase(db_file)
-    db.register_entity("feature", "wl-err", "Workflow Lookup Error", status="active")
+    db.register_entity("feature", "wl-err", "Workflow Lookup Error", status="active", project_id="__unknown__")
 
     from ui import create_app
 
@@ -1284,7 +1285,7 @@ def test_entity_list_search_passes_limit_100(tmp_path):
     """
     db_file = str(tmp_path / "test.db")
     db = EntityDatabase(db_file)
-    db.register_entity("feature", "lim", "Limit Test", status="active")
+    db.register_entity("feature", "lim", "Limit Test", status="active", project_id="__unknown__")
 
     from ui import create_app
 
@@ -1325,7 +1326,7 @@ def test_entity_detail_lineage_directions(tmp_path):
     """
     db_file = str(tmp_path / "test.db")
     db = EntityDatabase(db_file)
-    db.register_entity("feature", "dir-test", "Direction Test", status="active")
+    db.register_entity("feature", "dir-test", "Direction Test", status="active", project_id="__unknown__")
 
     from ui import create_app
 

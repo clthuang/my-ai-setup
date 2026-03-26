@@ -55,6 +55,7 @@ class TestSearchMCPTool:
     def test_formatted_output(self, mcp_db):
         """AC-13: returns human-readable numbered list."""
         mcp_db.register_entity("feature", "recon", "Reconciliation Tool",
+                                   project_id="__unknown__",
                                status="active")
         result = _run(entity_server.search_entities(query="recon"))
         assert "1." in result
@@ -93,8 +94,10 @@ class TestSearchMCPFormatting:
         """derived_from: spec:AC-13 — header shows match count."""
         # Given two registered entities
         mcp_db.register_entity("feature", "fmt-a", "AlphaFeature",
+                                   project_id="__unknown__",
                                status="active")
         mcp_db.register_entity("feature", "fmt-b", "AlphaBravo",
+                                   project_id="__unknown__",
                                status="planned")
         # When searching for "Alpha"
         result = _run(entity_server.search_entities(query="Alpha"))
@@ -105,6 +108,7 @@ class TestSearchMCPFormatting:
         """derived_from: spec:AC-13 — each result shows status."""
         # Given an entity with status
         mcp_db.register_entity("feature", "fmt-status", "StatusEntity",
+                                   project_id="__unknown__",
                                status="completed")
         # When searching
         result = _run(entity_server.search_entities(query="StatusEntity"))
@@ -114,7 +118,7 @@ class TestSearchMCPFormatting:
     def test_result_includes_type_id(self, mcp_db):
         """derived_from: spec:AC-13 — each result shows type_id."""
         # Given an entity
-        mcp_db.register_entity("brainstorm", "fmt-type", "TypeEntity")
+        mcp_db.register_entity("brainstorm", "fmt-type", "TypeEntity", project_id="__unknown__")
         # When searching
         result = _run(entity_server.search_entities(query="TypeEntity"))
         # Then type_id present
@@ -123,7 +127,7 @@ class TestSearchMCPFormatting:
     def test_no_status_shows_fallback(self, mcp_db):
         """derived_from: spec:AC-13 — entity without status shows 'no status'."""
         # Given an entity without status
-        mcp_db.register_entity("feature", "fmt-nostatus", "NoStatusEntity")
+        mcp_db.register_entity("feature", "fmt-nostatus", "NoStatusEntity", project_id="__unknown__")
         # When searching
         result = _run(entity_server.search_entities(query="NoStatusEntity"))
         # Then shows 'no status' fallback
@@ -133,6 +137,7 @@ class TestSearchMCPFormatting:
         """derived_from: spec:AC-13 — footer shows limit used."""
         # Given an entity
         mcp_db.register_entity("feature", "fmt-footer", "FooterEntity",
+                                   project_id="__unknown__",
                                status="active")
         # When searching with specific limit
         result = _run(entity_server.search_entities(
@@ -166,7 +171,7 @@ class TestSearchMCPAdversarial:
     def test_mcp_empty_query_returns_no_results(self, mcp_db):
         """derived_from: dimension:adversarial — empty string via MCP."""
         # Given a db with entities
-        mcp_db.register_entity("feature", "mcp-empty", "EmptyQueryTest")
+        mcp_db.register_entity("feature", "mcp-empty", "EmptyQueryTest", project_id="__unknown__")
         # When sending empty query via MCP
         result = _run(entity_server.search_entities(query=""))
         # Then returns no-results message
@@ -175,7 +180,7 @@ class TestSearchMCPAdversarial:
     def test_mcp_whitespace_query_returns_no_results(self, mcp_db):
         """derived_from: dimension:adversarial — whitespace via MCP."""
         # Given a db with entities
-        mcp_db.register_entity("feature", "mcp-ws", "WhitespaceTest")
+        mcp_db.register_entity("feature", "mcp-ws", "WhitespaceTest", project_id="__unknown__")
         # When sending whitespace query
         result = _run(entity_server.search_entities(query="   "))
         # Then returns no-results message
@@ -185,8 +190,10 @@ class TestSearchMCPAdversarial:
         """derived_from: spec:AC-8 — entity_type filter at MCP level."""
         # Given entities of different types
         mcp_db.register_entity("feature", "mcp-ft", "FilterTest",
+                                   project_id="__unknown__",
                                status="active")
         mcp_db.register_entity("brainstorm", "mcp-ft2", "FilterTestBrain",
+                                   project_id="__unknown__",
                                status="active")
         # When searching with type filter
         result = _run(entity_server.search_entities(
@@ -199,6 +206,7 @@ class TestSearchMCPAdversarial:
         """derived_from: spec:AC-21 — operators sanitized at MCP layer."""
         # Given a db with entities
         mcp_db.register_entity("feature", "mcp-ops", "OperatorTest",
+                                   project_id="__unknown__",
                                status="active")
         # When sending query with FTS5 operators
         result = _run(entity_server.search_entities(query="Operator+Test*"))
@@ -220,7 +228,7 @@ class TestSearchMCPMutationMindset:
     def test_mcp_returns_string_not_list(self, mcp_db):
         """derived_from: dimension:mutation_mindset — MCP always returns str."""
         # Given a db
-        mcp_db.register_entity("feature", "mcp-str", "StringReturn")
+        mcp_db.register_entity("feature", "mcp-str", "StringReturn", project_id="__unknown__")
         # When searching via MCP
         result = _run(entity_server.search_entities(query="StringReturn"))
         # Then result is always a string (not raw list)
@@ -240,6 +248,7 @@ class TestSearchMCPMutationMindset:
         """derived_from: dimension:mutation_mindset — numbering starts at 1 not 0."""
         # Given entities
         mcp_db.register_entity("feature", "mcp-num", "NumberedTest",
+                                   project_id="__unknown__",
                                status="active")
         # When searching
         result = _run(entity_server.search_entities(query="NumberedTest"))
@@ -259,6 +268,7 @@ class TestDeleteEntityMCP:
     def test_mcp_delete_entity_success(self, mcp_db):
         """AC-10: delete_entity returns success JSON."""
         mcp_db.register_entity("feature", "del-mcp", "MCP Delete Test",
+                                   project_id="__unknown__",
                                status="active")
         result = _run(entity_server.delete_entity(type_id="feature:del-mcp"))
         data = json.loads(result)
@@ -276,8 +286,9 @@ class TestDeleteEntityMCP:
 
     def test_mcp_delete_entity_has_children(self, mcp_db):
         """delete_entity returns error JSON when entity has children."""
-        mcp_db.register_entity("project", "parent-mcp", "Parent MCP")
+        mcp_db.register_entity("project", "parent-mcp", "Parent MCP", project_id="__unknown__")
         mcp_db.register_entity("feature", "child-mcp", "Child MCP",
+                                   project_id="__unknown__",
                                parent_type_id="project:parent-mcp")
         result = _run(entity_server.delete_entity(type_id="project:parent-mcp"))
         data = json.loads(result)

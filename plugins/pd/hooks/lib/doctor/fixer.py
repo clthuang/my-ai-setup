@@ -16,6 +16,7 @@ from doctor.fix_actions import (
     _fix_entity_status_promoted,
     _fix_last_completed_phase,
     _fix_parent_uuid,
+    _fix_project_attribution,
     _fix_rebuild_fts,
     _fix_reconcile,
     _fix_remove_orphan_dependency,
@@ -50,6 +51,7 @@ _SAFE_PATTERNS: list[tuple[str, Callable]] = [
     ("Rebuild FTS index", _fix_rebuild_fts),
     ("Run migrations to", _fix_run_entity_migrations),
     ("Run memory DB migrations", _fix_run_memory_migrations),
+    ("Backfill project_id for", _fix_project_attribution),
 ]
 
 

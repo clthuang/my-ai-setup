@@ -35,8 +35,8 @@ async def test_set_parent_handler_concise_message(db):
     """set_parent handler returns concise message with only type_ids, no UUIDs.
     derived_from: feature:045-mcp-audit-token-efficiency P1-C3
     """
-    parent_uuid = db.register_entity("project", "parent", "Parent Project", status="active")
-    child_uuid = db.register_entity("feature", "child", "Child Feature")
+    parent_uuid = db.register_entity("project", "parent", "Parent Project", status="active", project_id="__unknown__")
+    child_uuid = db.register_entity("feature", "child", "Child Feature", project_id="__unknown__")
 
     result = await entity_server.set_parent("feature:child", "project:parent")
 
@@ -52,7 +52,7 @@ async def test_update_entity_handler_concise_message(db):
     """update_entity handler returns concise message with only type_id, no UUID.
     derived_from: feature:045-mcp-audit-token-efficiency P1-C3
     """
-    entity_uuid = db.register_entity("feature", "f1", "Feature One", status="active")
+    entity_uuid = db.register_entity("feature", "f1", "Feature One", status="active", project_id="__unknown__")
 
     result = await entity_server.update_entity("feature:f1", status="completed")
 
@@ -76,6 +76,7 @@ async def test_register_entity_handler_concise_message(db):
         entity_type="feature",
         entity_id="reg-test",
         name="Registration Test",
+        project_id="__unknown__",
     )
     assert isinstance(result, str)
     assert result == "Registered: feature:reg-test"
@@ -90,8 +91,8 @@ async def test_set_parent_handler_uses_uuid_identifiers(db):
     dual-read resolution, UUID input would fail.
     derived_from: spec:R27, dimension:adversarial
     """
-    parent_uuid = db.register_entity("project", "parent2", "Parent")
-    child_uuid = db.register_entity("feature", "child2", "Child")
+    parent_uuid = db.register_entity("project", "parent2", "Parent", project_id="__unknown__")
+    child_uuid = db.register_entity("feature", "child2", "Child", project_id="__unknown__")
     # Use UUID for child and type_id for parent
     result = await entity_server.set_parent(child_uuid, "project:parent2")
     assert isinstance(result, str)
@@ -108,7 +109,7 @@ async def test_get_entity_handler_compact_output(db):
     know the type_id they queried with, and uuid/parent_uuid are internal.
     derived_from: feature:045-mcp-audit-token-efficiency P1-C2
     """
-    db.register_entity("feature", "get-test", "Get Test", status="active")
+    db.register_entity("feature", "get-test", "Get Test", status="active", project_id="__unknown__")
     result = await entity_server.get_entity("feature:get-test")
     assert isinstance(result, str)
     parsed = json.loads(result)
@@ -158,8 +159,8 @@ async def test_set_parent_delegates_to_server_helpers(db):
     by the MCP tool. This test verifies the delegation chain works end-to-end.
     """
     # Given parent and child entities
-    db.register_entity("project", "p1", "Parent Project", status="active")
-    db.register_entity("feature", "c1", "Child Feature", status="active")
+    db.register_entity("project", "p1", "Parent Project", status="active", project_id="__unknown__")
+    db.register_entity("feature", "c1", "Child Feature", status="active", project_id="__unknown__")
     # When setting parent via MCP handler
     result = await entity_server.set_parent("feature:c1", "project:p1")
     # Then success message is returned
@@ -182,7 +183,7 @@ async def test_entity_lifecycle_valueerror_caught_by_mcp_decorator(db):
     import workflow_state_server as ws_mod
 
     # Given a brainstorm entity but NO workflow_phases row
-    db.register_entity("brainstorm", "err-test", "Error Test", status="draft")
+    db.register_entity("brainstorm", "err-test", "Error Test", status="draft", project_id="__unknown__")
 
     # When attempting to transition without initializing workflow first
     result = ws_mod._process_transition_entity_phase(
@@ -211,6 +212,7 @@ class TestMetadataDictCoercion:
             entity_server.register_entity(
                 entity_type="feature", entity_id="meta-dict-001",
                 name="Dict Test", metadata={"description": "test value"},
+                project_id="__unknown__",
             )
         )
         assert "Registered:" in result
@@ -226,6 +228,7 @@ class TestMetadataDictCoercion:
             entity_server.register_entity(
                 entity_type="feature", entity_id="meta-str-001",
                 name="String Test", metadata='{"key": "val"}',
+                project_id="__unknown__",
             )
         )
         assert "Registered:" in result
@@ -241,13 +244,14 @@ class TestMetadataDictCoercion:
             entity_server.register_entity(
                 entity_type="feature", entity_id="meta-none-001",
                 name="None Test", metadata=None,
+                project_id="__unknown__",
             )
         )
         assert "Registered:" in result
 
     def test_update_entity_metadata_dict(self, db: EntityDatabase):
         """AC-2: Dict metadata accepted by update_entity, stored as JSON string."""
-        db.register_entity("feature", "meta-upd-001", "Update Test", status="active")
+        db.register_entity("feature", "meta-upd-001", "Update Test", status="active", project_id="__unknown__")
         entity_server._db = db
         import asyncio
         result = asyncio.run(
@@ -271,6 +275,7 @@ class TestMetadataDictCoercion:
             entity_server.register_entity(
                 entity_type="feature", entity_id="meta-bad-001",
                 name="Bad JSON Test", metadata="{bad json}",
+                project_id="__unknown__",
             )
         )
         # Should succeed (parse_metadata returns {"error": "..."} for invalid JSON)

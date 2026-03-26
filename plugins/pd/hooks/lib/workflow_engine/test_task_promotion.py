@@ -347,6 +347,7 @@ class TestQueryReadyTasks:
         feature_uuid = db.register_entity(
             entity_type="feature", entity_id=slug,
             name="Test Ready Feature", status="active",
+            project_id="__unknown__",
         )
         db.create_workflow_phase(type_id, mode="standard", workflow_phase="implement")
 
@@ -355,6 +356,7 @@ class TestQueryReadyTasks:
             entity_type="task", entity_id="001-task-a",
             name="Task A - Ready", status="planned",
             parent_type_id=type_id,
+            project_id="__unknown__",
         )
         db.create_workflow_phase("task:001-task-a", mode="standard")
 
@@ -363,6 +365,7 @@ class TestQueryReadyTasks:
             entity_type="task", entity_id="002-task-b",
             name="Task B - Blocked", status="planned",
             parent_type_id=type_id,
+            project_id="__unknown__",
         )
         db.create_workflow_phase("task:002-task-b", mode="standard")
         dep_mgr = DependencyManager()
@@ -374,6 +377,7 @@ class TestQueryReadyTasks:
         feature2_uuid = db.register_entity(
             entity_type="feature", entity_id=slug2,
             name="Not Implement Feature", status="active",
+            project_id="__unknown__",
         )
         db.create_workflow_phase(type_id2, mode="standard", workflow_phase="specify")
 
@@ -382,6 +386,7 @@ class TestQueryReadyTasks:
             entity_type="task", entity_id="003-task-c",
             name="Task C - Parent Not Implement", status="planned",
             parent_type_id=type_id2,
+            project_id="__unknown__",
         )
         db.create_workflow_phase("task:003-task-c", mode="standard")
 
@@ -430,6 +435,7 @@ class TestQueryReadyTasks:
         db.register_entity(
             entity_type="feature", entity_id=slug,
             name="Completed Parent", status="active",
+            project_id="__unknown__",
         )
         db.create_workflow_phase(type_id, mode="standard", workflow_phase="implement")
 
@@ -437,6 +443,7 @@ class TestQueryReadyTasks:
             entity_type="task", entity_id="004-done",
             name="Done Task", status="completed",
             parent_type_id=type_id,
+            project_id="__unknown__",
         )
         db.create_workflow_phase("task:004-done", mode="standard")
 

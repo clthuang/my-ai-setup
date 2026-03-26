@@ -976,6 +976,7 @@ class TestFrontmatterInjectCLI:
             entity_type="feature",
             entity_id="002-test-feature",
             name="Test Feature",
+            project_id="__unknown__",
         )
         return db, entity_uuid, db_path
 

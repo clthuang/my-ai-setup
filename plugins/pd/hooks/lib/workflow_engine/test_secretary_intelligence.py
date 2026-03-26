@@ -218,18 +218,21 @@ class TestFindParentCandidates:
             entity_id="001-reliability",
             name="Platform Reliability",
             status="active",
+            project_id="__unknown__",
         )
         db.register_entity(
             entity_type="key_result",
             entity_id="001-p0-incidents",
             name="Reduce P0 Incidents",
             status="active",
+            project_id="__unknown__",
         )
         db.register_entity(
             entity_type="feature",
             entity_id="042-auth-service",
             name="Authentication Service Rewrite",
             status="active",
+            project_id="__unknown__",
         )
         return db
 
@@ -279,18 +282,21 @@ class TestCheckDuplicates:
             entity_id="042-auth-service",
             name="Authentication Service",
             status="active",
+            project_id="__unknown__",
         )
         db.register_entity(
             entity_type="feature",
             entity_id="043-auth-rewrite",
             name="Auth Service Rewrite",
             status="active",
+            project_id="__unknown__",
         )
         db.register_entity(
             entity_type="project",
             entity_id="010-monitoring",
             name="Monitoring Dashboard",
             status="active",
+            project_id="__unknown__",
         )
         return db
 
@@ -514,10 +520,12 @@ class TestCheckKrCount:
         """5 KRs is within limit → no warning."""
         obj_uuid = db.register_entity(
             entity_type="objective", entity_id="o1",
+            project_id="__unknown__",
             name="Test Objective", status="active")
         for i in range(5):
             db.register_entity(
                 entity_type="key_result", entity_id=f"kr{i}",
+                project_id="__unknown__",
                 name=f"KR {i}", parent_type_id="objective:o1", status="active")
 
         result = check_kr_count(db, obj_uuid)
@@ -527,10 +535,12 @@ class TestCheckKrCount:
         """AC-33: 6th KR on objective → warning."""
         obj_uuid = db.register_entity(
             entity_type="objective", entity_id="o1",
+            project_id="__unknown__",
             name="Test Objective", status="active")
         for i in range(6):
             db.register_entity(
                 entity_type="key_result", entity_id=f"kr{i}",
+                project_id="__unknown__",
                 name=f"KR {i}", parent_type_id="objective:o1", status="active")
 
         result = check_kr_count(db, obj_uuid)
@@ -540,10 +550,12 @@ class TestCheckKrCount:
     def test_seven_krs_triggers_warning(self, db):
         obj_uuid = db.register_entity(
             entity_type="objective", entity_id="o1",
+            project_id="__unknown__",
             name="Test Objective", status="active")
         for i in range(7):
             db.register_entity(
                 entity_type="key_result", entity_id=f"kr{i}",
+                project_id="__unknown__",
                 name=f"KR {i}", parent_type_id="objective:o1", status="active")
 
         result = check_kr_count(db, obj_uuid)
@@ -552,6 +564,7 @@ class TestCheckKrCount:
     def test_zero_krs_no_warning(self, db):
         obj_uuid = db.register_entity(
             entity_type="objective", entity_id="o1",
+            project_id="__unknown__",
             name="Test Objective", status="active")
 
         result = check_kr_count(db, obj_uuid)
@@ -565,15 +578,18 @@ class TestCheckKrCount:
         """Abandoned KRs should not count toward the limit."""
         obj_uuid = db.register_entity(
             entity_type="objective", entity_id="o1",
+            project_id="__unknown__",
             name="Test Objective", status="active")
         for i in range(5):
             db.register_entity(
                 entity_type="key_result", entity_id=f"kr{i}",
+                project_id="__unknown__",
                 name=f"KR {i}", parent_type_id="objective:o1", status="active")
         # 6th KR is abandoned — should not count
         db.register_entity(
             entity_type="key_result", entity_id="kr-abandoned",
             name="KR Abandoned", parent_type_id="objective:o1",
+            project_id="__unknown__",
             status="abandoned")
 
         result = check_kr_count(db, obj_uuid)
@@ -600,6 +616,7 @@ class TestGetParentContext:
             entity_type="project", entity_id="003-platform",
             name="Platform Project", status="active",
             metadata={"progress": 67},
+            project_id="__unknown__",
         )
         # Create workflow_phases row for the project
         db.create_workflow_phase("project:003-platform", workflow_phase="deliver", mode="full")
@@ -616,6 +633,7 @@ class TestGetParentContext:
         db.register_entity(
             entity_type="project", entity_id="004-infra",
             name="Infrastructure", status="active",
+            project_id="__unknown__",
         )
         db.create_workflow_phase("project:004-infra", workflow_phase="specify", mode="standard")
 
@@ -631,6 +649,7 @@ class TestGetParentContext:
             entity_type="project", entity_id="005-legacy",
             name="Legacy Project", status="active",
             metadata={"progress": 30},
+            project_id="__unknown__",
         )
 
         result = get_parent_context(db, "project:005-legacy")
@@ -649,6 +668,7 @@ class TestGetParentContext:
             entity_type="project", entity_id="006-green",
             name="Green Project", status="active",
             metadata={"progress": 70},
+            project_id="__unknown__",
         )
         result = get_parent_context(db, "project:006-green")
         assert result["traffic_light"] == "GREEN"
@@ -659,6 +679,7 @@ class TestGetParentContext:
             entity_type="project", entity_id="007-yellow",
             name="Yellow Project", status="active",
             metadata={"progress": 50},
+            project_id="__unknown__",
         )
         result = get_parent_context(db, "project:007-yellow")
         assert result["traffic_light"] == "YELLOW"
@@ -669,6 +690,7 @@ class TestGetParentContext:
             entity_type="project", entity_id="008-red",
             name="Red Project", status="active",
             metadata={"progress": 20},
+            project_id="__unknown__",
         )
         result = get_parent_context(db, "project:008-red")
         assert result["traffic_light"] == "RED"
@@ -678,6 +700,7 @@ class TestGetParentContext:
         db.register_entity(
             entity_type="project", entity_id="009-nolight",
             name="No Progress Project", status="active",
+            project_id="__unknown__",
         )
         result = get_parent_context(db, "project:009-nolight")
         assert result["traffic_light"] is None
@@ -688,6 +711,7 @@ class TestGetParentContext:
             entity_type="project", entity_id="010-boundary",
             name="Boundary 40", status="active",
             metadata={"progress": 40},
+            project_id="__unknown__",
         )
         result = get_parent_context(db, "project:010-boundary")
         assert result["traffic_light"] == "YELLOW"
@@ -698,6 +722,7 @@ class TestGetParentContext:
             entity_type="project", entity_id="011-boundary",
             name="Boundary 70", status="active",
             metadata={"progress": 70},
+            project_id="__unknown__",
         )
         result = get_parent_context(db, "project:011-boundary")
         assert result["traffic_light"] == "GREEN"

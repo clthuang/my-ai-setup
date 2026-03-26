@@ -114,6 +114,7 @@ class TestFullRunOutputsValidJson:
             entity_id="001-test-feature",
             name="001-test-feature",
             status="active",
+            project_id="__unknown__",
         )
         db.close()
         _make_memory_db(memory_db_path)
@@ -519,6 +520,7 @@ class TestWorkflowReconcileAppliesDrift:
             entity_id="099-drift-test",
             name="099-drift-test",
             status="active",
+            project_id="__unknown__",
         )
         # Set workflow phase to "specify" in DB (behind .meta.json)
         db.create_workflow_phase(
