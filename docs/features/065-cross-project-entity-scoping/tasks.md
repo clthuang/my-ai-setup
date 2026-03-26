@@ -2,51 +2,61 @@
 
 ## Shared Templates
 
-**TEST_PROJECT_ID constant:** `TEST_PROJECT_ID = '__test__'` in test helper. All test register_entity calls use this.
+**TEST_PROJECT_ID constant:** `TEST_PROJECT_ID = '__test__'` defined in `plugins/pd/hooks/lib/entity_registry/test_helpers.py` (created in T5.6). All test register_entity calls use this. Until T5.6, use inline `project_id="__test__"`.
 
-**DB method project_id pattern:** `project_id: str | None = None` for optional, `project_id: str` for required. MCP tools default to `_project_id` module global.
+**DB method project_id pattern:** `project_id: str | None = None` for optional, `project_id: str` for required. MCP tools default to `_project_id` module global. Convention: DB layer `None` = all projects; MCP layer `"*"` string → converted to `None` at handler.
+
+**File path convention:** All paths relative to repo root (`plugins/pd/...`). `database.py` = `plugins/pd/hooks/lib/entity_registry/database.py`. `entity_server.py` = `plugins/pd/mcp/entity_server.py`.
+
+**Entity server test location:** Unit tests for entity_server.py live at `plugins/pd/hooks/lib/entity_registry/test_entity_server.py` (not `plugins/pd/mcp/`). MCP integration tests (test_search_mcp.py, test_export_entities.py) live at `plugins/pd/mcp/`.
 
 ---
 
 ## Phase 1: Project Identity Module
 
 ### T1.1: Write normalize_remote_url tests
-- **File:** `plugins/pd/hooks/lib/entity_registry/test_project_identity.py`
-- **Plan ref:** 1.1
-- **AC:** 6 tests pass: SSH SCP → `github.com/terry/pedantic-drip`, HTTPS same, ssh:// same, git:// same, empty → empty, local path → path without .git suffix
+- **File:** `plugins/pd/hooks/lib/entity_registry/test_project_identity.py` (create new)
+- **Design ref:** I-1, spec FS-1.3
+- **AC:** 6 tests written and passing: (1) `git@github.com:terry/pedantic-drip.git` → `github.com/terry/pedantic-drip`, (2) `https://github.com/terry/pedantic-drip.git` → same, (3) `ssh://git@github.com/terry/pedantic-drip` → same, (4) `git://github.com/terry/pedantic-drip.git` → same, (5) `""` → `""`, (6) `/path/to/repo.git` → `/path/to/repo`
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_project_identity.py -v -k "normalize"`
 - **Depends on:** none
 
 ### T1.2: Implement normalize_remote_url
-- **File:** `plugins/pd/hooks/lib/entity_registry/project_identity.py`
-- **Plan ref:** 1.1
-- **AC:** All T1.1 tests pass. Function follows 7-step normalization from spec FS-1.3.
+- **File:** `plugins/pd/hooks/lib/entity_registry/project_identity.py` (create new)
+- **Design ref:** I-1, spec FS-1.3
+- **AC:** All T1.1 tests green. 7-step normalization: strip scheme → strip user@ → SCP colon→slash → strip .git → strip trailing / → lowercase host → return.
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_project_identity.py -v -k "normalize"`
 - **Depends on:** T1.1
 
 ### T1.3: Write detect_project_id tests
-- **File:** `test_project_identity.py`
-- **Plan ref:** 1.1
-- **AC:** 7 tests pass: root commit returns 12-char hex, shallow clone falls back to HEAD, no-git falls back to abs path hash, ENTITY_PROJECT_ID env var overrides, lru_cache hit on second call with same args, multiple root commits takes first, timeout (monkeypatch subprocess.run to raise TimeoutExpired) falls to next fallback
+- **File:** `plugins/pd/hooks/lib/entity_registry/test_project_identity.py`
+- **Design ref:** I-1, spec FS-1.1
+- **AC:** 7 tests written: (1) git repo returns 12-char hex from root commit, (2) shallow clone (monkeypatch `subprocess.run` for rev-list to return rc=128) falls back to HEAD, (3) no-git (monkeypatch all subprocess.run to raise FileNotFoundError) returns SHA-256 of abs path truncated to 12, (4) `ENTITY_PROJECT_ID` env var (monkeypatch `os.environ`) overrides all detection, (5) second call with same args returns cached result (monkeypatch subprocess.run with call counter), (6) multiple root commits (stdout has 2 lines) takes first, (7) timeout (monkeypatch subprocess.run to raise `subprocess.TimeoutExpired`) falls to next fallback
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_project_identity.py -v -k "detect"`
 - **Depends on:** none
 
 ### T1.4: Implement detect_project_id
-- **File:** `project_identity.py`
-- **Plan ref:** 1.1
-- **AC:** All T1.3 tests pass. Shallow detection via `git rev-parse --is-shallow-repository`. lru_cache(maxsize=1).
+- **File:** `plugins/pd/hooks/lib/entity_registry/project_identity.py`
+- **Design ref:** I-1, spec FS-1.1, TD-7
+- **AC:** All T1.3 tests green. Implementation: (1) check ENTITY_PROJECT_ID env var first, (2) check `git rev-parse --is-shallow-repository` — if "true", skip rev-list, (3) try `git rev-list --max-parents=0 HEAD`, take first line, truncate to 12, (4) fallback: `git rev-parse --short=12 HEAD`, (5) fallback: `hashlib.sha256(os.path.abspath(cwd)).hexdigest()[:12]`. `@functools.lru_cache(maxsize=1)`. Timeout=5s on all subprocess calls.
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_project_identity.py -v -k "detect"`
 - **Depends on:** T1.3
 
 ### T1.5: Write GitProjectInfo and collect_git_info tests
-- **File:** `test_project_identity.py`
-- **Plan ref:** 1.1
-- **AC:** 3 tests pass: full git info populates all fields, partial failure leaves empty strings for failed fields, non-git dir returns is_git_repo=False with empty git fields
-- **Depends on:** T1.2, T1.4 (collect_git_info uses both)
+- **File:** `plugins/pd/hooks/lib/entity_registry/test_project_identity.py`
+- **Design ref:** I-1, spec FS-1.2
+- **AC:** 3 tests: (1) real git repo populates all 11 fields of GitProjectInfo (assert project_id is 12-char, root_commit_sha is 40-char, name is non-empty, etc.), (2) monkeypatch git remote to fail — remote_url/normalized_url/remote_host/owner/repo are empty strings but project_id and project_root still populated, (3) non-git dir (monkeypatch) returns is_git_repo=False with all git fields empty
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_project_identity.py -v -k "collect"`
+- **Depends on:** T1.2, T1.4 (collect_git_info calls both)
 
 ### T1.6: Implement GitProjectInfo dataclass and collect_git_info
-- **File:** `project_identity.py`
-- **Plan ref:** 1.1
-- **AC:** All T1.5 tests pass. Dataclass is frozen. Each git query independent.
+- **File:** `plugins/pd/hooks/lib/entity_registry/project_identity.py`
+- **Design ref:** I-1, spec FS-1.2
+- **AC:** All T1.5 tests green. `@dataclasses.dataclass(frozen=True)` with 11 fields. Each git subprocess call wrapped in try/except independently — partial failure fills empty string for that field.
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_project_identity.py -v`
 - **Depends on:** T1.5
 
-**Verify Phase 1:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_project_identity.py -v`
+**Verify Phase 1:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_project_identity.py -v` — all 16 tests green.
 
 ---
 
@@ -100,7 +110,7 @@
 ### T2.6a: Write generate_entity_id tests
 - **File:** `plugins/pd/hooks/lib/entity_registry/test_id_generator.py`
 - **Plan ref:** 2.3
-- **AC:** 2 tests: (a) generate_entity_id(db, "backlog", "test", project_id="__test__") returns "001-test" using next_sequence_value, (b) _scan_existing_max_seq function no longer exists (ImportError). Use real in-memory DB with migration 8 applied via `EntityDatabase(":memory:")`.
+- **AC:** 2 tests using real in-memory DB (`EntityDatabase(":memory:")` which auto-runs migration 8): (a) `generate_entity_id(db, "backlog", "test", project_id="__test__")` returns `"001-test"` (verify counter increments on second call → `"002-..."`), (b) `assert not hasattr(id_generator, "_scan_existing_max_seq")` — function must be deleted, not just unused.
 - **Depends on:** T2.5
 
 ### T2.6b: Update generate_entity_id implementation
@@ -130,10 +140,12 @@
 - **Depends on:** T3.1
 
 ### T3.3: Update register_entity with project_id
-- **File:** `database.py`
-- **Plan ref:** 3.2
-- **AC:** (a) project_id required param, (b) INSERT includes project_id, (c) post-insert UUID lookup uses AND project_id=?, (d) parent resolution uses AND project_id=?, (e) idempotency within same project preserved, (f) same type_id in different project creates new entity. 3 tests pass.
-- **Depends on:** T3.1 (for parent resolution)
+- **File:** `plugins/pd/hooks/lib/entity_registry/database.py` (search for `def register_entity` ~line 1339)
+- **Design ref:** I-2
+- **Context:** Current register_entity uses `INSERT OR IGNORE` keyed on `UNIQUE(type_id)`. Post-migration, UNIQUE is `(project_id, type_id)`. The INSERT SQL (~line 1398), post-insert UUID lookup (~line 1424), and parent resolution (~line 1388) all need `AND project_id = ?`.
+- **AC:** (a) project_id required param (no default), (b) INSERT includes project_id column, (c) post-insert UUID lookup: `WHERE type_id = ? AND project_id = ?`, (d) parent resolution: `WHERE type_id = ? AND project_id = ?`, (e) 3 tests: same type_id+project returns existing UUID, same type_id different project creates new entity, parent resolved within project.
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_database.py -v -k "register_project"`
+- **Depends on:** T3.1 (for parent resolution via _resolve_identifier)
 
 ### T3.4: Update register_entities_batch with project_id
 - **File:** `database.py`
@@ -146,7 +158,7 @@
 - **File:** `database.py`
 - **Plan ref:** 3.3
 - **AC:** 5 tests in `test_database.py`: one per method (list_entities, search_entities, export_entities_json, export_lineage_markdown, scan_entity_ids). Each test: register two entities under different project_ids (`TEST_PROJECT_ID` and `'__other__'`), assert passing `project_id=TEST_PROJECT_ID` returns only the test entity, passing `project_id=None` returns both. Verify: `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/test_database.py -v -k "project_scoped_query"`
-- **Depends on:** T2.3 (migration)
+- **Depends on:** T2.3c (migration must have run to create project_id column)
 
 ### T3.6: Update set_parent with project_id
 - **File:** `database.py`
@@ -252,7 +264,8 @@
 ### T5.3: Update add-to-backlog command
 - **File:** `plugins/pd/commands/add-to-backlog.md`
 - **Plan ref:** 5.3
-- **AC:** File-parsing ID logic removed. Uses register_entity with auto_id=true, no entity_id. Verify: `grep -n "max_id\|int(.*split\|next_id\|00001" plugins/pd/commands/add-to-backlog.md` returns no matches. Confirm `auto_id` and `register_entity` appear.
+- **AC:** File-parsing ID logic removed. Uses register_entity with auto_id=true, no entity_id.
+- **Verify:** `grep -En 'max_id|int\(.*split|next_id|00001' plugins/pd/commands/add-to-backlog.md` returns no matches (uses -E for macOS BSD grep). Confirm: `grep -c 'auto_id' plugins/pd/commands/add-to-backlog.md` returns ≥1.
 - **Depends on:** T4.2
 
 ### T5.4: Update doctor checks
@@ -265,8 +278,10 @@
 ### T5.5: Update source files with project_id plumbing
 - **File:** `plugins/pd/hooks/lib/workflow_engine/feature_lifecycle.py`, `plugins/pd/hooks/lib/workflow_engine/task_promotion.py`
 - **Plan ref:** 5.5
-- **AC:** Grep for register_entity calls in both files. Thread project_id from caller — if callers don't have it, add project_id param to top-level function and derive via detect_project_id(). Done when: `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/workflow_engine/test_feature_lifecycle.py plugins/pd/hooks/lib/workflow_engine/test_task_promotion.py -v` passes.
-- **Depends on:** T3.3
+- **Context:** These files call `db.register_entity()` which now requires project_id. Derive project_id inline via `detect_project_id(os.environ.get("PROJECT_ROOT", os.getcwd()))` at the top of each affected function — matching the pattern in reconciliation_orchestrator/__main__.py (T5.2). Do NOT add project_id as a parameter to public workflow engine functions.
+- **AC:** (a) `grep -n 'register_entity' plugins/pd/hooks/lib/workflow_engine/feature_lifecycle.py plugins/pd/hooks/lib/workflow_engine/task_promotion.py` shows all call sites have project_id, (b) project_id derived via detect_project_id (import added).
+- **Verify:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/workflow_engine/test_feature_lifecycle.py plugins/pd/hooks/lib/workflow_engine/test_task_promotion.py -v`
+- **Depends on:** T3.3, T1.4 (for detect_project_id import)
 
 ### T5.6: Create TEST_PROJECT_ID helper and update Group B test files
 - **File:** Create `plugins/pd/hooks/lib/entity_registry/test_helpers.py` with `TEST_PROJECT_ID = '__test__'`.
