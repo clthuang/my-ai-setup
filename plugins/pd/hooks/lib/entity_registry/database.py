@@ -942,6 +942,304 @@ def _fix_fts_content_mode(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _add_project_scoping(conn: sqlite3.Connection) -> None:
+    """Migration 8: Add project scoping — projects table, sequences table, entities.project_id.
+
+    14-step DDL sequence (see design I-7):
+    1. PRAGMA foreign_keys=OFF
+    2. BEGIN IMMEDIATE
+    3. CREATE projects table (13 columns)
+    4. CREATE sequences table
+    5. CREATE entities_new (with project_id, UNIQUE(project_id, type_id),
+       no parent_type_id FK, parent_uuid FK preserved)
+    6. Data copy with '__unknown__' for project_id
+    7. DROP + RENAME
+    8. Recreate 9 triggers (8 existing + enforce_immutable_project_id)
+    9. Recreate 6 indexes (4 existing + idx_project_id + idx_project_entity_type)
+    10. Migrate _metadata next_seq_* to sequences table
+    11. Rebuild FTS5
+    12. Update schema_version to 8
+    13. COMMIT
+    14. PRAGMA foreign_keys=ON
+
+    Self-managed transaction (BEGIN IMMEDIATE / COMMIT / ROLLBACK).
+    """
+    # --- Step 1: PRAGMA foreign_keys=OFF ---
+    conn.execute("PRAGMA foreign_keys = OFF")
+    fk_status = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+    if fk_status != 0:
+        raise RuntimeError(
+            "PRAGMA foreign_keys = OFF did not take effect — aborting migration"
+        )
+    try:
+        # --- Step 2: BEGIN IMMEDIATE ---
+        conn.execute("BEGIN IMMEDIATE")
+
+        # --- Step 3: CREATE projects table ---
+        conn.execute("""
+            CREATE TABLE projects (
+                project_id      TEXT PRIMARY KEY,
+                name            TEXT NOT NULL,
+                root_commit_sha TEXT,
+                remote_url      TEXT,
+                normalized_url  TEXT,
+                remote_host     TEXT,
+                remote_owner    TEXT,
+                remote_repo     TEXT,
+                default_branch  TEXT,
+                project_root    TEXT,
+                is_git_repo     INTEGER NOT NULL DEFAULT 1,
+                created_at      TEXT NOT NULL,
+                updated_at      TEXT NOT NULL
+            )
+        """)
+
+        # --- Step 4: CREATE sequences table ---
+        conn.execute("""
+            CREATE TABLE sequences (
+                project_id  TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                next_val    INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (project_id, entity_type)
+            )
+        """)
+
+        # --- Step 5: CREATE entities_new ---
+        conn.execute("""
+            CREATE TABLE entities_new (
+                uuid           TEXT NOT NULL PRIMARY KEY,
+                type_id        TEXT NOT NULL,
+                project_id     TEXT NOT NULL DEFAULT '__unknown__',
+                entity_type    TEXT NOT NULL,
+                entity_id      TEXT NOT NULL,
+                name           TEXT NOT NULL,
+                status         TEXT,
+                parent_type_id TEXT,
+                parent_uuid    TEXT REFERENCES entities_new(uuid),
+                artifact_path  TEXT,
+                created_at     TEXT NOT NULL,
+                updated_at     TEXT NOT NULL,
+                metadata       TEXT,
+                UNIQUE(project_id, type_id)
+            )
+        """)
+
+        # --- Step 6: Data copy ---
+        conn.execute(
+            "INSERT INTO entities_new (uuid, type_id, project_id, entity_type, "
+            "entity_id, name, status, parent_type_id, parent_uuid, "
+            "artifact_path, created_at, updated_at, metadata) "
+            "SELECT uuid, type_id, '__unknown__', entity_type, entity_id, "
+            "name, status, parent_type_id, parent_uuid, artifact_path, "
+            "created_at, updated_at, metadata "
+            "FROM entities"
+        )
+
+        # --- Step 7: DROP + RENAME ---
+        conn.execute("DROP TABLE entities")
+        conn.execute("PRAGMA legacy_alter_table = OFF")
+        conn.execute("ALTER TABLE entities_new RENAME TO entities")
+
+        # --- Step 8: Recreate 9 triggers ---
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS enforce_immutable_type_id
+            BEFORE UPDATE OF type_id ON entities
+            BEGIN SELECT RAISE(ABORT, 'type_id is immutable'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS enforce_immutable_entity_type
+            BEFORE UPDATE OF entity_type ON entities
+            BEGIN SELECT RAISE(ABORT, 'entity_type is immutable'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS enforce_immutable_created_at
+            BEFORE UPDATE OF created_at ON entities
+            BEGIN SELECT RAISE(ABORT, 'created_at is immutable'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS enforce_immutable_uuid
+            BEFORE UPDATE OF uuid ON entities
+            BEGIN SELECT RAISE(ABORT, 'uuid is immutable'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS enforce_immutable_project_id
+            BEFORE UPDATE OF project_id ON entities
+            BEGIN SELECT RAISE(ABORT, 'project_id is immutable — use re-attribution API'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS enforce_no_self_parent
+            BEFORE INSERT ON entities
+            WHEN NEW.parent_type_id = NEW.type_id
+            BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS enforce_no_self_parent_update
+            BEFORE UPDATE OF parent_type_id ON entities
+            WHEN NEW.parent_type_id = NEW.type_id
+            BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS enforce_no_self_parent_uuid_insert
+            BEFORE INSERT ON entities
+            WHEN NEW.parent_uuid = NEW.uuid
+            BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent (uuid)'); END
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS enforce_no_self_parent_uuid_update
+            BEFORE UPDATE OF parent_uuid ON entities
+            WHEN NEW.parent_uuid = NEW.uuid
+            BEGIN SELECT RAISE(ABORT, 'entity cannot be its own parent (uuid)'); END
+        """)
+
+        # --- Step 9: Recreate 6 indexes ---
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entity_type ON entities(entity_type)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_status ON entities(status)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_parent_type_id ON entities(parent_type_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_parent_uuid ON entities(parent_uuid)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_project_id ON entities(project_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_project_entity_type "
+            "ON entities(project_id, entity_type)"
+        )
+
+        # --- Step 9b: Rebuild workflow_phases to remove FK on entities(type_id) ---
+        # type_id is no longer UNIQUE in entities (composite UNIQUE now),
+        # so the FK REFERENCES entities(type_id) would cause FK mismatch errors.
+        conn.execute("""
+            CREATE TABLE workflow_phases_new (
+                type_id                    TEXT PRIMARY KEY,
+                workflow_phase             TEXT CHECK(workflow_phase IN (
+                                               'brainstorm','specify','design',
+                                               'create-plan','create-tasks',
+                                               'implement','finish',
+                                               'draft','reviewing','promoted','abandoned',
+                                               'open','triaged','dropped',
+                                               'discover','define','deliver','debrief'
+                                           ) OR workflow_phase IS NULL),
+                kanban_column              TEXT NOT NULL DEFAULT 'backlog'
+                                           CHECK(kanban_column IN (
+                                               'backlog','prioritised','wip',
+                                               'agent_review','human_review',
+                                               'blocked','documenting','completed'
+                                           )),
+                last_completed_phase       TEXT CHECK(last_completed_phase IN (
+                                               'brainstorm','specify','design',
+                                               'create-plan','create-tasks',
+                                               'implement','finish',
+                                               'draft','reviewing','promoted','abandoned',
+                                               'open','triaged','dropped',
+                                               'discover','define','deliver','debrief'
+                                           ) OR last_completed_phase IS NULL),
+                mode                       TEXT CHECK(mode IN (
+                                               'standard', 'full', 'light'
+                                           ) OR mode IS NULL),
+                backward_transition_reason TEXT,
+                updated_at                 TEXT NOT NULL,
+                uuid                       TEXT
+            )
+        """)
+        conn.execute(
+            "INSERT INTO workflow_phases_new "
+            "(type_id, workflow_phase, kanban_column, last_completed_phase, "
+            "mode, backward_transition_reason, updated_at, uuid) "
+            "SELECT type_id, workflow_phase, kanban_column, last_completed_phase, "
+            "mode, backward_transition_reason, updated_at, uuid "
+            "FROM workflow_phases"
+        )
+        conn.execute("DROP TABLE workflow_phases")
+        conn.execute("PRAGMA legacy_alter_table = OFF")
+        conn.execute(
+            "ALTER TABLE workflow_phases_new RENAME TO workflow_phases"
+        )
+        # Recreate workflow_phases trigger and indexes
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS enforce_immutable_wp_type_id
+            BEFORE UPDATE OF type_id ON workflow_phases
+            BEGIN
+                SELECT RAISE(ABORT, 'workflow_phases.type_id is immutable');
+            END
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_wp_kanban_column "
+            "ON workflow_phases(kanban_column)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_wp_workflow_phase "
+            "ON workflow_phases(workflow_phase)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_wp_uuid "
+            "ON workflow_phases(uuid)"
+        )
+
+        # --- Step 10: Migrate _metadata counters to sequences ---
+        seq_rows = conn.execute(
+            "SELECT key, value FROM _metadata WHERE key LIKE 'next_seq_%'"
+        ).fetchall()
+        for row in seq_rows:
+            key = row[0]
+            value = row[1]
+            entity_type = key[len("next_seq_"):]
+            conn.execute(
+                "INSERT INTO sequences(project_id, entity_type, next_val) "
+                "VALUES(?, ?, ?)",
+                ("__unknown__", entity_type, int(value)),
+            )
+            conn.execute(
+                "DELETE FROM _metadata WHERE key = ?", (key,)
+            )
+
+        # --- Step 11: Rebuild FTS5 ---
+        conn.execute("DROP TABLE IF EXISTS entities_fts")
+        try:
+            conn.execute(
+                "CREATE VIRTUAL TABLE entities_fts USING fts5("
+                "name, entity_id, entity_type, status, metadata_text)"
+            )
+        except sqlite3.OperationalError as exc:
+            if "no such module: fts5" in str(exc):
+                raise RuntimeError("FTS5 extension not available") from exc
+            raise
+        rows = conn.execute(
+            "SELECT rowid, name, entity_id, entity_type, status, metadata "
+            "FROM entities"
+        ).fetchall()
+        for row in rows:
+            metadata_text = flatten_metadata(
+                json.loads(row[5]) if row[5] else None
+            )
+            conn.execute(
+                "INSERT INTO entities_fts(rowid, name, entity_id, entity_type, "
+                "status, metadata_text) VALUES(?, ?, ?, ?, ?, ?)",
+                (row[0], row[1], row[2], row[3], row[4] or "", metadata_text),
+            )
+
+        # --- Step 12: Update schema_version ---
+        conn.execute(
+            "INSERT INTO _metadata (key, value) VALUES ('schema_version', '8') "
+            "ON CONFLICT(key) DO UPDATE SET value = '8'"
+        )
+
+        # --- Step 13: COMMIT ---
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        # --- Step 14: PRAGMA foreign_keys=ON ---
+        conn.execute("PRAGMA foreign_keys = ON")
+
+
 # Ordered mapping of version -> migration function.
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     1: _create_initial_schema,
@@ -951,6 +1249,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     5: _expand_workflow_phase_check,
     6: _schema_expansion_v6,
     7: _fix_fts_content_mode,
+    8: _add_project_scoping,
 }
 
 # Sentinel object to distinguish "not provided" from explicit ``None``.
@@ -2521,6 +2820,69 @@ class EntityDatabase:
             (entity_type,),
         ).fetchall()
         return [row["entity_id"] for row in rows]
+
+    def next_sequence_value(self, project_id: str, entity_type: str) -> int:
+        """Atomic read-increment-write for per-project, per-type sequence.
+
+        Bootstraps from entities scan if no sequences row exists.
+        Returns the next value to issue (pre-increment semantics:
+        first call returns 1, second returns 2, etc.).
+
+        Parameters
+        ----------
+        project_id:
+            The project scope for the sequence.
+        entity_type:
+            The entity type (e.g. "feature", "task").
+
+        Returns
+        -------
+        int
+            The next sequence value to use.
+        """
+        self._conn.commit()  # flush any implicit transaction
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = self._conn.execute(
+                "SELECT next_val FROM sequences "
+                "WHERE project_id = ? AND entity_type = ?",
+                (project_id, entity_type),
+            ).fetchone()
+
+            if row is None:
+                # Bootstrap: scan entities for max sequence prefix
+                entity_rows = self._conn.execute(
+                    "SELECT entity_id FROM entities "
+                    "WHERE project_id = ? AND entity_type = ?",
+                    (project_id, entity_type),
+                ).fetchall()
+                max_seq = 0
+                for (eid,) in entity_rows:
+                    match = re.match(r"^(\d+)", eid)
+                    if match:
+                        max_seq = max(max_seq, int(match.group(1)))
+                next_val = max_seq + 1
+                self._conn.execute(
+                    "INSERT INTO sequences(project_id, entity_type, next_val) "
+                    "VALUES(?, ?, ?)",
+                    (project_id, entity_type, next_val + 1),
+                )
+            else:
+                next_val = row[0]
+                self._conn.execute(
+                    "UPDATE sequences SET next_val = ? "
+                    "WHERE project_id = ? AND entity_type = ?",
+                    (next_val + 1, project_id, entity_type),
+                )
+
+            self._conn.execute("COMMIT")
+            return next_val
+        except Exception:
+            try:
+                self._conn.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+            raise
 
     def is_healthy(self) -> bool:
         """Check if the database connection is alive and usable.

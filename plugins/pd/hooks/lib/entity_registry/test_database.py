@@ -11,10 +11,14 @@ import pytest
 
 from entity_registry.database import (
     EntityDatabase,
+    MIGRATIONS,
     _UUID_V4_RE,
+    _add_project_scoping,
     _create_initial_schema,
     _expand_workflow_phase_check,
+    _fix_fts_content_mode,
     _migrate_to_uuid_pk,
+    _schema_expansion_v6,
 )
 
 from entity_registry.database import EXPORT_SCHEMA_VERSION
@@ -322,12 +326,12 @@ class TestMigration2:
 
         # Now open it with EntityDatabase — runs pending migrations (3+)
         db = EntityDatabase(db_path)
-        assert db.get_metadata("schema_version") == "7"
+        assert db.get_metadata("schema_version") == "8"
 
         # Schema should be intact
         cur = db._conn.execute("PRAGMA table_info(entities)")
         columns = cur.fetchall()
-        assert len(columns) == 12
+        assert len(columns) == 13
 
         db.close()
 
@@ -417,18 +421,18 @@ class TestSchemaCreation:
         )
         assert cur.fetchone() is not None
 
-    def test_entities_has_12_columns(self, db: EntityDatabase):
+    def test_entities_has_13_columns(self, db: EntityDatabase):
         cur = db._conn.execute("PRAGMA table_info(entities)")
         columns = cur.fetchall()
-        assert len(columns) == 12
+        assert len(columns) == 13
 
     def test_entities_column_names(self, db: EntityDatabase):
         cur = db._conn.execute("PRAGMA table_info(entities)")
         col_names = [row[1] for row in cur.fetchall()]
         expected = [
-            "uuid", "type_id", "entity_type", "entity_id", "name", "status",
-            "parent_type_id", "parent_uuid", "artifact_path", "created_at",
-            "updated_at", "metadata",
+            "uuid", "type_id", "project_id", "entity_type", "entity_id",
+            "name", "status", "parent_type_id", "parent_uuid",
+            "artifact_path", "created_at", "updated_at", "metadata",
         ]
         assert col_names == expected
 
@@ -476,7 +480,7 @@ class TestSchemaCreation:
 
 
 class TestTriggers:
-    def test_has_nine_triggers(self, db: EntityDatabase):
+    def test_has_ten_triggers(self, db: EntityDatabase):
         cur = db._conn.execute(
             "SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name"
         )
@@ -484,6 +488,7 @@ class TestTriggers:
         expected = [
             "enforce_immutable_created_at",
             "enforce_immutable_entity_type",
+            "enforce_immutable_project_id",
             "enforce_immutable_type_id",
             "enforce_immutable_uuid",
             "enforce_immutable_wp_type_id",
@@ -497,7 +502,7 @@ class TestTriggers:
 
 class TestIndexes:
     def test_has_indexes(self, db: EntityDatabase):
-        """Verify all expected indexes exist after migration 6."""
+        """Verify all expected indexes exist after migration 8."""
         cur = db._conn.execute(
             "SELECT name FROM sqlite_master WHERE type='index' "
             "AND name NOT LIKE 'sqlite_%' ORDER BY name"
@@ -513,6 +518,8 @@ class TestIndexes:
             "idx_et_tag",
             "idx_parent_type_id",
             "idx_parent_uuid",
+            "idx_project_entity_type",
+            "idx_project_id",
             "idx_status",
             "idx_wp_kanban_column",
             "idx_wp_uuid",
@@ -552,8 +559,8 @@ class TestMetadata:
         db.set_metadata("foo", "baz")
         assert db.get_metadata("foo") == "baz"
 
-    def test_schema_version_is_5(self, db: EntityDatabase):
-        assert db.get_metadata("schema_version") == "7"
+    def test_schema_version_is_8(self, db: EntityDatabase):
+        assert db.get_metadata("schema_version") == "8"
 
 
 # ---------------------------------------------------------------------------
@@ -640,13 +647,22 @@ class TestRegisterEntity:
         assert row["status"] == "active"
         assert json.loads(row["metadata"]) == {"priority": "high"}
 
-    def test_parent_type_id_fk_validation(self, db: EntityDatabase):
-        """Setting parent_type_id to a non-existent entity should raise."""
-        with pytest.raises(sqlite3.IntegrityError):
-            db.register_entity(
-                "feature", "child", "Child Feature",
-                parent_type_id="project:nonexistent",
-            )
+    def test_parent_type_id_nonexistent_stores_null_uuid(self, db: EntityDatabase):
+        """Setting parent_type_id to a non-existent entity stores it with NULL parent_uuid.
+
+        After migration 8, parent_type_id FK is dropped (TD-2). The column is
+        kept as denormalized data. parent_uuid is set to NULL when parent not found.
+        """
+        entity_uuid = db.register_entity(
+            "feature", "child", "Child Feature",
+            parent_type_id="project:nonexistent",
+        )
+        row = db._conn.execute(
+            "SELECT parent_type_id, parent_uuid FROM entities WHERE uuid = ?",
+            (entity_uuid,),
+        ).fetchone()
+        assert row["parent_type_id"] == "project:nonexistent"
+        assert row["parent_uuid"] is None
 
     def test_valid_parent_type_id(self, db: EntityDatabase):
         """Setting parent_type_id to an existing entity should work."""
@@ -1311,18 +1327,22 @@ class TestParentFieldValidation:
     derived_from: spec:AC-9
     """
 
-    def test_parent_field_validation_nonexistent_entity_warns_and_nullifies(
+    def test_parent_field_validation_nonexistent_entity_stores_with_null_uuid(
         self, db: EntityDatabase,
     ):
         # Given no project "nonexistent" exists in the database
-        # When trying to register a feature with that parent
-        with pytest.raises(sqlite3.IntegrityError):
-            db.register_entity(
-                "feature", "child", "Child Feature",
-                parent_type_id="project:nonexistent",
-            )
-        # Then the feature is not registered (FK violation prevented it)
-        assert db.get_entity("feature:child") is None
+        # When registering a feature with that parent
+        entity_uuid = db.register_entity(
+            "feature", "child", "Child Feature",
+            parent_type_id="project:nonexistent",
+        )
+        # After migration 8, parent_type_id FK is dropped (TD-2).
+        # The entity is registered; parent_type_id stored as denormalized data,
+        # parent_uuid is NULL since the parent doesn't exist.
+        entity = db.get_entity("feature:child")
+        assert entity is not None
+        assert entity["parent_type_id"] == "project:nonexistent"
+        assert entity["parent_uuid"] is None
 
 
 class TestTraversalDepthGuard:
@@ -2369,7 +2389,7 @@ class TestMigrationIdempotency:
         entity = db2.get_entity("project:p1")
         assert entity is not None
         assert entity["uuid"] == p1_uuid
-        assert db2.get_metadata("schema_version") == "7"
+        assert db2.get_metadata("schema_version") == "8"
         db2.close()
 
 
@@ -2550,25 +2570,21 @@ class TestMigration3:
                 f"{col_name} should be nullable (notnull=0)"
             )
 
-    def test_fk_type_id_references_entities(self, db: EntityDatabase):
-        """type_id should have a FK reference to entities(type_id)."""
+    def test_no_fk_type_id_references_entities(self, db: EntityDatabase):
+        """After migration 8, workflow_phases.type_id no longer has FK to entities.
+
+        The FK was removed because entities.type_id is no longer UNIQUE
+        (composite UNIQUE(project_id, type_id) replaced it).
+        """
         cur = db._conn.execute("PRAGMA foreign_key_list(workflow_phases)")
         fk_rows = cur.fetchall()
-        assert len(fk_rows) >= 1
-        # Find the FK targeting entities.type_id
-        fk_found = False
-        for fk in fk_rows:
-            # PRAGMA foreign_key_list columns: id, seq, table, from, to, ...
-            if fk[2] == "entities" and fk[3] == "type_id" and fk[4] == "type_id":
-                fk_found = True
-                break
-        assert fk_found, (
-            "Expected FK from workflow_phases.type_id -> entities.type_id"
-        )
+        # No FK rows expected after migration 8
+        fk_columns = [fk[3] for fk in fk_rows]
+        assert "type_id" not in fk_columns
 
-    def test_schema_version_is_5(self, db: EntityDatabase):
-        """After all migrations, schema_version should be 5."""
-        assert db.get_metadata("schema_version") == "7"
+    def test_schema_version_is_8(self, db: EntityDatabase):
+        """After all migrations, schema_version should be 8."""
+        assert db.get_metadata("schema_version") == "8"
 
     # -- Task 1.2: Migration creates indexes and trigger (AC-2) ------------
 
@@ -2753,10 +2769,10 @@ class TestMigration3:
     # -- Task 1.4: Fresh DB migration safety (AC-3) ------------------------
 
     def test_fresh_db_has_all_migrations(self, tmp_path):
-        """A brand-new EntityDatabase should run all 7 migrations."""
+        """A brand-new EntityDatabase should run all 8 migrations."""
         fresh_db = EntityDatabase(str(tmp_path / "fresh.db"))
         try:
-            assert fresh_db.get_metadata("schema_version") == "7"
+            assert fresh_db.get_metadata("schema_version") == "8"
         finally:
             fresh_db.close()
 
@@ -2786,24 +2802,33 @@ class TestMigration3:
 
     # -- Task 1.5: FK enforcement (AC-16) ----------------------------------
 
-    def test_insert_nonexistent_type_id_rejected(self, db: EntityDatabase):
-        """INSERT into workflow_phases with non-existent type_id should fail."""
-        now = EntityDatabase._now_iso()
-        with pytest.raises(sqlite3.IntegrityError):
-            db._conn.execute(
-                "INSERT INTO workflow_phases "
-                "(type_id, kanban_column, updated_at) "
-                "VALUES (?, 'backlog', ?)",
-                ("feature:does-not-exist", now),
-            )
+    def test_insert_nonexistent_type_id_allowed(self, db: EntityDatabase):
+        """INSERT into workflow_phases with non-existent type_id succeeds.
 
-    def test_delete_entity_with_workflow_phase_rejected(
+        After migration 8, workflow_phases.type_id FK to entities is removed
+        because entities.type_id is no longer UNIQUE.
+        """
+        now = EntityDatabase._now_iso()
+        db._conn.execute(
+            "INSERT INTO workflow_phases "
+            "(type_id, kanban_column, updated_at) "
+            "VALUES (?, 'backlog', ?)",
+            ("feature:does-not-exist", now),
+        )
+        db._conn.commit()
+        row = db._conn.execute(
+            "SELECT type_id FROM workflow_phases WHERE type_id = ?",
+            ("feature:does-not-exist",),
+        ).fetchone()
+        assert row is not None
+
+    def test_delete_entity_with_workflow_phase_allowed(
         self, db: EntityDatabase
     ):
-        """DELETE from entities when workflow_phases row exists should fail.
+        """DELETE from entities when workflow_phases row exists succeeds.
 
-        ON DELETE NO ACTION means the FK prevents deletion of a parent row
-        when a child row (workflow_phases) references it.
+        After migration 8, workflow_phases no longer has FK to entities.
+        Cascade cleanup is handled at the application level (delete_entity method).
         """
         db.register_entity("feature", "fk-del", "FK Delete Test")
         now = EntityDatabase._now_iso()
@@ -2815,12 +2840,17 @@ class TestMigration3:
         )
         db._conn.commit()
 
-        # Attempt to DELETE the entity -- FK should prevent this
-        with pytest.raises(sqlite3.IntegrityError):
-            db._conn.execute(
-                "DELETE FROM entities WHERE type_id = ?",
-                ("feature:fk-del",),
-            )
+        # DELETE the entity -- no FK prevents this anymore
+        db._conn.execute(
+            "DELETE FROM entities WHERE type_id = ?",
+            ("feature:fk-del",),
+        )
+        db._conn.commit()
+        row = db._conn.execute(
+            "SELECT * FROM entities WHERE type_id = ?",
+            ("feature:fk-del",),
+        ).fetchone()
+        assert row is None
 
 
 # ---------------------------------------------------------------------------
@@ -4158,7 +4188,7 @@ class TestMigration5:
         new phase values are accepted."""
         db = EntityDatabase(str(tmp_path / "m5-idem.db"))
         try:
-            assert db.get_schema_version() == 7
+            assert db.get_schema_version() == 8
 
             # Verify all new phase values are accepted
             new_phases = [
@@ -5060,3 +5090,479 @@ class TestBeginImmediate:
         ).fetchone()
         assert row is not None
         assert row["name"] == "No Txn"
+
+
+# ---------------------------------------------------------------------------
+# Helpers: build a v7 database from raw migration functions
+# ---------------------------------------------------------------------------
+
+
+def _build_v7_conn() -> sqlite3.Connection:
+    """Create an in-memory sqlite3 connection at schema v7 (pre-migration-8).
+
+    Runs migrations 1-7 directly so we can test migration 8 in isolation.
+    """
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    _create_initial_schema(conn)
+    _migrate_to_uuid_pk(conn)
+    # Migration 3-5 are lightweight — use EntityDatabase's path
+    # But to stay isolated, replicate the minimum needed:
+    # migration 3: workflow_phases table
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("BEGIN IMMEDIATE")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS workflow_phases (
+            type_id            TEXT PRIMARY KEY REFERENCES entities(type_id),
+            workflow_phase     TEXT,
+            kanban_column      TEXT NOT NULL DEFAULT 'backlog',
+            last_completed_phase TEXT,
+            mode               TEXT,
+            backward_transition_reason TEXT,
+            updated_at         TEXT NOT NULL
+        )
+    """)
+    conn.execute(
+        "INSERT INTO _metadata(key, value) VALUES('schema_version', '3') "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    )
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = ON")
+    # migration 4: FTS (basic)
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute(
+            "CREATE VIRTUAL TABLE entities_fts USING fts5("
+            "name, entity_id, entity_type, status, metadata_text)"
+        )
+    except sqlite3.OperationalError:
+        pass
+    conn.execute(
+        "INSERT INTO _metadata(key, value) VALUES('schema_version', '4') "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    )
+    conn.commit()
+    # migration 5: expand workflow phase check (no-op for our purposes)
+    conn.execute(
+        "INSERT INTO _metadata(key, value) VALUES('schema_version', '5') "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    )
+    conn.commit()
+    # migration 6: schema expansion
+    _schema_expansion_v6(conn)
+    conn.execute(
+        "INSERT INTO _metadata(key, value) VALUES('schema_version', '6') "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    )
+    conn.commit()
+    # migration 7: fix FTS content mode
+    _fix_fts_content_mode(conn)
+    conn.execute(
+        "INSERT INTO _metadata(key, value) VALUES('schema_version', '7') "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    )
+    conn.commit()
+    return conn
+
+
+def _insert_v7_entity(conn, entity_type, entity_id, name, **kwargs):
+    """Insert a test entity into a v7 schema (pre-migration-8) connection."""
+    import uuid as _uuid
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    type_id = f"{entity_type}:{entity_id}"
+    entity_uuid = str(_uuid.uuid4())
+    metadata = kwargs.get("metadata")
+    metadata_json = json.dumps(metadata) if metadata else None
+    parent_type_id = kwargs.get("parent_type_id")
+    parent_uuid = kwargs.get("parent_uuid")
+    status = kwargs.get("status")
+    artifact_path = kwargs.get("artifact_path")
+    conn.execute(
+        "INSERT INTO entities "
+        "(uuid, type_id, entity_type, entity_id, name, status, "
+        "parent_type_id, parent_uuid, artifact_path, created_at, updated_at, metadata) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (entity_uuid, type_id, entity_type, entity_id, name, status,
+         parent_type_id, parent_uuid, artifact_path, now, now, metadata_json),
+    )
+    # Also insert into FTS
+    rowid = conn.execute(
+        "SELECT rowid FROM entities WHERE uuid = ?", (entity_uuid,)
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO entities_fts(rowid, name, entity_id, entity_type, "
+        "status, metadata_text) VALUES(?, ?, ?, ?, ?, ?)",
+        (rowid, name, entity_id, entity_type, status or "", ""),
+    )
+    conn.commit()
+    return entity_uuid
+
+
+# ---------------------------------------------------------------------------
+# Migration 8: Schema tests (T2.1)
+# ---------------------------------------------------------------------------
+
+
+class TestMigration8Schema:
+    """Migration 8 schema structure assertions."""
+
+    def test_migration_8_schema_projects_table(self):
+        """projects table exists with all 13 columns after migration 8."""
+        conn = _build_v7_conn()
+        _add_project_scoping(conn)
+        cols = conn.execute("PRAGMA table_info(projects)").fetchall()
+        col_names = [c[1] for c in cols]
+        assert len(col_names) == 13
+        expected = [
+            "project_id", "name", "root_commit_sha", "remote_url",
+            "normalized_url", "remote_host", "remote_owner", "remote_repo",
+            "default_branch", "project_root", "is_git_repo", "created_at",
+            "updated_at",
+        ]
+        assert col_names == expected
+        conn.close()
+
+    def test_migration_8_schema_sequences_table(self):
+        """sequences table has PK(project_id, entity_type)."""
+        conn = _build_v7_conn()
+        _add_project_scoping(conn)
+        cols = conn.execute("PRAGMA table_info(sequences)").fetchall()
+        col_names = [c[1] for c in cols]
+        assert col_names == ["project_id", "entity_type", "next_val"]
+        # Check PK columns
+        pk_cols = [c[1] for c in cols if c[5] > 0]  # pk flag
+        assert set(pk_cols) == {"project_id", "entity_type"}
+        conn.close()
+
+    def test_migration_8_schema_entities_project_id(self):
+        """entities table has project_id column with UNIQUE(project_id, type_id)."""
+        conn = _build_v7_conn()
+        _add_project_scoping(conn)
+        cols = conn.execute("PRAGMA table_info(entities)").fetchall()
+        col_names = [c[1] for c in cols]
+        assert "project_id" in col_names
+        # Verify UNIQUE constraint via index
+        indexes = conn.execute("PRAGMA index_list(entities)").fetchall()
+        unique_indexes = [idx for idx in indexes if idx[2] == 1]  # unique=1
+        # Find the composite unique index
+        found_composite = False
+        for idx in unique_indexes:
+            idx_info = conn.execute(
+                f"PRAGMA index_info({idx[1]})"
+            ).fetchall()
+            idx_cols = [info[2] for info in idx_info]
+            if "project_id" in idx_cols and "type_id" in idx_cols:
+                found_composite = True
+                break
+        assert found_composite, "UNIQUE(project_id, type_id) index not found"
+        conn.close()
+
+    def test_migration_8_schema_no_parent_type_id_fk(self):
+        """parent_type_id has no FK constraint after migration 8 (TD-2)."""
+        conn = _build_v7_conn()
+        _add_project_scoping(conn)
+        fk_list = conn.execute("PRAGMA foreign_key_list(entities)").fetchall()
+        fk_columns = [fk[3] for fk in fk_list]  # 'from' column
+        assert "parent_type_id" not in fk_columns
+        conn.close()
+
+    def test_migration_8_schema_parent_uuid_fk_preserved(self):
+        """parent_uuid FK is preserved after migration 8."""
+        conn = _build_v7_conn()
+        _add_project_scoping(conn)
+        fk_list = conn.execute("PRAGMA foreign_key_list(entities)").fetchall()
+        fk_columns = [fk[3] for fk in fk_list]  # 'from' column
+        assert "parent_uuid" in fk_columns
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Migration 8: Data tests (T2.2)
+# ---------------------------------------------------------------------------
+
+
+class TestMigration8Data:
+    """Migration 8 data migration and constraint assertions."""
+
+    def test_migration_8_all_entities_get_unknown_project_id(self):
+        """All existing entities get project_id='__unknown__' (TD-1)."""
+        conn = _build_v7_conn()
+        _insert_v7_entity(conn, "feature", "001-alpha", "Alpha",
+                          metadata={"project_id": "P001"})
+        _insert_v7_entity(conn, "feature", "002-beta", "Beta")
+        _add_project_scoping(conn)
+        rows = conn.execute(
+            "SELECT project_id FROM entities"
+        ).fetchall()
+        assert all(r[0] == "__unknown__" for r in rows)
+        conn.close()
+
+    def test_migration_8_same_type_id_different_projects_coexist(self):
+        """Same type_id in different projects should coexist."""
+        conn = _build_v7_conn()
+        _insert_v7_entity(conn, "feature", "001-alpha", "Alpha")
+        _add_project_scoping(conn)
+        # Disable FK checks so workflow_phases FK on type_id doesn't block
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.execute(
+            "INSERT INTO entities "
+            "(uuid, type_id, project_id, entity_type, entity_id, name, "
+            "created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+            (str(uuid.uuid4()), "feature:001-alpha", "__proj_a__",
+             "feature", "001-alpha", "Alpha in Proj A"),
+        )
+        conn.commit()
+        conn.execute("PRAGMA foreign_keys = ON")
+        rows = conn.execute(
+            "SELECT * FROM entities WHERE type_id = 'feature:001-alpha'"
+        ).fetchall()
+        assert len(rows) == 2
+        conn.close()
+
+    def test_migration_8_same_type_id_same_project_rejected(self):
+        """Same type_id in same project should be rejected by UNIQUE."""
+        conn = _build_v7_conn()
+        _insert_v7_entity(conn, "feature", "001-alpha", "Alpha")
+        _add_project_scoping(conn)
+        # Disable FK checks so workflow_phases FK doesn't interfere
+        conn.execute("PRAGMA foreign_keys = OFF")
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO entities "
+                "(uuid, type_id, project_id, entity_type, entity_id, name, "
+                "created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+                (str(uuid.uuid4()), "feature:001-alpha", "__unknown__",
+                 "feature", "001-alpha", "Alpha duplicate"),
+            )
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.close()
+
+    def test_migration_8_metadata_seq_migrated_to_sequences(self):
+        """_metadata next_seq_* keys are migrated to sequences table."""
+        conn = _build_v7_conn()
+        conn.execute(
+            "INSERT INTO _metadata(key, value) VALUES('next_seq_feature', '5')"
+        )
+        conn.execute(
+            "INSERT INTO _metadata(key, value) VALUES('next_seq_task', '3')"
+        )
+        conn.commit()
+        _add_project_scoping(conn)
+        rows = conn.execute(
+            "SELECT project_id, entity_type, next_val FROM sequences "
+            "ORDER BY entity_type"
+        ).fetchall()
+        seq_map = {r[1]: (r[0], r[2]) for r in rows}
+        assert seq_map["feature"] == ("__unknown__", 5)
+        assert seq_map["task"] == ("__unknown__", 3)
+        conn.close()
+
+    def test_migration_8_metadata_seq_keys_deleted(self):
+        """_metadata next_seq_* keys are deleted after migration."""
+        conn = _build_v7_conn()
+        conn.execute(
+            "INSERT INTO _metadata(key, value) VALUES('next_seq_feature', '5')"
+        )
+        conn.commit()
+        _add_project_scoping(conn)
+        row = conn.execute(
+            "SELECT value FROM _metadata WHERE key = 'next_seq_feature'"
+        ).fetchone()
+        assert row is None
+        conn.close()
+
+    def test_migration_8_fts_works_post_migration(self):
+        """FTS search still works after migration 8 rebuild."""
+        conn = _build_v7_conn()
+        _insert_v7_entity(conn, "feature", "001-alpha", "Alpha Feature")
+        _add_project_scoping(conn)
+        results = conn.execute(
+            "SELECT * FROM entities_fts WHERE entities_fts MATCH 'Alpha'"
+        ).fetchall()
+        assert len(results) == 1
+        conn.close()
+
+    def test_migration_8_nine_triggers_exist(self):
+        """All 9 triggers exist after migration 8."""
+        conn = _build_v7_conn()
+        _add_project_scoping(conn)
+        triggers = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' "
+            "AND tbl_name = 'entities'"
+        ).fetchall()
+        trigger_names = {t[0] for t in triggers}
+        expected = {
+            "enforce_immutable_type_id",
+            "enforce_immutable_entity_type",
+            "enforce_immutable_created_at",
+            "enforce_immutable_uuid",
+            "enforce_immutable_project_id",
+            "enforce_no_self_parent",
+            "enforce_no_self_parent_update",
+            "enforce_no_self_parent_uuid_insert",
+            "enforce_no_self_parent_uuid_update",
+        }
+        assert trigger_names == expected
+        conn.close()
+
+    def test_migration_8_immutable_project_id_trigger_fires(self):
+        """enforce_immutable_project_id trigger fires on UPDATE."""
+        conn = _build_v7_conn()
+        _insert_v7_entity(conn, "feature", "001-alpha", "Alpha")
+        _add_project_scoping(conn)
+        entity_uuid = conn.execute(
+            "SELECT uuid FROM entities WHERE type_id = 'feature:001-alpha'"
+        ).fetchone()[0]
+        with pytest.raises(sqlite3.IntegrityError, match="project_id is immutable"):
+            conn.execute(
+                "UPDATE entities SET project_id = '__new__' WHERE uuid = ?",
+                (entity_uuid,),
+            )
+        conn.close()
+
+    def test_migration_8_rollback_on_failure(self):
+        """Migration rollback leaves original schema intact on failure."""
+        conn = _build_v7_conn()
+        _insert_v7_entity(conn, "feature", "001-alpha", "Alpha")
+
+        # Use a wrapper class to intercept execute calls
+        class FailingConnection:
+            """Wrapper that raises on RENAME step."""
+            def __init__(self, real_conn):
+                self._real = real_conn
+            def execute(self, sql, *args, **kwargs):
+                if "ALTER TABLE entities_new RENAME" in sql:
+                    raise sqlite3.OperationalError("simulated failure at RENAME")
+                return self._real.execute(sql, *args, **kwargs)
+            def commit(self):
+                return self._real.commit()
+            def rollback(self):
+                return self._real.rollback()
+            def fetchone(self):
+                return self._real.fetchone()
+            def fetchall(self):
+                return self._real.fetchall()
+
+        wrapper = FailingConnection(conn)
+        with pytest.raises(sqlite3.OperationalError, match="simulated failure"):
+            _add_project_scoping(wrapper)
+
+        # Original entities table should still be intact (no project_id column)
+        cols = conn.execute("PRAGMA table_info(entities)").fetchall()
+        col_names = [c[1] for c in cols]
+        assert "project_id" not in col_names
+        conn.close()
+
+    def test_migration_8_idempotent(self):
+        """Opening EntityDatabase twice should be a no-op on second open."""
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+            db1 = EntityDatabase(db_path)
+            v1 = db1.get_schema_version()
+            db1.close()
+            db2 = EntityDatabase(db_path)
+            v2 = db2.get_schema_version()
+            db2.close()
+            assert v1 == v2 == 8
+
+    def test_migration_8_schema_version_set_to_8(self):
+        """Schema version is 8 after migration."""
+        conn = _build_v7_conn()
+        _add_project_scoping(conn)
+        row = conn.execute(
+            "SELECT value FROM _metadata WHERE key = 'schema_version'"
+        ).fetchone()
+        assert row[0] == "8"
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# next_sequence_value tests (T2.4)
+# ---------------------------------------------------------------------------
+
+
+class TestNextSequenceValue:
+    """Tests for EntityDatabase.next_sequence_value()."""
+
+    def test_sequence_bootstrap_from_entities(self):
+        """Bootstrap: empty sequences table scans entities for max seq."""
+        db = EntityDatabase(":memory:")
+        try:
+            # Insert entities directly with known sequence-format IDs.
+            # Disable FK checks since workflow_phases references entities(type_id)
+            # which is no longer UNIQUE after migration 8.
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).isoformat()
+            db._conn.execute("PRAGMA foreign_keys = OFF")
+            for eid, name in [("005-alpha", "Alpha"), ("010-beta", "Beta")]:
+                uid = str(uuid.uuid4())
+                db._conn.execute(
+                    "INSERT INTO entities "
+                    "(uuid, type_id, project_id, entity_type, entity_id, name, "
+                    "created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (uid, f"feature:{eid}", "__test__", "feature", eid, name, now, now),
+                )
+            db._conn.commit()
+            db._conn.execute("PRAGMA foreign_keys = ON")
+            # Wipe the sequences row so bootstrap triggers
+            db._conn.execute("PRAGMA foreign_keys = OFF")
+            db._conn.execute(
+                "DELETE FROM sequences WHERE entity_type = 'feature'"
+            )
+            db._conn.commit()
+            db._conn.execute("PRAGMA foreign_keys = ON")
+            val = db.next_sequence_value("__test__", "feature")
+            # Should bootstrap from max(5, 10) = 10, so next = 11
+            assert val == 11
+        finally:
+            db.close()
+
+    def test_sequence_increment(self):
+        """Sequential calls return incrementing values."""
+        db = EntityDatabase(":memory:")
+        try:
+            v1 = db.next_sequence_value("__test__", "task")
+            v2 = db.next_sequence_value("__test__", "task")
+            v3 = db.next_sequence_value("__test__", "task")
+            assert v1 == 1
+            assert v2 == 2
+            assert v3 == 3
+        finally:
+            db.close()
+
+    def test_sequence_project_isolation(self):
+        """Different projects get independent counters."""
+        db = EntityDatabase(":memory:")
+        try:
+            a1 = db.next_sequence_value("proj_a", "feature")
+            a2 = db.next_sequence_value("proj_a", "feature")
+            b1 = db.next_sequence_value("proj_b", "feature")
+            assert a1 == 1
+            assert a2 == 2
+            assert b1 == 1  # independent
+        finally:
+            db.close()
+
+    def test_sequence_structural_atomicity(self):
+        """next_sequence_value executes atomically (BEGIN IMMEDIATE pattern).
+
+        Verify by checking that after a call, the sequences table row
+        reflects next_val = returned_value + 1 (write happened atomically).
+        """
+        db = EntityDatabase(":memory:")
+        try:
+            val = db.next_sequence_value("__test__", "task")
+            assert val == 1
+            row = db._conn.execute(
+                "SELECT next_val FROM sequences "
+                "WHERE project_id = '__test__' AND entity_type = 'task'"
+            ).fetchone()
+            assert row[0] == 2  # next_val incremented atomically
+        finally:
+            db.close()

@@ -1,11 +1,13 @@
 """Tests for entity_registry.id_generator module."""
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
+import entity_registry.id_generator as id_generator_mod
 from entity_registry.database import EntityDatabase
 from entity_registry.id_generator import (
-    _scan_existing_max_seq,
     _slugify,
     generate_entity_id,
 )
@@ -71,94 +73,75 @@ class TestSlugify:
 
 
 # ---------------------------------------------------------------------------
-# _scan_existing_max_seq tests
-# ---------------------------------------------------------------------------
-
-
-class TestScanExistingMaxSeq:
-    def test_no_existing_entities(self, db: EntityDatabase):
-        assert _scan_existing_max_seq(db, "task") == 0
-
-    def test_finds_max_from_existing(self, db: EntityDatabase):
-        db.register_entity("feature", "051-old-feature", "Old Feature")
-        db.register_entity("feature", "052-new-feature", "New Feature")
-        assert _scan_existing_max_seq(db, "feature") == 52
-
-    def test_ignores_non_matching_ids(self, db: EntityDatabase):
-        db.register_entity("feature", "custom-no-seq", "Custom")
-        assert _scan_existing_max_seq(db, "feature") == 0
-
-    def test_scoped_to_entity_type(self, db: EntityDatabase):
-        db.register_entity("feature", "052-some-feature", "Feature")
-        db.register_entity("project", "001-some-project", "Project")
-        assert _scan_existing_max_seq(db, "project") == 1
-        assert _scan_existing_max_seq(db, "feature") == 52
-
-
-# ---------------------------------------------------------------------------
-# generate_entity_id tests
+# generate_entity_id tests (T2.6a)
 # ---------------------------------------------------------------------------
 
 
 class TestGenerateEntityId:
+    def test_generation_works_and_increments(self, db: EntityDatabase):
+        """generate_entity_id returns sequential IDs via sequences table."""
+        id1 = generate_entity_id(db, "backlog", "test item", project_id="__test__")
+        assert id1 == "001-test-item"
+        id2 = generate_entity_id(db, "backlog", "second item", project_id="__test__")
+        assert id2 == "002-second-item"
+
+    def test_scan_existing_max_seq_deleted(self):
+        """_scan_existing_max_seq function must be deleted, not just unused."""
+        assert not hasattr(id_generator_mod, "_scan_existing_max_seq")
+
     def test_first_id_for_new_type(self, db: EntityDatabase):
         """New type with no existing entities starts at 001."""
-        result = generate_entity_id(db, "task", "My First Task")
+        result = generate_entity_id(db, "task", "My First Task", project_id="__test__")
         assert result == "001-my-first-task"
 
     def test_sequential_ids(self, db: EntityDatabase):
         """Multiple calls increment the sequence."""
-        id1 = generate_entity_id(db, "task", "Task One")
-        id2 = generate_entity_id(db, "task", "Task Two")
-        id3 = generate_entity_id(db, "task", "Task Three")
+        id1 = generate_entity_id(db, "task", "Task One", project_id="__test__")
+        id2 = generate_entity_id(db, "task", "Task Two", project_id="__test__")
+        id3 = generate_entity_id(db, "task", "Task Three", project_id="__test__")
         assert id1 == "001-task-one"
         assert id2 == "002-task-two"
         assert id3 == "003-task-three"
 
-    def test_continues_from_existing(self, db: EntityDatabase):
-        """Existing entities bootstrap the sequence counter."""
-        db.register_entity("feature", "052-existing", "Existing Feature")
-        result = generate_entity_id(db, "feature", "Structured Logging")
-        assert result == "053-structured-logging"
-
     def test_per_type_counters(self, db: EntityDatabase):
         """Each entity type has its own independent counter."""
-        id_task = generate_entity_id(db, "task", "A Task")
-        id_init = generate_entity_id(db, "initiative", "An Initiative")
+        id_task = generate_entity_id(db, "task", "A Task", project_id="__test__")
+        id_init = generate_entity_id(db, "initiative", "An Initiative", project_id="__test__")
         assert id_task == "001-a-task"
         assert id_init == "001-an-initiative"
 
     def test_slug_max_30_chars(self, db: EntityDatabase):
         long_name = "A Very Long Entity Name That Definitely Exceeds Thirty Characters"
-        result = generate_entity_id(db, "task", long_name)
+        result = generate_entity_id(db, "task", long_name, project_id="__test__")
         # Extract slug (everything after "NNN-")
         slug = result.split("-", 1)[1]
         assert len(slug) <= 30
 
     def test_slug_lowercase_hyphens(self, db: EntityDatabase):
-        result = generate_entity_id(db, "initiative", "Enterprise Reliability")
+        result = generate_entity_id(db, "initiative", "Enterprise Reliability", project_id="__test__")
         assert result == "001-enterprise-reliability"
-
-    def test_metadata_persisted(self, db: EntityDatabase):
-        """Counter is persisted in _metadata table."""
-        generate_entity_id(db, "task", "First")
-        raw = db.get_metadata("next_seq_task")
-        assert raw == "1"
-        generate_entity_id(db, "task", "Second")
-        raw = db.get_metadata("next_seq_task")
-        assert raw == "2"
-
-    def test_bootstrap_from_metadata_if_seeded(self, db: EntityDatabase):
-        """If _metadata already has next_seq, use it (e.g., seeded by migration)."""
-        db.set_metadata("next_seq_objective", "5")
-        result = generate_entity_id(db, "objective", "Quarterly Goal")
-        assert result == "006-quarterly-goal"
 
     def test_empty_name_fallback(self, db: EntityDatabase):
         """Empty name produces 'unnamed' slug."""
-        result = generate_entity_id(db, "task", "")
+        result = generate_entity_id(db, "task", "", project_id="__test__")
         assert result == "001-unnamed"
 
     def test_special_chars_in_name(self, db: EntityDatabase):
-        result = generate_entity_id(db, "task", "Fix bug #123 (urgent!)")
+        result = generate_entity_id(db, "task", "Fix bug #123 (urgent!)", project_id="__test__")
         assert result == "001-fix-bug-123-urgent"
+
+    def test_project_id_required(self, db: EntityDatabase):
+        """project_id is a required parameter."""
+        with pytest.raises(TypeError):
+            generate_entity_id(db, "task", "Test")
+
+    def test_continues_from_existing_via_sequences(self, db: EntityDatabase):
+        """Existing sequences bootstrap the counter."""
+        # Seed the sequences table directly
+        db._conn.execute(
+            "INSERT INTO sequences(project_id, entity_type, next_val) "
+            "VALUES('__test__', 'feature', 53)"
+        )
+        db._conn.commit()
+        result = generate_entity_id(db, "feature", "Structured Logging", project_id="__test__")
+        assert result == "053-structured-logging"
