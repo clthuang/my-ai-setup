@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# inject-secretary-context.sh - Inject secretary awareness at session start (aware mode only)
+# inject-secretary-context.sh - Inject secretary awareness at session start (YOLO mode only)
 
 set -euo pipefail
 
@@ -79,18 +79,5 @@ EOF
   exit 0
 fi
 
-# Check secretary aware mode from unified config
-MODE=$(read_local_md_field "$PD_CONFIG" "activation_mode" "manual")
-if [ "$MODE" != "aware" ]; then
-  exit 0
-fi
-
-# Output hook context
-cat << 'EOF'
-{
-  "hookSpecificOutput": {
-    "hookEventName": "SessionStart",
-    "additionalContext": "Secretary available for orchestrating complex requests. For vague or multi-step tasks, use: /pd:secretary <request>"
-  }
-}
-EOF
+# No YOLO mode active — no secretary context to inject
+exit 0

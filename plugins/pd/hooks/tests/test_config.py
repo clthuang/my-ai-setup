@@ -25,14 +25,13 @@ class TestReadConfigDefaults:
 
     def test_missing_file_returns_defaults(self, tmp_path):
         result = read_config(str(tmp_path))
-        assert result["activation_mode"] == "manual"
         assert result["memory_semantic_enabled"] is True
         assert result["memory_vector_weight"] == 0.5
         assert result["memory_keyword_weight"] == 0.2
         assert result["memory_prominence_weight"] == 0.3
         assert result["memory_embedding_provider"] == "gemini"
         assert result["memory_embedding_model"] == "gemini-embedding-001"
-        assert result["memory_injection_limit"] == 20
+        assert result["memory_injection_limit"] == 15
         assert result["memory_model_capture_mode"] == "ask-first"
         assert result["memory_silent_capture_budget"] == 5
 
@@ -163,13 +162,13 @@ class TestReadConfigEdgeCases:
         """Empty value (just 'key:' with nothing after) uses default."""
         self._write_config(tmp_path, "memory_injection_limit:\n")
         result = read_config(str(tmp_path))
-        assert result["memory_injection_limit"] == 20  # default
+        assert result["memory_injection_limit"] == 15  # default
 
     def test_null_value_uses_default(self, tmp_path):
         """Value 'null' is treated as missing, uses default (matches bash behavior)."""
         self._write_config(tmp_path, "memory_injection_limit: null\n")
         result = read_config(str(tmp_path))
-        assert result["memory_injection_limit"] == 20  # default
+        assert result["memory_injection_limit"] == 15  # default
 
     def test_non_field_lines_ignored(self, tmp_path):
         """Lines that don't match ^field: pattern are ignored."""
@@ -191,13 +190,11 @@ class TestReadConfigEdgeCases:
             "---\n"
             "yolo_mode: true\n"
             "yolo_max_stop_blocks: 50\n"
-            "activation_mode: aware\n"
             "memory_semantic_enabled: true\n"
             "memory_vector_weight: 0.6\n"
             "---\n",
         )
         result = read_config(str(tmp_path))
-        assert result["activation_mode"] == "aware"
         assert result["memory_semantic_enabled"] is True
         assert result["memory_vector_weight"] == 0.6
         assert result["yolo_mode"] is True

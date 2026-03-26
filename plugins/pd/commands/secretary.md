@@ -1,6 +1,6 @@
 ---
 description: Intelligent task routing - discover agents and delegate work
-argument-hint: [help|mode [manual|aware|yolo]|orchestrate <desc>|<request>]
+argument-hint: [help|orchestrate <desc>|<request>]
 ---
 
 # /pd:secretary Command
@@ -242,7 +242,6 @@ Use these values from session context (injected at session start):
 
 Parse the first word of the argument:
 - `help` → Help subcommand
-- `mode` → Mode subcommand
 - `orchestrate` or `continue` → Orchestrate subcommand
 - anything else → Request handler (performs routing inline)
 - no argument → Brief usage
@@ -258,15 +257,8 @@ Secretary - Intelligent Task Routing
 
 Usage:
   /pd:secretary help              Show this help
-  /pd:secretary mode              Show current activation mode
-  /pd:secretary mode <mode>       Set activation mode (manual|aware|yolo)
   /pd:secretary orchestrate <desc> Run full workflow autonomously (YOLO only)
   /pd:secretary <request>         Route request to best agent
-
-Modes:
-  manual   - Only activates via explicit /secretary command (default)
-  aware    - Injects routing hints at session start
-  yolo     - Fully autonomous: runs entire workflow without pausing
 
 Orchestration (YOLO mode only):
   /pd:secretary orchestrate build a login system
@@ -286,52 +278,6 @@ The secretary will:
 6. Execute the delegation and report results
 ```
 
-## Subcommand: mode
-
-If argument is `mode` (no value):
-
-1. Read config from `.claude/pd.local.md`
-2. If config not found: Report "Config not found. Using defaults (manual mode)."
-3. If config found: Extract and display `activation_mode` value
-
-Display format:
-```
-Current mode: {mode}
-
-Available modes:
-  manual - Only activates via explicit /secretary command
-  aware  - Injects routing hints at session start
-  yolo   - Fully autonomous: runs entire workflow without pausing
-```
-
-If argument is `mode <value>` where value is `manual`, `aware`, or `yolo`:
-
-1. Check if `.claude/pd.local.md` exists
-2. If exists:
-   - Use Edit tool to update `activation_mode` line
-   - Report "Mode updated to {value}"
-3. If not exists:
-   - Create `.claude/` directory if needed (via Bash: mkdir -p)
-   - Use Write tool to create config with specified mode:
-     ```
-     ---
-     activation_mode: {value}
-     ---
-     ```
-   - Report "Config created at .claude/pd.local.md with mode: {value}"
-
-If argument is `mode <invalid>`:
-
-Report error:
-```
-Invalid mode: {invalid}
-
-Valid modes are:
-  manual - Only activates via explicit /secretary command
-  aware  - Injects routing hints at session start
-  yolo   - Fully autonomous: runs entire workflow without pausing
-```
-
 ## Subcommand: orchestrate
 
 If argument starts with `orchestrate` or `continue`:
@@ -339,13 +285,12 @@ If argument starts with `orchestrate` or `continue`:
 ### Prerequisites
 
 1. Read `.claude/pd.local.md`
-2. Extract `activation_mode`
-3. If mode is NOT `yolo`:
+2. Check if `yolo_mode: true`
+3. If `yolo_mode` is NOT `true`:
+   - If `activation_mode: yolo` is found in config but `yolo_mode` is not true, show: "You previously used `/pd:secretary mode yolo`. Run `/pd:yolo on` to enable unified YOLO mode."
+   - Otherwise show:
    ```
-   Orchestration requires YOLO mode.
-
-   Current mode: {mode}
-   Set YOLO mode first: /pd:secretary mode yolo
+   Orchestration requires YOLO mode. Run /pd:yolo on first.
    ```
    Stop here.
 
@@ -410,11 +355,11 @@ These are handled by the individual commands. The orchestrator does NOT need to 
 
 ## Subcommand: <request>
 
-If argument is anything other than `help`, `mode`, `orchestrate`, or `continue`:
+If argument is anything other than `help`, `orchestrate`, or `continue`:
 
 Apply the Routing Boundary Directive above.
 
-**Read config first** — Read `.claude/pd.local.md`. Extract `activation_mode`. If `yolo`, set `[YOLO_MODE]` flag. Apply YOLO Mode Overrides above when active.
+**Check YOLO mode** — Check if `[YOLO_MODE]` is active in session context. Fallback: read `.claude/pd.local.md` and check `yolo_mode: true`. Apply YOLO Mode Overrides above when active.
 
 ---
 
