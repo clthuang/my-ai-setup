@@ -12,6 +12,7 @@ def sync_brainstorm_entities(
     db: EntityDatabase,
     full_artifacts_path: str,
     artifacts_root: str,
+    project_id: str = "__unknown__",
 ) -> dict:
     """Scan brainstorms/ for .prd.md files; register unregistered ones.
 
@@ -50,6 +51,7 @@ def sync_brainstorm_entities(
             name=stem,
             artifact_path=artifact_path,
             status="active",
+            project_id=project_id,
         )
         results["registered"] += 1
 

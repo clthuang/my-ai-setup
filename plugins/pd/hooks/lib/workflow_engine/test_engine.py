@@ -40,6 +40,7 @@ def _register_feature(
         entity_id=slug,
         name=f"Test Feature {slug}",
         status=status,
+        project_id="__unknown__",
     )
     return type_id
 
@@ -920,6 +921,7 @@ class TestIntegration:
             entity_id=slug,
             name="Lifecycle Test Feature",
             status="active",
+            project_id="__unknown__",
         )
 
         # Create .meta.json (active, no completed phases)
@@ -1007,6 +1009,7 @@ class TestIntegration:
             entity_id=slug,
             name="Gate Coverage Test",
             status="active",
+            project_id="__unknown__",
         )
 
         feature_dir = tmp_path / "features" / slug
@@ -1098,6 +1101,7 @@ class TestIntegration:
             entity_id=slug,
             name="Hydration Transition Test",
             status="active",
+            project_id="__unknown__",
         )
 
         # Create .meta.json with design completed
@@ -3350,6 +3354,7 @@ class TestIntegrationDegradation:
             entity_id=slug,
             name="Integration Get State Test",
             status="active",
+            project_id="__unknown__",
         )
         db.create_workflow_phase(
             type_id,
@@ -3401,6 +3406,7 @@ class TestIntegrationDegradation:
             entity_id=slug,
             name="Integration Complete Phase Test",
             status="active",
+            project_id="__unknown__",
         )
         db.create_workflow_phase(
             type_id,
@@ -3466,6 +3472,7 @@ class TestIntegrationDegradation:
                 entity_id=slug,
                 name=f"Test {slug}",
                 status="active",
+                project_id="__unknown__",
             )
             # Use the correct next-phase value matching what the meta.json will report
             next_phase = "specify" if last_completed == "brainstorm" else "design"
@@ -3519,6 +3526,7 @@ class TestIntegrationDegradation:
                 entity_id=slug,
                 name=f"Test {slug}",
                 status=status,
+                project_id="__unknown__",
             )
             _create_meta_json(
                 tmp_path,

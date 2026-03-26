@@ -33,9 +33,9 @@ from workflow_state_server import _resolve_ref_to_feature_type_id
 def db():
     """In-memory EntityDatabase with 3 features."""
     database = EntityDatabase(":memory:")
-    database.register_entity("feature", "050-alpha", "Alpha Feature")
-    database.register_entity("feature", "051-beta", "Beta Feature")
-    database.register_entity("feature", "052-reactive-entity", "Reactive Entity")
+    database.register_entity("feature", "050-alpha", "Alpha Feature", project_id="__unknown__")
+    database.register_entity("feature", "051-beta", "Beta Feature", project_id="__unknown__")
+    database.register_entity("feature", "052-reactive-entity", "Reactive Entity", project_id="__unknown__")
     yield database
     database.close()
 

@@ -3,7 +3,7 @@ import json
 import os
 
 
-def sync_entity_statuses(db, full_artifacts_path):
+def sync_entity_statuses(db, full_artifacts_path, project_id="__unknown__"):
     """Scan .meta.json files for features and projects and sync status to entity registry.
 
     Args:
@@ -28,7 +28,7 @@ def sync_entity_statuses(db, full_artifacts_path):
             if not os.path.isfile(meta_path):
                 # .meta.json deleted — archive entity if it exists
                 try:
-                    db.update_entity(type_id, status="archived")
+                    db.update_entity(type_id, status="archived", project_id=project_id)
                     results["archived"] += 1
                 except ValueError:
                     pass  # entity not in registry, skip
@@ -53,7 +53,7 @@ def sync_entity_statuses(db, full_artifacts_path):
                 continue
 
             if entity["status"] != meta_status:
-                db.update_entity(type_id, status=meta_status)
+                db.update_entity(type_id, status=meta_status, project_id=project_id)
                 results["updated"] += 1
             else:
                 results["skipped"] += 1

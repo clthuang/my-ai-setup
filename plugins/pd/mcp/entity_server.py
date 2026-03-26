@@ -21,6 +21,8 @@ if _hooks_lib not in (os.path.normpath(p) for p in sys.path):
 
 from entity_registry.backfill import run_backfill
 from entity_registry.database import EntityDatabase
+from entity_registry.id_generator import generate_entity_id
+from entity_registry.project_identity import GitProjectInfo, collect_git_info, detect_project_id
 from entity_registry.server_helpers import (
     _process_export_entities,
     _process_export_lineage_markdown,
@@ -45,6 +47,8 @@ _recovery_thread: threading.Thread | None = None
 _config: dict = {}
 _project_root: str = ""
 _artifacts_root: str = ""
+_project_id: str = ""
+_git_info: GitProjectInfo | None = None
 
 _logger = logging.getLogger("entity_server")
 
@@ -111,6 +115,54 @@ def _check_db_available():
 
 
 # ---------------------------------------------------------------------------
+# Project identity helpers
+# ---------------------------------------------------------------------------
+
+
+def _upsert_project(db: EntityDatabase, info: GitProjectInfo) -> None:
+    """Insert or update a project row via db.upsert_project()."""
+    db.upsert_project(
+        project_id=info.project_id,
+        name=info.name,
+        root_commit_sha=info.root_commit_sha,
+        remote_url=info.remote_url,
+        normalized_url=info.normalized_url,
+        remote_host=info.remote_host,
+        remote_owner=info.remote_owner,
+        remote_repo=info.remote_repo,
+        default_branch=info.default_branch,
+        project_root=info.project_root,
+        is_git_repo=info.is_git_repo,
+    )
+
+
+def _effective_project_id(explicit: str | None = None) -> str | None:
+    """Resolve the effective project_id for DB queries.
+
+    Returns None (meaning 'all projects') when no project context is
+    available. This happens in tests where _project_id is not set.
+    """
+    pid = explicit or _project_id
+    return pid if pid else None
+
+
+def _backfill_project_ids(
+    db: EntityDatabase, project_root: str, project_id: str
+) -> int:
+    """Claim __unknown__ entities whose artifact_path is under project_root.
+
+    Delegates to EntityDatabase.backfill_project_ids() which handles the
+    trigger-drop + UPDATE + trigger-recreate pattern internally.
+
+    Returns count of claimed entities.
+    """
+    count = db.backfill_project_ids(project_root, project_id)
+    if count > 0:
+        _logger.info("backfill: claimed %d entities for project %s", count, project_id)
+    return count
+
+
+# ---------------------------------------------------------------------------
 # Lifespan handler
 # ---------------------------------------------------------------------------
 
@@ -118,7 +170,7 @@ def _check_db_available():
 @asynccontextmanager
 async def lifespan(server):
     """Manage DB connection and backfill lifecycle."""
-    global _db, _db_unavailable, _recovery_thread, _config, _project_root, _artifacts_root
+    global _db, _db_unavailable, _recovery_thread, _config, _project_root, _artifacts_root, _project_id, _git_info
 
     # Determine DB path (env override for testing, else global store).
     db_path = os.environ.get(
@@ -146,9 +198,28 @@ async def lifespan(server):
         _config = config
         _artifacts_root = os.path.join(project_root, str(config.get("artifacts_root", "docs")))
 
+        # Detect project identity and register in DB.
+        _project_id = detect_project_id(_project_root)
+        try:
+            _git_info = collect_git_info(_project_root)
+            _upsert_project(_db, _git_info)
+        except Exception as exc:
+            print(f"entity-server: project upsert failed: {exc}", file=sys.stderr)
+
+        # Claim __unknown__ entities matching this project root.
+        try:
+            claimed = _backfill_project_ids(_db, _project_root, _project_id)
+            if claimed > 0:
+                print(
+                    f"entity-server: claimed {claimed} entities for project {_project_id}",
+                    file=sys.stderr,
+                )
+        except Exception as exc:
+            print(f"entity-server: project backfill failed: {exc}", file=sys.stderr)
+
         # Backfill existing artifacts (idempotency guard inside run_backfill).
         try:
-            run_backfill(_db, _artifacts_root)
+            run_backfill(_db, _artifacts_root, project_id=_project_id)
         except Exception as exc:
             print(f"entity-server: backfill failed: {exc}", file=sys.stderr)
 
@@ -158,7 +229,7 @@ async def lifespan(server):
         try:
             from entity_registry.backfill import backfill_workflow_phases
 
-            result = backfill_workflow_phases(_db, _artifacts_root)
+            result = backfill_workflow_phases(_db, _artifacts_root, project_id=_project_id)
             if result["created"] > 0:
                 print(
                     f"entity-server: workflow_phases backfill created {result['created']} rows",
@@ -193,6 +264,7 @@ def _resolve_ref_param(
     ref: str | None,
     *,
     is_mutation: bool = False,
+    project_id: str | None = None,
 ) -> str:
     """Resolve a type_id or ref parameter to a concrete type_id.
 
@@ -206,6 +278,9 @@ def _resolve_ref_param(
         Flexible reference: UUID, full type_id, or type_id prefix.
     is_mutation:
         If True, ambiguous prefix matches always error (never guess).
+    project_id:
+        Optional project scope for resolution. Passed through to
+        db.resolve_ref().
 
     Returns
     -------
@@ -223,7 +298,7 @@ def _resolve_ref_param(
         raise ValueError("Either type_id or ref must be provided")
 
     # resolve_ref returns a UUID — look up the entity to get type_id
-    entity_uuid = db.resolve_ref(ref)
+    entity_uuid = db.resolve_ref(ref, project_id=project_id)
     entity = db.get_entity_by_uuid(entity_uuid)
     if entity is None:
         raise ValueError(f"No entity found matching ref: {ref!r}")
@@ -243,19 +318,24 @@ def _process_update_entity(
     description: str | None,
     status: str | None,
     metadata: dict | None,
+    project_id: str | None = None,
+    new_project_id: str | None = None,
 ) -> str:
     """Update mutable fields of an existing entity (retryable)."""
     db.update_entity(
         resolved_type_id, name=name, status=status,
         artifact_path=description, metadata=metadata,
+        project_id=project_id, new_project_id=new_project_id,
     )
     return f"Updated: {resolved_type_id}"
 
 
 @with_retry("entity")
-def _process_delete_entity(db: EntityDatabase, resolved_type_id: str) -> str:
+def _process_delete_entity(
+    db: EntityDatabase, resolved_type_id: str, project_id: str | None = None,
+) -> str:
     """Delete an entity and all associated data (retryable)."""
-    db.delete_entity(resolved_type_id)
+    db.delete_entity(resolved_type_id, project_id=project_id)
     return json.dumps({"result": f"Deleted: {resolved_type_id}"})
 
 
@@ -320,6 +400,7 @@ def _process_create_key_result(
     status: str | None,
     metadata_json: str,
     weight: float,
+    project_id: str = "__unknown__",
 ) -> str:
     """Register a key_result entity with parent linkage (retryable)."""
     uuid = db.register_entity(
@@ -329,6 +410,7 @@ def _process_create_key_result(
         status=status,
         parent_type_id=parent_type_id,
         metadata=metadata_json,
+        project_id=project_id,
     )
     return json.dumps({"uuid": uuid, "type_id": f"key_result:{eid}", "weight": weight})
 
@@ -352,12 +434,14 @@ mcp = FastMCP("entity-registry", lifespan=lifespan)
 @mcp.tool()
 async def register_entity(
     entity_type: str,
-    entity_id: str,
-    name: str,
+    entity_id: str | None = None,
+    name: str = "",
     artifact_path: str | None = None,
     status: str | None = None,
     parent_type_id: str | None = None,
     metadata: str | dict | None = None,
+    project_id: str | None = None,
+    auto_id: bool = False,
 ) -> str:
     """Register a new entity in the lineage registry.
 
@@ -367,7 +451,7 @@ async def register_entity(
         One of: backlog, brainstorm, project, feature.
     entity_id:
         Unique identifier within the entity_type namespace
-        (e.g. '029-entity-lineage-tracking').
+        (e.g. '029-entity-lineage-tracking'). Required unless auto_id=True.
     name:
         Human-readable name (e.g. 'Entity Lineage Tracking').
     artifact_path:
@@ -379,6 +463,11 @@ async def register_entity(
     metadata:
         Optional metadata — pass a dict (preferred) or a JSON string;
         dicts are auto-coerced to JSON.
+    project_id:
+        Project scope. Defaults to current project. Cannot be '*'.
+    auto_id:
+        If True, auto-generate entity_id from name. Cannot be used
+        together with an explicit entity_id.
 
     Returns confirmation message or error.
     """
@@ -388,6 +477,17 @@ async def register_entity(
     if _db is None:
         return "Error: database not initialized (server not started)"
 
+    resolved_project_id = project_id or _project_id or "__unknown__"
+
+    if auto_id and entity_id:
+        return "Error: cannot specify both auto_id=True and entity_id"
+    if auto_id:
+        if not name:
+            return "Error: name is required when auto_id=True"
+        entity_id = generate_entity_id(_db, entity_type, name, resolved_project_id)
+    elif not entity_id:
+        return "Error: entity_id is required (or use auto_id=True)"
+
     if isinstance(metadata, dict):
         metadata = json.dumps(metadata)
 
@@ -395,6 +495,7 @@ async def register_entity(
         _db, entity_type, entity_id, name,
         artifact_path, status, parent_type_id,
         parse_metadata(metadata),
+        project_id=resolved_project_id,
     )
 
 
@@ -427,7 +528,7 @@ async def set_parent(
         return "Error: database not initialized (server not started)"
 
     try:
-        resolved_type_id = _resolve_ref_param(_db, type_id, ref, is_mutation=True)
+        resolved_type_id = _resolve_ref_param(_db, type_id, ref, is_mutation=True, project_id=_effective_project_id())
         resolved_parent = _resolve_ref_param(
             _db, parent_type_id, parent_ref, is_mutation=True
         )
@@ -458,7 +559,7 @@ async def get_entity(type_id: str | None = None, ref: str | None = None) -> str:
         return "Error: database not initialized (server not started)"
 
     try:
-        resolved_type_id = _resolve_ref_param(_db, type_id, ref)
+        resolved_type_id = _resolve_ref_param(_db, type_id, ref, project_id=_effective_project_id())
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
 
@@ -500,7 +601,7 @@ async def get_lineage(
         return "Error: database not initialized (server not started)"
 
     try:
-        resolved_type_id = _resolve_ref_param(_db, type_id, ref)
+        resolved_type_id = _resolve_ref_param(_db, type_id, ref, project_id=_effective_project_id())
     except ValueError as exc:
         return f"Error: {exc}"
 
@@ -515,6 +616,8 @@ async def update_entity(
     artifact_path: str | None = None,
     metadata: str | dict | None = None,
     ref: str | None = None,
+    project_id: str | None = None,
+    new_project_id: str | None = None,
 ) -> str:
     """Update mutable fields of an existing entity.
 
@@ -533,6 +636,10 @@ async def update_entity(
         string; dicts are auto-coerced. Empty dict '{}' clears.
     ref:
         Alternative flexible reference. Mutations require exact or unique match.
+    project_id:
+        Project scope for entity resolution. Defaults to current project.
+    new_project_id:
+        If provided, re-attribute the entity to a different project.
 
     Returns confirmation message or error.
     """
@@ -542,8 +649,12 @@ async def update_entity(
     if _db is None:
         return "Error: database not initialized (server not started)"
 
+    resolved_project_id = _effective_project_id(project_id)
+
     try:
-        resolved_type_id = _resolve_ref_param(_db, type_id, ref, is_mutation=True)
+        resolved_type_id = _resolve_ref_param(
+            _db, type_id, ref, is_mutation=True, project_id=resolved_project_id,
+        )
     except ValueError as exc:
         return f"Error: {exc}"
 
@@ -554,6 +665,8 @@ async def update_entity(
         return _process_update_entity(
             _db, resolved_type_id, name=name, description=artifact_path,
             status=status, metadata=parse_metadata(metadata),
+            project_id=resolved_project_id,
+            new_project_id=new_project_id,
         )
     except Exception as exc:
         return f"Error updating entity: {exc}"
@@ -563,6 +676,7 @@ async def update_entity(
 async def export_lineage_markdown(
     type_id: str | None = None,
     output_path: str | None = None,
+    project_id: str | None = None,
 ) -> str:
     """Export entity lineage as a markdown tree.
 
@@ -575,6 +689,8 @@ async def export_lineage_markdown(
         If provided, write markdown to this file path (relative paths
         resolved against artifacts_root). Returns confirmation.
         If omitted, returns the markdown string directly.
+    project_id:
+        Project scope. Defaults to current project. Pass '*' for all projects.
 
     Returns markdown string or file-write confirmation.
     """
@@ -584,7 +700,12 @@ async def export_lineage_markdown(
     if _db is None:
         return "Error: database not initialized (server not started)"
 
-    return _process_export_lineage_markdown(_db, type_id, output_path, _artifacts_root)
+    resolved_project_id = None if project_id == "*" else _effective_project_id(project_id)
+
+    return _process_export_lineage_markdown(
+        _db, type_id, output_path, _artifacts_root,
+        project_id=resolved_project_id,
+    )
 
 
 @mcp.tool()
@@ -594,6 +715,7 @@ async def export_entities(
     output_path: str | None = None,
     include_lineage: bool = True,
     fields: str | None = None,
+    project_id: str | None = None,
 ) -> str:
     """Export all entities (or a filtered subset) as structured JSON.
 
@@ -610,6 +732,8 @@ async def export_entities(
     fields:
         Comma-separated field names to include per entity (e.g.
         'type_id,name,status'). If omitted, all fields returned.
+    project_id:
+        Project scope. Defaults to current project. Pass '*' for all projects.
 
     Returns JSON string or file-write confirmation.
     """
@@ -618,9 +742,13 @@ async def export_entities(
         return json.dumps(err)
     if _db is None:
         return "Error: database not initialized (server not started)"
+
+    resolved_project_id = None if project_id == "*" else _effective_project_id(project_id)
+
     return _process_export_entities(
         _db, entity_type, status, output_path, include_lineage, _artifacts_root,
         fields=fields,
+        project_id=resolved_project_id,
     )
 
 
@@ -643,8 +771,8 @@ async def delete_entity(type_id: str | None = None, ref: str | None = None) -> s
     if _db is None:
         return "Error: database not initialized (server not started)"
     try:
-        resolved_type_id = _resolve_ref_param(_db, type_id, ref, is_mutation=True)
-        return _process_delete_entity(_db, resolved_type_id)
+        resolved_type_id = _resolve_ref_param(_db, type_id, ref, is_mutation=True, project_id=_effective_project_id())
+        return _process_delete_entity(_db, resolved_type_id, project_id=_effective_project_id())
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
     except Exception as exc:
@@ -674,7 +802,7 @@ async def add_entity_tag(
     if _db is None:
         return "Error: database not initialized (server not started)"
     try:
-        resolved_type_id = _resolve_ref_param(_db, type_id, ref, is_mutation=True)
+        resolved_type_id = _resolve_ref_param(_db, type_id, ref, is_mutation=True, project_id=_effective_project_id())
         return _process_add_entity_tag(_db, resolved_type_id, tag)
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
@@ -701,7 +829,7 @@ async def get_entity_tags(type_id: str | None = None, ref: str | None = None) ->
     if _db is None:
         return "Error: database not initialized (server not started)"
     try:
-        resolved_type_id = _resolve_ref_param(_db, type_id, ref)
+        resolved_type_id = _resolve_ref_param(_db, type_id, ref, project_id=_effective_project_id())
         entity = _db.get_entity(resolved_type_id)
         if entity is None:
             return f"Error: entity not found: {resolved_type_id}"
@@ -737,8 +865,8 @@ async def add_dependency(
     try:
         from entity_registry.dependencies import CycleError, DependencyManager
 
-        entity_uuid = _db.resolve_ref(entity_ref)
-        blocked_by_uuid = _db.resolve_ref(blocked_by_ref)
+        entity_uuid = _db.resolve_ref(entity_ref, project_id=_effective_project_id())
+        blocked_by_uuid = _db.resolve_ref(blocked_by_ref, project_id=_effective_project_id())
         mgr = DependencyManager()
         return _process_add_dependency(
             _db, mgr, entity_uuid, blocked_by_uuid, entity_ref, blocked_by_ref,
@@ -775,8 +903,8 @@ async def remove_dependency(
     try:
         from entity_registry.dependencies import DependencyManager
 
-        entity_uuid = _db.resolve_ref(entity_ref)
-        blocked_by_uuid = _db.resolve_ref(blocked_by_ref)
+        entity_uuid = _db.resolve_ref(entity_ref, project_id=_effective_project_id())
+        blocked_by_uuid = _db.resolve_ref(blocked_by_ref, project_id=_effective_project_id())
         mgr = DependencyManager()
         return _process_remove_dependency(
             _db, mgr, entity_uuid, blocked_by_uuid, entity_ref, blocked_by_ref,
@@ -792,6 +920,7 @@ async def search_entities(
     query: str,
     entity_type: str | None = None,
     limit: int = 20,
+    project_id: str | None = None,
 ) -> str:
     """Full-text search across all entities.
 
@@ -803,6 +932,8 @@ async def search_entities(
         Optional filter by entity_type.
     limit:
         Max results (default 20, max 100).
+    project_id:
+        Project scope. Defaults to current project. Pass '*' for all projects.
 
     Returns formatted search results or error message.
     """
@@ -812,8 +943,13 @@ async def search_entities(
     if _db is None:
         return "Error: database not initialized (server not started)"
 
+    resolved_project_id = None if project_id == "*" else _effective_project_id(project_id)
+
     try:
-        results = _db.search_entities(query, entity_type=entity_type, limit=limit)
+        results = _db.search_entities(
+            query, entity_type=entity_type, limit=limit,
+            project_id=resolved_project_id,
+        )
     except ValueError as exc:
         return f"Search error: {exc}"
 
@@ -854,8 +990,8 @@ async def add_okr_alignment(entity_ref: str, kr_ref: str) -> str:
     if _db is None:
         return "Error: database not initialized (server not started)"
     try:
-        entity_uuid = _db.resolve_ref(entity_ref)
-        kr_uuid = _db.resolve_ref(kr_ref)
+        entity_uuid = _db.resolve_ref(entity_ref, project_id=_effective_project_id())
+        kr_uuid = _db.resolve_ref(kr_ref, project_id=_effective_project_id())
         return _process_add_okr_alignment(_db, entity_uuid, kr_uuid, entity_ref, kr_ref)
     except Exception as exc:
         return json.dumps({"error": str(exc)})
@@ -876,7 +1012,7 @@ async def get_okr_alignments(entity_ref: str) -> str:
     if _db is None:
         return "Error: database not initialized (server not started)"
     try:
-        entity_uuid = _db.resolve_ref(entity_ref)
+        entity_uuid = _db.resolve_ref(entity_ref, project_id=_effective_project_id())
         alignments = _db.get_okr_alignments(entity_uuid)
         results = [{"type_id": a["type_id"], "name": a["name"], "status": a.get("status")} for a in alignments]
         return json.dumps({"entity_ref": entity_ref, "alignments": results, "count": len(results)})
@@ -924,11 +1060,15 @@ async def create_key_result(
     if metric_type not in _VALID_METRIC_TYPES:
         return json.dumps({"error": f"Invalid metric_type: {metric_type}. Must be one of: {', '.join(_VALID_METRIC_TYPES)}"})
     try:
-        parent_type_id = _resolve_ref_param(_db, None, parent_ref, is_mutation=True)
+        parent_type_id = _resolve_ref_param(
+            _db, None, parent_ref, is_mutation=True,
+            project_id=_effective_project_id(),
+        )
         eid = entity_id or name.lower().replace(" ", "-")[:30]
         metadata_json = json.dumps({"metric_type": metric_type, "weight": weight})
         return _process_create_key_result(
             _db, parent_type_id, eid, name, status, metadata_json, weight,
+            project_id=_project_id or "__unknown__",
         )
     except Exception as exc:
         return json.dumps({"error": str(exc)})
@@ -956,10 +1096,34 @@ async def update_kr_score(
     if not (0.0 <= score <= 1.0):
         return json.dumps({"error": f"Score must be between 0.0 and 1.0, got {score}"})
     try:
-        resolved = _resolve_ref_param(_db, None, kr_ref, is_mutation=True)
+        resolved = _resolve_ref_param(
+            _db, None, kr_ref, is_mutation=True,
+            project_id=_effective_project_id(),
+        )
         return _process_update_kr_score(_db, resolved, score)
     except Exception as exc:
         return json.dumps({"error": str(exc)})
+
+
+# ---------------------------------------------------------------------------
+# Project listing tool
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def list_projects() -> str:
+    """List all known projects in the entity registry.
+
+    Returns JSON array of project records ordered by created_at.
+    """
+    err = _check_db_available()
+    if err:
+        return json.dumps(err)
+    if _db is None:
+        return "Error: database not initialized (server not started)"
+
+    projects = _db.list_projects()
+    return json.dumps(projects)
 
 
 # ---------------------------------------------------------------------------

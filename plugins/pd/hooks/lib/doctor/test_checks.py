@@ -20,7 +20,7 @@ from doctor.models import CheckResult, DiagnosticReport, Issue
 
 
 def _make_db(tmp_path, name: str = "entities.db") -> str:
-    """Create a minimal entity DB with schema matching EntityDatabase v7.
+    """Create a minimal entity DB with schema matching EntityDatabase v8.
 
     Returns the path to the DB file.
     """
@@ -32,11 +32,12 @@ def _make_db(tmp_path, name: str = "entities.db") -> str:
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
-        INSERT OR REPLACE INTO _metadata(key, value) VALUES('schema_version', '7');
+        INSERT OR REPLACE INTO _metadata(key, value) VALUES('schema_version', '8');
 
         CREATE TABLE IF NOT EXISTS entities (
             uuid        TEXT NOT NULL PRIMARY KEY,
-            type_id     TEXT NOT NULL UNIQUE,
+            type_id     TEXT NOT NULL,
+            project_id  TEXT NOT NULL DEFAULT '__unknown__',
             entity_type TEXT NOT NULL,
             entity_id   TEXT NOT NULL,
             name        TEXT NOT NULL,
@@ -46,7 +47,31 @@ def _make_db(tmp_path, name: str = "entities.db") -> str:
             artifact_path  TEXT,
             created_at  TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
-            metadata    TEXT
+            metadata    TEXT,
+            UNIQUE(project_id, type_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS projects (
+            project_id      TEXT PRIMARY KEY,
+            name            TEXT NOT NULL,
+            root_commit_sha TEXT,
+            remote_url      TEXT,
+            normalized_url  TEXT,
+            remote_host     TEXT,
+            remote_owner    TEXT,
+            remote_repo     TEXT,
+            default_branch  TEXT,
+            project_root    TEXT,
+            is_git_repo     INTEGER NOT NULL DEFAULT 1,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS sequences (
+            project_id  TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            next_val    INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (project_id, entity_type)
         );
 
         CREATE TABLE IF NOT EXISTS workflow_phases (
@@ -89,8 +114,8 @@ def _register_feature(
     conn = sqlite3.connect(db_path)
     conn.execute(
         "INSERT OR IGNORE INTO entities "
-        "(uuid, type_id, entity_type, entity_id, name, status, created_at, updated_at) "
-        "VALUES (?, ?, 'feature', ?, ?, ?, datetime('now'), datetime('now'))",
+        "(uuid, type_id, project_id, entity_type, entity_id, name, status, created_at, updated_at) "
+        "VALUES (?, ?, '__unknown__', 'feature', ?, ?, ?, datetime('now'), datetime('now'))",
         (str(uuid_mod.uuid4()), type_id, slug, f"Test Feature {slug}", status),
     )
     conn.commit()
@@ -655,8 +680,8 @@ def _setup_workflow_feature(db_path, slug, *, wp="design", lcp="specify",
     conn = sqlite3.connect(db_path)
     conn.execute(
         "INSERT OR IGNORE INTO entities "
-        "(uuid, type_id, entity_type, entity_id, name, status, created_at, updated_at) "
-        "VALUES (?, ?, 'feature', ?, ?, 'active', datetime('now'), datetime('now'))",
+        "(uuid, type_id, project_id, entity_type, entity_id, name, status, created_at, updated_at) "
+        "VALUES (?, ?, '__unknown__', 'feature', ?, ?, 'active', datetime('now'), datetime('now'))",
         (entity_uuid, type_id, slug, f"Feature {slug}"),
     )
     conn.execute(
@@ -854,8 +879,8 @@ def _register_brainstorm(db_path, entity_id, status="active"):
     conn = sqlite3.connect(db_path)
     conn.execute(
         "INSERT OR IGNORE INTO entities "
-        "(uuid, type_id, entity_type, entity_id, name, status, created_at, updated_at) "
-        "VALUES (?, ?, 'brainstorm', ?, ?, ?, datetime('now'), datetime('now'))",
+        "(uuid, type_id, project_id, entity_type, entity_id, name, status, created_at, updated_at) "
+        "VALUES (?, ?, '__unknown__', 'brainstorm', ?, ?, ?, datetime('now'), datetime('now'))",
         (entity_uuid, type_id, entity_id, f"Brainstorm {entity_id}", status),
     )
     conn.commit()
@@ -932,8 +957,8 @@ class TestCheck3EntityDepsFallback:
         conn = sqlite3.connect(db_path)
         conn.execute(
             "INSERT INTO entities "
-            "(uuid, type_id, entity_type, entity_id, name, status, created_at, updated_at) "
-            "VALUES (?, 'feature:002-beta', 'feature', '002-beta', 'Beta', 'completed', "
+            "(uuid, type_id, project_id, entity_type, entity_id, name, status, created_at, updated_at) "
+            "VALUES (?, 'feature:002-beta', '__unknown__', 'feature', '002-beta', 'Beta', 'completed', "
             "datetime('now'), datetime('now'))",
             (feat_uuid,),
         )
@@ -1010,8 +1035,8 @@ def _register_backlog(db_path, entity_id, status="active"):
     conn = sqlite3.connect(db_path)
     conn.execute(
         "INSERT OR IGNORE INTO entities "
-        "(uuid, type_id, entity_type, entity_id, name, status, created_at, updated_at) "
-        "VALUES (?, ?, 'backlog', ?, ?, ?, datetime('now'), datetime('now'))",
+        "(uuid, type_id, project_id, entity_type, entity_id, name, status, created_at, updated_at) "
+        "VALUES (?, ?, '__unknown__', 'backlog', ?, ?, ?, datetime('now'), datetime('now'))",
         (str(uuid_mod.uuid4()), type_id, entity_id, f"Backlog {entity_id}", status),
     )
     conn.commit()
@@ -1746,9 +1771,9 @@ def _register_entity_with_uuid(db_path, type_id, entity_type, entity_id,
     conn = sqlite3.connect(db_path)
     conn.execute(
         "INSERT OR IGNORE INTO entities "
-        "(uuid, type_id, entity_type, entity_id, name, status, "
+        "(uuid, type_id, project_id, entity_type, entity_id, name, status, "
         "parent_type_id, parent_uuid, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, 'active', ?, ?, datetime('now'), datetime('now'))",
+        "VALUES (?, ?, '__unknown__', ?, ?, ?, 'active', ?, ?, datetime('now'), datetime('now'))",
         (uuid_val, type_id, entity_type, entity_id,
          f"Entity {entity_id}", parent_type_id, parent_uuid),
     )
@@ -2154,7 +2179,7 @@ class TestCheck10MissingConfigFileUsesDefaults:
 
 
 class TestOrchestratorReportHas10Checks:
-    """Orchestrator: report always has 10 checks."""
+    """Orchestrator: report always has 11 checks."""
 
     def test_report_has_10_checks(self, tmp_path):
         from doctor import run_diagnostics
@@ -2164,11 +2189,11 @@ class TestOrchestratorReportHas10Checks:
         (tmp_path / "docs").mkdir(exist_ok=True)
 
         report = run_diagnostics(db_path, mem_path, str(tmp_path / "docs"), str(tmp_path))
-        assert len(report.checks) == 10
+        assert len(report.checks) == 11
 
 
 class TestOrchestratorReportEvenWhenLocked:
-    """Orchestrator: 10 checks even when DB is locked."""
+    """Orchestrator: 11 checks even when DB is locked."""
 
     def test_report_10_checks_even_when_locked(self, tmp_path):
         from doctor import run_diagnostics
@@ -2182,7 +2207,7 @@ class TestOrchestratorReportEvenWhenLocked:
         blocker.execute("BEGIN IMMEDIATE")
         try:
             report = run_diagnostics(db_path, mem_path, str(tmp_path / "docs"), str(tmp_path))
-            assert len(report.checks) == 10
+            assert len(report.checks) == 11
         finally:
             blocker.rollback()
             blocker.close()
@@ -2295,7 +2320,7 @@ class TestOrchestratorPerCheckExceptionIsolation:
         # The orchestrator wraps each check in try/except
         # Even if a check raises, we still get 10 results
         report = run_diagnostics(db_path, mem_path, str(tmp_path / "docs"), str(tmp_path))
-        assert len(report.checks) == 10
+        assert len(report.checks) == 11
 
 
 class TestOrchestratorMissingDbFile:
@@ -2311,7 +2336,7 @@ class TestOrchestratorMissingDbFile:
         report = run_diagnostics(db_path, mem_path, str(tmp_path / "docs"), str(tmp_path))
         assert not os.path.exists(db_path)
         assert not os.path.exists(mem_path)
-        assert len(report.checks) == 10
+        assert len(report.checks) == 11
 
 
 class TestOrchestratorBaseBranchFromConfig:
@@ -2328,7 +2353,7 @@ class TestOrchestratorBaseBranchFromConfig:
         (config_dir / "pd.local.md").write_text("base_branch: develop\n")
 
         report = run_diagnostics(db_path, mem_path, str(tmp_path / "docs"), str(tmp_path))
-        assert len(report.checks) == 10
+        assert len(report.checks) == 11
 
 
 class TestOrchestratorBaseBranchDefaultMain:
@@ -2342,7 +2367,7 @@ class TestOrchestratorBaseBranchDefaultMain:
         (tmp_path / "docs").mkdir(exist_ok=True)
 
         report = run_diagnostics(db_path, mem_path, str(tmp_path / "docs"), str(tmp_path))
-        assert len(report.checks) == 10
+        assert len(report.checks) == 11
 
 
 class TestOrchestratorCheck8RunsFirst:
@@ -2375,7 +2400,7 @@ class TestOrchestratorBothDbsLocked:
         blocker2.execute("BEGIN IMMEDIATE")
         try:
             report = run_diagnostics(db_path, mem_path, str(tmp_path / "docs"), str(tmp_path))
-            assert len(report.checks) == 10
+            assert len(report.checks) == 11
             assert report.healthy is False
         finally:
             blocker1.rollback()
@@ -2395,7 +2420,7 @@ class TestOrchestratorFreshProjectEmpty:
         (tmp_path / "docs").mkdir(exist_ok=True)
 
         report = run_diagnostics(db_path, mem_path, str(tmp_path / "docs"), str(tmp_path))
-        assert len(report.checks) == 10
+        assert len(report.checks) == 11
         assert report.elapsed_ms >= 0
 
 
@@ -2411,7 +2436,7 @@ class TestOrchestratorWorksWithoutMcp:
 
         # No MCP servers running -- should still work
         report = run_diagnostics(db_path, mem_path, str(tmp_path / "docs"), str(tmp_path))
-        assert len(report.checks) == 10
+        assert len(report.checks) == 11
 
 
 class TestOrchestratorConnectionsClosedOnSuccess:
@@ -2425,7 +2450,7 @@ class TestOrchestratorConnectionsClosedOnSuccess:
         (tmp_path / "docs").mkdir(exist_ok=True)
 
         report = run_diagnostics(db_path, mem_path, str(tmp_path / "docs"), str(tmp_path))
-        assert len(report.checks) == 10
+        assert len(report.checks) == 11
 
         # Verify we can acquire write locks (connections were closed)
         conn = sqlite3.connect(db_path, timeout=1.0)
@@ -2472,7 +2497,7 @@ def _doctor_lib_path():
 
 
 class TestCliJsonOutputHas10Checks:
-    """CLI: JSON output contains 10 checks."""
+    """CLI: JSON output contains 11 checks."""
 
     def test_cli_json_output_has_10_checks(self, tmp_path):
         db_path = _make_db(tmp_path)
@@ -2492,7 +2517,7 @@ class TestCliJsonOutputHas10Checks:
         data = json.loads(result.stdout)
         # Phase 2 wraps output: {"diagnostic": ...}
         diag = data.get("diagnostic", data)
-        assert len(diag["checks"]) == 10
+        assert len(diag["checks"]) == 11
 
 
 class TestCliExitCodeAlwaysZero:
@@ -2567,7 +2592,7 @@ class TestCliArtifactsRootCliArgPrecedence:
         assert result.returncode == 0
         data = json.loads(result.stdout)
         diag = data.get("diagnostic", data)
-        assert len(diag["checks"]) == 10
+        assert len(diag["checks"]) == 11
 
 
 class TestCliArtifactsRootConfigFallback:
@@ -2589,7 +2614,7 @@ class TestCliArtifactsRootConfigFallback:
         assert result.returncode == 0
         data = json.loads(result.stdout)
         diag = data.get("diagnostic", data)
-        assert len(diag["checks"]) == 10
+        assert len(diag["checks"]) == 11
 
 
 class TestCliArtifactsRootDefaultDocs:
@@ -2610,7 +2635,7 @@ class TestCliArtifactsRootDefaultDocs:
         assert result.returncode == 0
         data = json.loads(result.stdout)
         diag = data.get("diagnostic", data)
-        assert len(diag["checks"]) == 10
+        assert len(diag["checks"]) == 11
 
 
 class TestCliNoneSerializesAsJsonNull:

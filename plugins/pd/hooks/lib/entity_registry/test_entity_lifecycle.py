@@ -37,6 +37,7 @@ def _create_brainstorm(db: EntityDatabase, entity_id: str = "idea-1") -> str:
         entity_id=entity_id,
         name=f"Test brainstorm {entity_id}",
         status="draft",
+        project_id="__unknown__",
     )
     return type_id
 
@@ -49,6 +50,7 @@ def _create_backlog(db: EntityDatabase, entity_id: str = "item-1") -> str:
         entity_id=entity_id,
         name=f"Test backlog {entity_id}",
         status="open",
+        project_id="__unknown__",
     )
     return type_id
 
@@ -118,6 +120,7 @@ class TestInitEntityWorkflow:
             entity_id="feat-1",
             name="Test feature",
             status="active",
+            project_id="__unknown__",
         )
         with pytest.raises(ValueError, match="invalid_entity_type.*feature"):
             init_entity_workflow(db, "feature:feat-1", "ideation", "backlog")
@@ -128,6 +131,7 @@ class TestInitEntityWorkflow:
             entity_id="proj-1",
             name="Test project",
             status="active",
+            project_id="__unknown__",
         )
         with pytest.raises(ValueError, match="invalid_entity_type.*project"):
             init_entity_workflow(db, "project:proj-1", "active", "wip")

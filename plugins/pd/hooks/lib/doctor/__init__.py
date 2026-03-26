@@ -18,6 +18,7 @@ from doctor.checks import (
     check_entity_orphans,
     check_feature_status,
     check_memory_health,
+    check_project_attribution,
     check_referential_integrity,
     check_workflow_phase,
 )
@@ -35,6 +36,7 @@ CHECK_ORDER = [
     check_branch_consistency,
     check_entity_orphans,
     check_referential_integrity,
+    check_project_attribution,
     check_config_validity,
 ]
 
@@ -47,6 +49,7 @@ _ENTITY_DB_CHECKS = {
     "check_branch_consistency",
     "check_entity_orphans",
     "check_referential_integrity",
+    "check_project_attribution",
 }
 
 # Checks that require memory DB

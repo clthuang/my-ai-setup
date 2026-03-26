@@ -44,6 +44,7 @@ def _register(db, entity_type, entity_id, name, *, status=None,
         status=status,
         parent_type_id=parent_type_id,
         metadata=metadata,
+        project_id="__unknown__",
     )
 
 

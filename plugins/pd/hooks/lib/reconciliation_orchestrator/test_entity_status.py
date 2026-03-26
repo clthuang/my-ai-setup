@@ -31,6 +31,7 @@ def seed_feature(db: EntityDatabase, folder: str, status: str) -> None:
         entity_id=folder,
         name=folder,
         status=status,
+        project_id="__unknown__",
     )
 
 
@@ -41,6 +42,7 @@ def seed_project(db: EntityDatabase, folder: str, status: str) -> None:
         entity_id=folder,
         name=folder,
         status=status,
+        project_id="__unknown__",
     )
 
 

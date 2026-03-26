@@ -201,6 +201,8 @@ def _process_register_entity(
     status: str | None,
     parent_type_id: str | None,
     metadata: dict | None,
+    project_id: str = "__unknown__",
+    auto_id: bool = False,
 ) -> str:
     """Register an entity via EntityDatabase with error handling.
 
@@ -222,6 +224,10 @@ def _process_register_entity(
         Optional type_id of the parent entity.
     metadata:
         Optional dict stored as JSON.
+    project_id:
+        Project scope for the entity.
+    auto_id:
+        Whether the entity_id was auto-generated (informational only).
 
     Returns
     -------
@@ -238,6 +244,7 @@ def _process_register_entity(
             status=status,
             parent_type_id=parent_type_id,
             metadata=metadata,
+            project_id=project_id,
         )
         type_id = f"{entity_type}:{entity_id}"
         return f"Registered: {type_id}"
@@ -252,6 +259,7 @@ def _process_export_lineage_markdown(
     type_id: str | None,
     output_path: str | None,
     artifacts_root: str,
+    project_id: str | None = None,
 ) -> str:
     """Export entity lineage as markdown, optionally writing to a file.
 
@@ -276,7 +284,7 @@ def _process_export_lineage_markdown(
         Never raises exceptions.
     """
     try:
-        md = db.export_lineage_markdown(type_id)
+        md = db.export_lineage_markdown(type_id, project_id=project_id)
         resolved = resolve_output_path(output_path, artifacts_root)
         if resolved is not None:
             parent_dir = os.path.dirname(resolved)
@@ -300,6 +308,7 @@ def _process_export_entities(
     include_lineage: bool,
     artifacts_root: str,
     fields: str | None = None,
+    project_id: str | None = None,
 ) -> str:
     """Export entities as JSON, optionally writing to a file.
 
@@ -328,7 +337,9 @@ def _process_export_entities(
         Never raises exceptions.
     """
     try:
-        data = db.export_entities_json(entity_type, status, include_lineage)
+        data = db.export_entities_json(
+            entity_type, status, include_lineage, project_id=project_id,
+        )
     except ValueError as exc:
         return f"Error: {exc}"
 

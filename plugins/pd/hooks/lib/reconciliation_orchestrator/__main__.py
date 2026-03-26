@@ -21,6 +21,7 @@ import sys
 import time
 
 from entity_registry.database import EntityDatabase
+from entity_registry.project_identity import detect_project_id
 from semantic_memory.database import MemoryDatabase
 
 from reconciliation_orchestrator import brainstorm_registry, entity_status, kb_import
@@ -85,11 +86,12 @@ def run(args):
 
         full_artifacts_path = os.path.join(args.project_root, args.artifacts_root)
         global_store_path = os.path.dirname(args.memory_db)
+        project_id = detect_project_id(args.project_root)
 
         # Task 1: entity status sync
         try:
             results["entity_sync"] = entity_status.sync_entity_statuses(
-                entity_db, full_artifacts_path
+                entity_db, full_artifacts_path, project_id=project_id
             )
         except Exception as exc:
             results["errors"].append(f"entity_status: {exc}")
@@ -97,7 +99,8 @@ def run(args):
         # Task 2: brainstorm registry sync
         try:
             results["brainstorm_sync"] = brainstorm_registry.sync_brainstorm_entities(
-                entity_db, full_artifacts_path, args.artifacts_root
+                entity_db, full_artifacts_path, args.artifacts_root,
+                project_id=project_id,
             )
         except Exception as exc:
             results["errors"].append(f"brainstorm_registry: {exc}")

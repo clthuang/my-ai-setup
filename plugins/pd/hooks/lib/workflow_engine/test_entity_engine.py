@@ -58,6 +58,7 @@ def _register(
         name=name,
         status=status,
         parent_type_id=parent_type_id,
+        project_id="__unknown__",
     )
 
 

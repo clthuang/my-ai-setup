@@ -24,6 +24,7 @@ from server_lifecycle import write_pid, remove_pid, start_parent_watchdog
 from sqlite_retry import with_retry, is_transient
 
 from entity_registry.database import EntityDatabase
+from entity_registry.project_identity import detect_project_id
 from entity_registry.entity_lifecycle import (
     init_entity_workflow as _lib_init_entity_workflow,
     transition_entity_phase as _lib_transition_entity_phase,
@@ -76,6 +77,7 @@ _engine: WorkflowStateEngine | None = None
 _entity_engine: EntityWorkflowEngine | None = None
 _artifacts_root: str = ""
 _project_root: str = ""
+_project_id: str = ""
 _notification_queue: NotificationQueue | None = None
 
 # ---------------------------------------------------------------------------
@@ -151,7 +153,7 @@ def _check_db_available() -> str | None:
 async def lifespan(server):
     """Manage DB connection and engine lifecycle."""
     global _db, _db_unavailable, _recovery_thread
-    global _engine, _entity_engine, _artifacts_root, _project_root, _notification_queue
+    global _engine, _entity_engine, _artifacts_root, _project_root, _project_id, _notification_queue
 
     write_pid("workflow_state_server")
     start_parent_watchdog()
@@ -170,6 +172,7 @@ async def lifespan(server):
     else:
         project_root = os.environ.get("PROJECT_ROOT", os.getcwd())
         _project_root = project_root
+        _project_id = detect_project_id(project_root)
         config = read_config(project_root)
         _artifacts_root = os.path.join(project_root, str(config.get("artifacts_root", "docs")))
 
@@ -1178,25 +1181,69 @@ async def validate_prerequisites(
 
 
 @mcp.tool()
-async def list_features_by_phase(phase: str) -> str:
-    """All features currently in a given workflow phase."""
+async def list_features_by_phase(phase: str, project_id: str | None = None) -> str:
+    """All features currently in a given workflow phase.
+
+    Parameters
+    ----------
+    phase:
+        Workflow phase name to filter by.
+    project_id:
+        Project scope. Defaults to current project. Pass '*' for all projects.
+    """
     err = _check_db_available()
     if err:
         return err
     if _engine is None:
         return _NOT_INITIALIZED
-    return _process_list_features_by_phase(_engine, phase)
+    resolved_project_id = None if project_id == "*" else (project_id or _project_id)
+    results = _process_list_features_by_phase(_engine, phase)
+    if resolved_project_id is None or _db is None:
+        return results
+    # Post-filter by project_id
+    try:
+        states = json.loads(results)
+        filtered = []
+        for s in states:
+            entity = _db.get_entity(s.get("feature_type_id", ""))
+            if entity and entity.get("project_id") == resolved_project_id:
+                filtered.append(s)
+        return json.dumps(filtered)
+    except (json.JSONDecodeError, Exception):
+        return results
 
 
 @mcp.tool()
-async def list_features_by_status(status: str) -> str:
-    """All features with a given entity status."""
+async def list_features_by_status(status: str, project_id: str | None = None) -> str:
+    """All features with a given entity status.
+
+    Parameters
+    ----------
+    status:
+        Entity status to filter by.
+    project_id:
+        Project scope. Defaults to current project. Pass '*' for all projects.
+    """
     err = _check_db_available()
     if err:
         return err
     if _engine is None:
         return _NOT_INITIALIZED
-    return _process_list_features_by_status(_engine, status)
+    resolved_project_id = None if project_id == "*" else (project_id or _project_id)
+    results = _process_list_features_by_status(_engine, status)
+    if resolved_project_id is None or _db is None:
+        return results
+    # Post-filter by project_id
+    try:
+        states = json.loads(results)
+        filtered = []
+        for s in states:
+            entity = _db.get_entity(s.get("feature_type_id", ""))
+            if entity and entity.get("project_id") == resolved_project_id:
+                filtered.append(s)
+        return json.dumps(filtered)
+    except (json.JSONDecodeError, Exception):
+        return results
 
 
 @mcp.tool()

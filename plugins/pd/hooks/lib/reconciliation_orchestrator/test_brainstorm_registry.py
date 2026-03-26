@@ -61,6 +61,7 @@ class TestSyncBrainstormEntities:
             entity_id=stem,
             name=stem,
             status="active",
+            project_id="__unknown__",
         )
 
         with tempfile.TemporaryDirectory() as base:

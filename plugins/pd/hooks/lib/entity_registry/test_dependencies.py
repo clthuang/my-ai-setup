@@ -34,7 +34,7 @@ def mgr():
 
 def _reg(db, suffix: str) -> str:
     """Register a feature and return its uuid."""
-    return db.register_entity("feature", f"001-{suffix}", f"Feature {suffix}")
+    return db.register_entity("feature", f"001-{suffix}", f"Feature {suffix}", project_id="__unknown__")
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +273,7 @@ class TestPerformance:
         nodes = []
         for i in range(1000):
             nodes.append(
-                db.register_entity("feature", f"perf-{i:04d}", f"Perf {i}")
+                db.register_entity("feature", f"perf-{i:04d}", f"Perf {i}", project_id="__unknown__")
             )
         start = time.time()
         for i in range(999):
