@@ -1,0 +1,15 @@
+{
+  "id": "069",
+  "slug": "reviewer-token-efficiency",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-03-27T03:03:22.727787+00:00",
+  "branch": "feature/069-reviewer-token-efficiency",
+  "brainstorm_source": "docs/brainstorms/20260327-040000-reviewer-token-efficiency.prd.md",
+  "lastCompletedPhase": null,
+  "phases": {
+    "brainstorm": {
+      "started": "2026-03-27T03:03:22.726550+00:00"
+    }
+  }
+}
