@@ -18,8 +18,10 @@ The `commitAndComplete()` function in workflow-transitions SKILL.md currently ac
 commitAndComplete(phaseName, artifacts[], iterations, reviewerNotes[])
 ```
 
-- `iterations` (integer): Total review iterations across all reviewer stages in the phase. Each command file already tracks this as a counter in its review loop.
+- `iterations` (integer): The review loop counter at phase completion — the value of the iteration counter when the loop exits. For phases where the user triggers a counter reset (e.g., specify's "Fix and rerun reviews"), use the counter value from the final run only.
 - `reviewerNotes[]` (array of objects): Unresolved issues from the final reviewer iteration. Each object has shape: `{"severity": "warning|suggestion", "description": "..."}`. Command files construct this from the final reviewer JSON response's `issues[]` array, filtering to non-blocker items that were not addressed.
+
+The current `commitAndComplete` Step 2 already passes placeholder iteration/reviewer_notes values to `complete_phase` MCP. This change replaces those with caller-provided values, ensuring the MCP receives accurate data from the review loop.
 
 All five command files (specify, design, create-plan, create-tasks, implement) must update their `commitAndComplete()` call sites to pass these two additional parameters.
 
@@ -30,9 +32,11 @@ Add a new **Step 3: Phase Summary** to `commitAndComplete()`, executed after Ste
 The summary contains:
 
 1. **Header line**: `"{PhaseName} complete ({iterations} iteration(s)). {outcome}"`
-   - `outcome` is derived: if `iterations == 1` AND `reviewerNotes` is empty → "Approved on first pass."
-   - If `iterations < max` AND `reviewerNotes` is non-empty → "Approved with notes."
-   - If `iterations == max` (5 for most phases) → "Review cap reached."
+   - `outcome` is derived from this decision table (evaluated top to bottom, first match wins):
+     - `iterations == max` (5 for most phases) → "Review cap reached."
+     - `iterations == 1` AND `reviewerNotes` is empty → "Approved on first pass."
+     - `iterations > 1` AND `reviewerNotes` is empty → "Approved after {iterations} iterations."
+     - `reviewerNotes` is non-empty → "Approved with notes."
 
 2. **Artifacts line**: `"Artifacts: {comma-separated artifact filenames}"` — derived from `artifacts[]` parameter. If `artifacts[]` is empty (as in implement phase), omit this line.
 
@@ -45,7 +49,7 @@ The summary contains:
    - Use ASCII-safe prefixes `[W]` and `[S]` (not emoji) for terminal compatibility
    - Show at most 5 items, sorted by severity (warnings first)
    - If more than 5: append "...and {n} more"
-   - **Cap-reached case**: Replace header with "Review cap reached — unresolved issues carried forward:"
+   - **Cap-reached case**: When the header already says "Review cap reached.", the feedback section header becomes "Unresolved issues carried forward:" instead of "Remaining feedback (...):"
 
 4. **Clean pass** (if `reviewerNotes[]` is empty): `"All reviewer issues resolved."`
 
@@ -64,7 +68,7 @@ Each command file constructs `reviewerNotes[]` from the final reviewer response 
 3. Map to `{"severity": item.severity, "description": item.description}`
 4. Pass as the `reviewerNotes` parameter
 
-For phases with two review stages (specify, design): merge unresolved issues from both stages. The phase-reviewer is the final gate, so its issues take priority; include spec-reviewer/design-reviewer issues only if they were flagged as unresolved in the phase-reviewer's response.
+For phases with two review stages (specify, design): use only the phase-reviewer's final `issues[]` array. The phase-reviewer is the final gate and covers the full scope — if domain-reviewer issues matter, the phase-reviewer will re-raise them.
 
 For phases with one review stage (create-plan, create-tasks, implement): use that reviewer's final issues directly.
 
@@ -79,7 +83,7 @@ For phases with one review stage (create-plan, create-tasks, implement): use tha
 - **AC-7**: Existing AskUserQuestion options remain unchanged — summary is additive
 - **AC-8**: When `artifacts[]` is empty (implement phase), the artifacts line is omitted
 
-Verification: Run each phase command to completion and confirm the summary block appears in output before the AskUserQuestion prompt. Cross-check summary content against `.review-history.md` entries.
+Verification is manual (visual inspection of CLI output). No automated test is required — the feature is ephemeral display text in a SKILL.md procedural template. Run each phase command to completion and confirm the summary block appears before the AskUserQuestion prompt.
 
 ## Out of Scope
 
