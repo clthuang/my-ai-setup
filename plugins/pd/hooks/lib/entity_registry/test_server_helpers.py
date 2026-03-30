@@ -907,8 +907,29 @@ class TestRegisterEntityDualIdentityMessage:
             artifact_path=None, status=None,
             parent_type_id=None, metadata=None,
         )
-        # Then the same concise format with type_id only
-        assert second_result == "Registered: feature:f1"
+        # Then message indicates already existed
+        assert second_result == "Already existed: feature:f1 \u2014 no changes"
+
+    def test_register_existing_entity_with_parent_applied(
+        self, db: EntityDatabase,
+    ):
+        """Re-registering with parent_type_id on parentless entity applies parent."""
+        db.register_entity(
+            "project", "parent-p", "Parent",
+            project_id="__unknown__",
+        )
+        _process_register_entity(
+            db, "feature", "f2", "Feature Two",
+            artifact_path=None, status=None,
+            parent_type_id=None, metadata=None,
+        )
+        result = _process_register_entity(
+            db, "feature", "f2", "Feature Two",
+            artifact_path=None, status=None,
+            parent_type_id="project:parent-p", metadata=None,
+        )
+        assert "parent applied" in result
+        assert "project:parent-p" in result
 
 
 class TestRenderTreeUuidKeying:

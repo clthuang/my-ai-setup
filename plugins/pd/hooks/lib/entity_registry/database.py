@@ -1776,6 +1776,14 @@ class EntityDatabase:
                      metadata_text),
                 )
             self._commit()  # no-op inside transaction(); commit handled by context manager
+        # Apply parent_type_id on duplicate if caller provided one and existing entity has none
+        if cursor.rowcount == 0 and parent_type_id is not None and parent_uuid is not None:
+            existing_parent = self._conn.execute(
+                "SELECT parent_type_id FROM entities WHERE type_id = ? AND project_id = ?",
+                (type_id, project_id),
+            ).fetchone()
+            if existing_parent and existing_parent["parent_type_id"] is None:
+                self.set_parent(type_id, parent_type_id, project_id=project_id)
         result = self._conn.execute(
             "SELECT uuid FROM entities WHERE type_id = ? AND project_id = ?",
             (type_id, project_id),
