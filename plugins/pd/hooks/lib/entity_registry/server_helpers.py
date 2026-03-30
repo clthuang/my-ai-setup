@@ -236,6 +236,9 @@ def _process_register_entity(
         Never raises exceptions.
     """
     try:
+        type_id = f"{entity_type}:{entity_id}"
+        existing = db.get_entity(type_id)
+        existing_parent = existing["parent_type_id"] if existing else None
         db.register_entity(
             entity_type=entity_type,
             entity_id=entity_id,
@@ -246,8 +249,13 @@ def _process_register_entity(
             metadata=metadata,
             project_id=project_id,
         )
-        type_id = f"{entity_type}:{entity_id}"
-        return f"Registered: {type_id}"
+        if existing is None:
+            return f"Registered: {type_id}"
+        if parent_type_id and existing_parent is None:
+            updated = db.get_entity(type_id)
+            if updated and updated.get("parent_type_id") == parent_type_id:
+                return f"Already existed: {type_id} \u2014 parent applied ({parent_type_id})"
+        return f"Already existed: {type_id} \u2014 no changes"
     except sqlite3.OperationalError:
         raise
     except Exception as exc:

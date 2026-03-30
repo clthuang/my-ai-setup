@@ -428,6 +428,14 @@ Call `complete_phase` MCP tool to set terminal status and update `.meta.json`:
    skipped -- {error reason}. State will reconcile on next reconcile_apply
    run." but do NOT stop or block the completion flow. All error types are
    handled identically.
+5. Commit the updated `.meta.json`:
+   ```bash
+   git add {pd_artifacts_root}/features/{id}-{slug}/.meta.json
+   git diff --cached --quiet || git commit -m "chore: mark feature {id} as completed in .meta.json"
+   git push
+   ```
+   - If nothing to commit: no-op (`.meta.json` may already be committed).
+   - If push fails: warn but do not block cleanup.
 
 ### Step 6b: Delete temporary files
 

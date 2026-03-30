@@ -807,6 +807,66 @@ class TestImmutableTriggers:
 
 
 # ---------------------------------------------------------------------------
+# register_entity: parent-on-duplicate behavior
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterEntityParentOnDuplicate:
+    """Verify register_entity applies parent_type_id when re-registering
+    an existing entity that has no parent."""
+
+    def test_apply_parent_on_duplicate(self, db: EntityDatabase):
+        """Register without parent, then with parent → parent is set."""
+        db.register_entity("project", "parent-proj", "Parent", project_id="__unknown__")
+        db.register_entity("feature", "child-feat", "Child", project_id="__unknown__")
+        # Re-register with parent
+        db.register_entity(
+            "feature", "child-feat", "Child",
+            parent_type_id="project:parent-proj",
+            project_id="__unknown__",
+        )
+        entity = db.get_entity("feature:child-feat")
+        assert entity["parent_type_id"] == "project:parent-proj"
+
+    def test_no_overwrite_existing_parent(self, db: EntityDatabase):
+        """Register with parent A, then with parent B → parent A preserved."""
+        db.register_entity("project", "proj-a", "A", project_id="__unknown__")
+        db.register_entity("project", "proj-b", "B", project_id="__unknown__")
+        db.register_entity(
+            "feature", "child-feat", "Child",
+            parent_type_id="project:proj-a",
+            project_id="__unknown__",
+        )
+        # Re-register with different parent
+        db.register_entity(
+            "feature", "child-feat", "Child",
+            parent_type_id="project:proj-b",
+            project_id="__unknown__",
+        )
+        entity = db.get_entity("feature:child-feat")
+        assert entity["parent_type_id"] == "project:proj-a"
+
+    def test_nonexistent_parent_on_duplicate(self, db: EntityDatabase):
+        """Register without parent, then with nonexistent parent → stays NULL."""
+        db.register_entity("feature", "child-feat", "Child", project_id="__unknown__")
+        # Re-register with nonexistent parent (parent_uuid will be None)
+        db.register_entity(
+            "feature", "child-feat", "Child",
+            parent_type_id="project:does-not-exist",
+            project_id="__unknown__",
+        )
+        entity = db.get_entity("feature:child-feat")
+        assert entity["parent_type_id"] is None
+
+    def test_idempotent_no_parent(self, db: EntityDatabase):
+        """Register twice without parent → no error, no changes."""
+        db.register_entity("feature", "child-feat", "Child", project_id="__unknown__")
+        uuid2 = db.register_entity("feature", "child-feat", "Child", project_id="__unknown__")
+        entity = db.get_entity("feature:child-feat")
+        assert entity["parent_type_id"] is None
+        assert entity["uuid"] == uuid2
+
+
 # Task 1.8: set_parent tests
 # ---------------------------------------------------------------------------
 
