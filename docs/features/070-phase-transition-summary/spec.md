@@ -18,7 +18,7 @@ The `commitAndComplete()` function in workflow-transitions SKILL.md currently ac
 commitAndComplete(phaseName, artifacts[], iterations, reviewerNotes[])
 ```
 
-- `iterations` (integer): The review loop counter at phase completion — the value of the iteration counter when the loop exits. For phases where the user triggers a counter reset (e.g., specify's "Fix and rerun reviews"), use the counter value from the final run only.
+- `iterations` (integer): The review loop counter at phase completion. For phases with two review stages (specify, design), this is the combined total across both stages (e.g., 2 spec-reviewer iterations + 1 phase-reviewer iteration = 3). For phases where the user triggers a counter reset (e.g., specify's "Fix and rerun reviews"), use the counter value from the final run only.
 - `reviewerNotes[]` (array of objects): Unresolved issues from the final reviewer iteration. Each object has shape: `{"severity": "warning|suggestion", "description": "..."}`. Command files construct this from the final reviewer JSON response's `issues[]` array, filtering to non-blocker items that were not addressed.
 
 The current `commitAndComplete` Step 2 already passes placeholder iteration/reviewer_notes values to `complete_phase` MCP. This change replaces those with caller-provided values, ensuring the MCP receives accurate data from the review loop.
@@ -33,7 +33,7 @@ The summary contains:
 
 1. **Header line**: `"{PhaseName} complete ({iterations} iteration(s)). {outcome}"`
    - `outcome` is derived from this decision table (evaluated top to bottom, first match wins):
-     - `iterations == max` (5 for most phases) → "Review cap reached."
+     - `iterations == max` (5 for all current phases) → "Review cap reached."
      - `iterations == 1` AND `reviewerNotes` is empty → "Approved on first pass."
      - `iterations > 1` AND `reviewerNotes` is empty → "Approved after {iterations} iterations."
      - `reviewerNotes` is non-empty → "Approved with notes."
@@ -64,7 +64,7 @@ The summary contains:
 Each command file constructs `reviewerNotes[]` from the final reviewer response before calling `commitAndComplete()`:
 
 1. Take the last reviewer's JSON response `issues[]` array
-2. Filter to items with `severity` of "warning" or "suggestion"
+2. Filter to items with `severity` of "warning" or "suggestion". For cap-reached cases (iterations == max), also include "blocker" severity items since the phase is completing despite unresolved blockers.
 3. Map to `{"severity": item.severity, "description": item.description}`
 4. Pass as the `reviewerNotes` parameter
 
@@ -77,7 +77,7 @@ For phases with one review stage (create-plan, create-tasks, implement): use tha
 - **AC-1**: All five command files pass `iterations` and `reviewerNotes[]` to `commitAndComplete()`
 - **AC-2**: Phase completion shows iteration count and reviewer outcome in the summary block before the AskUserQuestion prompt
 - **AC-3**: When `iterations == 1` and `reviewerNotes` is empty, summary shows "Approved on first pass." and "All reviewer issues resolved."
-- **AC-4**: When review cap is reached (`iterations == max`), summary shows "Review cap reached" and lists unresolved issues
+- **AC-4**: When review cap is reached (`iterations == max`), header shows "Review cap reached." and feedback section header is "Unresolved issues carried forward:" with listed items
 - **AC-5**: When unresolved warnings/suggestions exist, they are listed with `[W]`/`[S]` prefixes
 - **AC-6**: Summary is generated in `commitAndComplete()` Step 3 — individual command files do NOT duplicate summary logic
 - **AC-7**: Existing AskUserQuestion options remain unchanged — summary is additive
