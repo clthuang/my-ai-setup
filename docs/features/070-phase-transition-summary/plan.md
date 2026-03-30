@@ -37,7 +37,7 @@ Task 2 runs first after Task 1 to validate the reviewerNotes construction patter
    - Outcome decision table (capReached → iterations==1 → iterations>1 → notes non-empty)
    - Header line format: `"{PhaseName} complete ({N} iteration(s)). {outcome}."`
    - Artifacts line: `"Artifacts: {comma-separated filenames}"` (omit when `artifacts[]` empty)
-   - Feedback section with `[W]`/`[S]`/`[B]` prefixes, max 5 items, sorted by severity (blockers first, then warnings, then suggestions)
+   - Feedback section with `[W]`/`[S]` prefixes per spec, max 5 items, sorted by severity (warnings first, then suggestions). Note: when capReached is true, blocker-severity items are included in the list but displayed with `[W]` prefix (spec only defines `[W]`/`[S]` — blockers are surfaced as high-priority warnings in the display)
    - Cap-reached variant header: "Unresolved issues carried forward:"
    - Clean pass: "All reviewer issues resolved."
    - 12-line max, 100-char truncation per feedback line
@@ -89,14 +89,14 @@ Task 2 runs first after Task 1 to validate the reviewerNotes construction patter
 3. Compute `capReached = (iteration == 5 at Step 1 exit without approval) OR (phase_iteration == 5 at Step 2 exit without approval)`
 4. Error handling: if response lacks `.issues[]`, set `reviewerNotes = []`
 
-**Note:** create-plan.md has a two-step reviewer loop (plan-reviewer Step 1, phase-reviewer Step 2), so iterations = `iteration + phase_iteration` (same as dual-reviewer pattern).
+**Note:** create-plan.md has a two-step reviewer loop (plan-reviewer Step 1, phase-reviewer Step 2), so iterations = `iteration + phase_iteration`. **Design deviation:** design.md (line 131) incorrectly categorizes create-plan as "single-reviewer" with `iterations = iteration`, but codebase confirms two-step structure. Using actual structure.
 
 **Dependency:** Task 1
 
 ### Task 5: Update create-tasks.md call site
 
 **File:** `plugins/pd/commands/create-tasks.md`
-**Why:** Same two-step pattern as create-plan.
+**Why:** Same two-step pattern as create-plan. **Design deviation:** same as Task 4 — design says single-reviewer but codebase has two-step loop.
 
 **Changes:**
 1. At section 5b `commitAndComplete` call, change to: `commitAndComplete("create-tasks", ["tasks.md"], iteration + phase_iteration, capReached, reviewerNotes)`
@@ -111,7 +111,7 @@ Task 2 runs first after Task 1 to validate the reviewerNotes construction patter
 **File:** `plugins/pd/commands/implement.md`
 **Why:** Most complex — 3 concurrent reviewers, currently uses partial commitAndComplete.
 
-**Behavioral change:** This task changes implement.md from "Step 2 only" to full `commitAndComplete`, which adds auto-commit+push behavior (Step 1) where none existed before. The design explicitly requires this (design.md line 128). Step 1 with empty `artifacts[]` commits only .meta.json and .review-history.md — verified safe in Task 1 change #3.
+**Behavioral change:** This task changes implement.md from "Step 2 only" to full `commitAndComplete`, which adds auto-commit+push behavior (Step 1) where none existed before. The design explicitly requires this (design.md line 128). Step 1 with empty `artifacts[]` commits only .meta.json and .review-history.md — verified safe in Task 1 change #3. **Edge case:** If review iterations already committed .meta.json/.review-history.md, Step 1's `git commit` may produce "nothing to commit". Task 1 must update Step 1 to treat "nothing to commit" as a success path (skip to Step 2) rather than an error.
 
 **Changes:**
 1. Replace the current "Follow the state update step from `commitAndComplete`" (section 8) with a full `commitAndComplete("implement", [], iteration, capReached, reviewerNotes)` call
@@ -120,7 +120,7 @@ Task 2 runs first after Task 1 to validate the reviewerNotes construction patter
    - Filter: if capReached, keep all severities; else keep warning/suggestion only
    - Deduplicate: if two issues reference the same file/function AND have overlapping keywords in descriptions, keep only the higher-severity one. When uncertain, keep both.
    - Map to `{severity, description}` objects
-3. Compute `capReached = (iteration == 5 at exit without approval)`
+3. Compute `capReached = (iteration == 5 at exit without approval)` — implement.md uses `iteration` as the loop counter variable (confirm by reading Step 7 loop initialization)
 4. Error handling for malformed responses from any of the 3 reviewers
 
 **Dependency:** Task 1
@@ -135,7 +135,9 @@ After all tasks, verify each acceptance criterion by reading the modified files:
 | AC-2 | Step 3 outputs header with iteration count and outcome | SKILL.md |
 | AC-3 | Decision table row 2: iterations==1 + empty notes → "Approved on first pass." + "All reviewer issues resolved." | SKILL.md |
 | AC-4 | Decision table row 1: capReached → "Review cap reached." + "Unresolved issues carried forward:" + blockers included | SKILL.md + command files (reviewerNotes includes blockers when capReached) |
-| AC-5 | Feedback items prefixed with `[W]`/`[S]`/`[B]` | SKILL.md |
+| AC-5 | Feedback items prefixed with `[W]`/`[S]` | SKILL.md |
 | AC-6 | Summary logic only in SKILL.md Step 3, not in any command file | All 6 files |
 | AC-7 | AskUserQuestion blocks unchanged in all 5 commands | All 5 command files |
 | AC-8 | Artifacts line omitted when artifacts[] empty (implement path) | SKILL.md Step 3 |
+
+**Smoke test:** After all tasks, run at least one phase command to completion and visually confirm the summary block renders before the AskUserQuestion prompt, per spec verification guidance.
