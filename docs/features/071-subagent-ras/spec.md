@@ -28,7 +28,7 @@ The `researching` skill executes three sequential phases:
 
 Both agent Task dispatches are issued in the same message (parallel). Each dispatch MUST include `model:` matching agent frontmatter. Inline context gathering runs concurrently.
 
-**Pre-dispatch memory enrichment:** Before each agent dispatch, call `search_memory` with `"{agent role} {user query}"`, limit=5, brief=true. Inject non-empty results as `## Relevant Engineering Memory` in the dispatch prompt. Post-dispatch: for each entry name returned, if it appears as a case-insensitive exact substring in the agent's output, call `record_influence(entry_name=<name>, agent_role="{agent-name}", feature_type_id="feature:071-subagent-ras")`.
+**Pre-dispatch memory enrichment:** Before each agent dispatch, call `search_memory` with `"{agent role} {user query}"`, limit=5, brief=true. Inject non-empty results as `## Relevant Engineering Memory` in the dispatch prompt. Post-dispatch: for each entry name returned, if it appears as a case-insensitive exact substring in the agent's output, call `record_influence(entry_name=<name>, agent_role="{agent-name}", feature_type_id=<current feature type_id from .meta.json if on a feature branch, otherwise skip record_influence>)`.
 
 **Phase 2: ANALYZE** (sequential, after Phase 1 completes)
 - Dispatch `pd:ras-synthesizer` (model: opus) with:
@@ -58,7 +58,7 @@ Both agent Task dispatches are issued in the same message (parallel). Each dispa
   - Save: writes to `agent_sandbox/{YYYY-MM-DD}/ras-{slug}.md`
   - Dismiss: no persistence
 
-**Slug derivation:** First 5 words of query, lowercased, non-alphanumeric characters removed, spaces replaced with hyphens, max 50 characters. Example: "compare event sourcing vs CQRS" → `compare-event-sourcing-vs-cqrs`.
+**Slug derivation:** (1) Take first 5 words (split on whitespace), (2) lowercase, (3) strip characters that are not a-z, 0-9, or hyphen, (4) join words with hyphens, (5) truncate to 50 characters. Example: "compare event sourcing vs CQRS" → `compare-event-sourcing-vs-cqrs`.
 
 ### R3: Output Format
 
