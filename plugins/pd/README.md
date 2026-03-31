@@ -55,7 +55,7 @@ flowchart TD
 | Type | Count |
 |------|-------|
 | Skills | 30 |
-| Agents | 29 |
+| Agents | 28 |
 | Commands | 31 |
 | Hooks | 13 |
 | MCP Tools | 26 |

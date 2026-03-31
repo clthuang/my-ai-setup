@@ -149,7 +149,7 @@ flowchart TD
     SK --> WORKFLOW
     SK --> AG
 
-    subgraph AG["Agents · 29 subagents"]
+    subgraph AG["Agents · 28 subagents"]
         direction TB
         A1["Reviewers (13)<br/>spec, design, plan, impl,<br/>security, code-quality, ..."]
         A2["Workers (7)<br/>implementer, code-simplifier,<br/>ras-synthesizer, test-deepener, ..."]

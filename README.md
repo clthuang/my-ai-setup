@@ -244,7 +244,7 @@ Tasks are organized for parallel execution:
 
 ## Reference
 
-pd includes 30 skills and 29 agents that run automatically during the workflow. You don't invoke them directly.
+pd includes 30 skills and 28 agents that run automatically during the workflow. You don't invoke them directly.
 
 ### Skills
 
