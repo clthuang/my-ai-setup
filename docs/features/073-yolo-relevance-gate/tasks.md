@@ -143,8 +143,8 @@ graph TD
 - **Test:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/transition_gate/ -v`
 - **Done when:** All transition_gate tests pass with updated assertions
 
-#### Task 1.5: Update GUARD_METADATA (14 guards)
-- **Why:** Plan item 1 — 14 guards reference create-tasks in affected_phases
+#### Task 1.5: Update GUARD_METADATA and PHASE_GUARD_MAP (14 guards + map)
+- **Why:** Plan item 1 — 14 guards reference create-tasks in affected_phases; PHASE_GUARD_MAP has create-tasks keys
 - **Depends on:** None
 - **Blocks:** T1.4
 - **Files:** `plugins/pd/hooks/lib/transition_gate/constants.py`
@@ -154,6 +154,7 @@ graph TD
      - Replace `'create-tasks'` with `'create-plan'` in `affected_phases` list
   3. Remove any guards that are create-tasks-specific (G-36, G-37 if they only apply to create-tasks)
   4. Merge create-tasks guards into create-plan guards if needed
+  5. In PHASE_GUARD_MAP: remove 'create-tasks' key from both 'review_quality' and 'phase_handoff' sub-dicts
 - **Test:** `python3 -c "from transition_gate.constants import GUARD_METADATA; assert all('create-tasks' not in g.get('affected_phases', []) for g in GUARD_METADATA.values()); print('OK')"`
 - **Done when:** No GUARD_METADATA entry references create-tasks in affected_phases
 
@@ -233,8 +234,8 @@ graph TD
      - **Phase name references** (in phase sequences, test data, documentation) → replace `create-tasks` with `create-plan`
      - **Command references** (YOLO auto-chain `/pd:create-tasks`) → replace with `/pd:implement` (create-plan now handles task breakdown, so the next phase after create-plan is implement)
      - **Deprecation stub** (`commands/create-tasks.md`) → leave as-is (this IS the redirect)
-- **Test:** `grep -rn 'create.tasks' plugins/pd/skills/ plugins/pd/commands/ --include='*.md' | wc -l` = 0
-- **Done when:** Zero create-tasks references in skills/ and commands/ (excluding deprecation stub)
+- **Test:** `grep -rn 'create.tasks' plugins/pd/skills/ plugins/pd/commands/ --include='*.md' | grep -v 'create-tasks.md' | wc -l` = 0
+- **Done when:** Zero create-tasks references in skills/ and commands/ (excluding commands/create-tasks.md deprecation stub)
 
 #### Task 5.2: Sweep create-tasks references in hooks and workflow_engine
 - **Why:** Plan item 5 — hooks and workflow engine reference old phase
@@ -469,7 +470,7 @@ graph TD
 
 #### Task 17.1: Restructure implement.md review section
 - **Why:** Plan item 17 / Design C5/I8 — 3-level sequential QA
-- **Depends on:** T15.1
+- **Depends on:** T13.1 (forward re-run), T15.1 (relevance-verifier agent)
 - **Blocks:** T18.1
 - **Files:** `plugins/pd/commands/implement.md`
 - **Do:**
