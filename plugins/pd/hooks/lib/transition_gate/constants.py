@@ -8,13 +8,13 @@ from .models import Enforcement, Phase, YoloBehavior
 # Phase sequences (Task 2.1)
 # ---------------------------------------------------------------------------
 
-# Canonical 7-phase sequence matching workflow-state/SKILL.md (SC-5).
+# Canonical 6-phase sequence — create-plan now produces both plan.md and
+# tasks.md (create-tasks merged into create-plan in feature 073).
 PHASE_SEQUENCE: tuple[Phase, ...] = (
     Phase.brainstorm,
     Phase.specify,
     Phase.design,
     Phase.create_plan,
-    Phase.create_tasks,
     Phase.implement,
     Phase.finish,
 )
@@ -42,18 +42,19 @@ HARD_PREREQUISITES: dict[str, list[str]] = {
     "specify": [],
     "design": ["spec.md"],
     "create-plan": ["spec.md", "design.md"],
-    "create-tasks": ["spec.md", "design.md", "plan.md"],
     "implement": ["spec.md", "tasks.md"],
     "finish": [],
 }
 
-ARTIFACT_PHASE_MAP: dict[str, str] = {
-    # Maps phase name -> output artifact filename produced by that phase.
-    "brainstorm": "prd.md",
-    "specify": "spec.md",
-    "design": "design.md",
-    "create-plan": "plan.md",
-    "create-tasks": "tasks.md",
+ARTIFACT_PHASE_MAP: dict[str, list[str]] = {
+    # Maps phase name -> output artifact filename(s) produced by that phase.
+    # create-plan produces both plan.md and tasks.md (merged in feature 073).
+    "brainstorm": ["prd.md"],
+    "specify": ["spec.md"],
+    "design": ["design.md"],
+    "create-plan": ["plan.md", "tasks.md"],
+    "implement": [],
+    "finish": ["retro.md"],
 }
 
 ARTIFACT_GUARD_MAP: dict[tuple[str, str], str] = {
@@ -84,7 +85,6 @@ PHASE_GUARD_MAP: dict[str, dict[str, str]] = {
         "specify": "G-46",
         "design": "G-38",
         "create-plan": "G-34",
-        "create-tasks": "G-36",
         "implement": "G-40",
     },
     "phase_handoff": {
@@ -93,7 +93,6 @@ PHASE_GUARD_MAP: dict[str, dict[str, str]] = {
         "specify": "G-47",
         "design": "G-39",
         "create-plan": "G-35",
-        "create-tasks": "G-37",
     },
 }
 
@@ -121,7 +120,7 @@ GUARD_METADATA: dict[str, dict] = {
     "G-02": {
         "enforcement": Enforcement.hard_block,
         "yolo_behavior": YoloBehavior.unchanged,
-        "affected_phases": ["create-plan", "create-tasks", "implement"],
+        "affected_phases": ["create-plan", "implement"],
     },
     "G-03": {
         "enforcement": Enforcement.hard_block,
@@ -131,7 +130,7 @@ GUARD_METADATA: dict[str, dict] = {
     "G-04": {
         "enforcement": Enforcement.hard_block,
         "yolo_behavior": YoloBehavior.unchanged,
-        "affected_phases": ["create-tasks"],
+        "affected_phases": ["create-plan"],
     },
     "G-05": {
         "enforcement": Enforcement.hard_block,
@@ -151,7 +150,7 @@ GUARD_METADATA: dict[str, dict] = {
     "G-08": {
         "enforcement": Enforcement.hard_block,
         "yolo_behavior": YoloBehavior.unchanged,
-        "affected_phases": ["create-plan", "create-tasks", "implement"],
+        "affected_phases": ["create-plan", "implement"],
     },
     "G-09": {
         "enforcement": Enforcement.soft_warn,
@@ -163,7 +162,7 @@ GUARD_METADATA: dict[str, dict] = {
         "yolo_behavior": YoloBehavior.auto_select,
         "affected_phases": [
             "specify", "design", "create-plan",
-            "create-tasks", "implement", "finish",
+            "implement", "finish",
         ],
     },
     "G-13": {
@@ -191,7 +190,7 @@ GUARD_METADATA: dict[str, dict] = {
         "yolo_behavior": YoloBehavior.auto_select,
         "affected_phases": [
             "specify", "design", "create-plan",
-            "create-tasks", "implement", "finish",
+            "implement", "finish",
         ],
     },
     "G-18": {
@@ -199,7 +198,7 @@ GUARD_METADATA: dict[str, dict] = {
         "yolo_behavior": YoloBehavior.auto_select,
         "affected_phases": [
             "specify", "design", "create-plan",
-            "create-tasks", "implement", "finish",
+            "implement", "finish",
         ],
     },
     #
@@ -209,7 +208,7 @@ GUARD_METADATA: dict[str, dict] = {
         "yolo_behavior": YoloBehavior.auto_select,
         "affected_phases": [
             "specify", "design", "create-plan",
-            "create-tasks", "implement", "finish",
+            "implement", "finish",
         ],
     },
     "G-23": {
@@ -217,7 +216,7 @@ GUARD_METADATA: dict[str, dict] = {
         "yolo_behavior": YoloBehavior.auto_select,
         "affected_phases": [
             "specify", "design", "create-plan",
-            "create-tasks", "implement", "finish",
+            "implement", "finish",
         ],
     },
     "G-25": {
@@ -225,7 +224,7 @@ GUARD_METADATA: dict[str, dict] = {
         "yolo_behavior": YoloBehavior.auto_select,
         "affected_phases": [
             "specify", "design", "create-plan",
-            "create-tasks", "implement", "finish",
+            "implement", "finish",
         ],
     },
     "G-27": {
@@ -276,12 +275,12 @@ GUARD_METADATA: dict[str, dict] = {
     "G-36": {
         "enforcement": Enforcement.hard_block,
         "yolo_behavior": YoloBehavior.unchanged,
-        "affected_phases": ["create-tasks"],
+        "affected_phases": ["create-plan"],
     },
     "G-37": {
         "enforcement": Enforcement.hard_block,
         "yolo_behavior": YoloBehavior.unchanged,
-        "affected_phases": ["create-tasks"],
+        "affected_phases": ["create-plan"],
     },
     "G-38": {
         "enforcement": Enforcement.hard_block,
@@ -310,7 +309,7 @@ GUARD_METADATA: dict[str, dict] = {
         "yolo_behavior": YoloBehavior.skip,
         "affected_phases": [
             "specify", "design", "create-plan",
-            "create-tasks", "implement", "finish",
+            "implement", "finish",
         ],
     },
     "G-46": {
@@ -338,7 +337,7 @@ GUARD_METADATA: dict[str, dict] = {
         "yolo_behavior": YoloBehavior.auto_select,
         "affected_phases": [
             "specify", "design", "create-plan",
-            "create-tasks", "implement", "finish",
+            "implement", "finish",
         ],
     },
     # G-51: ENFORCEMENT OVERRIDE — guard-rules.yaml says soft-warn, but spec
@@ -350,7 +349,7 @@ GUARD_METADATA: dict[str, dict] = {
         "yolo_behavior": YoloBehavior.unchanged,
         "affected_phases": [
             "specify", "design", "create-plan",
-            "create-tasks", "implement", "finish",
+            "implement", "finish",
         ],
     },
     "G-52": {
@@ -368,7 +367,7 @@ GUARD_METADATA: dict[str, dict] = {
         "yolo_behavior": YoloBehavior.unchanged,
         "affected_phases": [
             "specify", "design", "create-plan",
-            "create-tasks", "implement", "finish",
+            "implement", "finish",
         ],
     },
 }

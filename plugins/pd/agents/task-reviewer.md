@@ -1,6 +1,6 @@
 ---
 name: task-reviewer
-description: Validates task breakdown quality. Use when (1) create-tasks command review, (2) user says 'review tasks', (3) user says 'check task breakdown', (4) user says 'validate tasks.md'.
+description: Validates task breakdown quality. Use when (1) create-plan command review (task breakdown stage), (2) user says 'review tasks', (3) user says 'check task breakdown', (4) user says 'validate tasks.md'.
 model: sonnet
 tools: [Read, Glob, Grep]
 color: blue
@@ -134,6 +134,27 @@ When you see this → Challenge with this:
 - **suggestion**: Improvement opportunity with constructive guidance.
 
 **Critical:** Every issue MUST include a `suggestion` field with constructive guidance.
+
+### Optional Backward Travel (include only when root cause is upstream)
+
+If you determine a blocker's root cause is in an upstream artifact (not the current phase's artifact), include these optional fields in the response JSON:
+
+```json
+{
+  "backward_to": "design",
+  "backward_reason": "Brief explanation of why the upstream phase needs revision",
+  "backward_context": {
+    "source_phase": "create-plan",
+    "target_phase": "design",
+    "findings": [
+      {"artifact": "design.md", "section": "Component B", "issue": "Interface undefined", "suggestion": "Define input/output contract for Component B"}
+    ],
+    "downstream_impact": "Tasks for Component B cannot specify file paths or verification without a defined interface"
+  }
+}
+```
+
+Only include `backward_to` when the root cause is genuinely in an upstream artifact -- not when the current artifact simply needs revision. `backward_to` must name a phase earlier than the current phase.
 
 ## Approval Rule
 
