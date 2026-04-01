@@ -105,11 +105,11 @@ pd's workflow is forward-only with no mechanism to route work back to the upstre
 
 #### AC-A5: Ping-Pong Detection
 - Given the same backward travel pair (e.g., create-plan → specify) occurs 3 times
-- When the SHA-256 hash of the target phase's output artifact (e.g., spec.md) is identical between the 2nd and 3rd backward travel
+- When the reviewer issue count does not decrease between the 2nd and 3rd backward travel for the same pair (plateau or increase = no progress)
 - Then the reviewer must either escalate to user or approve with warnings
-- And the workflow does not loop again on the same pair without artifact change
-- And hashes are stored in `backward_history` entries in entity metadata for comparison
-- And hash is computed over all output artifacts of the target phase concatenated in alphabetical order by filename (e.g., for create-plan: plan.md + tasks.md)
+- And the workflow does not loop again on the same pair without measurable progress
+- And issue counts are stored in `backward_history` entries in entity metadata (issue_count field per entry)
+- And the detection rule is: if issue_count(attempt N) >= issue_count(attempt N-1) for the same source→target pair after ≥2 prior attempts, that's ping-pong
 
 #### AC-A6: Backward History Audit
 - Given backward travel occurs during a feature's lifecycle
