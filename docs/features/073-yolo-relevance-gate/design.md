@@ -154,7 +154,20 @@ Logic:
     4. Update backward_transition_reason in workflow_phases (existing column)
     5. Log to backward_history array in entity metadata:
        {source_phase, target_phase, reason, timestamp, issue_count: len(issues)}
-    6. Call transition_phase(feature_type_id, backward_to) to move to upstream phase
+    6. Expected metadata structure after backward travel:
+       ```json
+       {
+         "phase_timing": { ... },
+         "mode": "standard",
+         "backward_context": { "source_phase": "create-plan", "target_phase": "specify", "findings": [...], "downstream_impact": "..." },
+         "backward_return_target": "create-plan",
+         "backward_history": [
+           { "source_phase": "create-plan", "target_phase": "specify", "reason": "...", "timestamp": "...", "issue_count": 3 }
+         ]
+       }
+       ```
+       All three fields are top-level keys in the entity metadata JSON blob.
+    7. Call transition_phase(feature_type_id, backward_to) to move to upstream phase
     7. In YOLO: auto-invoke the target phase command with [YOLO_MODE]
        In interactive: prompt user "Reviewer recommends going back to {phase}. Proceed?"
     return "backward"
@@ -173,7 +186,7 @@ Added to `workflow-transitions/SKILL.md` Step 1, after the existing backward-tra
 ```
 After Step 1 (validate transition):
   Step 1b: Check for backward context
-    1. Read .meta.json (already read in Step 1 of validateAndSetup). backward_context is projected into .meta.json by _project_meta_json() — no additional MCP call needed.
+    1. Read .meta.json (already read in Step 1 of validateAndSetup). backward_context is projected into .meta.json by _project_meta_json() — no additional MCP call needed. **Implementation note:** _project_meta_json() must be extended to project `backward_context` and `backward_return_target` fields from entity metadata into .meta.json. `backward_history` should NOT be projected (audit-only, would bloat .meta.json).
     2. If .meta.json contains backward_context:
        a. Read backward_context.findings[]
        b. Format as markdown block:
@@ -385,7 +398,7 @@ In handleReviewerResponse(), when backward_to is present:
   2. Find previous entries with same (source_phase, target_phase) pair
   3. If ≥2 previous entries exist for this pair:
      a. Compare issue_count: current vs previous
-     b. If issue_count did NOT decrease (plateau or increase):
+     b. Compare current issue_count against the most recent previous entry's issue_count for the same (source_phase, target_phase) pair. If current >= previous (plateau or increase):
         - This is a ping-pong signal
         - In YOLO: force approve with warnings (log "ping-pong detected, forcing forward")
         - In interactive: prompt user "Same issues recurring. Force approve or continue fixing?"

@@ -20,7 +20,7 @@ pd's workflow is forward-only with no mechanism to route work back to the upstre
 **A. Backward Travel**
 - Extend phase reviewer response schema with `backward_to` and `backward_context` fields
 - Backward transition triggering: phase command orchestration (not workflow engine) parses reviewer response for `backward_to` and initiates the backward transition. This logic lives in the shared workflow-transitions skill (commitAndComplete or a new handleReviewerResponse step), not in individual phase commands.
-- Context injection mechanism: backward_context is written to `{feature_dir}/.backward-context.json`. Phase commands read this file when present and include its contents as additional input alongside existing artifacts. The file is deleted after the phase completes successfully.
+- Context injection mechanism: backward_context is stored in entity metadata (via update_entity MCP), projected into .meta.json by _project_meta_json(). Phase commands read backward_context from .meta.json when present and include its contents as additional input. The field is cleared from metadata after the phase completes successfully.
 - Forward re-run orchestration: entity metadata stores `backward_return_target` (the phase that initiated the backward travel). After the upstream fix, the orchestrator advances one phase at a time until reaching backward_return_target, then resumes normal flow. This is NEW orchestration logic — not covered by existing complete_phase().
 - Ping-pong detection via artifact hashing: SHA-256 hash of target phase's output artifact stored in backward_history entries. If same source→target pair occurs 3x with same artifact hash → escalate.
 - Backward context carries only the most recent backward travel context (not accumulated). Previous contexts preserved in backward_history for audit but not injected into prompts.
@@ -83,10 +83,10 @@ pd's workflow is forward-only with no mechanism to route work back to the upstre
 #### AC-A2: Backward Transition Execution
 - Given a reviewer recommends `backward_to: "specify"`
 - When the phase command's orchestration logic (in workflow-transitions skill) processes this recommendation
-- Then it writes `backward_context` to `{feature_dir}/.backward-context.json` with schema: `{source_phase, target_phase, findings, original_reviewer_response}`
+- Then it stores `backward_context` in entity metadata with schema: `{source_phase, target_phase, findings, original_reviewer_response}` via `update_entity` MCP call
 - And it stores `backward_return_target` in entity metadata (the phase that initiated backward travel)
-- And it invokes the target phase command (e.g., `/pd:specify`) with the backward context file present
-- And the target phase reads `.backward-context.json` and includes its contents as additional input alongside existing artifacts
+- And it invokes the target phase command (e.g., `/pd:specify`)
+- And the target phase reads `backward_context` from .meta.json (projected from entity metadata by `_project_meta_json()`) and includes its contents as additional input alongside existing artifacts
 - And when the target is `brainstorm`, the phase runs in clarification mode (skipping research stages — already completed). backward_context indicates this is a refinement, not a fresh brainstorm.
 
 #### AC-A3: Forward Re-Run After Fix
@@ -94,7 +94,7 @@ pd's workflow is forward-only with no mechanism to route work back to the upstre
 - When the orchestration logic checks entity metadata for `backward_return_target`
 - Then it advances one phase at a time: specify → design → create-plan
 - And each intermediate phase re-runs fully (produces complete new artifacts, not incremental diffs)
-- And `.backward-context.json` is deleted after the upstream phase completes (not carried forward)
+- And backward_context is cleared from entity metadata after the upstream phase completes (not carried forward to intermediate re-run phases)
 - And when the workflow reaches `backward_return_target`, it clears the field and resumes normal flow
 
 #### AC-A4: Resource Guardrail
@@ -266,7 +266,7 @@ pd's workflow is forward-only with no mechanism to route work back to the upstre
 ### Assessment
 **Overall:** Likely
 **Reasoning:**
-- Backward travel: G-18 allows backward transitions (warns, doesn't block). `complete_phase()` handles backward re-runs. However, **forward re-run orchestration is novel** — no existing mechanism drives one-phase-at-a-time advancement back to the return target. This requires new orchestration logic in the workflow-transitions skill, a `backward_return_target` field in entity metadata, and `.backward-context.json` storage/injection. This is the core new work.
+- Backward travel: G-18 allows backward transitions (warns, doesn't block). `complete_phase()` handles backward re-runs. However, **forward re-run orchestration is novel** — no existing mechanism drives one-phase-at-a-time advancement back to the return target. This requires new orchestration logic in the workflow-transitions skill, a `backward_return_target` field in entity metadata, and `entity metadata (backward_context field)` storage/injection. This is the core new work.
 - Relevance gate: Single new agent dispatch reading existing artifacts. Well-understood pattern (similar to existing reviewer dispatches).
 - Merged create-plan: Both skills already exist. The merge is command-level orchestration, not skill changes. PHASE_SEQUENCE update + DB migration are well-documented patterns (8 prior migrations).
 - Standalone taskify: breaking-down-tasks skill + task-reviewer agent already exist. The new command is a thin wrapper.
