@@ -157,7 +157,10 @@ def check_hard_prerequisites(
 
     if active_phases is not None:
         # Build reverse map: artifact_name -> producing_phase
-        artifact_to_phase = {v: k for k, v in ARTIFACT_PHASE_MAP.items()}
+        # ARTIFACT_PHASE_MAP is dict[str, list[str]], flatten to artifact->phase
+        artifact_to_phase = {
+            a: k for k, artifacts in ARTIFACT_PHASE_MAP.items() for a in artifacts
+        }
         # Keep only prerequisites whose producing phase is in active_phases
         required = [
             a for a in required

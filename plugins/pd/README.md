@@ -55,8 +55,8 @@ flowchart TD
 | Type | Count |
 |------|-------|
 | Skills | 30 |
-| Agents | 28 |
-| Commands | 31 |
+| Agents | 30 |
+| Commands | 32 |
 | Hooks | 13 |
 | MCP Tools | 26 |
 
@@ -74,7 +74,8 @@ flowchart TD
 | `/pd:specify [--feature=ID]` | spec.md |
 | `/pd:design` | design.md (4-stage workflow) |
 | `/pd:create-plan` | plan.md |
-| `/pd:create-tasks` | tasks.md |
+| `/pd:create-tasks` | _(deprecated — merged into create-plan)_ |
+| `/pd:taskify` | Break any existing plan into tasks (standalone regeneration) |
 | `/pd:implement` | Code changes |
 | `/pd:abandon-feature` | Transition a feature to abandoned status |
 | `/pd:finish-feature` | Merge, retro, cleanup (pd features) |
@@ -155,7 +156,7 @@ Stage 2: PHASE-REVIEWER (Execution Readiness)
     │   • Can an engineer break this into tasks?
     │   • Are all design items covered?
     ↓
-[User Prompt: Run /create-tasks?]
+[User Prompt: Run /implement?]
 ```
 
 ### Implementation Review
@@ -165,6 +166,7 @@ The `/pd:implement` command uses three reviewers in an iterative loop (up to 5 i
 | Reviewer | Focus | Validation |
 |----------|-------|------------|
 | implementation-reviewer | Requirements compliance | 4-level: Tasks→Spec→Design→PRD |
+| relevance-verifier | Artifact chain coherence | Coverage, completeness, testability, coherence |
 | code-quality-reviewer | Maintainability | SOLID, readability, testing |
 | security-reviewer | Vulnerabilities | OWASP Top 10, injection, auth |
 
@@ -194,6 +196,7 @@ The `/pd:implement` command uses three reviewers in an iterative loop (up to 5 i
 | project-decomposition-reviewer | Validates project decomposition quality |
 | ras-synthesizer | Synthesizes multi-source research findings into thematic analysis with confidence calibration |
 | rca-investigator | Finds all root causes through 6-phase systematic investigation |
+| relevance-verifier | Verifies full artifact chain coherence (spec→design→plan→tasks) |
 | retro-facilitator | Runs data-driven AORTA retrospective with full intermediate context |
 | secretary-reviewer | Validates secretary routing recommendations |
 | security-reviewer | Reviews implementation for security vulnerabilities |
