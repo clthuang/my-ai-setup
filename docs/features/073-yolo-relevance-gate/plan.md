@@ -38,12 +38,12 @@ Foundation changes that all other stages depend on.
    - **Verification:** `plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_workflow_state_server.py plugins/pd/hooks/lib/entity_registry/test_backfill.py -v`
 
 5. **Sweep all remaining create-tasks references** — Comprehensive cross-codebase update
-   - **Why this item:** 76 occurrences of 'create-tasks' across 20+ files — items 1-4 cover infrastructure but skills, commands, hooks, and workflow_engine files also reference the old phase
+   - **Why this item:** ~200 occurrences of 'create-tasks' across ~46 files — items 1-4 cover infrastructure but skills, commands, hooks, workflow_engine, UI, doctor, and test files also reference the old phase
    - **Why this order:** After items 1-4 (infrastructure correct first, then sweep consumers)
    - **Deliverable:** Update all references in: skills/ (workflow-transitions, planning, implementing, reviewing-artifacts, workflow-state), commands/ (create-plan.md, secretary.md, show-status.md, list-features.md), hooks/ (session-start.sh, yolo-stop.sh), workflow_engine/ (templates.py, kanban.py), and test files (test_reconciliation.py, test_entity_engine.py, test_kanban.py, test_rollup.py)
    - **Complexity:** Medium (many files but mechanical find-and-replace with semantic verification)
    - **Files:** ~20 files across skills/, commands/, hooks/, workflow_engine/
-   - **Verification:** `grep -rn 'create.tasks' plugins/pd/ --include='*.py' --include='*.md' --include='*.sh' | grep -v '.venv' | grep -v 'test_' | wc -l` should be 0 (excluding deprecation stub). Then run full test suite.
+   - **Verification:** `grep -rn 'create.tasks' plugins/pd/ --include='*.py' --include='*.md' --include='*.sh' | grep -v '.venv' | wc -l` should be ≤1 (only deprecation stub). Includes test files — stale test references cause failures. Then run full test suite.
 
 ### Stage 1: Standalone Taskify (NO dependencies — can run in parallel with Stage 0)
 New command with zero risk to existing workflow. Validates task-reviewer cycle independently.
@@ -145,12 +145,12 @@ Pre-implementation coherence check.
     - **Files:** `commands/create-plan.md`, `hooks/yolo-guard.sh` (add safety keyword)
     - **Verification:** Run create-plan on a feature with a spec gap, verify gate catches it and halts/backward-travels
 
-### Stage 5: Post-Implementation 360 QA (depends on Stage 3)
+### Stage 5: Post-Implementation 360 QA (depends on Stage 3 + item 15)
 Restructured implementation review.
 
 17. **Restructure implement.md review section** — 3-level sequential QA
     - **Why this item:** Design C5/I8 — layered task→spec→standards verification
-    - **Why this order:** After Stage 3 (backward travel from QA needs handleReviewerResponse)
+    - **Why this order:** After Stage 3 (backward travel from QA needs handleReviewerResponse) AND item 15 (Level 2 dispatches relevance-verifier agent)
     - **Deliverable:** Modified review section: Level 1 (implementation-reviewer for task DoDs), Level 2 (relevance-verifier for spec ACs), Level 3 (code-quality + security reviewers). Sequential dispatch. 5 total iterations shared. Backward travel from Level 1/2 via handleReviewerResponse.
     - **Complexity:** Complex (restructuring existing 3-reviewer loop, adding backward travel integration)
     - **Files:** `commands/implement.md`
@@ -197,8 +197,8 @@ Item 6 (taskify,                                         Item 10 (handleReviewer
                                                                     │
                                                      ┌──────────────┴──────────────┐
                                                      │                             │
-                                                  Item 15                       Item 17
-                                                  (agent)                       (360 QA)
+                                                  Item 15 ──────────────────→ Item 17
+                                                  (agent)                    (360 QA — needs agent)
                                                      │
                                                   Item 16
                                                   (gate dispatch)
