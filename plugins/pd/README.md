@@ -55,7 +55,7 @@ flowchart TD
 | Type | Count |
 |------|-------|
 | Skills | 30 |
-| Agents | 28 |
+| Agents | 29 |
 | Commands | 31 |
 | Hooks | 13 |
 | MCP Tools | 26 |
@@ -165,6 +165,7 @@ The `/pd:implement` command uses three reviewers in an iterative loop (up to 5 i
 | Reviewer | Focus | Validation |
 |----------|-------|------------|
 | implementation-reviewer | Requirements compliance | 4-level: Tasks→Spec→Design→PRD |
+| relevance-verifier | Artifact chain coherence | Coverage, completeness, testability, coherence |
 | code-quality-reviewer | Maintainability | SOLID, readability, testing |
 | security-reviewer | Vulnerabilities | OWASP Top 10, injection, auth |
 
@@ -194,6 +195,7 @@ The `/pd:implement` command uses three reviewers in an iterative loop (up to 5 i
 | project-decomposition-reviewer | Validates project decomposition quality |
 | ras-synthesizer | Synthesizes multi-source research findings into thematic analysis with confidence calibration |
 | rca-investigator | Finds all root causes through 6-phase systematic investigation |
+| relevance-verifier | Verifies full artifact chain coherence (spec→design→plan→tasks) |
 | retro-facilitator | Runs data-driven AORTA retrospective with full intermediate context |
 | secretary-reviewer | Validates secretary routing recommendations |
 | security-reviewer | Reviews implementation for security vulnerabilities |
