@@ -38,7 +38,11 @@ pd's workflow is forward-only with no mechanism to route work back to the upstre
 - Produces plan.md and tasks.md as separate artifacts
 - Combined review: plan-reviewer → task-reviewer → phase-reviewer (max 5 iterations)
 - Remove `create-tasks` phase from PHASE_SEQUENCE and workflow_phases CHECK constraint
-- Update all references to create-tasks in transition_gate/constants.py: HARD_PREREQUISITES, EXPECTED_ARTIFACTS, gate name maps, scope rules. Update corresponding test assertions in test_gate.py, test_entity_lifecycle.py, and test_workflow_state_server.py.
+- Update all references to create-tasks across the codebase:
+  - `transition_gate/constants.py`: PHASE_SEQUENCE (remove create_tasks), HARD_PREREQUISITES (remove create-tasks entry; create-plan prereqs remain ["spec.md", "design.md"]; implement prereqs remain ["spec.md", "tasks.md"] since tasks.md is now produced by create-plan), ARTIFACT_PHASE_MAP (restructure from 1:1 dict to 1:many — create-plan maps to ["plan.md", "tasks.md"]; update reverse lookup in gate.py:160 accordingly), GUARD_METADATA (all guards referencing create-tasks in affected_phases have it replaced with create-plan: G-04, G-08, G-11, G-17, G-18, G-22, G-23, G-25, G-36, G-37, G-45, G-50, G-51, G-60)
+  - `entity_registry/frontmatter_inject.py`: Update ARTIFACT_PHASE_MAP to map "tasks" → "create-plan" (currently maps to "create-tasks"). Update test assertions in test_frontmatter.py and test_frontmatter_sync.py.
+  - `workflow_phases` CHECK constraint: DB migration to remove 'create-tasks' from valid values
+  - Test files: test_gate.py, test_constants.py, test_entity_lifecycle.py, test_workflow_state_server.py, test_engine.py
 - Deprecation redirect if `/pd:create-tasks` is invoked
 
 **D. Standalone Taskify**
@@ -104,6 +108,7 @@ pd's workflow is forward-only with no mechanism to route work back to the upstre
 - Then the reviewer must either escalate to user or approve with warnings
 - And the workflow does not loop again on the same pair without artifact change
 - And hashes are stored in `backward_history` entries in entity metadata for comparison
+- And hash is computed over all output artifacts of the target phase concatenated in alphabetical order by filename (e.g., for create-plan: plan.md + tasks.md)
 
 #### AC-A6: Backward History Audit
 - Given backward travel occurs during a feature's lifecycle
@@ -151,7 +156,7 @@ pd's workflow is forward-only with no mechanism to route work back to the upstre
 - When the gate reports failure
 - Then the report identifies the upstream source of the gap (spec.md, design.md, or plan.md)
 - And recommends backward travel to the specific phase
-- And in YOLO mode, the gate outputs a message containing safety keyword "relevance verification failed" which triggers yolo-guard.sh to halt auto-chaining
+- And in YOLO mode, the orchestration code (not the agent) emits a user-visible message containing safety keyword "relevance verification failed" after receiving a blocker failure from the relevance-verifier agent, which triggers yolo-guard.sh to halt auto-chaining
 
 #### AC-B7: Gate Pass
 - Given all checks pass (coverage, completeness, testability, coherence)
@@ -273,8 +278,8 @@ pd's workflow is forward-only with no mechanism to route work back to the upstre
 - Existing reviewer agents can produce `backward_to` field with prompt changes only — Status: Needs verification during implementation
 
 **Open Risks:**
-- Forward re-run orchestration after backward travel is novel — no existing pattern in the codebase
-- Context injection for backward travel may bloat prompts if accumulated across multiple backward jumps
+- **[Highest risk]** Forward re-run orchestration after backward travel is novel — no existing pattern in the codebase. Design phase should prototype this orchestration loop in workflow-transitions skill before detailing other components.
+- Context injection bloat mitigated by resolved decision: most recent context only, not accumulated
 
 ## Dependencies
 - Existing planning skill (`skills/planning/SKILL.md`)
