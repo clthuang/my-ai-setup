@@ -629,3 +629,24 @@ When design review surfaces a spec rule that does not hold under all caller conf
 - Confidence: high
 - Last observed: Feature #070
 - Observation count: 1
+
+### Pattern: Spec Vocabulary Resolution Prevents Downstream Rework
+Resolving all vocabulary and edge-case ambiguity in the spec phase — via explicit status mapping tables, resolved open questions, and out-of-scope boundaries — prevents downstream rework in design and implement.
+- Observed in: Feature 074 — spec contained Backlog Status Mapping table; design and implement did not revisit
+- Confidence: high
+- Last observed: Feature #074
+- Observation count: 1
+
+### Pattern: Pseudocode-Depth Design for Infrastructure Modules
+Pseudocode-depth design documents (full function signatures, execution order, error handling) correlate with fast, clean implement phases for critical infrastructure modules.
+- Observed in: Feature 074 — implement completed in 35 min with 2 iterations
+- Confidence: high
+- Last observed: Feature #074
+- Observation count: 1
+
+### Pattern: Atomic Commit Boundaries in Plan Prevent Broken Test Windows
+Specifying atomic commit boundaries and task dependency graphs explicitly in the plan prevents broken test windows during multi-file cleanup operations involving module deletion.
+- Observed in: Feature 074 — plan included commit boundary note for brainstorm_registry deletion
+- Confidence: high
+- Last observed: Feature #074
+- Observation count: 1
