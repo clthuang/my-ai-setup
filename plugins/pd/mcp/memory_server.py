@@ -26,6 +26,11 @@ from semantic_memory.ranking import RankingEngine
 from semantic_memory.retrieval import RetrievalPipeline
 from semantic_memory.dedup import check_duplicate
 from semantic_memory.keywords import extract_keywords
+
+try:
+    import numpy as np
+except ImportError:
+    np = None  # type: ignore[assignment]
 from semantic_memory.writer import _embed_text_for_entry, _process_pending_embeddings
 
 from sqlite_retry import with_retry
@@ -295,7 +300,6 @@ def _process_record_influence_by_content(
     compares against stored entry embeddings. Records influence for entries
     where max chunk similarity >= threshold.
     """
-    import numpy as np
 
     if not injected_entry_names:
         return json.dumps({"matched": [], "skipped": 0})
@@ -341,12 +345,8 @@ def _process_record_influence_by_content(
             continue
 
         entry_emb = np.frombuffer(entry["embedding"], dtype=np.float32)
-        max_sim = 0.0
-        for chunk_emb in chunk_embeddings:
-            sim = float(np.dot(chunk_emb, entry_emb) / (
-                np.linalg.norm(chunk_emb) * np.linalg.norm(entry_emb) + 1e-9
-            ))
-            max_sim = max(max_sim, sim)
+        # Embeddings are pre-normalized by NormalizingWrapper, so dot product = cosine similarity
+        max_sim = max(float(np.dot(chunk_emb, entry_emb)) for chunk_emb in chunk_embeddings)
 
         if max_sim >= threshold:
             db.record_influence(entry["id"], agent_role, feature_type_id)
