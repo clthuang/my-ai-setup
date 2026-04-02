@@ -495,9 +495,10 @@ class TestSyncBacklogEntities:
                 entity_type TEXT NOT NULL,
                 entity_id TEXT NOT NULL,
                 name TEXT NOT NULL,
-                artifact_path TEXT,
                 status TEXT,
+                parent_type_id TEXT,
                 parent_uuid TEXT,
+                artifact_path TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 metadata TEXT
