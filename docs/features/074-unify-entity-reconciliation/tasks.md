@@ -160,6 +160,8 @@
 - [ ] **Task 4.2** — Update sync_entity_statuses() signature and wire all 4 helpers
   - Add `artifacts_root: str = "docs"` and `project_root: str = ""` parameters
   - If `project_root` is empty, derive: `full_artifacts_path[:-len(artifacts_root)].rstrip(os.sep)`
+  - Pass `project_root` to `_sync_brainstorm_entities()` (needed for AC-9 missing-file detection)
+  - Pass `artifacts_root` to `_sync_backlog_entities()` (needed for artifact_path storage)
   - Call `_sync_meta_json_entities` (features), `_sync_meta_json_entities` (projects), `_sync_brainstorm_entities`, `_sync_backlog_entities`
   - Aggregate results: merge all counters, concatenate warnings
   - Return dict gains `registered` and `deleted` keys
@@ -185,9 +187,9 @@
 
 - [ ] **Task 5.2** — Add artifacts_root and project_root to Task 1 call
   - Update Task 1 call: `entity_status.sync_entity_statuses(entity_db, full_artifacts_path, project_id=project_id, artifacts_root=args.artifacts_root, project_root=args.project_root)`
-  - `args.project_root` already exists as a CLI argument
+  - `args.project_root` already exists as a CLI argument — wire it through
   - **Files:** `plugins/pd/hooks/lib/reconciliation_orchestrator/__main__.py`
-  - **Done when:** Task 1 call passes both new parameters
+  - **Done when:** Task 1 call passes both `artifacts_root` and `project_root` parameters
 
 ## Stage 3: Cleanup (depends on Stage 2) — atomic commit
 
@@ -201,11 +203,12 @@
   - **Done when:** Updated assertions compile (may fail until deletion done)
 
 - [ ] **Task 6.2** — Delete brainstorm_registry.py and test_brainstorm_registry.py
+  - First verify: `grep -r brainstorm_registry plugins/pd/` — confirm only __main__.py (already handled in 5.1) and test files remain
+  - Check `__init__.py` for any brainstorm_registry imports
   - `rm plugins/pd/hooks/lib/reconciliation_orchestrator/brainstorm_registry.py`
   - `rm plugins/pd/hooks/lib/reconciliation_orchestrator/test_brainstorm_registry.py`
-  - Verify with `grep -r brainstorm_registry plugins/pd/` — only test_orchestrator.py update references remain (already handled in 6.1)
   - **Files:** delete 2 files
-  - **Done when:** Files removed, no stale imports anywhere
+  - **Done when:** Files removed, `grep -r brainstorm_registry plugins/pd/` returns zero matches
 
 - [ ] **Task 6.3** — Run full regression test suite
   - `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/reconciliation_orchestrator/ plugins/pd/hooks/lib/entity_registry/ -v`
