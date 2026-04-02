@@ -31,12 +31,13 @@ from semantic_memory.retrieval_types import RetrievalResult
 # ---------------------------------------------------------------------------
 
 # Canonical category ordering for output sections.
-CATEGORY_ORDER = ["anti-patterns", "heuristics", "patterns"]
+CATEGORY_ORDER = ["anti-patterns", "heuristics", "patterns", "constitution"]
 
 CATEGORY_HEADERS = {
     "anti-patterns": "### Anti-Patterns to Avoid",
     "heuristics": "### Heuristics",
     "patterns": "### Patterns to Follow",
+    "constitution": "### Core Principles",
 }
 
 CATEGORY_PREFIXES = {
