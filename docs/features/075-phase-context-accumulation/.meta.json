@@ -1,0 +1,16 @@
+{
+  "id": "075",
+  "slug": "phase-context-accumulation",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-04-02T08:32:28.139169+00:00",
+  "branch": "feature/075-phase-context-accumulation",
+  "brainstorm_source": "docs/brainstorms/20260402-081126-phase-context-accumulation.prd.md",
+  "backlog_source": "00044",
+  "lastCompletedPhase": null,
+  "phases": {
+    "brainstorm": {
+      "started": "2026-04-02T08:32:28.138261+00:00"
+    }
+  }
+}
