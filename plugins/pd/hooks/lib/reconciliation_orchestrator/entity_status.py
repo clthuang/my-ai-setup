@@ -95,10 +95,11 @@ def sync_entity_statuses(db, full_artifacts_path, project_id="__unknown__",
     """
     if not project_root:
         project_root = full_artifacts_path.removesuffix(artifacts_root).rstrip(os.sep)
-        assert project_root, (
-            f"Cannot derive project_root from full_artifacts_path={full_artifacts_path!r} "
-            f"and artifacts_root={artifacts_root!r}"
-        )
+        if not project_root:
+            raise ValueError(
+                f"Cannot derive project_root from full_artifacts_path={full_artifacts_path!r} "
+                f"and artifacts_root={artifacts_root!r}"
+            )
 
     results = {
         "updated": 0, "skipped": 0, "archived": 0,
@@ -172,9 +173,7 @@ def _sync_brainstorm_entities(
             continue
         if not entity.get("artifact_path"):
             continue
-        db.update_entity(
-            f"brainstorm:{entity['entity_id']}", status="archived", project_id=project_id
-        )
+        db.update_entity(entity["type_id"], status="archived", project_id=project_id)
         results["archived"] += 1
 
     return results

@@ -480,7 +480,8 @@ class TestSyncBacklogEntities:
         db = make_db()
         seed_backlog(db, "00020", status="open")
 
-        # Rebuild entities table without UNIQUE constraint to allow duplicate
+        # db._conn bypass: UNIQUE(project_id, type_id) prevents duplicates via public API.
+        # Raw SQL is the only way to simulate legacy duplicate data for dedup testing.
         import uuid as uuid_mod
         db._conn.execute("CREATE TABLE entities_bak AS SELECT * FROM entities")
         db._conn.execute("DROP TABLE entities")
@@ -520,11 +521,9 @@ class TestSyncBacklogEntities:
         result = entity_status._sync_backlog_entities(db, str(tmp_path), "docs", "test-project")
 
         # One duplicate should have been removed
-        rows = db._conn.execute(
-            "SELECT * FROM entities WHERE entity_type='backlog' AND entity_id='00020' "
-            "AND project_id='test-project'"
-        ).fetchall()
-        assert len(rows) == 1
+        remaining = db.list_entities(entity_type="backlog", project_id="test-project")
+        backlog_20 = [e for e in remaining if e["entity_id"] == "00020"]
+        assert len(backlog_20) == 1
         assert result["deleted"] >= 1
 
     def test_missing_backlog_md_returns_empty(self, tmp_path):
@@ -716,10 +715,8 @@ class TestBacklogAdversarial:
         )
 
         # Then both entities still exist (cross-project dups not touched)
-        rows = db._conn.execute(
-            "SELECT * FROM entities WHERE entity_type='backlog' AND entity_id='00020'"
-        ).fetchall()
-        assert len(rows) == 2
+        all_20 = [e for e in db.list_entities(entity_type="backlog") if e["entity_id"] == "00020"]
+        assert len(all_20) == 2
 
     def test_backlog_row_with_multiple_status_markers(self, tmp_path):
         """Adversarial: row with multiple markers → first match wins (regex priority).
@@ -792,7 +789,8 @@ class TestDedupEdgeCases:
         db = make_db()
         import uuid as uuid_mod
 
-        # Rebuild table without UNIQUE constraint (same pattern as existing test)
+        # db._conn bypass: UNIQUE(project_id, type_id) prevents duplicates via public API.
+        # Raw SQL is the only way to simulate legacy duplicate data for dedup testing.
         db._conn.execute("CREATE TABLE entities_bak AS SELECT * FROM entities")
         db._conn.execute("DROP TABLE entities")
         db._conn.execute("""
@@ -834,11 +832,9 @@ class TestDedupEdgeCases:
         result = entity_status._sync_backlog_entities(db, str(tmp_path), "docs", "test-project")
 
         # Then exactly one entity remains
-        rows = db._conn.execute(
-            "SELECT * FROM entities WHERE entity_type='backlog' AND entity_id='00050' "
-            "AND project_id='test-project'"
-        ).fetchall()
-        assert len(rows) == 1
+        remaining = db.list_entities(entity_type="backlog", project_id="test-project")
+        backlog_50 = [e for e in remaining if e["entity_id"] == "00050"]
+        assert len(backlog_50) == 1
         assert result["deleted"] >= 1
 
 
