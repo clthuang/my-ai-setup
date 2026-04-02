@@ -148,6 +148,8 @@
 
 ## Stage 2: Integration (depends on Stage 1)
 
+> **Commit boundary note:** Tasks 5.1, 5.2, 6.1, and 6.2 must be committed together as one atomic commit to avoid a broken test window (removing brainstorm_sync key before updating test assertions).
+
 ### Plan Item 4: Refactor sync_entity_statuses() to call all 4 helpers
 
 - [ ] **Task 4.1** — Extract existing feature/project logic into `_sync_meta_json_entities()`
@@ -159,7 +161,7 @@
 
 - [ ] **Task 4.2** — Update sync_entity_statuses() signature and wire all 4 helpers
   - Add `artifacts_root: str = "docs"` and `project_root: str = ""` parameters
-  - If `project_root` is empty, derive: `full_artifacts_path[:-len(artifacts_root)].rstrip(os.sep)`
+  - If `project_root` is empty, derive safely: `full_artifacts_path.removesuffix(artifacts_root).rstrip(os.sep)` — add assertion that result is non-empty and a valid directory
   - Pass `project_root` to `_sync_brainstorm_entities()` (needed for AC-9 missing-file detection)
   - Pass `artifacts_root` to `_sync_backlog_entities()` (needed for artifact_path storage)
   - Call `_sync_meta_json_entities` (features), `_sync_meta_json_entities` (projects), `_sync_brainstorm_entities`, `_sync_backlog_entities`
@@ -182,7 +184,7 @@
   - Delete `from reconciliation_orchestrator import brainstorm_registry` (keep entity_status, kb_import)
   - Delete Task 2 block (lines ~100-107 in __main__.py)
   - Delete `results["brainstorm_sync"]` initialization from results dict
-  - **Note:** Do not commit until Task 6.1 is also complete — deleting brainstorm_sync from results dict will cause test_orchestrator.py to fail until assertions are updated
+  - **Note:** Part of atomic commit with Tasks 5.2, 6.1, 6.2 — do not commit separately
   - **Files:** `plugins/pd/hooks/lib/reconciliation_orchestrator/__main__.py`
   - **Done when:** No brainstorm_registry references in __main__.py
 
