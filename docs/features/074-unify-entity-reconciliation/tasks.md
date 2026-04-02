@@ -155,7 +155,7 @@
   - `sync_entity_statuses()` calls it twice: once for `("features", "feature")`, once for `("projects", "project")`
   - Behavior unchanged — pure refactor
   - **Files:** `plugins/pd/hooks/lib/reconciliation_orchestrator/entity_status.py`
-  - **Done when:** Existing test_entity_status.py tests still pass
+  - **Done when:** Existing tests pass: `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/reconciliation_orchestrator/test_entity_status.py -v`
 
 - [ ] **Task 4.2** — Update sync_entity_statuses() signature and wire all 4 helpers
   - Add `artifacts_root: str = "docs"` and `project_root: str = ""` parameters
@@ -182,6 +182,7 @@
   - Delete `from reconciliation_orchestrator import brainstorm_registry` (keep entity_status, kb_import)
   - Delete Task 2 block (lines ~100-107 in __main__.py)
   - Delete `results["brainstorm_sync"]` initialization from results dict
+  - **Note:** Do not commit until Task 6.1 is also complete — deleting brainstorm_sync from results dict will cause test_orchestrator.py to fail until assertions are updated
   - **Files:** `plugins/pd/hooks/lib/reconciliation_orchestrator/__main__.py`
   - **Done when:** No brainstorm_registry references in __main__.py
 
