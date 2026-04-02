@@ -649,3 +649,17 @@ When the same verbatim content block appears in 5+ command files, replace it wit
 - Confidence: medium
 - Last observed: Feature #075
 - Observation count: 1
+
+### Consolidation Feature Plan Budget
+Consolidation features (merging multiple modules into one) require 3-4 plan review iterations. The plan must encode ordering constraints explicitly to avoid broken intermediate states.
+- Source: Feature 074 — create-plan required 4 iterations for 21 tasks with atomic commit boundaries
+- Confidence: medium
+- Last observed: Feature #074
+- Observation count: 1
+
+### Pre-Implement Entity Registry Gotcha Review
+Before writing any entity registry or reconciliation code, read ENTITY_MACHINES status definitions and CLAUDE.md entity DB gotchas (no _conn, no assert, list_entities not search_entities).
+- Source: Feature 074 — implement review caught two documented gotchas costing a fix iteration
+- Confidence: high
+- Last observed: Feature #074
+- Observation count: 1
