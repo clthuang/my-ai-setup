@@ -55,7 +55,7 @@
 
 - [ ] **Task 1.8** — Write test: junk deletion handles ValueError (entity with children)
   - Test method `test_junk_deletion_skips_entity_with_children`
-  - Seed junk entity with a child dependency. Assert warning captured, entity not deleted, no crash
+  - Mock `db.delete_entity` to raise `ValueError` for the junk entity. Assert warning captured in results, no crash
   - **Files:** `plugins/pd/hooks/lib/reconciliation_orchestrator/test_entity_status.py`
   - **Done when:** Test exists, fails (RED)
 

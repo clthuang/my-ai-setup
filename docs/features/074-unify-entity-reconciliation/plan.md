@@ -32,7 +32,7 @@
 
 4. **Refactor sync_entity_statuses() to call all 4 helpers** — Unified entry point
    - **Why this item:** Design C1/I1 — single function handling all entity types
-   - **Why this order:** After items 1-2 (helpers must exist)
+   - **Why this order:** After items 1-3 (all helpers must exist)
    - **Deliverable:** Updated sync_entity_statuses with new `artifacts_root` and `project_root` parameters, calling _sync_meta_json_entities (features+projects), _sync_brainstorm_entities (needs project_root for AC-9 missing-file detection), _sync_backlog_entities. Aggregated return dict with registered/deleted counts.
    - **Complexity:** Simple (orchestration wrapper)
    - **Files:** `reconciliation_orchestrator/entity_status.py`
@@ -50,7 +50,7 @@
 
 6. **Delete brainstorm_registry + update tests + regression** — Atomic cleanup
    - **Why this item:** Design C4 — module absorbed. Tests must be updated in the same step to avoid broken test window.
-   - **Why this order:** After item 4 (no more imports). Done as one atomic commit.
+   - **Why this order:** After item 5 (orchestrator no longer imports brainstorm_registry). Done as one atomic commit.
    - **Deliverable:** (a) Update test_orchestrator.py: remove brainstorm_sync assertions, assert entity_sync includes registered/deleted counts. Also verify test_entity_status.py works with new `artifacts_root` parameter (default "docs" provides backward compat). (b) Verify no __init__.py or other module imports brainstorm_registry (`grep -r brainstorm_registry plugins/pd/`). (c) Delete brainstorm_registry.py and test_brainstorm_registry.py. (d) Run full regression.
    - **Complexity:** Simple (test updates + file deletion)
    - **Files:** `reconciliation_orchestrator/brainstorm_registry.py` (delete), `reconciliation_orchestrator/test_brainstorm_registry.py` (delete), `reconciliation_orchestrator/test_orchestrator.py` (update)

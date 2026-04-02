@@ -144,7 +144,7 @@ for line in backlog_md_lines:
         status = "open"
     
     # Strip status markers from name
-    name = re.sub(r'\s*\((?:closed|promoted|fixed)[^)]*\)\s*', '', description).strip()
+    name = re.sub(r'\s*\((?:closed|promoted|fixed|already implemented)[^)]*\)\s*', '', description).strip()
     
     # Register or update
     type_id = f"backlog:{entity_id}"
