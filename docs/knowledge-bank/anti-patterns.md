@@ -602,3 +602,27 @@ Naming reviewer agents in plan.md from memory or from spec/design prose rather t
 - Confidence: high
 - Last observed: Feature #070
 - Observation count: 4
+
+### Anti-Pattern: Assert for Input Validation in Entity Registry Helpers
+Using assert statements for input validation instead of raising ValueError — assert is stripped in optimized Python runs and signals a logic invariant rather than a caller contract violation.
+- Observed in: Feature 074 — implement review caught assert→ValueError as a required fix
+- Instead: Use `raise ValueError(msg)` for any input from external callers; reserve assert for internal invariants only
+- Confidence: high
+- Last observed: Feature #074
+- Observation count: 1
+
+### Anti-Pattern: Direct db._conn Access in Reconciliation Code
+Accessing db._conn directly instead of public EntityDatabase API methods (list_entities, query_dependencies, etc.) — bypasses encapsulation and couples callers to the internal SQLite schema.
+- Observed in: Feature 074 — implement review caught db._conn reads; also documented in CLAUDE.md
+- Instead: Use public API methods (list_entities, scan_entity_ids, is_healthy, register_entities_batch)
+- Confidence: high
+- Last observed: Feature #074
+- Observation count: 1
+
+### Anti-Pattern: Deferred Task Checkbox Updates
+Deferring task checkbox updates to post-implementation instead of ticking each checkbox immediately upon task completion — eliminates real-time progress visibility and natural commit checkpoint signals.
+- Observed in: Feature 074 — all 21 task checkboxes marked post-hoc, not during implementation
+- Instead: Mark each task [x] immediately after completing it, before moving to next task
+- Confidence: medium
+- Last observed: Feature #074
+- Observation count: 1
