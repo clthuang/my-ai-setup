@@ -243,6 +243,7 @@ def _process_search_memory(
         "anti-patterns": "Anti-Pattern",
         "patterns": "Pattern",
         "heuristics": "Heuristic",
+        "constitution": "Core Principle",
     }
 
     lines = [f"Found {len(selected)} relevant memories:\n"]
@@ -310,6 +311,12 @@ def _process_record_influence_by_content(
         return json.dumps({"matched": [], "skipped": 0})
 
     threshold = max(0.01, min(1.0, threshold))
+
+    if np is None:
+        return json.dumps({
+            "matched": [], "skipped": len(injected_entry_names),
+            "warning": "numpy unavailable",
+        })
 
     if provider is None:
         return json.dumps({

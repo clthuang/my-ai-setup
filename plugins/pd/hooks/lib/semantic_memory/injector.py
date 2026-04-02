@@ -44,6 +44,7 @@ CATEGORY_PREFIXES = {
     "anti-patterns": "### Anti-Pattern: ",
     "patterns": "### Pattern: ",
     "heuristics": "### ",
+    "constitution": "### ",
 }
 
 
@@ -218,7 +219,7 @@ def main(argv: list[str] | None = None) -> None:
     db = None
     try:
         config = read_config(project_root)
-        limit = args.limit if args.limit is not None else int(config.get("memory_injection_limit", 20))
+        limit = args.limit if args.limit is not None else int(config.get("memory_injection_limit", 15))
         model = str(config.get("memory_embedding_model", "none"))
 
         # Open database (create dirs if needed)
