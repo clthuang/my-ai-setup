@@ -85,7 +85,7 @@ Projected by `_project_meta_json` (workflow_state_server.py:295-385) alongside e
 - When it calls `update_entity` with the existing `phase_summaries` list plus the new entry
 - Then entity metadata `phase_summaries` list contains the new entry appended
 - And prior entries are preserved (not overwritten)
-- Note: `commitAndComplete` reads existing `phase_summaries` from `.meta.json` (already loaded in Step 1), appends the new summary, then calls `update_entity` with the full list.
+- Note: `commitAndComplete` reads existing `phase_summaries` from `.meta.json` (loaded by `validateAndSetup` Step 1 at phase start — available in the LLM's conversation context at Step 3a time), appends the new summary, then calls `update_entity` with the full list.
 
 ### AC-2: Summary storage failure does not block completion
 - Given `update_entity` fails when storing the phase summary (e.g., MCP error)
@@ -122,7 +122,7 @@ Projected by `_project_meta_json` (workflow_state_server.py:295-385) alongside e
 
 ### AC-5: validateAndSetup does NOT inject on forward transition
 - Given .meta.json contains `phase_summaries`
-- When `validateAndSetup("design")` processes a normal forward transition (specify completed, now entering design for the first time — no `completed` timestamp for design in phase_timing)
+- When `validateAndSetup("design")` processes a normal forward transition (specify completed, now entering design for the first time — no `completed` timestamp for design in phase_timing — the converse of AC-4's detection)
 - Then no `## Phase Context` block is prepended
 
 ### AC-6: Reviewer prompts include phase context on backward transition
@@ -142,6 +142,7 @@ Projected by `_project_meta_json` (workflow_state_server.py:295-385) alongside e
 - When the summary is stored
 - Then `reviewer_feedback_summary` is truncated first (to min 100 chars), then `key_decisions`, appending "..." to indicate truncation
 - And the total serialized JSON entry is <=2000 chars
+- If still over 2000 after truncating both text fields: truncate `artifacts_produced` by removing tail entries, then `outcome` if needed
 
 ### AC-9: Injection trims to last 2 per phase
 - Given `phase_summaries` contains 4 entries for specify (4 rework cycles)
