@@ -15,20 +15,22 @@ When backward travel occurs (reviewer sends `backward_to`), the re-entered phase
 - [ ] Features without summaries experience zero behavior change
 
 ## Write Ownership
-- `commitAndComplete` in workflow-transitions SKILL.md is the **summary author** — the LLM executing it constructs the summary dict from its Step 3 output
-- `complete_phase` MCP (`_process_complete_phase` at workflow_state_server.py:661) is the **storage writer** — accepts `phase_summary` parameter, appends to `phase_summaries` list in entity metadata
+- `commitAndComplete` in workflow-transitions SKILL.md is the **summary author** — the LLM executing it constructs the summary dict from its Step 3 Phase Summary output, THEN passes it to `complete_phase` MCP as a separate call after the initial completion call. Data flow: Step 2 (complete_phase without summary) → Step 3 (generate Phase Summary text) → Step 3b (NEW: construct summary dict from Step 3 output, call `update_entity` with phase_summary appended to metadata). This avoids reordering existing steps.
+- `_process_complete_phase` at workflow_state_server.py:661 continues to handle completion. A new helper `_append_phase_summary` handles summary storage via `update_entity`.
 - `validateAndSetup` Step 1b is the **reader/injector** — reads `.meta.json`, formats summaries into prompt context
 
 ## API Changes
 
-### complete_phase MCP — new parameter
-```python
-# Current signature (workflow_state_server.py:1147):
-complete_phase(feature_type_id, phase, iterations, reviewer_notes, ref)
+### Summary storage — via update_entity after completion
+No change to `complete_phase` MCP signature. Instead, `commitAndComplete` Step 3b calls `update_entity` to append the summary to `phase_summaries` in entity metadata after the phase completion call succeeds. This keeps the existing `complete_phase` contract unchanged.
 
-# New signature:
-complete_phase(feature_type_id, phase, iterations, reviewer_notes, ref, phase_summary)
-# phase_summary: JSON string of summary dict, or null
+```python
+# commitAndComplete Step 3b (new):
+# After Step 3 Phase Summary output, construct dict and append:
+update_entity(
+    type_id=feature_type_id,
+    metadata={"phase_summaries": existing_summaries + [new_summary]}
+)
 ```
 
 ### Entity metadata — new key
@@ -39,7 +41,7 @@ complete_phase(feature_type_id, phase, iterations, reviewer_notes, ref, phase_su
 # Each entry:
 {
     "phase": "specify",
-    "timestamp": "2026-04-02T08:00:00Z",
+    "timestamp": "2026-04-02T08:00:00Z",  // ISO 8601 with UTC, matching _iso_now()
     "outcome": "Specification complete (3 iterations).",
     "artifacts_produced": ["spec.md"],
     "key_decisions": "Free-text paragraph of key choices made.",
@@ -68,7 +70,7 @@ Projected by `_project_meta_json` (workflow_state_server.py:295-385) alongside e
 - Add `phase_summaries: list` to `METADATA_SCHEMAS['feature']` in metadata.py
 - Update `validateAndSetup` Step 1b to inject summaries on backward transitions
 - Update `commitAndComplete` to construct and pass summary dict
-- Update 4 phase command files (specify.md, design.md, create-plan.md, implement.md) to include phase summaries in reviewer dispatch prompts on backward transitions
+- Update 4 phase command files (specify.md, design.md, create-plan.md, implement.md) to include phase summaries in reviewer dispatch prompts on backward transitions. Brainstorm command excluded — brainstorm has no reviewer dispatch prompts.
 - Cap summaries at 2000 chars per entry; trim injection to last 2 per phase
 
 ### Out of Scope
@@ -97,21 +99,22 @@ Projected by `_project_meta_json` (workflow_state_server.py:295-385) alongside e
 
 ### AC-4: validateAndSetup injects on backward transition
 - Given .meta.json contains `phase_summaries` with entries for specify and design
-- When `validateAndSetup("specify")` detects backward travel (target_idx <= last_completed_idx)
+- When `validateAndSetup("specify")` detects backward travel (the target phase is already completed, i.e., `phase_timing[target_phase]` has a `completed` timestamp in .meta.json)
 - Then a `## Phase Context` markdown block is prepended to the phase prompt, containing:
-  - Backward context (existing `backward_context` field) labeled "Reviewer Referral"
+  - Backward context (existing `backward_context` field, if present) labeled "Reviewer Referral"
   - Phase summaries (last 2 per phase) labeled "Prior Phase Summaries"
+- Note: injection triggers on ANY re-entry into a completed phase, regardless of whether `backward_context` exists. This covers both reviewer-initiated rework and user-initiated re-runs.
 
 ### AC-5: validateAndSetup does NOT inject on forward transition
 - Given .meta.json contains `phase_summaries`
-- When `validateAndSetup("design")` processes a normal forward transition (specify → design)
+- When `validateAndSetup("design")` processes a normal forward transition (specify completed, now entering design for the first time — no `completed` timestamp for design in phase_timing)
 - Then no `## Phase Context` block is prepended
 
 ### AC-6: Reviewer prompts include phase context on backward transition
 - Given backward travel to specify phase
 - When spec-reviewer is dispatched
 - Then the dispatch prompt includes `## Phase Context` section with prior summaries
-- And this section appears alongside existing `## Relevant Engineering Memory`
+- And this section appears after `## Relevant Engineering Memory` and before the review instructions
 
 ### AC-7: commitAndComplete constructs summary
 - Given a phase completes with 3 iterations and reviewer notes
@@ -122,13 +125,20 @@ Projected by `_project_meta_json` (workflow_state_server.py:295-385) alongside e
 ### AC-8: Summary entries cap at 2000 chars
 - Given `commitAndComplete` produces a summary exceeding 2000 chars when serialized
 - When the summary is stored
-- Then `key_decisions` and `reviewer_feedback_summary` fields are truncated so the total entry is <=2000 chars
+- Then `reviewer_feedback_summary` is truncated first (to min 100 chars), then `key_decisions`, appending "..." to indicate truncation
+- And the total serialized JSON entry is <=2000 chars
 
 ### AC-9: Injection trims to last 2 per phase
 - Given `phase_summaries` contains 4 entries for specify (4 rework cycles)
 - When injection formats the `## Phase Context` block
-- Then only the 2 most recent specify entries are included (by timestamp)
+- Then only the 2 most recent specify entries are included (by list position — append order, not timestamp)
 - And all 4 entries remain in metadata (storage is not trimmed)
+
+### AC-12: Malformed summary handled gracefully
+- Given `commitAndComplete` constructs a summary that is not valid JSON or fails to serialize
+- When the `update_entity` call attempts to store it
+- Then the phase completion is not affected (summary storage is best-effort)
+- And a warning is logged: "Phase summary storage failed: {error}"
 
 ### AC-10: Zero behavior change without summaries
 - Given a feature with no `phase_summaries` in metadata (pre-existing or new)
