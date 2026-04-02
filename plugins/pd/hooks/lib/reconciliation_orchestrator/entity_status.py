@@ -12,12 +12,15 @@ JUNK_ID_RE = re.compile(r'^[0-9]{5}$')
 NAME_STRIP_RE = re.compile(r'\s*\((?:closed|promoted|fixed|already implemented)[^)]*\)\s*')
 
 
-def sync_entity_statuses(db, full_artifacts_path, project_id="__unknown__"):
-    """Scan .meta.json files for features and projects and sync status to entity registry.
+def _sync_meta_json_entities(db, full_artifacts_path, subdir, entity_type, project_id):
+    """Scan .meta.json files for a single entity type and sync status to entity registry.
 
     Args:
         db: EntityDatabase instance
         full_artifacts_path: absolute path to the artifacts root (e.g., /project/docs)
+        subdir: subdirectory name to scan (e.g., "features", "projects")
+        entity_type: entity type string (e.g., "feature", "project")
+        project_id: project identifier
 
     Returns:
         {"updated": int, "skipped": int, "archived": int, "warnings": list[str]}
@@ -25,47 +28,90 @@ def sync_entity_statuses(db, full_artifacts_path, project_id="__unknown__"):
     STATUS_MAP = {"active", "completed", "abandoned", "planned", "promoted"}
     results = {"updated": 0, "skipped": 0, "archived": 0, "warnings": []}
 
-    for entity_type, subdir in [("feature", "features"), ("project", "projects")]:
-        scan_dir = os.path.join(full_artifacts_path, subdir)
-        if not os.path.isdir(scan_dir):
+    scan_dir = os.path.join(full_artifacts_path, subdir)
+    if not os.path.isdir(scan_dir):
+        return results
+
+    for folder in os.listdir(scan_dir):
+        meta_path = os.path.join(scan_dir, folder, ".meta.json")
+        type_id = f"{entity_type}:{folder}"
+
+        if not os.path.isfile(meta_path):
+            # .meta.json deleted — archive entity if it exists
+            try:
+                db.update_entity(type_id, status="archived", project_id=project_id)
+                results["archived"] += 1
+            except ValueError:
+                pass  # entity not in registry, skip
             continue
 
-        for folder in os.listdir(scan_dir):
-            meta_path = os.path.join(scan_dir, folder, ".meta.json")
-            type_id = f"{entity_type}:{folder}"
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            results["warnings"].append(f"Failed to read {meta_path}: {e}")
+            continue
 
-            if not os.path.isfile(meta_path):
-                # .meta.json deleted — archive entity if it exists
-                try:
-                    db.update_entity(type_id, status="archived", project_id=project_id)
-                    results["archived"] += 1
-                except ValueError:
-                    pass  # entity not in registry, skip
-                continue
+        meta_status = meta.get("status")
 
-            try:
-                with open(meta_path) as f:
-                    meta = json.load(f)
-            except (json.JSONDecodeError, OSError) as e:
-                results["warnings"].append(f"Failed to read {meta_path}: {e}")
-                continue
+        if meta_status not in STATUS_MAP:
+            results["warnings"].append(f"Unknown status '{meta_status}' for {type_id}")
+            continue
 
-            meta_status = meta.get("status")
+        entity = db.get_entity(type_id)  # returns None if not found
+        if entity is None:
+            results["skipped"] += 1  # entity not in registry
+            continue
 
-            if meta_status not in STATUS_MAP:
-                results["warnings"].append(f"Unknown status '{meta_status}' for {type_id}")
-                continue
+        if entity["status"] != meta_status:
+            db.update_entity(type_id, status=meta_status, project_id=project_id)
+            results["updated"] += 1
+        else:
+            results["skipped"] += 1
 
-            entity = db.get_entity(type_id)  # returns None if not found
-            if entity is None:
-                results["skipped"] += 1  # entity not in registry
-                continue
+    return results
 
-            if entity["status"] != meta_status:
-                db.update_entity(type_id, status=meta_status, project_id=project_id)
-                results["updated"] += 1
-            else:
-                results["skipped"] += 1
+
+def sync_entity_statuses(db, full_artifacts_path, project_id="__unknown__",
+                         artifacts_root="docs", project_root=""):
+    """Scan all entity types and sync statuses to entity registry.
+
+    Args:
+        db: EntityDatabase instance
+        full_artifacts_path: absolute path to the artifacts root (e.g., /project/docs)
+        project_id: project identifier
+        artifacts_root: relative artifacts sub-path for stored artifact_path (e.g., "docs")
+        project_root: absolute path to project root. If empty, derived from
+                      full_artifacts_path by stripping artifacts_root suffix.
+
+    Returns:
+        {"updated": int, "skipped": int, "archived": int,
+         "registered": int, "deleted": int, "warnings": list[str]}
+    """
+    if not project_root:
+        project_root = full_artifacts_path.removesuffix(artifacts_root).rstrip(os.sep)
+        assert project_root, (
+            f"Cannot derive project_root from full_artifacts_path={full_artifacts_path!r} "
+            f"and artifacts_root={artifacts_root!r}"
+        )
+
+    results = {
+        "updated": 0, "skipped": 0, "archived": 0,
+        "registered": 0, "deleted": 0, "warnings": [],
+    }
+
+    # Call all 4 helpers in order
+    helpers_results = [
+        _sync_meta_json_entities(db, full_artifacts_path, "features", "feature", project_id),
+        _sync_meta_json_entities(db, full_artifacts_path, "projects", "project", project_id),
+        _sync_brainstorm_entities(db, full_artifacts_path, artifacts_root, project_root, project_id),
+        _sync_backlog_entities(db, full_artifacts_path, artifacts_root, project_id),
+    ]
+
+    for hr in helpers_results:
+        for key in ("updated", "skipped", "archived", "registered", "deleted"):
+            results[key] += hr.get(key, 0)
+        results["warnings"].extend(hr.get("warnings", []))
 
     return results
 

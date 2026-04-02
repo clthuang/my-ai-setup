@@ -201,7 +201,10 @@ class TestMissingDirectoryHandled:
 
         result = sync_entity_statuses(db, str(tmp_path))
 
-        assert result == {"updated": 0, "skipped": 0, "archived": 0, "warnings": []}
+        assert result["updated"] == 0
+        assert result["skipped"] == 0
+        assert result["archived"] == 0
+        assert result["warnings"] == []
 
 
 class TestProjectsScanned:
@@ -544,3 +547,61 @@ class TestSyncBacklogEntities:
             "deleted": 0,
             "warnings": [],
         }
+
+
+# ---------------------------------------------------------------------------
+# Unified sync integration test (Task 4.3)
+# ---------------------------------------------------------------------------
+
+
+class TestUnifiedSync:
+    """Integration test: sync_entity_statuses calls all 4 helpers."""
+
+    def test_unified_sync_all_four_types(self, tmp_path):
+        """All entity types synced in one call; return dict has all 6 keys."""
+        db = make_db()
+
+        # 1) Feature: seed as active, .meta.json says completed -> drift -> updated
+        feature_folder = "042-test"
+        db.register_entity(
+            entity_type="feature", entity_id=feature_folder,
+            name=feature_folder, status="active", project_id="test-project",
+        )
+        write_meta_json(str(tmp_path / "features" / feature_folder), status="completed")
+
+        # 2) Project: .meta.json present, no entity in DB -> skipped
+        project_folder = "test-proj"
+        (tmp_path / "projects" / project_folder).mkdir(parents=True)
+        write_meta_json(str(tmp_path / "projects" / project_folder), status="active")
+
+        # 3) Brainstorm: .prd.md file, no entity in DB -> registered
+        brainstorms_dir = tmp_path / "brainstorms"
+        brainstorms_dir.mkdir()
+        (brainstorms_dir / "bar.prd.md").touch()
+
+        # 4) Backlog: one row -> registered
+        write_backlog_md(tmp_path, [
+            ("00099", "2026-01-01T00:00:00Z", "Test backlog item"),
+        ])
+
+        result = sync_entity_statuses(
+            db, str(tmp_path),
+            project_id="test-project",
+            artifacts_root="docs",
+            project_root=str(tmp_path),
+        )
+
+        # All 6 keys must be present
+        assert set(result.keys()) == {
+            "updated", "skipped", "archived", "registered", "deleted", "warnings",
+        }
+
+        # Drifted feature should have been updated
+        assert result["updated"] >= 1
+        entity = db.get_entity(f"feature:{feature_folder}")
+        assert entity["status"] == "completed"
+
+        # Brainstorm and backlog should have been registered
+        assert result["registered"] >= 2
+        assert db.get_entity("brainstorm:bar") is not None
+        assert db.get_entity("backlog:00099") is not None
