@@ -1,0 +1,14 @@
+{
+  "id": "076",
+  "slug": "memory-feedback-loop-hardening",
+  "mode": "full",
+  "status": "active",
+  "created": "2026-04-02T16:50:36.803890+00:00",
+  "branch": "feature/076-memory-feedback-loop-hardening",
+  "lastCompletedPhase": null,
+  "phases": {
+    "brainstorm": {
+      "started": "2026-04-02T16:50:36.803695+00:00"
+    }
+  }
+}
