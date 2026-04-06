@@ -108,6 +108,7 @@ Run a failing Bash command and inspect `/tmp/posttooluse-debug.json` to confirm 
 - [ ] Hook does NOT fire on pytest/jest test runner failures
 - [ ] Hook does NOT fire when `memory_model_capture_mode` is `off`
 - [ ] Hook completes within 2 seconds
+- [ ] If backgrounding does not survive hook exit (per Phase 0 verification), writer runs synchronously with `timeout 2` wrapper instead
 - [ ] Stored entries have `source="session-capture"` and `confidence="low"`
 - [ ] Duplicate errors produce "Reinforced" (observation count increment), not new entries — this is a dependency guarantee from `semantic_memory.writer`'s existing dedup gates (tested separately); verify via integration test that runs hook twice with similar errors and checks DB observation_count
 
@@ -149,7 +150,7 @@ Add a section explaining that tool-failure detection is handled by the PostToolU
    - `brief`: true
 2. If fewer than 5 entries returned: skip pre-validation (insufficient KB data for meaningful matching). The search limit (20) is intentionally higher than the skip threshold (5) to ensure the threshold reflects actual KB coverage, not the search cap.
 3. For each returned anti-pattern entry:
-   - This is an LLM prompt-based semantic check. The prompt presents the KB anti-pattern descriptions and the changed file contents, asking: "Does this code exhibit any of these specific anti-patterns?" The LLM must not identify issues beyond the provided list — it evaluates only whether the listed anti-patterns apply to the code under review.
+   - This is an LLM prompt-based semantic check performed inline as a self-directed reasoning step within the implement command (not a subagent dispatch — avoids extra token cost). The prompt presents the KB anti-pattern descriptions and the changed file contents, asking: "Does this code exhibit any of these specific anti-patterns?" The LLM must not identify issues beyond the provided list — it evaluates only whether the listed anti-patterns apply to the code under review.
 4. If matches found:
    - Auto-fix the matching issues before dispatching the reviewer
    - Log fixes to `.review-history.md` as "Pre-validation auto-fix"
@@ -230,7 +231,7 @@ Add a section explaining that tool-failure detection is handled by the PostToolU
 **If verified as supported:**
 - Add SessionStart hook entry in `hooks.json` with `"matcher": "compact"`
 - Hook script reads `.meta.json` for active feature, phase, branch
-- Outputs context as `additionalContext` in hook JSON response
+- Hook outputs `{"additionalContext": "..."}` matching the CC hooks response format, consistent with existing `session-start.sh` output pattern
 - Includes: active feature ID/slug, current phase, branch name, last 3 memory entries
 
 **If NOT supported:**
