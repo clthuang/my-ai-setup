@@ -8,15 +8,15 @@
 - **Status:** pending
 - **Files:** `plugins/pd/hooks/hooks.json` (temp entry)
 - **DoD:** PostToolUseFailure recognized as event key AND stdin JSON schema documented with verified field names. Debug hook removed.
+- **Complexity:** Simple
 - **Steps:**
-  1. Create temp debug hook: `#!/bin/bash\ncat > /tmp/posttooluse-debug.json`
-  2. Add `"event": "PostToolUseFailure"` entry in hooks.json — if CC rejects the key, this immediately reveals the issue
+  1. Write script to `/tmp/posttooluse-debug.sh`: `#!/bin/bash\ncat > /tmp/posttooluse-debug.json` and `chmod +x /tmp/posttooluse-debug.sh`
+  2. Add `"event": "PostToolUseFailure"` entry in hooks.json with `"command": "/tmp/posttooluse-debug.sh"` — if CC rejects the key, this immediately reveals the issue
   3. Run failing command: `ls /nonexistent`
   4. Read `/tmp/posttooluse-debug.json`, document field names
   5. Compare with design I1 interface — note differences
   6. If event key not recognized: test if PostToolUse fires on failures (fallback)
-  7. Remove debug hook entry from hooks.json
-- **Estimate:** 5 min
+  7. Remove debug hook entry from hooks.json and `/tmp/posttooluse-debug.sh`
 
 #### Task 0.2: Verify async:true hook support
 - **Status:** pending
@@ -28,7 +28,7 @@
   3. Run a Bash command, verify file appears AND command not blocked
   4. Document result
   5. Remove temp hook
-- **Estimate:** 5 min
+- **Complexity:** Simple
 
 #### Task 0.3: Verify compact SessionStart matcher
 - **Status:** pending
@@ -39,7 +39,7 @@
   2. Try `/compact` command if available, or paste large content to fill context
   3. If compaction untriggerable within 10 min → mark "unverified", defer C7
   4. Remove temp hook
-- **Estimate:** 10 min
+- **Complexity:** Medium
 
 ---
 
@@ -55,7 +55,7 @@
   2. Write test helper: create mock stdin JSON per verified schema from 0.1
   3. Tests: Bash failure capture, Edit failure, test runner exclusion, git exclusion, agent_sandbox exclusion, off-mode skip, no-match debug log, performance <2s
   4. Run tests — confirm all fail (script doesn't exist yet)
-- **Estimate:** 10 min
+- **Complexity:** Medium
 
 #### Task 1.2: Implement capture-tool-failure.sh (GREEN)
 - **Status:** pending
@@ -71,7 +71,7 @@
   6. Debug log (PD_HOOK_DEBUG=1) for unmatched errors
   7. Build entry JSON, call semantic_memory.writer CLI (async or timeout per 0.2 result)
   8. Run tests from 1.1 — all must pass
-- **Estimate:** 15 min
+- **Complexity:** Medium
 
 #### Task 1.3: Register hook in hooks.json
 - **Status:** pending
@@ -81,7 +81,7 @@
 - **Steps:**
   1. Add entry with event/matcher/async per 0.1 and 0.2 results
   2. Verify: `python3 -c "import json; json.load(open('hooks.json'))"`
-- **Estimate:** 5 min
+- **Complexity:** Simple
 
 #### Task 1.4: Integration test — end-to-end capture
 - **Status:** pending
@@ -94,7 +94,7 @@
   3. Set `memory_model_capture_mode: off` → verify no capture
   4. Same error twice → verify observation_count increment
   5. `time` wrapper on hook execution
-- **Estimate:** 10 min
+- **Complexity:** Medium
 
 ---
 
@@ -109,7 +109,7 @@
   2. YOLO persistence guardrail (refs yolo-guard.sh)
   3. Reviewer iteration targets (refs implement.md)
   4. SQLite lock recovery protocol (refs doctor + cleanup-locks.sh)
-- **Estimate:** 10 min
+- **Complexity:** Medium
 
 #### Task 2.2: Verify size + no hook logic duplication
 - **Status:** pending
@@ -120,7 +120,7 @@
   1. `wc -c CLAUDE.md` — verify <13312 bytes
   2. Grep for hook-specific details (regex patterns, exit codes) — confirm absent
   3. If exceeded: consolidate Commands section to referenced file
-- **Estimate:** 5 min
+- **Complexity:** Simple
 
 ---
 
@@ -130,13 +130,13 @@
 - **Status:** pending
 - **Depends on:** 1.4
 - **Files:** `plugins/pd/skills/capturing-learnings/SKILL.md` (modify)
-- **DoD:** Only triggers 1, 2, 3 remain (renumbered from 1, 4, 5). Triggers about system behavior and repeated errors removed.
+- **DoD:** SKILL.md contains exactly 3 triggers. Old triggers 2 ("Unexpected system behavior") and 3 ("Same error repeated") are removed. Old trigger 4 renumbered to 2, old trigger 5 renumbered to 3.
 - **Steps:**
   1. Remove trigger 2 ("Unexpected system behavior discovered")
   2. Remove trigger 3 ("Same error repeated in session")
   3. Renumber: old 4→2, old 5→3
   4. Update any internal trigger number references
-- **Estimate:** 5 min
+- **Complexity:** Simple
 
 #### Task 3a.2: Add non-overlap note
 - **Status:** pending
@@ -148,23 +148,24 @@
   2. Explain: tool-failure detection → capture-tool-failure.sh PostToolUseFailure hook
   3. Explain: user-correction detection → this skill (requires conversation context)
   4. Note: dedup gate (0.95 cosine) prevents double-capture
-- **Estimate:** 5 min
+- **Complexity:** Simple
 
 ---
 
 ### Group 3b: Pre-Validation + Iteration Cap (Parallel with 3a, depends on Group 1)
 
-#### Task 3b.1: Tests+pre-validation (RED)
+#### Task 3b.1: Define pre-validation acceptance criteria
 - **Status:** pending
 - **Depends on:** 1.4
-- **Files:** Test assertions within implement.md verification
-- **DoD:** Test criteria defined. Expected behavior documented for: search_memory call, skip threshold, MCP failure handling, .review-history.md logging.
+- **Files:** Inline verification criteria (implement.md is Markdown, not executable — no test runner)
+- **DoD:** Acceptance criteria checklist written as grep/manual verification commands that will be run after 3b.2 to validate the inserted Step 6b.
+- **Complexity:** Simple
 - **Steps:**
-  1. Document expected: search_memory called with category="anti-patterns", limit=20
-  2. Document expected: skip when <5 entries returned
-  3. Document expected: graceful skip when MCP unavailable, reason logged
-  4. Document expected: fixes logged to .review-history.md as "Pre-validation auto-fix"
-- **Estimate:** 5 min
+  1. Write verification: `grep -n "search_memory" implement.md` confirms search_memory call exists with category="anti-patterns", limit=20
+  2. Write verification: `grep -n "fewer than 5\|< 5" implement.md` confirms skip threshold
+  3. Write verification: `grep -n "MCP.*unavailable\|skip.*pre-validation" implement.md` confirms graceful MCP failure handling
+  4. Write verification: `grep -n "Pre-validation auto-fix" implement.md` confirms .review-history.md logging
+  Note: These are verification commands to run post-3b.2, not executable test scripts (implement.md is a Markdown instruction file).
 
 #### Task 3b.2: Implement pre-validation step (GREEN)
 - **Status:** pending
@@ -179,7 +180,7 @@
   5. Add inline self-check prompt (KB patterns only, no additional issues)
   6. Add auto-fix + .review-history.md logging
   7. Add error handling (skip on MCP failure, log reason)
-- **Estimate:** 15 min
+- **Complexity:** Medium
 
 #### Task 3b.3: Reduce iteration cap 5→3
 - **Status:** pending
@@ -190,7 +191,7 @@
   1. Replace "Maximum 5 iterations" → "Maximum 3 iterations" at known locations (lines 15, 248, 1032, 1039, 1186, 1316)
   2. Update YOLO circuit breaker text
   3. Verify: `grep -n 'iteration.*5\|>= 5\|== 5' implement.md` → zero matches
-- **Estimate:** 5 min
+- **Complexity:** Simple
 
 ---
 
@@ -206,14 +207,17 @@
   2. Find active feature `.meta.json` in `{pd_artifacts_root}/features/`
   3. Extract feature ID, slug, current phase, branch
   4. Output `{"hookSpecificOutput": {"additionalContext": "..."}}`
-- **Estimate:** 10 min
+- **Complexity:** Medium
 
 #### Task 4.2: Register compact-recovery hook
 - **Status:** pending (conditional on 0.3 passing)
 - **Depends on:** 4.1
 - **Files:** `plugins/pd/hooks/hooks.json` (modify)
 - **DoD:** SessionStart entry with compact matcher added. JSON valid.
-- **Estimate:** 5 min
+- **Complexity:** Simple
+- **Steps:**
+  1. Add SessionStart entry to hooks.json: `{"event": "SessionStart", "matcher": "compact", "hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/compact-recovery.sh"}]}`
+  2. Verify: `python3 -c "import json; json.load(open('hooks.json'))"`
 
 ---
 
