@@ -338,12 +338,19 @@ Do NOT identify issues beyond the listed anti-patterns.
 | `plugins/pd/skills/capturing-learnings/SKILL.md` | **Modify** — remove triggers 2,3; add non-overlap note | C3 |
 | `plugins/pd/commands/implement.md` | **Modify** — add Step 6b pre-validation; change cap 5→3 | C4, C5 |
 | `CLAUDE.md` | **Modify** — add Behavioral Guardrails section | C6 |
-| `plugins/pd/hooks/compact-recovery.sh` | **Create** (conditional on Phase 0) | C7 |
+| `plugins/pd/hooks/compact-recovery.sh` | **Create** (conditional on Phase 0 V3) | C7 |
+| `~/.claude/pd/unmatched-failures.log` | **Create** (conditional on PD_HOOK_DEBUG=1 env var) | C1 debug |
 
 ## Dependencies
 
 ```
-Phase 0: Verify PostToolUseFailure schema + async:true support + compact matcher
+Phase 0: Verify three items before implementation:
+  ├─ V1: PostToolUseFailure stdin JSON schema (debug hook → /tmp/posttooluse-debug.json)
+  │   Go: fields match I1 interface. No-go: update I1 and C1 to actual schema.
+  ├─ V2: `async: true` support in hooks.json (test hook with async flag)
+  │   Go: hook fires without blocking. No-go: use synchronous + timeout 2.
+  └─ V3: `compact` SessionStart matcher (test hook with compact matcher)
+      Go: C7 proceeds. No-go: C7 deferred to Out of Scope.
          │
 Phase 1: C1 (hook) + C2 (hooks.json) ──→ Deploy & validate
          │
