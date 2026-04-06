@@ -80,7 +80,7 @@ Note: `${CLAUDE_PLUGIN_ROOT}` is used in `hooks.json` for command paths. Inside 
   "${PLUGIN_ROOT}/.venv/bin/python" -m semantic_memory.writer ... 2>/dev/null &
   disown
   ```
-  Note: CC preserves backgrounded+disowned processes after hook exit (they are not children of the hook process after `disown`).
+  Assumption: CC preserves backgrounded+disowned processes after hook exit. **Verify in Phase 0** alongside stdin schema check: have the debug hook background a process that writes to a temp file after a 1-second sleep, then verify the file appears after hook exit. If backgrounding does not survive, fallback: run the writer synchronously with `timeout 2` wrapper.
 
 **Hook registration in `hooks.json`:**
 PostToolUse matchers support the same regex pipe syntax as PreToolUse matchers (precedent: PreToolUse `meta-json-guard.sh` uses `Write|Edit` matcher at `hooks.json:78`). If pipe syntax is empirically found not to work for PostToolUse, fall back to three separate hook entries (one per tool).
@@ -109,7 +109,7 @@ Run a failing Bash command and inspect `/tmp/posttooluse-debug.json` to confirm 
 - [ ] Hook does NOT fire when `memory_model_capture_mode` is `off`
 - [ ] Hook completes within 2 seconds
 - [ ] Stored entries have `source="session-capture"` and `confidence="low"`
-- [ ] Duplicate errors produce "Reinforced" (observation count increment), not new entries
+- [ ] Duplicate errors produce "Reinforced" (observation count increment), not new entries — this is a dependency guarantee from `semantic_memory.writer`'s existing dedup gates (tested separately); verify via integration test that runs hook twice with similar errors and checks DB observation_count
 
 ### REQ-2: Capturing-Learnings Skill Refactor
 
@@ -149,8 +149,7 @@ Add a section explaining that tool-failure detection is handled by the PostToolU
    - `brief`: true
 2. If fewer than 5 entries returned: skip pre-validation (insufficient KB data for meaningful matching). The search limit (20) is intentionally higher than the skip threshold (5) to ensure the threshold reflects actual KB coverage, not the search cap.
 3. For each returned anti-pattern entry:
-   - Check if the anti-pattern description matches any pattern in the changed files
-   - This is a prompt-based check: include ONLY the KB-sourced anti-pattern descriptions as match candidates in the self-review prompt. The prompt must not ask the LLM to identify additional issues beyond the provided patterns.
+   - This is an LLM prompt-based semantic check. The prompt presents the KB anti-pattern descriptions and the changed file contents, asking: "Does this code exhibit any of these specific anti-patterns?" The LLM must not identify issues beyond the provided list — it evaluates only whether the listed anti-patterns apply to the code under review.
 4. If matches found:
    - Auto-fix the matching issues before dispatching the reviewer
    - Log fixes to `.review-history.md` as "Pre-validation auto-fix"
@@ -165,7 +164,7 @@ Add a section explaining that tool-failure detection is handled by the PostToolU
 
 **Acceptance criteria:**
 - [ ] Pre-validation queries `search_memory` with category `"anti-patterns"` before reviewer dispatch
-- [ ] Skips gracefully when KB has <10 relevant entries
+- [ ] Skips gracefully when KB returns <5 entries (matching mechanism section threshold; diverges from PRD FR-5 which says <10 — threshold lowered because search limit was raised from 10 to 20, making 5 returned entries a meaningful signal of sparse coverage)
 - [ ] Auto-fixes matched anti-patterns before reviewer sees artifacts
 - [ ] Fixes logged to `.review-history.md`
 - [ ] Pre-validation prompt includes ONLY KB-sourced anti-pattern descriptions as match candidates — does not ask LLM to identify additional issues beyond provided patterns
@@ -247,7 +246,7 @@ Add a section explaining that tool-failure detection is handled by the PostToolU
 
 - All hook scripts must suppress stderr (`2>/dev/null`) per hook development guide
 - No hardcoded `plugins/pd/` paths — use `${CLAUDE_PLUGIN_ROOT}` in hooks.json
-- PostToolUse hook stdin JSON format: `{"tool_name": "...", "tool_input": "...", "tool_output": "...", "error": "..."}`
+- PostToolUse hook stdin JSON format (assumed — verify in Phase 0): `{"tool_name": "...", "tool_input": "...", "tool_output": "...", "error": "..."}`. Field names are provisional; Phase 0 verification (REQ-1) establishes the actual schema before implementation. Fields may be named `tool_response` or `tool_result` instead of `tool_output`.
 - `semantic_memory.writer` CLI requires: `PYTHONPATH="${PLUGIN_ROOT}/hooks/lib"` and `"${PLUGIN_ROOT}/.venv/bin/python"`
 - `store_memory` quality gates: 20-char min description, 0.95 cosine rejection, 0.90 merge threshold
 
@@ -255,7 +254,7 @@ Add a section explaining that tool-failure detection is handled by the PostToolU
 
 | Phase | Requirements | Risk | Behavior Change |
 |-------|-------------|------|-----------------|
-| 0: Pre-flight | REQ-6 verification + REQ-1 PostToolUse stdin schema verification | None | None |
+| 0: Pre-flight | REQ-6 `compact` matcher + REQ-1 PostToolUse stdin schema + REQ-1 background process survival | None | None |
 | 1: Passive infra | REQ-1 (hook) | Low — hook is passive, silent | None |
 | 2: Environment | REQ-5 (CLAUDE.md) | Low — documentation only | Reference reading |
 | 3a: Structural | REQ-2 (skill refactor) | Low — removing triggers | None |
@@ -273,7 +272,9 @@ Add a section explaining that tool-failure detection is handled by the PostToolU
 ### REQ-1 Tests
 - Unit: Hook script with mock stdin JSON (Bash failure, Edit failure, test runner exclusion, off mode)
 - Integration: End-to-end with `semantic_memory.writer` verifying entry stored in DB
+- Integration (dedup): Run hook twice with similar error, verify DB observation_count incremented (not two entries)
 - Performance: Verify hook completes within 2s with `time` wrapper
+- Phase 0: Verify PostToolUse stdin JSON schema empirically; verify backgrounded+disowned process survival
 
 ### REQ-2 Tests
 - Verify SKILL.md has exactly 3 triggers (1, 4, 5) after refactor
