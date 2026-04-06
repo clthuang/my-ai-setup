@@ -86,11 +86,26 @@ make_bash_failure() {
     local error="$2"
     cat <<JSONEOF
 {
-  "hook_event_name": "PostToolUseFailure",
+  "hook_event_name": "PostToolUse",
   "tool_name": "Bash",
-  "tool_input": {"command": "$cmd"},
-  "error": "$error",
-  "is_interrupt": false,
+  "tool_input": {"command": "$cmd", "description": "test"},
+  "tool_response": {"stdout": "$error", "stderr": "", "interrupted": false},
+  "tool_use_id": "test-id",
+  "session_id": "test-session",
+  "cwd": "/tmp"
+}
+JSONEOF
+}
+
+make_bash_success() {
+    local cmd="$1"
+    local output="$2"
+    cat <<JSONEOF
+{
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {"command": "$cmd", "description": "test"},
+  "tool_response": {"stdout": "$output", "stderr": "", "interrupted": false},
   "tool_use_id": "test-id",
   "session_id": "test-session",
   "cwd": "/tmp"
@@ -103,11 +118,10 @@ make_edit_failure() {
     local error="$2"
     cat <<JSONEOF
 {
-  "hook_event_name": "PostToolUseFailure",
+  "hook_event_name": "PostToolUse",
   "tool_name": "Edit",
   "tool_input": {"file_path": "$file_path", "old_string": "foo", "new_string": "bar"},
-  "error": "$error",
-  "is_interrupt": false,
+  "tool_response": {"stdout": "$error", "stderr": "", "interrupted": false},
   "tool_use_id": "test-id",
   "session_id": "test-session",
   "cwd": "/tmp"
