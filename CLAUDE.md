@@ -29,6 +29,20 @@ Claude Code plugin providing a structured feature development workflow—skills,
 
 **Plans from any source:** When the user provides a plan (via CC plan mode, pasted in chat, or from a file), always dispatch plan-reviewer before implementing. The PreToolUse ExitPlanMode hook enforces this in CC plan mode; compensate manually for plans pasted in chat or from files.
 
+## Behavioral Guardrails
+
+**YOLO mode persistence:** In YOLO mode, do not disable or exit YOLO mode. Continue executing autonomously through errors. Fix errors and keep going.
+*Why:* YOLO mode disabling forces user intervention, defeating autonomous execution.
+*Enforced by:* `yolo-guard.sh` hook intercepts AskUserQuestion in YOLO mode.
+
+**Reviewer iteration targets:** Target 1-2 reviewer iterations per phase. Hard cap: 3 iterations. After 3 rounds, summarize remaining issues and ask user for guidance.
+*Why:* 3-5 iteration cycles consumed large context/time portions.
+*Enforced by:* Iteration cap in `implement.md`.
+
+**SQLite lock recovery:** When encountering "database is locked" errors: (1) check for orphaned processes with `lsof +D ~/.claude/pd | grep .db`, (2) kill stale Python/MCP processes, (3) verify WAL mode with `PRAGMA journal_mode`. Do not silently swallow database exceptions.
+*Why:* SQLite locking from stale MCP processes was the most persistent friction source.
+*Addressed by:* Doctor auto-fix at session start, WAL mode on connect, `cleanup-locks.sh` hook.
+
 ## Writing Guidelines
 
 **Agents with Write/Edit access should use judgment.** Avoid modifying:
@@ -65,82 +79,13 @@ AskUserQuestion:
 
 ## Commands
 
+See [Commands Reference](docs/dev_guides/commands-reference.md) for the full list of test, validation, and release commands.
+
+**Quick reference:**
 ```bash
-# Validate components
-./validate.sh
-
-# Run memory server tests (requires plugin venv for MCP deps)
-plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_memory_server.py -v
-
-# Run MCP bootstrap wrapper tests
-bash plugins/pd/mcp/test_run_memory_server.sh
-
-# Run MCP bootstrap shared library tests (unit + integration, ~2-5 min)
-bash plugins/pd/mcp/test_bootstrap_venv.sh
-
-# Run entity registry tests (database, backfill, server helpers, frontmatter, frontmatter_sync, search, metadata — 940+ tests)
-plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/entity_registry/ -v
-
-# Run sqlite retry unit tests
-plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/test_sqlite_retry.py -v
-
-# Run sqlite retry concurrent-write integration tests
-plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/test_sqlite_retry_integration.py -v
-
-# Run entity search MCP tool tests
-plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_search_mcp.py -v
-
-# Run entity server bootstrap wrapper tests
-bash plugins/pd/mcp/test_entity_server.sh
-
-# Run transition gate tests (gate functions, constants, models — 257 tests)
-plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/transition_gate/ -v
-
-# Run workflow engine tests (state engine, hydration, transitions, degradation — 309 tests)
-plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/workflow_engine/ -v
-
-# Run reconciliation orchestrator tests (entity sync, backlog parsing, brainstorm archive — 62 tests)
-plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/reconciliation_orchestrator/ -v
-
-# Run reconciliation module tests (drift detection, apply, frontmatter sync — 118 tests)
-plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/workflow_engine/test_reconciliation.py -v
-
-# Run workflow state MCP server tests (processing + reconciliation integration — 272 tests)
-plugins/pd/.venv/bin/python -m pytest plugins/pd/mcp/test_workflow_state_server.py -v
-
-# Run workflow server bootstrap wrapper tests
-bash plugins/pd/mcp/test_run_workflow_server.sh
-
-# Run UI server tests (app + CLI + deepened — 190+ tests, requires PYTHONPATH for entity_registry + ui)
-PYTHONPATH="plugins/pd/hooks/lib:plugins/pd" plugins/pd/.venv/bin/python -m pytest plugins/pd/ui/tests/ -v
-# Known pre-existing test issues (not regressions):
-# - test_deepened_app.py: intermittent segfault (SQLite threading)
-# - test_cli.py::test_cli_startup_url_output: fails when port 8718 in use
-
-# Run doctor diagnostic + auto-fix tests (150 tests)
-PYTHONPATH=plugins/pd/hooks/lib plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/doctor/ -v
-# Doctor CLI supports --fix (apply safe fixes) and --fix --dry-run (preview fixes)
-
-# Run migration tool tests (system python3, not plugin venv — 128 tests)
-python3 -m pytest scripts/test_migrate_db.py scripts/test_migrate_e2e.py scripts/test_migrate_deepened.py -v
-bash scripts/test_migrate_bash.sh
-
-# Rebuild FTS index on entities DB (kills MCP servers temporarily, they auto-restart)
-python3 scripts/migrate_db.py rebuild-fts [--skip-kill] [db_path]
-
-# Run hook integration tests
-bash plugins/pd/hooks/tests/test-hooks.sh
-
-# Run memory deprecation warning tests (legacy injection path escape hatch)
-bash plugins/pd/hooks/tests/test-deprecation-warning.sh
-
-# Run memory pattern embedding tests
-bash plugins/pd/hooks/tests/test-memory-pattern.sh
-
-# Release (bumps version, merges develop→main, tags)
-# Uses --ci for non-interactive; BUMP_OVERRIDE=patch|minor|major to force bump type
-bash scripts/release.sh --ci
-# Preconditions: (1) clean working tree — git stash first, (2) CHANGELOG.md needs entries under [Unreleased]
+./validate.sh                    # Validate components
+bash plugins/pd/hooks/tests/test-hooks.sh  # Hook integration tests
+bash scripts/release.sh --ci     # Release (develop→main)
 ```
 
 ## Key References
@@ -150,6 +95,7 @@ bash scripts/release.sh --ci
 | [Component Authoring Guide](docs/dev_guides/component-authoring.md) | Creating skills, agents, plugins, commands, or hooks |
 | [Developer Guide](README_FOR_DEV.md) | Architecture, release process, design principles |
 | [Hook Development Guide](docs/dev_guides/hook-development.md) | Writing or modifying hooks — covers PROJECT_ROOT vs PLUGIN_ROOT, JSON output, shared libs |
+| [Commands Reference](docs/dev_guides/commands-reference.md) | Test commands, validation, release process |
 | [ECC Comparison Improvements](docs/ecc-comparison-improvements.md) | Prioritizing plugin improvements based on competitive analysis |
 
 ## Knowledge & Memory

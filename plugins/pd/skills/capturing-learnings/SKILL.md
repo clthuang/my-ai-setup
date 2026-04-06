@@ -2,7 +2,7 @@
 name: capturing-learnings
 description: >-
   Guides model-initiated learning capture. Use when detecting user corrections,
-  unexpected system behavior, repeated errors, user preferences, or workarounds.
+  user preferences, or workarounds.
   Reads memory_model_capture_mode from config to determine behavior.
 ---
 
@@ -22,7 +22,7 @@ If the mode value is unrecognized, default to `ask-first`.
 
 ## Trigger Patterns
 
-Watch for these five patterns during normal interaction. Each is a signal that capture a learning.
+Watch for these three patterns during normal interaction. Each is a signal to capture a learning.
 
 ### 1. User Corrects Model Behavior
 
@@ -30,29 +30,23 @@ The user explicitly tells you to stop doing something or always do something dif
 
 **Example:** "No, always use absolute paths in hooks"
 
-### 2. Unexpected System Behavior Discovered
-
-You encounter system behavior that contradicts documentation or stated expectations.
-
-**Example:** "FTS5 query fails on special characters — need to escape them first"
-
-### 3. Same Error Repeated in Session
-
-The same class of error appears a second time within one session.
-
-**Example:** "Import error from missing PYTHONPATH again — must set it before invoking semantic_memory"
-
-### 4. User Shares Preference or Convention
+### 2. User Shares Preference or Convention
 
 The user states a coding style, naming convention, or workflow preference.
 
 **Example:** "I prefer kebab-case for file names"
 
-### 5. Workaround Found
+### 3. Workaround Found
 
 A non-obvious workaround resolves a problem, especially one that others would encounter.
 
 **Example:** "Suppress stderr in hook subprocesses to avoid corrupting JSON output"
+
+## Detection Split
+
+Tool-failure detection (unexpected system behavior, repeated errors) is handled by the PostToolUseFailure `capture-tool-failure.sh` hook, which fires automatically on Bash/Edit/Write failures. This skill handles user-correction detection only, which requires conversation context that hooks cannot access.
+
+If a user correction happens to reference a tool failure already captured by the hook, the dedup gate (0.95 cosine similarity) in `semantic_memory.writer` prevents double-capture.
 
 ## Capture Procedure
 

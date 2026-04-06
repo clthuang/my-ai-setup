@@ -12,10 +12,10 @@ Invoke the implementing skill for the current feature context.
 ## YOLO Mode Overrides
 
 If `[YOLO_MODE]` is active:
-- **Circuit breaker (5 iterations) — applies to Review Phase (Step 7) only, not Test Deepening (Step 6):** STOP execution and report failure to user.
+- **Circuit breaker (3 iterations) — applies to Review Phase (Step 7) only, not Test Deepening (Step 6):** STOP execution and report failure to user.
   Do NOT force-approve. This is a safety boundary — autonomous operation should not
-  merge code that fails review 5 times. Output:
-  "YOLO MODE STOPPED: Implementation review failed after 5 iterations.
+  merge code that fails review 3 times. Output:
+  "YOLO MODE STOPPED: Implementation review failed after 3 iterations.
    Unresolved issues: {issue list}
    Resume with: /secretary continue"
 - Completion prompt → skip AskUserQuestion, directly invoke `/pd:finish-feature` with `[YOLO_MODE]`
@@ -243,9 +243,47 @@ After Phase B completes, check `spec_divergences` in the output:
 
 **Error handling:** If Phase A or Phase B agent dispatch fails (tool error, timeout, or agent crash), log the error and proceed to Step 7. Test deepening is additive — failure should not block the review phase.
 
+### 6b. Pre-validation Against Knowledge Bank
+
+Before dispatching reviewers, run a self-check against accumulated anti-patterns.
+
+1. **Determine changed files:**
+   ```
+   Bash: git diff --name-only {base_branch}...HEAD
+   ```
+   Capture as `changed_files`.
+
+2. **Query knowledge bank:**
+   ```
+   search_memory(query="{feature slug} {current phase} {space-separated changed file names}", limit=20, category="anti-patterns", brief=true)
+   ```
+
+3. **Skip threshold:** If fewer than 5 entries returned, skip pre-validation — insufficient KB data for meaningful matching. Proceed directly to Step 7.
+
+4. **Inline self-check:** Build a prompt presenting ONLY the returned anti-pattern descriptions and the changed file contents:
+   ```
+   The knowledge bank contains these anti-patterns relevant to this feature:
+   {list of anti-pattern names and descriptions from search_memory}
+
+   Review the following implementation files for any of these specific anti-patterns:
+   {changed file contents}
+
+   For each anti-pattern that applies, explain which code exhibits it and suggest a fix.
+   Do NOT identify issues beyond the listed anti-patterns.
+   ```
+   Execute this as an inline self-directed reasoning step (no subagent dispatch).
+
+5. **Auto-fix matches:** For each matched anti-pattern, apply the suggested fix. Log each fix to `.review-history.md` as:
+   ```markdown
+   ## Pre-validation Auto-fix - {ISO timestamp}
+   - Fixed: {anti-pattern name} in {file} — {brief description of fix}
+   ```
+
+6. **Error handling:** If `search_memory` MCP is unavailable, times out, or the self-check errors out, skip pre-validation and proceed directly to Step 7. Log: `"Pre-validation skipped: {reason}"` to `.review-history.md`.
+
 ### 7. Review Phase (3-Level Sequential Verification)
 
-Maximum 5 iterations (total, shared across all levels, including the final validation round). Loop continues until ALL reviewers approve or cap is reached.
+Maximum 3 iterations (total, shared across all levels, including the final validation round). Loop continues until ALL reviewers approve or cap is reached.
 
 **3-Level Structure:**
 - **Level 1: Task-Level Verification** -- implementation-reviewer validates each task's DoD against implementation
@@ -1029,14 +1067,14 @@ IF all_dispatched_passed AND is_final_validation:
 ELIF all_individually_passed AND NOT is_final_validation:
   → Trigger final validation: set is_final_validation = true
   → Increment iteration counter
-  → If iteration >= 5 (circuit breaker): handle circuit breaker (see below)
+  → If iteration >= 3 (circuit breaker): handle circuit breaker (see below)
   → Else: Loop back to 7d (dispatch all 3 reviewers)
 
 ELIF some dispatched reviewers failed:
   → Append iteration to .review-history.md
   → Dispatch implementer to fix issues from FAILED reviewers only
   → Increment iteration counter
-  → If iteration >= 5 (circuit breaker): handle circuit breaker (see below)
+  → If iteration >= 3 (circuit breaker): handle circuit breaker (see below)
   → Else: Loop back to 7d (dispatch only failed reviewers)
 ```
 
@@ -1183,11 +1221,11 @@ Handle the three outcomes:
 
   Append the implementer's fix summary to `fix_summaries` list for use by I2-FV templates.
 
-**Circuit breaker (iteration >= 5):**
+**Circuit breaker (iteration >= 3):**
 ```
 AskUserQuestion:
   questions: [{
-    "question": "Review loop reached 5 iterations without full approval. How to proceed?",
+    "question": "Review loop reached 3 iterations without full approval. How to proceed?",
     "header": "Circuit Breaker",
     "options": [
       {"label": "Force approve with warnings", "description": "Accept current state, log unresolved issues"},
@@ -1283,7 +1321,7 @@ If the review loop completed in 1 iteration AND the reviewer found issues with s
 
 **Construct reviewerNotes before committing:**
 ```
-capReached = (iteration == 5 at exit without approval)
+capReached = (iteration == 3 at exit without approval)
 Merge all 4 reviewers' (implementation-reviewer, relevance-verifier, code-quality-reviewer, security-reviewer) final issues[] into one array.
 If any reviewer response lacks .issues[] or is not valid JSON: skip that reviewer's issues.
 If capReached: reviewerNotes = merged issues[].map(i => {severity: i.severity, description: i.description})
