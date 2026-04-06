@@ -165,7 +165,7 @@ validate_agent_fields() {
 # Validate hooks.json schema (event names, structure, portability)
 validate_hooks_schema() {
     local file=$1
-    local valid_events="PreToolUse PostToolUse UserPromptSubmit Stop SubagentStop SessionStart SessionEnd PreCompact Notification"
+    local valid_events="PreToolUse PostToolUse PostToolUseFailure UserPromptSubmit Stop SubagentStop SessionStart SessionEnd PreCompact Notification"
 
     # Check top-level structure has "hooks" key
     if ! jq -e '.hooks' "$file" > /dev/null 2>&1; then
