@@ -62,7 +62,7 @@ Integrate Claude Code native features into pd plugin to enable parallel implemen
 - [ ] `plugins/pd/commands/finish-feature.md` Step 5a adds `/security-review` invocation after discovered project checks pass
 - [ ] `plugins/pd/commands/wrap-up.md` Step 5a adds identical `/security-review` invocation
 - [ ] Invocation verification spike: before full integration, confirm that the orchestrating agent can invoke `/security-review` from command markdown. Test: add a temporary instruction in finish-feature.md and verify it executes in a test session.
-- [ ] Primary mechanism: natural language instruction in command markdown ("Run `/security-review` to check pending changes"). Fallback if slash command invocation fails: use `Bash` tool to run `claude -p "review the git diff for security issues"` or skip entirely.
+- [ ] Primary mechanism: natural language instruction in command markdown ("Run `/security-review` to check pending changes"). Fallback if invocation fails: skip with warning (graceful degradation per TD-4)
 - [ ] If `/security-review` reports critical vulnerabilities: treated as blocking failure (same as other check failures)
 - [ ] If `/security-review` is unavailable (command not found, invocation fails, plugin not installed): skip with warning "security-review not available, skipping", do NOT block merge
 - [ ] Does NOT modify implement.md's existing security-reviewer agent dispatch
@@ -125,7 +125,7 @@ REQ-6 (CronCreate) ─── independent stretch, can proceed anytime
 ## Technical Decisions
 
 ### TD-1: Worktree Merge Strategy
-Sequential merge after all parallel agents complete. Order: task document order (same as current serial dispatch). Branch naming: `worktree-078-task-{N}` where N is the task number from tasks.md. Rationale: predictable merge order, matches existing task numbering, unique branch names aid debugging. If conflict on merge N, halt and surface all conflict details — do not attempt remaining merges. This is a deliberately conservative choice: conflict resolution may change the codebase in ways that affect subsequent merges. Future optimization: attempt remaining merges and surface all conflicts at once.
+Sequential merge after all parallel agents complete. Order: task document order (same as current serial dispatch). Branch naming: `worktree-{feature_id}-task-{N}` where N is the task number from tasks.md. Rationale: predictable merge order, matches existing task numbering, unique branch names aid debugging. If conflict on merge N, halt and surface all conflict details — do not attempt remaining merges. This is a deliberately conservative choice: conflict resolution may change the codebase in ways that affect subsequent merges. Future optimization: attempt remaining merges and surface all conflicts at once.
 
 ### TD-2: Entity DB Concurrency Strategy
 WAL mode (already default) + retry-on-SQLITE_BUSY with exponential backoff (100ms → 500ms → 2s, 3 retries). Rationale: WAL allows concurrent reads during writes; retry handles brief lock contention. Validated by REQ-1 spike.
