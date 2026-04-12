@@ -29,9 +29,9 @@ Create small, actionable, testable tasks with clear dependencies for parallel ex
 ### 1. Break Down Each Plan Item
 
 For each item in the plan:
-- What are the smallest testable pieces?
-- Each task: 5-15 minutes of work
-- Each task: Clear completion criteria
+- Each task must do ONE thing, with a concrete way to verify it's done.
+- The task description must contain everything a subagent needs to execute it — no external context required. Include the "what" and "why" directly.
+- Do not use time as a proxy measure for task sizing.
 
 ### 2. Apply TDD Structure
 
@@ -61,10 +61,11 @@ For each task, determine:
 
 ### 4. Group for Execution
 
-Organize tasks into parallel groups:
+Organize tasks into strictly defined Execution Stages to prevent API crash loops:
 - Group 1: Tasks with no dependencies (can start immediately)
 - Group 2: Tasks that depend only on Group 1
 - Group 3+: Continue until all tasks assigned
+**Stage Cap**: Limit sequential (blocking) chains to **15 tasks** per Execution Stage to prevent batch drift. However, if a foundational group has zero internal dependencies, you may scale it infinitely in a single parallel stage to maximize swarm efficiency.
 
 ## Task Quality Requirements
 
@@ -80,17 +81,18 @@ Organize tasks into parallel groups:
 - No ambiguous terms ("properly", "appropriately", "as needed")
 
 ### Test Section Requirements
-- Exact test command: `npm test -- path/to/test.ts`
-- Or manual verification: "Run app, navigate to /login, submit empty form, verify error appears"
+- Every task needs a concrete verification command.
+- **For logic tasks:** Exact test command (e.g., `npm test -- path/to/test.ts`).
+- **For structural tasks** (interfaces, config, routing stubs): Verify the file exists, is valid, and is properly exported/imported. Use localized checks only (e.g., `npx eslint path/to/file.ts`). **Never run global compilers** like bare `tsc` — they will false-fail on unbuilt parts of the project.
 
 ### Done When Requirements
 - Binary (yes/no) criteria only
-- Observable output (file exists, test passes, UI shows X)
+- Observable output (file exists, local test passes, static check passes)
 - No subjective judgments ("code is clean", "works well")
 
 ### No Time Estimates
 
-Do NOT include time estimates on tasks. The "5-15 minutes" guideline is a sizing constraint for breaking tasks down, not a prediction to attach to each task.
+Do NOT include time estimates on tasks. Do not arbitrarily cap task count. You may generate as many tasks as necessary as long as they align with the mission requirements.
 
 - BAD: `- **Estimated:** 10 min`
 - BAD: `Critical path: 45 min total`
@@ -102,6 +104,9 @@ Write to `{pd_artifacts_root}/features/{id}-{slug}/tasks.md`:
 
 ```markdown
 # Tasks: {Feature Name}
+
+## Global Subagent Context
+> Shared context for all tasks below: architectural rules, cross-task interfaces, and design constraints. Individual tasks must still contain their own specific parameters (exact strings, queries, file paths) — do not force subagents to guess from this header.
 
 ## Dependency Graph
 

@@ -54,10 +54,11 @@ Each task must be immediately actionable:
 - [ ] Test command or verification steps explicit
 
 ### 3. Task Size
-- [ ] Each task completable in 5-15 minutes
+- [ ] Does this task do exactly ONE thing with a concrete way to verify it's done?
+- [ ] Can a subagent execute this task using only its description + the Global Context header, without reading the full plan?
 - [ ] Single responsibility (one thing done well)
 - [ ] Clear stopping point (not "start implementing X")
-- [ ] No time estimates on individual tasks (use complexity level, not minutes)
+- [ ] No time estimates used as proxy measures
 
 ### 4. Dependency Accuracy
 - [ ] All dependencies explicitly listed
@@ -66,11 +67,17 @@ Each task must be immediately actionable:
 - [ ] Blocking relationships accurate
 
 ### 5. Testability
-- [ ] Every task has specific test/verification
+- [ ] Every task has a concrete verification command (test command for logic, localized file check for structure)
+- [ ] Structural checks verify the file is valid AND properly exported/imported (not just syntax)
+- [ ] No global compiler commands as verification (use localized checks to avoid false negatives)
 - [ ] "Done when" is binary (yes/no, not subjective)
 - [ ] Test can run independently after task completion
 
-### 6. Reasoning Traceability
+### 6. Execution Batch Limits
+- [ ] Shared context lives in the Global Subagent Context header; tasks retain their own specific parameters.
+- [ ] Sequential dependency chains do not exceed 15 tasks per Stage. Parallel groups with zero internal dependencies can scale freely.
+
+### 7. Reasoning Traceability
 - [ ] Every task has "Why" field
 - [ ] "Why" traces to plan item or design component
 - [ ] No orphan tasks (tasks without backing in plan/design)
@@ -91,7 +98,12 @@ When you see this → Challenge with this:
 | "Test it works" | "What test command? What expected output?" | "Add: 'Run `npm test x.test.ts`, expect 3 passing'" |
 | "Handle errors appropriately" | "Which errors? What handling for each?" | "List each error type and its handler" |
 | "Follow best practices" | "Which specific practice? How verified?" | "Name the practice and verification method" |
-| Task > 15 min | "Can this be split? What's the natural boundary?" | "Split at [specific point]" |
+| Relies on Implicit Context | "A subagent can't execute this without reading the full plan" | "Add the missing context to the Global header or the task itself." |
+| Generic Task Stub | "Task has no specific parameters — subagent will guess" | "Inject exact parameters (regex, strings, queries) into the task directly." |
+| Does Multiple Things | "This produces multiple unrelated deliverables" | "Split into tasks that each do ONE thing with ONE verification." |
+| Sequential chain > 15 Tasks | "Too many chained tasks — orchestrator will drift" | "Split the sequential chain. Independent parallel groups are fine at any size." |
+| Structural task with mock test | "Unnecessary mock — test pollution risk" | "Verify the file exists, is valid, and exports correctly instead." |
+| Linter-only structural check | "Linter checks syntax but module might not be exported" | "Add export/import verification to the check." |
 | No test specified | "How do we know this task is done?" | "Add verification: [specific check]" |
 | Missing dependency graph | "Which tasks can run in parallel? Which are sequential?" | "Add dependency section with blocking tasks" |
 | "Estimated: X min" on task | "Remove time estimate — use complexity level instead" | "Replace `Estimated: 10 min` with `Complexity: Simple`" |

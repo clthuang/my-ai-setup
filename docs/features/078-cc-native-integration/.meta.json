@@ -1,0 +1,20 @@
+{
+  "id": "078",
+  "slug": "cc-native-integration",
+  "mode": "Standard",
+  "status": "active",
+  "created": "2026-04-12T06:16:36.539113+00:00",
+  "branch": "feature/078-cc-native-integration",
+  "brainstorm_source": "docs/brainstorms/20260412-134500-cc-native-integration.prd.md",
+  "lastCompletedPhase": "specify",
+  "phases": {
+    "brainstorm": {
+      "started": "2026-04-12T06:16:36.538255+00:00"
+    },
+    "specify": {
+      "started": "2026-04-12T06:17:37.048833+00:00",
+      "completed": "2026-04-12T06:27:43.717636+00:00",
+      "iterations": 3
+    }
+  }
+}
