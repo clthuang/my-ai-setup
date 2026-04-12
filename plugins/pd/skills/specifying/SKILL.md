@@ -64,7 +64,7 @@ Check for feature context:
    - Problem Statement: from PRD "Problem Statement" section
    - Success Criteria: from PRD "Goals" or "Success Metrics"
    - Scope: from PRD "Scope" section (In Scope / Out of Scope)
-   - Acceptance Criteria: derive from PRD requirements
+   - Acceptance Criteria: derive from PRD, deliberately mapping both Happy Paths and Error & Boundary Cases. Output Truth Tables if complex branching exists.
 
 2. **Present draft to user:**
    ```
@@ -105,7 +105,10 @@ Check for feature context:
    Apply YAGNI: Remove anything not essential.
 
 4. **Define Acceptance Criteria**
-   For each feature aspect:
+   For each feature aspect systematically define:
+   - **Happy Path:** Standard execution flow.
+   - **Error & Boundary Cases:** Invalid input, lack of connectivity, concurrent states.
+   - **Token Efficiency:** Keep scenarios concise. Group similar `Given` setups. If logic contains complex branching, output a markdown Truth Table instead of linear ACs.
    - Given [context]
    - When [action]
    - Then [result]
@@ -136,15 +139,18 @@ Write to `{pd_artifacts_root}/features/{id}-{slug}/spec.md`:
 
 ## Acceptance Criteria
 
-### {Feature Aspect 1}
+### Happy Paths
 - Given {context}
 - When {action}
 - Then {result}
 
-### {Feature Aspect 2}
-- Given {context}
+### Error & Boundary Cases
+- Given {failure condition or edge case}
 - When {action}
-- Then {result}
+- Then {safe failure or resulting state}
+
+### State Transitions (Optional)
+{Include markdown truth table ONLY if feature logic has complex branching or overlapping states}
 
 ## Feasibility Assessment
 
@@ -181,6 +187,7 @@ Evaluate whether requirements are achievable. Focus on POSSIBILITY, not difficul
 ## Self-Check Before Completing
 
 - [ ] Each criterion is testable?
+- [ ] Critical failure modes and boundary edge-cases explicitly covered?
 - [ ] No implementation details (what, not how)?
 - [ ] No unnecessary features (YAGNI)?
 - [ ] Concise (fits one screen)?

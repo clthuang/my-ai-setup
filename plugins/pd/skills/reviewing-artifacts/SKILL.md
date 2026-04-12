@@ -71,9 +71,9 @@ Quality criteria and review checklists for workflow artifacts.
 
 ### 4. Acceptance Criteria
 
-- [ ] Given/When/Then format for each feature aspect
-- [ ] Covers happy path
-- [ ] Covers key error paths
+- [ ] Distinct separation between Happy Paths and Error & Boundary Cases (OR comprehensive testable coverage in legacy format)
+- [ ] Given/When/Then format for scenarios
+- [ ] Truth Tables included natively ONLY when parsing complex state overlaps (Optional)
 - [ ] Specific enough to write tests from
 
 ### 5. Implementation Independence
@@ -177,13 +177,15 @@ Quality criteria and review checklists for workflow artifacts.
 
 ### 1. Task Size
 
-- [ ] Each task 5-15 minutes
-- [ ] No time estimates (use complexity level, not minutes/hours)
+- [ ] Each task does ONE thing with a concrete way to verify it's done
+- [ ] Task is self-contained: a subagent can execute it using only the task description + Global Context header
+- [ ] No time estimates as a proxy measure
 - [ ] Single responsibility per task
 - [ ] Clear stopping point
 
 ### 2. Executability
 
+- [ ] Shared context in Global Subagent Context header; tasks retain their own specific parameters
 - [ ] Verb + object format (e.g., "Add field X to Y")
 - [ ] Exact file paths specified
 - [ ] No "figure out" tasks
@@ -191,7 +193,8 @@ Quality criteria and review checklists for workflow artifacts.
 
 ### 3. Testability
 
-- [ ] Each task has verification method
+- [ ] Every task has a concrete verification command (test for logic, localized file check for structure)
+- [ ] Structural checks verify validity AND proper exports/imports (not just syntax)
 - [ ] "Done when" is binary (yes/no)
 - [ ] Test can run independently
 - [ ] No "looks good" criteria
@@ -208,7 +211,8 @@ Quality criteria and review checklists for workflow artifacts.
 - [ ] Every plan item has task(s)
 - [ ] No orphaned tasks
 - [ ] No scope creep
-- [ ] Task count between 3 and 50
+- [ ] Scale task throughput natively without artificial numeric limits
+- [ ] Limits connected dependency chains to 15 items per Stage (while allowing flat sets to scale infinitely)
 
 ---
 

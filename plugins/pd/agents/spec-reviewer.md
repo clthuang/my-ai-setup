@@ -100,7 +100,8 @@ Only include `backward_to` when the root cause is genuinely in an upstream artif
 ### Testability
 
 - [ ] Every success criterion is measurable
-- [ ] Acceptance criteria use Given/When/Then format
+- [ ] Acceptance criteria use explicit Happy Paths and Error & Boundary Cases
+- [ ] A State Transition Truth Table SHOULD exist IF it clarifies overlapping complex states (not a hard requirement)
 - [ ] No vague qualifiers — all terms must have measurable criteria (not: "user-friendly", "fast enough")
 - [ ] Every requirement has a way to verify it passed
 
@@ -114,7 +115,7 @@ Only include `backward_to` when the root cause is genuinely in an upstream artif
 - [ ] No implicit knowledge required to understand requirements
 - [ ] No assumed behaviors not explicitly stated
 - [ ] Dependencies on external systems are documented
-- [ ] Edge cases are explicitly addressed
+- [ ] Error & Boundary Cases explicitly address constraints mentioned in the PRD (not just generic errors)
 
 **Challenge patterns:**
 - "User logs in" → "What authentication method? What happens on failure?"
@@ -219,8 +220,9 @@ NOT: "Can we approve this and clarify later?"
 | "System should respond quickly" | "Vague performance criteria" | "Specify latency threshold: e.g., 'Response time < 200ms at p95'" |
 | "Handle invalid input" | "Which inputs? What handling?" | "List specific invalid cases and expected error responses" |
 | "User can edit profile" | "Which fields? What validation?" | "Enumerate editable fields and validation rules for each" |
-| Missing error scenarios | "No failure modes specified" | "Add section: 'Error Handling' with each error and response" |
+| Missing error scenarios | "No failure modes specified" | "Add explicit Error & Boundary Cases with each error and response" |
 | "Store user data" | "Where? How long? Format?" | "Specify storage location, retention period, and data schema" |
+| Untrackable multi-state control flow | "Linear statements are too complex here" | "Consider generating a markdown State Transition Truth Table" |
 
 ## Examples of Invalid Feedback (REJECT)
 
