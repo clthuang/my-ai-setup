@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.14.18] - 2026-04-12
+
 ### Changed
 - `specifying` skill now separates Happy Paths from Error & Boundary Cases in spec template, with optional Truth Tables for complex branching
 - `spec-reviewer` relaxes Truth Table mandate from hard blocker to optional recommendation
