@@ -86,11 +86,26 @@ make_bash_failure() {
     local error="$2"
     cat <<JSONEOF
 {
-  "hook_event_name": "PostToolUseFailure",
+  "hook_event_name": "PostToolUse",
   "tool_name": "Bash",
-  "tool_input": {"command": "$cmd"},
-  "error": "$error",
-  "is_interrupt": false,
+  "tool_input": {"command": "$cmd", "description": "test"},
+  "tool_response": {"stdout": "$error", "stderr": "", "interrupted": false},
+  "tool_use_id": "test-id",
+  "session_id": "test-session",
+  "cwd": "/tmp"
+}
+JSONEOF
+}
+
+make_bash_success() {
+    local cmd="$1"
+    local output="$2"
+    cat <<JSONEOF
+{
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {"command": "$cmd", "description": "test"},
+  "tool_response": {"stdout": "$output", "stderr": "", "interrupted": false},
   "tool_use_id": "test-id",
   "session_id": "test-session",
   "cwd": "/tmp"
@@ -103,11 +118,10 @@ make_edit_failure() {
     local error="$2"
     cat <<JSONEOF
 {
-  "hook_event_name": "PostToolUseFailure",
+  "hook_event_name": "PostToolUse",
   "tool_name": "Edit",
   "tool_input": {"file_path": "$file_path", "old_string": "foo", "new_string": "bar"},
-  "error": "$error",
-  "is_interrupt": false,
+  "tool_response": {"stdout": "$error", "stderr": "", "interrupted": false},
   "tool_use_id": "test-id",
   "session_id": "test-session",
   "cwd": "/tmp"
@@ -336,6 +350,64 @@ test_hook_outputs_json() {
     fi
 }
 
+# =====================================================================
+# Test 12: PostToolUseFailure event with error field triggers writer
+# =====================================================================
+make_posttoolusefailure() {
+    local tool_name="$1"
+    local subject="$2"
+    local error="$3"
+    local input_field
+    if [[ "$tool_name" == "Bash" ]]; then
+        input_field="\"command\": \"$subject\""
+    else
+        input_field="\"file_path\": \"$subject\", \"old_string\": \"foo\", \"new_string\": \"bar\""
+    fi
+    cat <<JSONEOF
+{
+  "hook_event_name": "PostToolUseFailure",
+  "tool_name": "$tool_name",
+  "tool_input": {$input_field},
+  "error": "$error",
+  "is_interrupt": false,
+  "tool_use_id": "test-id",
+  "session_id": "test-session",
+  "cwd": "/tmp"
+}
+JSONEOF
+}
+
+test_posttoolusefailure_triggers_writer() {
+    log_test "PostToolUseFailure event with error field invokes writer"
+
+    local input
+    input=$(make_posttoolusefailure "Edit" "/some/file.py" "String to replace not found in file")
+    run_hook "$input"
+
+    if [[ -f "$STUB_LOG" ]] && grep -q "semantic_memory.writer" "$STUB_LOG"; then
+        log_pass
+    else
+        log_fail "Writer was not called for PostToolUseFailure event. Stub log: ${STUB_LOG}"
+    fi
+}
+
+# =====================================================================
+# Test 13: PostToolUseFailure with agent_sandbox path is excluded
+# =====================================================================
+test_posttoolusefailure_agent_sandbox_excluded() {
+    log_test "PostToolUseFailure with agent_sandbox/ path does NOT invoke writer"
+
+    local input
+    input=$(make_posttoolusefailure "Edit" "agent_sandbox/test.py" "File not found")
+    run_hook "$input"
+
+    if [[ ! -f "$STUB_LOG" ]]; then
+        log_pass
+    else
+        log_fail "Writer was called for agent_sandbox PostToolUseFailure"
+    fi
+}
+
 # --- Run all tests ---
 echo "=== capture-tool-failure.sh unit tests ==="
 echo ""
@@ -351,6 +423,8 @@ test_performance
 test_edit_agent_sandbox_exclusion
 test_git_readonly_with_cd_prefix
 test_hook_outputs_json
+test_posttoolusefailure_triggers_writer
+test_posttoolusefailure_agent_sandbox_excluded
 
 # --- Summary ---
 echo ""
