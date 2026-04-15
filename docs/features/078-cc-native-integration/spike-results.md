@@ -144,3 +144,132 @@ SQLite concurrency = **pass** per REQ-1: 100% success rate across the 30-write p
 - Scenario (a) (shared MCP server) was not exercised empirically, but is strictly easier than scenario (b) as argued above.
 - Temp DB lives on the macOS default temp volume; behavior on network filesystems (NFS, SMB) is out of scope — entity DB lives at `~/.claude/pd/entities/entities.db` on the local disk in normal use.
 - The spike exercises raw `register_entity` writes; it does not exercise the full workflow_state transition path (which performs reads-then-writes within a single transaction). Phase 1 regression tests (T1.x) cover that path.
+
+---
+
+## T0.4: Agent Path Compliance Spike — status: blocked-manual
+
+**Objective (REQ-2 / FR-1 precondition):** Verify that a Claude Code Agent, when dispatched with an explicit worktree path directive in its prompt, confines all filesystem operations (Read/Edit/Write/Glob/Grep) to the designated worktree directory and does NOT modify files in the main working tree. This is the second Phase 0 gate for the manual-worktree workaround documented in design.md TD-1 (required because `isolation: worktree` is silently ignored for plugin-defined subagent types per CC Issues #33045, #37030).
+
+**Why this is blocked-manual:** Agent path compliance is a runtime behavior of the Claude Code interactive session — it cannot be exercised by a shell-level test or automated script. The spike requires dispatching a real sub-Agent from an interactive CC session and observing its filesystem writes against a live git worktree. Verification must be performed by a human operator and the result recorded here.
+
+### Procedure
+
+Perform the following steps in an interactive Claude Code session against this repository:
+
+1. **Create the worktree.** From the project root:
+
+   ```bash
+   git worktree add .pd-worktrees/spike-test -b spike-test
+   ```
+
+2. **Record the main-tree HEAD SHA.** Capture the SHA before dispatching the agent so post-agent drift can be detected:
+
+   ```bash
+   BEFORE=$(git rev-parse HEAD)
+   ```
+
+3. **Dispatch a sub-Agent with an explicit worktree directive.** In an interactive CC session, invoke the Agent tool with the prompt below. Substitute `{abs_path}` with the absolute path to the project root (e.g., `/Users/terry/projects/pedantic-drip`):
+
+   ```
+   Work ONLY in {abs_path}/.pd-worktrees/spike-test/. Use absolute paths for ALL Read/Edit/Write/Glob/Grep. Create a file called spike-marker.txt with content 'hello'.
+   ```
+
+4. **Verify path compliance after the agent completes.** Run the following three checks:
+
+   - **Main tree HEAD unchanged:** `git rev-parse HEAD` must equal `$BEFORE`. If it differs, the agent committed to the main tree.
+   - **Main tree not modified:** `git diff --name-only` must emit no output. If any files are listed, the agent wrote outside the worktree.
+   - **Worktree file created:** `.pd-worktrees/spike-test/spike-marker.txt` must exist with content `hello`. This confirms the agent did write to the intended location.
+
+5. **Cleanup.** Remove the worktree:
+
+   ```bash
+   git worktree remove .pd-worktrees/spike-test
+   ```
+
+6. **Record the outcome in this document.** Append a "Result" subsection below with: date of verification, CC version, outcomes of the three checks (pass/fail each), and any relevant transcript excerpts or stray-write paths observed.
+
+### Decision Framework
+
+- **If all 3 verifications pass** → worktree approach validated, proceed with Group 2 (Phase 2 worktree parallel dispatch per plan.md).
+- **If any fail** → worktree approach blocked, feature requires redesign. Document which check failed and any stray-write paths, then revisit design.md TD-1 for an alternative (e.g., wait for CC Issue #33045 fix, or explore per-task `cd`-based isolation without worktrees).
+
+### Status
+
+`blocked-manual` — requires human verification in an interactive CC session. Not runnable via CI or shell tests.
+
+### Result
+
+_(To be filled in after manual verification. Include: date, CC version, pass/fail for each of the 3 checks, transcript excerpts if useful.)_
+
+---
+
+## T1.5: Behavioral Regression Baseline — status: pass
+
+**Objective (REQ-4 / FR-5 / Task 1.5):** Establish and document the behavioral regression baseline — the committed test assertions in `plugins/pd/hooks/tests/test-workflow-regression.sh` (added T1.1-T1.4) must pass cleanly on current `develop` before any Phase 2 (worktree) or Phase 3 (security-review) integration changes land. This baseline is the "before" snapshot required by spec REQ-4: *"Baseline = committed test assertions that pass on current code. 'Before' means tests pass before FR-1/FR-2. 'After' means same tests still pass post-integration."*
+
+**Harness:** `plugins/pd/hooks/tests/test-workflow-regression.sh`
+
+Covers three workflow phase outcomes plus a skeleton sanity check:
+- **Skeleton** — mock feature dir, `.meta.json`, and entity DB path are wired up correctly before any assertions run.
+- **(a) Implement phase entity DB state** — register a `task` entity via the plugin's `EntityDB` Python API; assert the row exists with the expected status.
+- **(b) Finish-feature `.meta.json`** — invoke `complete_phase(feature_type_id, "specify")`; assert `.meta.json` advances to `phase=design` with a non-null ISO-8601 timestamp.
+- **(c) Phase transition guards** — valid transition (`specify -> design`) succeeds after specify completes; invalid transition (`specify -> implement`) is rejected by the state-machine guard.
+
+**Command**
+
+```bash
+bash plugins/pd/hooks/tests/test-workflow-regression.sh
+```
+
+**Environment**
+
+- macOS 26.3.1 (Darwin 25.3.0)
+- `plugins/pd/.venv/bin/python` → Python 3.14.3
+- Branch: `develop` (Task 1.5 pre-Phase-2 baseline)
+- Date: 2026-04-15
+
+**Runs (3 consecutive, for stability)**
+
+| Run | Exit | Ran | Passed | Failed |
+|---|---|---|---|---|
+| 1 | 0 | 4 | 4 | 0 |
+| 2 | 0 | 4 | 4 | 0 |
+| 3 | 0 | 4 | 4 | 0 |
+
+**Full output excerpt (Run 1, raw)**
+
+```
+Running test-workflow-regression.sh
+Temp dir: /var/folders/61/sch8t_rj6hvfjdwcfr4sl_lw0000gn/T/pd-workflow-regression-XXXXXX.iKHoaDrnmZ
+
+  INFO: Setting up mock feature at: /var/folders/61/.../features/999-mock-feature
+  INFO: Mock entity DB path (not yet created): /var/folders/61/.../entities.db
+TEST: skeleton: mock feature dir and .meta.json exist; entity DB path is set
+  PASS
+TEST: entity DB: register task entity via Python library, assert row exists with correct status
+  PASS
+TEST: complete_phase: advances .meta.json to design with non-null ISO timestamp
+  PASS
+TEST: phase transition guards: valid (specify -> design) succeeds; invalid (specify -> implement) blocks
+  PASS
+
+Ran: 4 | Passed: 4 | Failed: 0
+```
+
+(ANSI color codes stripped for readability; raw output wraps INFO lines in `\e[0;33m…\e[0m` and PASS lines in `\e[0;32m…\e[0m`.)
+
+**Decision**
+
+Regression baseline = **pass** per REQ-4: all 4 assertions green on current `develop`, exit 0, zero flakiness across 3 consecutive runs. No test-case bugs surfaced during baseline capture; nothing to fix. The baseline is now the "before" reference that Phase 2 (worktree dispatch) and Phase 3 (security-review) integration changes must preserve.
+
+**Implication for downstream work**
+
+- **Phase 2 (worktree parallel dispatch):** after each substantive change to `implementing/SKILL.md` or related helpers, re-run `bash plugins/pd/hooks/tests/test-workflow-regression.sh` and confirm `Ran: 4 | Passed: 4 | Failed: 0`. Any regression against this baseline blocks the change.
+- **Phase 3 (security-review pre-merge):** same rule — the 4 assertions must remain green after `finish-feature.md` / `wrap-up.md` edits.
+- **Future test additions:** append new test cases; do not mutate the existing 4 without an ADR, since they are the committed baseline.
+
+**Caveats**
+
+- Baseline is shell + Python (direct `EntityDB` library calls via the plugin venv). It does not exercise the MCP transport layer end-to-end. This is acceptable per spec — REQ-4 explicitly targets phase outcomes (DB state, `.meta.json` fields, transition guards), not MCP transport.
+- Tests create a fresh temp dir and temp DB per run; they do not touch `~/.claude/pd/entities/entities.db`. Re-running is idempotent.

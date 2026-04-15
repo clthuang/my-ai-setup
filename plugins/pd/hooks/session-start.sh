@@ -346,6 +346,52 @@ ${line}"
     ) 2>/dev/null || echo ""
 }
 
+# Read a YAML frontmatter field preserving internal spaces (for values like cron
+# expressions). Mirrors read_local_md_field but trims only leading/trailing
+# whitespace and surrounding quotes instead of stripping all whitespace.
+read_local_md_field_preserve_spaces() {
+    local file="$1" field="$2" default="${3:-}"
+    if [[ ! -f "$file" ]]; then
+        echo "$default"
+        return
+    fi
+    local value
+    # Extract value, strip leading whitespace, strip trailing whitespace,
+    # then strip matching surrounding single/double quotes.
+    value=$(grep "^${field}:" "$file" 2>/dev/null \
+        | head -1 \
+        | sed -e 's/^[^:]*://' \
+              -e 's/^[[:space:]]*//' \
+              -e 's/[[:space:]]*$//' \
+              -e 's/^"\(.*\)"$/\1/' \
+              -e "s/^'\(.*\)'\$/\1/" || echo "")
+    if [[ -z "$value" || "$value" == "null" ]]; then
+        echo "$default"
+    else
+        echo "$value"
+    fi
+}
+
+# Build CronCreate instruction block when doctor_schedule is configured.
+# Returns empty string if unset/empty or config file missing. Never fails.
+build_cron_schedule_context() {
+    local config_file="${PROJECT_ROOT}/.claude/pd.local.md"
+    local schedule
+    schedule=$(read_local_md_field_preserve_spaces "$config_file" "doctor_schedule" "") || schedule=""
+    if [[ -z "$schedule" ]]; then
+        return 0
+    fi
+
+    # Emit natural-language instruction block for the agent to invoke CronCreate.
+    # Hooks cannot call tools directly — this surfaces an instruction via additionalContext
+    # (per design TD-4: graceful degradation — agent will skip if CronCreate is unavailable).
+    printf "## Scheduled Doctor\n"
+    printf "doctor_schedule is configured: %s\n" "$schedule"
+    printf "If a scheduled doctor run is not already registered for this session, invoke the CronCreate tool:\n"
+    printf "  CronCreate(schedule=\"%s\", prompt=\"/pd:doctor\", recurrence=\"recurring\")\n" "$schedule"
+    printf "If CronCreate is unavailable (CLAUDE_CODE_DISABLE_CRON=1, cloud tier without local file access, or tool not present), skip silently — manual /pd:doctor invocation is unaffected.\n"
+}
+
 # Check if claude-md-management plugin is available
 check_claude_md_plugin() {
     local cache_dir="$HOME/.claude/plugins/cache"
@@ -657,6 +703,9 @@ EOF
         first_run_warning="Setup required for MCP workflow tools. Run: bash \"${PLUGIN_ROOT}/scripts/setup.sh\""
     fi
 
+    local cron_schedule_context=""
+    cron_schedule_context=$(build_cron_schedule_context) || cron_schedule_context=""
+
     local memory_context=""
     memory_context=$(build_memory_context)
 
@@ -695,6 +744,14 @@ EOF
             full_context="${full_context}\n\n${doctor_summary}"
         else
             full_context="${doctor_summary}"
+        fi
+    fi
+    # Scheduled doctor CronCreate instruction (silent when doctor_schedule unset)
+    if [[ -n "$cron_schedule_context" ]]; then
+        if [[ -n "$full_context" ]]; then
+            full_context="${full_context}\n\n${cron_schedule_context}"
+        else
+            full_context="${cron_schedule_context}"
         fi
     fi
     if [[ -n "$memory_context" ]]; then
