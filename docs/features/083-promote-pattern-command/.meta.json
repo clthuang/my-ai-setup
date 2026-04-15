@@ -5,10 +5,12 @@
   "status": "active",
   "created": "2026-04-15T14:37:11.008846+00:00",
   "branch": "",
-  "lastCompletedPhase": null,
+  "lastCompletedPhase": "specify",
   "phases": {
     "specify": {
-      "started": "2026-04-15T16:27:21.148762+00:00"
+      "started": "2026-04-15T16:27:21.148762+00:00",
+      "completed": "2026-04-15T16:40:48.031698+00:00",
+      "iterations": 3
     }
   }
 }
