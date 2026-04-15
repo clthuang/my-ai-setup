@@ -107,7 +107,7 @@ Hooks are restricted to **mechanically-enforceable rules** that PreToolUse/PostT
 
 Steps:
 1. **Feasibility gate:** LLM call (≤200 prompt tokens, ≤100 response tokens) returns one of:
-   - `feasible` + `event ∈ {PreToolUse, PostToolUse}` + `tools: [array of one or more tool names from closed enum {Edit, Bash, Write, Read, Glob, Grep, MultiEdit, NotebookEdit, WebFetch, WebSearch, Task, Skill}]` + `check_kind ∈ {file_path_regex, content_regex, json_field, composite}` + `check_expression: literal pattern or JSON path`. Output is validated against the schema; free-form strings in `tools` or unknown enum values trigger one re-ask, then user-pick on second failure.
+   - `feasible` + `event ∈ {PreToolUse, PostToolUse}` + `tools: [array of one or more tool names from closed enum {Edit, Bash, Write, Read, Glob, Grep, MultiEdit, NotebookEdit, WebFetch, WebSearch, Task, Skill}]` + `check_kind ∈ {file_path_regex, content_regex, json_field, composite}` + `check_expression: literal pattern or JSON path`. Output is validated against the schema; **empty `tools` array, free-form strings in `tools`, or unknown enum values** trigger one re-ask with explicit clarification ("tools array must contain at least one tool name from the enum"); on second failure → fall through to `infeasible`.
    - `infeasible` + `reason` → command displays reason, offers `change-target` (skill is usually the right alternative for non-mechanical guidance)
 2. **Skeleton generation:** deterministic template (no LLM) using the feasibility output. Generates:
    - `plugins/pd/hooks/{slug}.sh` — bash script reading hook stdin JSON, applying the check, exiting 0 (allow) or non-zero (block) with stderr explanation
@@ -138,7 +138,7 @@ Render the diff. Multi-file diffs presented per-file (heading: file path, body: 
 
 AskUserQuestion options:
 - `apply` — execute Stage Sequence (FR-5)
-- `edit-content` — for each modified/created file, capture user-provided full replacement content (NOT a diff fragment, to avoid format fragility). User cancels by passing empty content for any file.
+- `edit-content` — for each modified/created file, capture user-provided full replacement content (NOT a diff fragment, to avoid format fragility). **User-provided content replaces the generated file content in full** — no further diff is computed. The updated content proceeds directly to Stage 1 pre-flight validation. User cancels by passing empty content for any file.
 - `change-target` — go back to FR-2d with current target excluded
 - `cancel` — abort, no writes
 
@@ -160,9 +160,9 @@ Strict ordering for atomicity:
 
 **Stage 4: Post-write validation:**
 - **Baseline-delta validation** to avoid rolling back on pre-existing project errors:
-  1. Capture `validate.sh` output **before** Stage 3 (snapshot baseline error count + categories).
-  2. Re-run `validate.sh` after Stage 3 writes.
-  3. Rollback only if **new** errors appear (current count > baseline count, OR new error categories not in baseline).
+  1. **Immediately after Stage 2 (snapshot) completes and before any Stage 3 writes occur**, run `./validate.sh` and record (a) total error count, (b) the set of error categories present. This is the baseline.
+  2. Re-run `validate.sh` after Stage 3 writes complete.
+  3. Rollback only if **new** errors appear: post-write error count > baseline count, OR any error category appears in post-write that was not in baseline.
 - For hooks specifically: also re-parse `hooks.json` and run any `plugins/pd/hooks/tests/test-{slug}.sh` generated in FR-3-hook step 2.
 - Validation timing: `./validate.sh` typically runs in <5s on this repo; if Stage 4 exceeds 30s, surface a warning.
 
