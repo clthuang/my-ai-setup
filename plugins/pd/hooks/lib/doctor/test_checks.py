@@ -3262,3 +3262,74 @@ class TestCheckStaleWorktreesAcceptsKwargs:
             base_branch="main",
         )
         assert result.passed
+
+
+class TestCheckStaleWorktreesEmptyDirectory:
+    """Empty .pd-worktrees/ directory -> pass, no orphan warnings (boundary: N=0 entries)."""
+
+    def test_empty_worktrees_dir_passes(self, tmp_path):
+        # Given a git repo with an empty .pd-worktrees/ directory
+        from doctor.checks import check_stale_worktrees
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+        (repo / ".pd-worktrees").mkdir()
+
+        # When the stale_worktrees check runs
+        result = check_stale_worktrees(project_root=str(repo))
+
+        # Then it passes silently with no issues (no children to inspect)
+        assert result.name == "stale_worktrees"
+        assert result.passed, f"unexpected issues: {result.issues}"
+        assert result.issues == []
+
+
+class TestCheckStaleWorktreesNonDirectoryEntry:
+    """Plain file under .pd-worktrees/ is NOT a worktree candidate; do not crash or flag."""
+
+    def test_plain_file_entry_does_not_crash(self, tmp_path):
+        # Given a .pd-worktrees/ containing a stray regular file (not a dir)
+        from doctor.checks import check_stale_worktrees
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+        worktrees_dir = repo / ".pd-worktrees"
+        worktrees_dir.mkdir()
+        (worktrees_dir / "README.txt").write_text("not a worktree\n")
+
+        # When the stale_worktrees check runs
+        result = check_stale_worktrees(project_root=str(repo))
+
+        # Then the check returns cleanly — a stray file is neither an orphan nor a tracked worktree
+        assert result.name == "stale_worktrees"
+        # Must not error out; non-dir entries are simply ignored
+        assert all(i.severity != "error" for i in result.issues)
+
+
+class TestCheckStaleWorktreesMultipleOrphans:
+    """Multiple filesystem orphans -> one warning per orphan (Zero/One/Many heuristic)."""
+
+    def test_two_orphans_produce_two_warnings(self, tmp_path):
+        # Given two orphan directories under .pd-worktrees/
+        from doctor.checks import check_stale_worktrees
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _init_git_repo(repo)
+        worktrees_dir = repo / ".pd-worktrees"
+        worktrees_dir.mkdir()
+        (worktrees_dir / "task-a").mkdir()
+        (worktrees_dir / "task-b").mkdir()
+
+        # When the check runs
+        result = check_stale_worktrees(project_root=str(repo))
+
+        # Then two distinct warnings are surfaced
+        assert not result.passed
+        warnings = [i for i in result.issues if i.severity == "warning"]
+        assert len(warnings) == 2
+        messages = " ".join(w.message for w in warnings)
+        assert "task-a" in messages
+        assert "task-b" in messages
