@@ -1844,13 +1844,7 @@ def check_stale_dependencies(
 
 
 def check_security_review_command(project_root: str, **kwargs) -> CheckResult:
-    """Check: security-review command installation.
-
-    Warns if `.claude/commands/security-review.md` is missing in the project.
-    Used by finish-feature / wrap-up pre-merge security scanning (FR-2).
-    The command is a complementary CC native check — missing file is not
-    a blocker, just a warning so the user knows pre-merge scanning is skipped.
-    """
+    """Warn if .claude/commands/security-review.md is missing."""
     start = time.monotonic()
     issues: list[Issue] = []
 
@@ -2005,19 +1999,7 @@ def _parse_git_worktree_list(output: str) -> list[str]:
 
 
 def check_stale_worktrees(project_root: str, **kwargs) -> CheckResult:
-    """Check: stale/orphaned worktrees under `.pd-worktrees/`.
-
-    Detects two orphan conditions:
-    1. Filesystem orphan: directory exists under `.pd-worktrees/` but
-       `git worktree list` does NOT report it (admin record gone, dir remains).
-    2. Git admin orphan: `git worktree list` reports a worktree under
-       `.pd-worktrees/` but the directory does not exist on disk.
-
-    Skipped silently if `.pd-worktrees/` is absent (no orphans possible) or
-    if `git worktree list` cannot be executed (e.g., not a git repo).
-
-    Severity: warning — orphaned worktrees waste disk but don't break workflows.
-    """
+    """Detect orphaned .pd-worktrees/ entries (filesystem or git admin)."""
     start = time.monotonic()
     issues: list[Issue] = []
 

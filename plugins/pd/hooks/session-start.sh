@@ -346,38 +346,14 @@ ${line}"
     ) 2>/dev/null || echo ""
 }
 
-# Read a YAML frontmatter field preserving internal spaces (for values like cron
-# expressions). Mirrors read_local_md_field but trims only leading/trailing
-# whitespace and surrounding quotes instead of stripping all whitespace.
-read_local_md_field_preserve_spaces() {
-    local file="$1" field="$2" default="${3:-}"
-    if [[ ! -f "$file" ]]; then
-        echo "$default"
-        return
-    fi
-    local value
-    # Extract value, strip leading whitespace, strip trailing whitespace,
-    # then strip matching surrounding single/double quotes.
-    value=$(grep "^${field}:" "$file" 2>/dev/null \
-        | head -1 \
-        | sed -e 's/^[^:]*://' \
-              -e 's/^[[:space:]]*//' \
-              -e 's/[[:space:]]*$//' \
-              -e 's/^"\(.*\)"$/\1/' \
-              -e "s/^'\(.*\)'\$/\1/" || echo "")
-    if [[ -z "$value" || "$value" == "null" ]]; then
-        echo "$default"
-    else
-        echo "$value"
-    fi
-}
-
 # Build CronCreate instruction block when doctor_schedule is configured.
 # Returns empty string if unset/empty or config file missing. Never fails.
 build_cron_schedule_context() {
     local config_file="${PROJECT_ROOT}/.claude/pd.local.md"
+    [[ -f "$config_file" ]] || return 0
+    grep -q '^doctor_schedule:' "$config_file" 2>/dev/null || return 0
     local schedule
-    schedule=$(read_local_md_field_preserve_spaces "$config_file" "doctor_schedule" "") || schedule=""
+    schedule=$(read_local_md_field "$config_file" "doctor_schedule" "" 1) || schedule=""
     if [[ -z "$schedule" ]]; then
         return 0
     fi

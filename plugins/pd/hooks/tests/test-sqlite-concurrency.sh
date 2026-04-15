@@ -1,16 +1,5 @@
 #!/usr/bin/env bash
-# test-sqlite-concurrency.sh — Phase 0 spike for FR-0 / REQ-1 (feature 078)
-#
-# Sets up a temp git repo with 3 worktrees and spawns 3 parallel background
-# processes, each writing 10 entity rows to a single shared entity_registry
-# SQLite DB under WAL mode + busy_timeout=15000. Asserts that all 30 rows
-# land in the DB and reports wall-clock time, retry count, and success rate.
-#
-# Task 0.1 added the harness; Task 0.2 added the parallel-write test.
-# Task 0.3 improves metric precision (sub-second wall-clock via python3) and
-# emits a single-line machine-parseable JSON summary prefixed with
-# "METRICS_JSON: " that downstream tooling can `grep`/`jq` out of the log.
-# A human-readable "metrics:" line is still printed for operator convenience.
+# test-sqlite-concurrency.sh — Verifies SQLite WAL/busy_timeout handles parallel entity writes from worktrees.
 #
 # Usage: bash plugins/pd/hooks/tests/test-sqlite-concurrency.sh
 
@@ -355,7 +344,7 @@ PYJSON
 
 # --- Main ---
 main() {
-    echo "Running test-sqlite-concurrency.sh (T0.3: parallel entity writes + metrics)"
+    echo "Running test-sqlite-concurrency.sh (parallel entity writes + metrics)"
     echo "Temp dir:  $TMPDIR_TEST"
     echo "Python:    $PD_PYTHON"
     echo "PYTHONPATH: $PD_PYTHONPATH"

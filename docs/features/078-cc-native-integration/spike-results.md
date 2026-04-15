@@ -53,10 +53,6 @@ Perform the following steps in an interactive Claude Code session against this r
 - **If `FORK_VERIFIED` appears in main conversation** → context:fork is functional. Proceed with T4.2 (MCP access verification from forked context) and subsequent Phase 4 tasks to convert `researching/SKILL.md`.
 - **If output is empty or the skill errors** → `context: fork` is not usable in the current CC runtime for pd's topology. Mark FR-3 deferred, document the observed failure mode, and stop Phase 4. The researching skill continues to use inline Task dispatch (current behavior).
 
-### Status
-
-`blocked-manual` — requires human verification in an interactive CC session. Not runnable via CI or shell tests.
-
 ### Result
 
 _(To be filled in after manual verification. Include: date, CC version, outcome, transcript excerpt if useful.)_
@@ -194,10 +190,6 @@ Perform the following steps in an interactive Claude Code session against this r
 - **If all 3 verifications pass** → worktree approach validated, proceed with Group 2 (Phase 2 worktree parallel dispatch per plan.md).
 - **If any fail** → worktree approach blocked, feature requires redesign. Document which check failed and any stray-write paths, then revisit design.md TD-1 for an alternative (e.g., wait for CC Issue #33045 fix, or explore per-task `cd`-based isolation without worktrees).
 
-### Status
-
-`blocked-manual` — requires human verification in an interactive CC session. Not runnable via CI or shell tests.
-
 ### Result
 
 _(To be filled in after manual verification. Include: date, CC version, pass/fail for each of the 3 checks, transcript excerpts if useful.)_
@@ -323,10 +315,6 @@ Perform the following steps in an interactive Claude Code session against this r
 - **If both `search_memory` and `register_entity` succeed from the forked context** → forked skills retain full MCP access. T4.3 (convert `researching/SKILL.md` to `context: fork`) can proceed. No user approval required, since no capability is lost.
 - **If either call fails** → the researching skill **cannot** use `context: fork` without losing knowledge-bank search and/or entity lineage tracking. Per REQ-5, this is a feature regression that requires explicit user approval before proceeding. Document the failure mode here, mark T4.3 as **blocked**, and surface the trade-off to the user rather than silently adapting. The fallback is to keep `researching/SKILL.md` on inline Task dispatch (current behavior) and defer FR-3.
 
-### Status
-
-`deferred-pending-T4.1` — requires human verification in an interactive CC session, **after** T4.1 has passed. Not runnable via CI or shell tests. If T4.1's Result is still blank or shows `empty` / `error`, this spike must not be attempted.
-
 ### Result
 
 _(To be filled in after T4.1 passes and manual verification completes. Include: date, CC version, `search_memory` outcome, `register_entity` outcome, and transcript excerpt of the `MCP_FORK_RESULT` line.)_
@@ -390,10 +378,6 @@ Scope: two added lines in frontmatter. No changes to skill body, Phase 1/2/3 pro
 
 - `plugins/pd/skills/researching/SKILL.md` is NOT modified by T4.3. The file remains at its current state (no `context: fork`, no `agent: general-purpose` frontmatter fields). This avoids a speculative, unverifiable change and preserves the documented graceful-degradation posture.
 - T4.3's sole artifact is this spike-results.md section. The actual frontmatter edit is a future task (gated on T4.1 and T4.2 Results being filled in above with `pass` outcomes).
-
-### Status
-
-`deferred-pending-T4.2` — diff is documented and ready to apply, but upstream gates (T4.1 runtime verification → T4.2 MCP access verification) must both record `pass` before the change lands. If either gate fails or remains `blocked-manual` indefinitely, this task stays deferred and the researching skill retains its current inline-dispatch behavior.
 
 ### Result
 

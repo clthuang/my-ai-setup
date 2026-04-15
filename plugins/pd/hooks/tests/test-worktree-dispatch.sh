@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
-# test-worktree-dispatch.sh — Git worktree mechanics tests for Phase 2 (feature 078, FR-1 / REQ-2)
-#
-# Task 2.0 (TDD): Tests exercise ONLY the git worktree mechanics that the
-# parallel worktree dispatch will rely on. No agent dispatch. No MCP. The
-# aim is to pin down the raw git behavior the SKILL.md implementation
-# (Task 2.3+) will be layered on top of, so that later changes to dispatch
-# orchestration can't silently break the underlying primitives.
+# test-worktree-dispatch.sh — Pins down raw git worktree primitives used by parallel dispatch.
 #
 # Scenarios:
 #   1. Worktree creation + cleanup roundtrip

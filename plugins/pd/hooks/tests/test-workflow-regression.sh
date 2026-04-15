@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
-# test-workflow-regression.sh — Behavioral regression tests for workflow phases (feature 078, FR-5 / REQ-4)
-#
-# Skeleton: sets up a temp dir with a mock feature folder + minimal .meta.json
-# and a temp entity DB path for use by later test cases. Tears down the whole
-# temp dir on any exit path.
-#
-# Task 1.1: harness (setup, teardown, placeholder test).
-# Task 1.2: entity DB registration baseline.
-# Task 1.3: complete_phase -> .meta.json projection assertion.
+# test-workflow-regression.sh — Behavioral regression tests for workflow phase transitions and entity registration.
 #
 # Usage: bash plugins/pd/hooks/tests/test-workflow-regression.sh
 
@@ -330,11 +322,7 @@ db.create_workflow_phase(
 
 engine = WorkflowStateEngine(db, artifacts_root)
 
-# Call the in-process shared impl the @mcp.tool("complete_phase") wrapper
-# delegates to. This is the closest thing to "complete_phase_impl" in the
-# plan — the actual symbol is _process_complete_phase. Note we pass
-# entity_engine=None so it falls back to the frozen engine path (simpler;
-# we are not exercising cascade here).
+# Call _process_complete_phase (the in-process impl behind the MCP wrapper).
 result_json = _process_complete_phase(
     engine,
     feature_type_id,

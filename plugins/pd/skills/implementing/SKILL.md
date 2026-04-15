@@ -32,7 +32,7 @@ For complex implementations:
    - **Done when** criteria (from `**Done when:**`, if present)
 4. If no task headings found: log error, surface to user, STOP
 
-### Step 2: Per-Task Dispatch Loop (parallel worktree dispatch)
+### Step 2: Per-Task Dispatch Loop
 
 Step 2 dispatches implementer agents in batches of up to `max_concurrent_agents`, each in its own git worktree, then merges the worktree branches into the feature branch in task-document order. The structure is three phases per batch:
 
@@ -114,7 +114,7 @@ If `project_id` is present (non-null):
    This SHA is the pre-dispatch checkpoint used by Phase 3 stray-commit detection.
 3. Initialize `SERIAL_FALLBACK=false`. This flag promotes all remaining batches to serial, no-worktree dispatch after a SQLite BUSY report (see Step 2e Phase 3).
 4. Ensure `.pd-worktrees/` is present in the project's `.gitignore`. If missing, append it and commit on the feature branch before dispatching.
-5. **Resume detection (T2.10):** List existing worktree branches for this feature:
+5. **Resume detection:** List existing worktree branches for this feature:
    ```bash
    EXISTING=$(git worktree list --porcelain | awk '/^branch / { print $2 }' | sed 's|^refs/heads/||' | grep "^worktree-{feature_id}-task-")
    ```
@@ -132,7 +132,7 @@ For each task in the batch (in task-document order):
    ```bash
    git worktree add ".pd-worktrees/task-{N}" -b "worktree-{feature_id}-task-{N}"
    ```
-3. **Per-task fallback on failure (T2.8):** If the command exits non-zero, that task drops to no-worktree dispatch for this batch only; other tasks in the batch continue with their worktrees. **Critical branch-leak cleanup:** Per `plugins/pd/hooks/tests/test-worktree-dispatch.sh` test 4(a), `git worktree add -b BRANCH PATH` on git 2.50+ creates `BRANCH` before validating `PATH`, so a failed add can leave an orphaned branch behind. Before recording the fallback, run:
+3. **Per-task fallback on failure:** If the command exits non-zero, that task drops to no-worktree dispatch for this batch only; other tasks in the batch continue with their worktrees. **Critical branch-leak cleanup:** Per `plugins/pd/hooks/tests/test-worktree-dispatch.sh` test 4(a), `git worktree add -b BRANCH PATH` on git 2.50+ creates `BRANCH` before validating `PATH`, so a failed add can leave an orphaned branch behind. Before recording the fallback, run:
    ```bash
    git branch -D "worktree-{feature_id}-task-{N}" 2>/dev/null || true
    ```
@@ -201,7 +201,7 @@ Worktree isolation was not available for this task (per-task fallback or full-se
 
 #### Step 2e: Phase 3 — Validation, merge, cleanup (per batch)
 
-**1. Stray-commit detection (T2.5).** Immediately after agents return, re-read the feature branch HEAD:
+**1. Stray-commit detection.** Immediately after agents return, re-read the feature branch HEAD:
 
 ```bash
 CURRENT_SHA=$(git rev-parse HEAD)
@@ -217,9 +217,9 @@ CURRENT_SHA=$(git rev-parse HEAD)
   Do NOT attempt merges — stop and return to the user with these details so they can review/revert before re-entry.
 - If HEAD is unchanged but `git diff --name-only` shows uncommitted writes in the main tree, discard them with `git checkout -- .` and continue (stray writes without commits are safe to drop; commits are not).
 
-**2. Collect reports + detect SQLite BUSY (T2.9).** For each returned agent report, extract the standard fields (Files changed, Decisions, Deviations, Concerns) using case-insensitive substring match on the field headers. Scan the entire report (not just the Concerns field) for the substrings `SQLITE_BUSY` or `database is locked`. If any report matches, set `SERIAL_FALLBACK=true` — this promotes all future batches (starting with the next one) to no-worktree serial dispatch. The current batch still finishes its Phase 3 merge sequence; the fallback takes effect on the next batch only.
+**2. Collect reports + detect SQLite BUSY.** For each returned agent report, extract the standard fields (Files changed, Decisions, Deviations, Concerns) using case-insensitive substring match on the field headers. Scan the entire report (not just the Concerns field) for the substrings `SQLITE_BUSY` or `database is locked`. If any report matches, set `SERIAL_FALLBACK=true` — this promotes all future batches (starting with the next one) to no-worktree serial dispatch. The current batch still finishes its Phase 3 merge sequence; the fallback takes effect on the next batch only.
 
-**3. Sequential merge with halt-on-conflict (T2.6).** Ensure the current branch is the feature branch (`git checkout {FEATURE_BRANCH}` if needed). Then, for each task in the batch **in task-document order** (including resumed tasks, excluding tasks whose state is `worktree_mode=false`):
+**3. Sequential merge with halt-on-conflict.** Ensure the current branch is the feature branch (`git checkout {FEATURE_BRANCH}` if needed). Then, for each task in the batch **in task-document order** (including resumed tasks, excluding tasks whose state is `worktree_mode=false`):
 
 ```bash
 git merge --no-ff "worktree-{feature_id}-task-{N}" -m "merge task {N}: {title}"
@@ -234,7 +234,7 @@ If the merge exits non-zero (merge conflict), halt the merge sequence immediatel
 
 Tasks with `worktree_mode=false` have no worktree branch to merge — their changes are already on the feature branch (written directly by the fallback-dispatched agent).
 
-**4. Worktree cleanup (T2.7).** After each successful merge, remove the corresponding worktree:
+**4. Worktree cleanup.** After each successful merge, remove the corresponding worktree:
 
 ```bash
 git worktree remove ".pd-worktrees/task-{N}" 2>/dev/null
