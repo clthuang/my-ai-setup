@@ -1,123 +1,76 @@
-# PRD: Memory Flywheel — Close the Self-Improvement Loop
+# PRD: Memory Flywheel — Close the Self-Improvement Loop (REVISED)
 
 *Source: Backlog #00053*
+*Original: 2026-04-15. Revised: 2026-04-15 after 4-agent empirical re-verification.*
 
 ## Status
 - Created: 2026-04-15
-- Last updated: 2026-04-15
-- Status: Draft
+- Last updated: 2026-04-15 (rescoped post-investigation)
+- Status: Active (1 of 5 features shipped: 079 FTS5 backfill)
 - Problem Type: Multi-Feature Project
 - Archetype: improving-an-existing-system
 
-## Problem Statement
+## Rescope Notes (2026-04-15)
 
-The pd plugin's memory system is a well-architected **write-and-recall-once log**, not a self-improving flywheel. A 4-agent investigation on 2026-04-15 (`/pd:subagent-ras`) found that capture and recall loops work, but the apply, measure, curate, and promote loops are broken or missing. Five concrete leverage items account for the gap.
+After shipping 079 and starting 080, empirical re-verification by 4 parallel codebase-explorer agents found that **the original PRD was substantially wrong about 3 of 5 leverage items**:
 
-### Evidence (from 2026-04-15 investigation, conversation summary)
+| Item | Original claim | Verified state | Real gap |
+|---|---|---|---|
+| Influence wiring | "never called by any orchestrator" | **REFUTED.** 14 callsites in implement/specify/design/create-plan; `_influence_score()` already in `rank()` via `_prominence()` weight 0.05 | Tuning (threshold/weight) + diagnostics, not wiring |
+| FTS5 backfill | "vector=964, fts5=0 = empty table" | **REFUTED.** Table had 972 rows; `fts5=0` was `fts5_candidate_count` from a specific query, not table row count | Defensive migration 5 added anyway (079, shipped) |
+| Recall tracking | "only increments on dedup-merge" | **REFUTED.** `recall_count` updates on retrieval (`injector.py:281`); promotion `low→medium→high` exists in `merge_duplicate` (database.py:512-531) | Persistent confidence decay job (only real gap) |
+| Mid-session refresh | "no PostToolUse refresh hooks" | **PARTIAL.** No hook, but 17 pre-dispatch `search_memory` calls already act as per-dispatch refresh for sub-agents. Main LLM context still gets stale | Orchestrator-side refresh (CronCreate-pattern from 078) |
+| Promote-pattern | "command doesn't exist" | **VERIFIED.** Genuinely greenfield | Greenfield MVP (CLAUDE.md target only first) |
 
-- **Apply loop broken:** `record_influence_by_content` MCP exists and is *documented* in `implement.md`, `create-plan.md`, `researching/SKILL.md` but **never actually called** by any orchestrator. `_influence_score()` exists in `ranking.py` but `rank()` doesn't invoke it. **935 of 943 entries (99.1%) have `influence_count=0`** — Evidence: SQLite query against `~/.claude/pd/memory/memory.db`.
-- **Hybrid retrieval is vector-only:** DB shows `vector=964, fts5=0`. The FTS5 virtual table exists but is never populated, so the keyword-search leg returns empty and full ranking weight collapses onto vectors — Evidence: SessionStart memory injection diagnostic line shows `(vector=964, fts5=0)` confirmed at session start 2026-04-15.
-- **Recall tracking decoupled from retrieval:** `recall_count` increments only on dedup-merge in `writer.py`, not on actual retrieval in `retrieval.py`. Confidence is one-way sticky at `low` with no upgrade path — Evidence: `plugins/pd/hooks/lib/semantic_memory/database.py` schema, `retrieval.py` line ~207 (vector search has no count update).
-- **Push-only at session start:** Memory injection happens once in `session-start.sh` and never refreshes mid-session even when feature/phase context changes substantially — Evidence: `plugins/pd/hooks/session-start.sh` build_*_context functions emit once, no PostToolUse/PreToolUse refresh hooks exist for memory.
-- **No promotion path:** High-confidence patterns (3+ observations) accumulate in `docs/knowledge-bank/` markdown forever; nothing converts them into enforceable rules (skill content, hook scripts, CLAUDE.md entries) — Evidence: knowledge-bank file inventory + grep across skills/ for KB references shows 0 cross-links.
+The original investigation conflated "table empty" with "query returned zero candidates," and "wiring missing" with "wiring present but tuning weak." This addendum corrects the scope.
 
-## Goals
+## Problem Statement (revised)
 
-1. **Activate the apply loop** — make influence tracking real, not just declarative.
-2. **Restore hybrid retrieval** — populate FTS5 so keyword search contributes to ranking.
-3. **Make confidence dynamic** — recall counting + decay + promotion path so signal quality evolves.
-4. **Move from push to pull** — refresh memory mid-session at meaningful boundaries.
-5. **Close the codification loop** — high-confidence patterns become enforceable rules.
+The pd plugin's memory system has more shipped capability than the original PRD assumed. The remaining real gaps are smaller and more targeted:
 
-## Success Criteria
+1. **Apply loop is wired but undertuned** — `record_influence_by_content` fires from 14 sites; threshold 0.70 is too strict (likely <5% hit rate); weight 0.05 contributes ~1.5% of final ranking score. No diagnostics expose the hit rate.
+2. **Confidence promotion exists but decay does not** — entries can move `low→medium→high` via `merge_duplicate` when `memory_auto_promote` is enabled; nothing demotes stale entries.
+3. **Mid-session refresh works for sub-agents but not the orchestrator's own context** — pre-dispatch enrichment refreshes per-Task-call; orchestrating Claude only sees session-start snapshot.
+4. **Pattern codification path is missing** — KB has 60+ patterns, no skill/command/agent converts them into enforceable rules in CLAUDE.md, hooks, or skill bodies.
 
-- [ ] **Influence:** within 5 review cycles after merge, ≥30% of memory entries surfaced via `search_memory` carry `influence_count ≥ 1` (currently 0.9%). `_influence_score()` is part of `rank()`'s active calculation, not dead code.
-- [ ] **FTS5:** `vector` and `fts5` row counts match (within 1) post-backfill; FTS5 keyword search returns non-empty for queries against indexed entries; ranking correctly blends vector + BM25 scores.
-- [ ] **Recall:** `recall_count` increments on every `search_memory` call (not just dedup); decay function reduces confidence over time without observation; promotion path raises confidence on accumulated observation+influence signal.
-- [ ] **Mid-session refresh:** memory re-queries on phase boundaries (e.g., post-`complete_phase`) without requiring SessionStart restart; refreshed entries surface in subsequent agent dispatches.
-- [ ] **Promotion:** `/pd:promote-pattern` command exists and successfully converts at least 1 high-confidence pattern from knowledge-bank into a deployed rule (skill addition, hook, or CLAUDE.md entry) during a manual test.
+## Goals (revised)
 
-## User Stories
+1. **Activate influence with measurement** — make influence tracking observable (hit-rate diagnostics) and tunable (config-driven threshold/weight).
+2. **Add confidence decay** — degrade stale entries' confidence over time so signal quality stays clean.
+3. **Refresh orchestrator context mid-session** — extend the existing pre-dispatch enrichment pattern to keep main-LLM context current at phase boundaries.
+4. **Codify high-confidence patterns** — `/pd:promote-pattern` MVP for CLAUDE.md target (highest leverage, lowest cost).
 
-### Story 1: Influence telemetry
-**As a** pd user **I want** the system to track which memory entries actually influenced agent outputs **so that** ranking surfaces high-impact entries and dead weight gets demoted naturally over time.
-- AC: After running 5 features post-merge, influence_count > 0 for ≥30% of recently-recalled entries.
-- AC: `record_influence_by_content` is invoked by implementer/reviewer Task return-handlers in `implement.md`, `create-plan.md`, `design.md`.
-- AC: `rank()` in `ranking.py` includes `_influence_score()` in its weighted sum (visible in unit tests).
+## Success Criteria (revised)
 
-### Story 2: Keyword search comes back
-**As a** pd user **I want** memory retrieval to use both semantic similarity and keyword matching **so that** queries with rare technical terms (like file names, error codes, MCP tool names) find relevant entries that vector search misses.
-- AC: After backfill, `sqlite3 ... "SELECT COUNT(*) FROM entries_fts"` returns within 1 of `entries` row count.
-- AC: Insert/update triggers keep FTS5 in sync going forward (no future drift).
-- AC: BM25 keyword score component is visible in `rank()` weighted output.
+- [ ] **Influence tuning (080):** `record_influence_by_content` hit rate observable per dispatch; default threshold lowered + config-driven; weight tunable. Within 5 cycles after merge, ≥30% of injected entries get an influence event (currently ~5%).
+- [x] **FTS5 (079):** ✅ shipped — `entries=973`, `entries_fts=973`, schema v5, 411/411 tests pass.
+- [ ] **Confidence decay (082):** scheduled or session-start-triggered job demotes confidence for entries unobserved for >N days; tested; respects existing promotion path.
+- [ ] **Mid-session refresh (081):** orchestrator's working memory refreshes at phase boundaries (post-`complete_phase` or pre-`Skill` dispatch); bounded token cost (≤500 tokens per refresh).
+- [ ] **Promote-pattern (083):** `/pd:promote-pattern` accepts a pattern name/ID, classifies into CLAUDE.md target, produces diff for review, applies on approval. At least 1 high-confidence pattern promoted in manual test.
 
-### Story 3: Self-curating confidence
-**As a** pd user **I want** confidence levels that evolve with usage **so that** entries earn `medium`/`high` confidence by being repeatedly observed and influencing real work, not just by initial agent classification.
-- AC: `recall_count` increments on every `search_memory` call.
-- AC: Confidence decay function (e.g., `confidence *= 0.8^(days_since_updated/90)`) runs daily or on retrieval.
-- AC: Promotion function raises `low → medium → high` based on `observation_count × influence_count` threshold.
+## Out of Scope (revised, expanded)
 
-### Story 4: Memory that knows where I am
-**As a** pd user **I want** memory injection to refresh when my work context changes substantially **so that** mid-session phase transitions surface phase-relevant memory without restarting.
-- AC: Refresh hook fires on `complete_phase` (or equivalent boundary); refreshed entries appear in subsequent dispatches.
-- AC: Refresh adds bounded token cost (≤500 additional tokens per refresh).
-- AC: Existing SessionStart injection still works as the initial baseline.
+- Full 3-target promote (skill/hook/CLAUDE.md) — MVP is CLAUDE.md only; skill/hook targets are follow-up
+- Cross-project influence ranking (separate concern)
+- Influence weight rebalancing within `_prominence()` formula (separate spec exercise)
+- Embedding model migration (`gemini-embedding-001` stays)
 
-### Story 5: Patterns become rules
-**As a** pd user **I want** high-confidence patterns from my knowledge bank to become enforceable rules **so that** repeated learnings codify into the system instead of rotting as markdown.
-- AC: `/pd:promote-pattern` command exists and accepts a pattern ID or name.
-- AC: Command produces a diff (skill content, hook script, or CLAUDE.md entry) for user review before applying.
-- AC: At least 1 high-confidence pattern gets promoted in a manual end-to-end test.
+## Revised Feature Decomposition
 
-## Use Cases
+Same 5 IDs (preserve audit trail), renamed scopes:
+- **079** ✅ FTS5 backfill (shipped, defensive even though gap was misdiagnosed)
+- **080** Influence tuning + diagnostics (was: "wiring")
+- **081** Orchestrator mid-session refresh (was: "any mid-session refresh")
+- **082** Confidence decay job (was: full recall + decay + promotion; recall and promotion are already done)
+- **083** `/pd:promote-pattern` MVP, CLAUDE.md target only (was: classify into all 3 targets)
 
-### UC-1: Implementer dispatch records influence
-**Actors:** implementer agent, orchestrating skill | **Preconditions:** `search_memory` was called pre-dispatch with results passed in prompt
-**Flow:** 1. Implementer agent returns output 2. Orchestrating skill calls `record_influence_by_content(output, injected_entry_names, agent_role, feature_type_id)` 3. Embedding similarity threshold (0.70) determines which entries actually influenced output 4. Influence_count incremented in DB
-**Postconditions:** Future `rank()` calls weight high-influence entries higher
-**Edge cases:** Empty output, MCP unavailable (skip with warning), no entries surfaced pre-dispatch (skip)
+Dependency order unchanged: 080 informs 082 tuning; 083 unchanged.
 
-### UC-2: FTS5 trigger sync
-**Actors:** writer.py, semantic_memory module | **Preconditions:** new memory entry being upserted
-**Flow:** 1. `upsert_entry()` writes to `entries` table 2. INSERT/UPDATE trigger fires on FTS5 virtual table 3. `entries_fts` row created/updated to mirror searchable text fields
-**Postconditions:** FTS5 search returns this entry for matching keyword queries
-**Edge cases:** Migration backfills 943 existing entries without trigger; partial migration recoverable; FTS5 unavailable on this SQLite build (graceful fallback to vector-only)
+## Decomposition Hints (revised)
 
-### UC-3: Pattern promotion
-**Actors:** pd user, /pd:promote-pattern skill | **Preconditions:** a knowledge-bank pattern has observation_count ≥ 3 AND confidence = high
-**Flow:** 1. User invokes `/pd:promote-pattern <name>` 2. Skill reads pattern + classifies target (skill rule / hook / CLAUDE.md entry) 3. Skill produces diff and asks user to approve 4. On approval, applies diff and updates pattern with `promoted: true` field 5. Future retros track promotion outcomes
-**Postconditions:** Pattern is now an enforceable rule, not just docs
-**Edge cases:** Pattern doesn't fit any target template (manual override); diff conflicts with existing skill content (3-way merge prompt)
-
-## Edge Cases & Error Handling
-
-| Scenario | Expected Behavior | Rationale |
-|---|---|---|
-| `record_influence_by_content` MCP fails | Log warning, continue | Don't block agent dispatch on telemetry failures |
-| FTS5 backfill mid-flight crash | Resumable; partial state OK | Backfill is idempotent per-row |
-| Confidence decay produces confidence < 0 | Floor at "low" | No "negative" confidence concept |
-| Mid-session refresh exceeds token budget | Skip refresh, log warning | Don't blow context budget for memory |
-| Promote-pattern target file doesn't exist | Create with header + entry | Avoid silent skip |
-| `entries_fts` unavailable on this SQLite build | Skip FTS5 entirely; document fallback | Graceful degradation |
-
-## Out of Scope
-
-- Cross-project ranking filter (the `source_project` filter gap is captured separately as a follow-up; out of scope for the 5 main features unless trivially adjacent)
-- Silent fallback fixes in `remember` CLI and `capture-tool-failure` (separate hardening pass)
-- Implementer self-capture of validated design decisions (separate feature)
-- Embedding model migration (out of scope; current `gemini-embedding-001` stays)
-
-## Decomposition Hints
-
-The 5 leverage items are natural feature boundaries:
-1. **Influence wiring** — small, high-impact, single-session feature.
-2. **FTS5 backfill + triggers** — small data migration + schema fix.
-3. **Recall tracking + confidence decay + promotion** — medium, touches retrieval + writer + a daily/triggered job.
-4. **Mid-session refresh hook** — small, one new hook.
-5. **Promote-pattern command** — medium, new skill + command + classification heuristics.
-
-Suggested feature dependency order:
-- 1 (influence) and 2 (FTS5) are independent and can ship in parallel.
-- 3 (recall/decay/promotion) depends on 1 (influence_count is the upgrade signal).
-- 4 (refresh) is independent.
-- 5 (promote-pattern) depends on 3 (needs confidence-elevation signal to know what to promote).
+| Feature | New scope | Files | Complexity |
+|---|---|---|---|
+| 080 | Add `--debug-influence` mode to retrieval; emit per-dispatch hit-rate; expose `memory_influence_threshold` and `memory_influence_weight` config; lower threshold default to 0.55. | `memory_server.py:614` (record_influence_by_content), `ranking.py:176` (_influence_score), `pd.local.md` template | Low |
+| 081 | Add `refresh_memory_context` instruction emitter to `complete_phase` MCP response (or PostToolUse hook on Skill dispatch). Reuse 17-site pre-dispatch enrichment pattern. | `mcp/workflow_state_server.py` complete_phase tool, optional new hook | Low-Medium |
+| 082 | New `decay_confidence(db, config)` in writer.py or maintenance.py. Daily-style demotion when `last_recalled_at < now - N days`. New SessionStart trigger. Tests. | `semantic_memory/writer.py` or new `maintenance.py`, `session-start.sh` trigger, tests | Medium |
+| 083 | New `/pd:promote-pattern` slash command. Read KB entries (filter: confidence=high, observation_count≥3), present selection, classify target=CLAUDE.md (other targets out of scope), produce diff, apply on approve. | `plugins/pd/commands/promote-pattern.md`, optional `plugins/pd/skills/promoting-patterns/SKILL.md` | Medium |
