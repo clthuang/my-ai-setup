@@ -29,6 +29,8 @@ Claude Code plugin providing a structured feature development workflow—skills,
 
 **Plans from any source:** When the user provides a plan (via CC plan mode, pasted in chat, or from a file), always dispatch plan-reviewer before implementing. The PreToolUse ExitPlanMode hook enforces this in CC plan mode; compensate manually for plans pasted in chat or from files.
 
+**Worktree directory:** The `.pd-worktrees/` directory at the project root is used by the implementing skill for parallel task dispatch (worktree isolation workaround for CC Issue #33045). It is gitignored and auto-cleaned after successful merges. Orphaned worktrees are detected by the doctor health check. Never commit files inside `.pd-worktrees/` or treat them as source of truth — the orchestrating skill merges worktree branches back to the feature branch.
+
 ## Behavioral Guardrails
 
 **YOLO mode persistence:** In YOLO mode, do not disable or exit YOLO mode. Continue executing autonomously through errors. Fix errors and keep going.
