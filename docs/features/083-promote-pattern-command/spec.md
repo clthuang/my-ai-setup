@@ -65,7 +65,7 @@ Tokenize the entry's name + description. For each target, count token matches:
 | **skill** | gerund forms matching existing skill names: `implementing`, `creating`, `brainstorming`, `specifying`, `designing`, `planning`, `retrospecting`, `researching`, `simplifying`, `wrap-up`, `finishing`, `decomposing`, `breaking-down`, `committing`, `debugging`, `dispatching` (+ generic `procedure`, `steps`, `workflow`) |
 | **command** | `/[a-z][a-z-]+ command`, `when user runs`, `invokes /pd:`, `slash command` |
 
-Each row's entries are **regex patterns matched case-insensitively** against the concatenated entry name + description. A target's score is the count of **distinct patterns** (rows) that matched at least once (not total match occurrences).
+Each row's entries are **regex patterns matched case-insensitively** (Python `re` flavor with `re.IGNORECASE` flag) against the concatenated entry name + description. A target's score is the count of **distinct patterns** (rows) that matched at least once (not total match occurrences).
 
 #### FR-2b: Tie-break / fallback
 
@@ -111,7 +111,7 @@ Steps:
    - `infeasible` + `reason` → command displays reason, offers `change-target` (skill is usually the right alternative for non-mechanical guidance)
 2. **Skeleton generation:** deterministic template (no LLM) using the feasibility output. Generates:
    - `plugins/pd/hooks/{slug}.sh` — bash script reading hook stdin JSON, applying the check, exiting 0 (allow) or non-zero (block) with stderr explanation
-   - `hooks.json` patch — register the hook on `event` for **each** tool in the `tools` array (one matcher per tool). Validates resulting JSON before write.
+   - `hooks.json` patch — register the hook on `event` for the tools in the `tools` array, using whichever matcher form the current `hooks.json` schema supports (one matcher per tool OR a combined matcher pattern). Validates resulting JSON before write.
    - `plugins/pd/hooks/tests/test-{slug}.sh` — happy + sad case tests with mock JSON input
 3. **Slug collision:** if `plugins/pd/hooks/{slug}.sh` exists, auto-suffix `-2`, `-3`, etc.
 
@@ -170,7 +170,7 @@ Strict ordering for atomicity:
 - Re-read the KB file (in case parallel edits happened).
 - **Entry block definition:** from the entry's heading (e.g., `### Pattern: Name`) up to the next sibling heading at the same level, OR to EOF if no further sibling exists.
 - Insertion position: immediately after the entry's `- Confidence:` line if present; otherwise on a new line **immediately before the next sibling heading** (or at EOF if last entry). Never break adjacent entries.
-- Marker line: `- Promoted: {target_type}:{absolute target file path}`
+- Marker line: `- Promoted: {target_type}:{repo-relative target file path}` (e.g., `hook:plugins/pd/hooks/check-absolute-paths.sh`). Repo-relative keeps markers portable across clones.
 - If the marker write fails → log warning, leave target files in place (they are the actual value), instruct user to manually annotate the KB entry.
 
 Rollback responsibility ends at Stage 5: target files are the source of truth for whether promotion happened. The KB marker is metadata for future enumeration.
@@ -190,7 +190,7 @@ Rollback responsibility ends at Stage 5: target files are the source of truth fo
 **Then** FR-1 lists this entry; user confirms.
 **And** FR-2a scores: hook=2 (`on Read`, `on Glob` matches), agent=0, skill=0, command=0 → hook wins (FR-2b).
 **And** FR-2d shows classification + reasoning; user accepts.
-**And** FR-3-hook feasibility gate returns: `feasible, event=PreToolUse, tool=Read+Glob+Edit, check_kind=file_path_regex, check_expression=^[^/]`.
+**And** FR-3-hook feasibility gate returns: `feasible, event=PreToolUse, tools=[Read, Glob, Edit], check_kind=file_path_regex, check_expression=^[^/]`.
 **And** FR-3-hook generates `plugins/pd/hooks/check-absolute-paths.sh` + `hooks.json` patch + `test-check-absolute-paths.sh`.
 **And** user selects `apply`.
 **Then** Stage 1-4 succeed; `hooks.json` is valid JSON; `validate.sh` passes; KB entry gains `- Promoted: hook:plugins/pd/hooks/check-absolute-paths.sh`.
