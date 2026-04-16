@@ -86,13 +86,21 @@ class RankingEngine:
     }
 
     def __init__(self, config: dict) -> None:
-        self._vector_weight: float = float(config.get("memory_vector_weight", 0.5))
-        self._keyword_weight: float = float(config.get("memory_keyword_weight", 0.2))
-        self._prominence_weight: float = float(config.get("memory_prominence_weight", 0.3))
+        # All four weight reads go through _resolve_weight for consistent
+        # bool-rejection + malformed-value handling.  Without this, a config
+        # value of `true` silently coerces to 1.0 (Python bool is int subclass).
+        self._vector_weight: float = _resolve_weight(
+            config, "memory_vector_weight", 0.5, warned=_ranker_warned_fields
+        )
+        self._keyword_weight: float = _resolve_weight(
+            config, "memory_keyword_weight", 0.2, warned=_ranker_warned_fields
+        )
+        self._prominence_weight: float = _resolve_weight(
+            config, "memory_prominence_weight", 0.3, warned=_ranker_warned_fields
+        )
         # Feature 080: config-driven influence coefficient for _prominence.
-        # Clamped to [0.0, 1.0]; malformed values fall back to 0.05 with one
-        # dedup'd stderr warning.  NOT auto-renormalized vs the other prominence
-        # components -- operator raising this must reduce others to stay <=1.0.
+        # NOT auto-renormalized vs the other prominence components --
+        # operator raising this must reduce others to stay <=1.0.
         self._influence_weight: float = _resolve_weight(
             config, "memory_influence_weight", 0.05, warned=_ranker_warned_fields
         )
@@ -302,7 +310,8 @@ class RankingEngine:
     ) -> float:
         """Compute prominence for a single entry.
 
-        ``prominence = 0.30 * norm_obs + 0.15 * confidence + 0.35 * recency + 0.15 * recall + 0.05 * influence``
+        Formula: ``0.30 * norm_obs + 0.15 * confidence + 0.35 * recency + 0.15 * recall + self._influence_weight * influence``
+        (influence coefficient is config-driven via ``memory_influence_weight``; default 0.05).
         """
         obs_count = entry.get("observation_count", 0)
         norm_obs = math.log(obs_count + 1) / math.log(max_obs + 1) if max_obs > 0 else 0.0
