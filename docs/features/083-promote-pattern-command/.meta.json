@@ -1,10 +1,28 @@
 {
-  "id": "083",
-  "slug": "promote-pattern-command",
+  "id": "",
+  "slug": "",
   "mode": "standard",
-  "status": "planned",
+  "status": "active",
   "created": "2026-04-15T14:37:11.008846+00:00",
-  "branch": "feature/083-promote-pattern-command",
-  "lastCompletedPhase": null,
-  "phases": {}
+  "branch": "",
+  "lastCompletedPhase": "implement",
+  "phases": {
+    "specify": {
+      "started": "2026-04-15T16:27:21.148762+00:00",
+      "completed": "2026-04-15T16:40:48.031698+00:00",
+      "iterations": 3
+    },
+    "design": {
+      "completed": "2026-04-15T19:32:15.446772+00:00",
+      "iterations": 2
+    },
+    "create-plan": {
+      "completed": "2026-04-15T19:47:38.760675+00:00",
+      "iterations": 3
+    },
+    "implement": {
+      "completed": "2026-04-16T05:13:10.591626+00:00",
+      "iterations": 3
+    }
+  }
 }
