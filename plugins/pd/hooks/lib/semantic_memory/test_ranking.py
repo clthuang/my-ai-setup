@@ -171,6 +171,53 @@ class TestRankingEngineInit:
         assert engine._keyword_weight == 0.3
         assert engine._prominence_weight == 0.3
 
+    @pytest.mark.parametrize(
+        "key,default",
+        [
+            ("memory_vector_weight", 0.5),
+            ("memory_keyword_weight", 0.2),
+            ("memory_prominence_weight", 0.3),
+        ],
+    )
+    def test_bool_rejected_for_pre_existing_weights(self, key, default, capsys):
+        """Bool config values must fall back to default + warn, not coerce to 1.0.
+
+        Python bool is an int subclass, so plain float(True) = 1.0 silently.
+        All four RankingEngine weights must reject bool explicitly.
+        """
+        engine = RankingEngine({key: True})
+        assert getattr(engine, f"_{key.replace('memory_', '')}") == default
+        captured = capsys.readouterr()
+        assert "not a float" in captured.err
+        assert key in captured.err
+
+    @pytest.mark.parametrize(
+        "key,default",
+        [
+            ("memory_vector_weight", 0.5),
+            ("memory_keyword_weight", 0.2),
+            ("memory_prominence_weight", 0.3),
+        ],
+    )
+    def test_invalid_string_rejected_for_pre_existing_weights(self, key, default, capsys):
+        """Non-float strings must fall back to default + warn for all three weights."""
+        engine = RankingEngine({key: "not a float"})
+        assert getattr(engine, f"_{key.replace('memory_', '')}") == default
+        captured = capsys.readouterr()
+        assert "not a float" in captured.err
+        assert key in captured.err
+
+    @pytest.mark.parametrize(
+        "key",
+        ["memory_vector_weight", "memory_keyword_weight", "memory_prominence_weight"],
+    )
+    def test_out_of_range_clamped_silently_for_pre_existing_weights(self, key, capsys):
+        """Values >1.0 clamp to 1.0 silently (operator is tuning)."""
+        engine = RankingEngine({key: 2.5})
+        assert getattr(engine, f"_{key.replace('memory_', '')}") == 1.0
+        captured = capsys.readouterr()
+        assert captured.err == ""  # no warning for intentional clamp
+
 
 # ---------------------------------------------------------------------------
 # Confidence mapping (design C5 / spec D3)
