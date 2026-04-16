@@ -11,10 +11,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 TargetType = Literal["hook", "skill", "agent", "command"]
 Action = Literal["create", "modify"]
+# stage_completed is usually an int (0-5) but may be the literal string
+# "baseline" when the FR-5 Stage 4 baseline validate.sh run itself aborts
+# before any Stage 3 writes. Callers can distinguish with isinstance().
+StageCompleted = Union[int, Literal["baseline"]]
 
 
 @dataclass
@@ -50,7 +54,9 @@ class DiffPlan:
 class Result:
     """Outcome of apply.apply().
 
-    `stage_completed` is 0-5 (diagnostics). `target_path` is repo-relative
+    `stage_completed` is normally an int in 0-5 (diagnostics). It is the
+    literal string `"baseline"` when the FR-5 Stage 4 baseline validate.sh
+    run fails before any writes are performed. `target_path` is repo-relative
     when set so the KB marker is portable across clones.
     """
 
@@ -58,4 +64,4 @@ class Result:
     target_path: Optional[Path]
     reason: Optional[str]
     rolled_back: bool
-    stage_completed: int
+    stage_completed: StageCompleted

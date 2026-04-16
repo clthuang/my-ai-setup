@@ -773,3 +773,119 @@ the block can be generalized to loop over `plugins/pd/hooks/lib/*/`.
   possible drifts (the MCP Tools count=26 in plugins/pd/README.md — I did
   not audit this) are left for a future cleanup. Scope held to the
   CLAUDE.md Documentation-sync touchpoints listed in the task.
+
+## Phase 4b / 4c Fix — Implementation-Reviewer Iteration 1
+
+**Date:** 2026-04-16
+**Executor:** implementer agent
+**Reviewer feedback iteration:** 1 (2 blockers + 2 warnings)
+
+### Summary
+
+Addressed 4 issues from implementation-reviewer iteration 1:
+
+1. **BLOCKER 1** — FR-5 Stage 4 baseline-delta `validate.sh` was missing in
+   `apply.py`. Added `_run_validate_sh` helper, baseline capture after Stage 2
+   snapshot (before Stage 3 writes), post-write delta comparison after
+   existing Stage 4 checks. Added `PATTERN_PROMOTION_SKIP_VALIDATE_SH=1` env
+   var to keep unit-test hermeticity. Added 5 new tests covering: no
+   regression succeeds, error-count regression rolls back, new-category
+   regression rolls back, baseline-run failure aborts before writes, parser
+   extracts count + categories correctly.
+
+2. **BLOCKER 2** — SKILL.md Step 4 approval gate was missing the
+   `change-target` option (spec FR-4 requires 4 options:
+   `{apply, edit-content, change-target, cancel}`). Added the fourth option
+   with documented routing back to Step 2c's explicit target pick with
+   `excluded_targets: [current_target]`. Renamed `Skip` to `Cancel` to match
+   spec vocabulary.
+
+3. **WARNING 1** — NFR-3 per-invocation 2-attempt classification cap was
+   undocumented in SKILL.md. Added `classification_attempts` per-entry
+   counter (initialized in Step 2b) with documented increment points
+   (Step 2c LLM fallback, Step 4 change-target re-entry) and hard-cap logic.
+
+4. **WARNING 2** — FR-1 error-table UX hint for N > 8/20 was missing. Added
+   the `"Showing 8 of N qualifying entries. Pass a substring argument to
+   /pd:promote-pattern to filter."` prompt prefix to Step 2b.
+
+### Files Changed
+
+- `plugins/pd/hooks/lib/pattern_promotion/apply.py` — added
+  `_run_validate_sh`, integrated baseline + delta into `apply()`, documented
+  `PATTERN_PROMOTION_SKIP_VALIDATE_SH` env var in module docstring
+- `plugins/pd/hooks/lib/pattern_promotion/types.py` — broadened
+  `Result.stage_completed` to `StageCompleted = int | Literal["baseline"]`
+  so baseline-failure returns can surface `stage="baseline"` per spec
+- `plugins/pd/hooks/lib/pattern_promotion/test_apply.py` — autouse fixture
+  skipping `validate.sh` by default, renamed/split pre-existing
+  `test_baseline_run_failure_modify_restored` into two tests (one opts IN to
+  the baseline path to verify the real branch; one keeps the prior Stage 4
+  post-write-validation-callable failure coverage), added new
+  `TestBaselineDeltaValidate` class with 5 tests
+- `plugins/pd/hooks/lib/pattern_promotion/test_cli_integration.py` — added
+  `env_extra={"PATTERN_PROMOTION_SKIP_VALIDATE_SH": "1"}` to 3 CLI-level
+  apply invocations that use the synthetic contract-project fixture (real
+  `./validate.sh` is out of scope for those CLI-contract tests; baseline
+  branch is covered in `test_apply.py::TestBaselineDeltaValidate`)
+- `plugins/pd/skills/promoting-patterns/SKILL.md` — added N>8 hint prose in
+  Step 2b; introduced `classification_attempts` counter in Step 2b with
+  increment wiring in Step 2c (LLM fallback) and Step 4 (change-target
+  re-entry); replaced Step 4 3-option gate with spec-mandated 4-option
+  `{Apply, Edit content, Change target, Cancel}` gate
+
+### Test Count Delta
+
+- Before: 146 tests (from Phase 4a completion)
+- After: 152 tests (+6 net; reviewer required ≥3 new tests)
+  - TestBaselineDeltaValidate: 5 new tests
+  - TestRollback: split baseline-run-failure into 2 tests (+1)
+
+All 152 tests green. `./validate.sh` reports 0 errors (pre-existing 10
+warnings unchanged — same brainstorming-SKILL/command-description warnings
+already documented in the Phase 4c entry).
+
+### Verification
+
+```
+$ plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/pattern_promotion/ -v
+152 passed in 2.73s
+
+$ grep -c "change-target\|Change target" plugins/pd/skills/promoting-patterns/SKILL.md
+5
+
+$ grep -c "classification_attempts\|Max 2 classification" plugins/pd/skills/promoting-patterns/SKILL.md
+5
+
+$ grep -c "validate.sh" plugins/pd/hooks/lib/pattern_promotion/apply.py
+28
+
+$ ./validate.sh | tail -3
+Errors: 0
+Warnings: 10
+Validation passed
+```
+
+### Decisions
+
+- **`stage_completed` widened to `int | Literal["baseline"]`** rather than
+  introducing a parallel `stage_label` field. Keeps the Result contract
+  compact; `isinstance(res.stage_completed, str)` cleanly distinguishes the
+  baseline case from the 0-4 numeric stages. Tests using integer
+  `stage_completed` continue to work without change.
+- **Autouse fixture to skip `./validate.sh` by default in `test_apply.py`**
+  rather than editing every existing test. The new `TestBaselineDeltaValidate`
+  class opts OUT via `monkeypatch.delenv` so the real baseline branch runs.
+  This keeps the pre-existing 19 tests hermetic (no real validate.sh
+  invocation needed) while the 5 new tests specifically exercise the
+  baseline/delta logic.
+- **CLI integration tests keep the skip env var** because the synthetic
+  contract-project fixture they rely on doesn't ship a real `validate.sh`.
+  The baseline path's correctness is already covered by
+  `TestBaselineDeltaValidate` at the direct-import level, which is the
+  appropriate layer for the logic under test.
+
+### Deviations
+
+- None from the reviewer's prescription. All 4 issues addressed per their
+  implementation notes.

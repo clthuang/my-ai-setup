@@ -858,6 +858,10 @@ class TestApplyContract:
         self, contract_project: Path, tmp_path: Path
     ):
         sandbox = self._prepare_plan(contract_project, tmp_path)
+        # Skip the real ./validate.sh baseline run (contract_project is a
+        # synthetic fixture; a full validate.sh invocation is out of scope
+        # for this CLI-contract test). Behavior of the baseline path itself
+        # is covered in test_apply.py::TestBaselineDeltaValidate.
         rc, out, _ = _run_cli(
             "apply",
             "--sandbox",
@@ -865,6 +869,7 @@ class TestApplyContract:
             "--entry-name",
             "Implementing bundles same-file tasks",
             cwd=contract_project,
+            env_extra={"PATTERN_PROMOTION_SKIP_VALIDATE_SH": "1"},
         )
         assert rc == 0, out
         status = _assert_single_line_json(out)
@@ -903,6 +908,7 @@ class TestApplyContract:
             "--entry-name",
             "Implementing bundles same-file tasks",
             cwd=contract_project,
+            env_extra={"PATTERN_PROMOTION_SKIP_VALIDATE_SH": "1"},
         )
         assert rc == 3, (rc, out)
         status = _assert_single_line_json(out)
@@ -983,7 +989,8 @@ class TestRoundTripContract:
         assert gen_status["status"] == "ok"
         assert gen_status["edit_count"] == 1
 
-        # 4) apply
+        # 4) apply — skip real validate.sh on the synthetic contract project
+        # (covered separately in test_apply.py::TestBaselineDeltaValidate).
         rc, out, _ = _run_cli(
             "apply",
             "--sandbox",
@@ -991,6 +998,7 @@ class TestRoundTripContract:
             "--entry-name",
             skill_entry["entry_name"],
             cwd=contract_project,
+            env_extra={"PATTERN_PROMOTION_SKIP_VALIDATE_SH": "1"},
         )
         assert rc == 0, out
         apply_status = _assert_single_line_json(out)

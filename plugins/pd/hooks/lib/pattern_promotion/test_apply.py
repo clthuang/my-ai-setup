@@ -45,6 +45,19 @@ from pattern_promotion.kb_parser import KBEntry  # noqa: E402
 from pattern_promotion.types import DiffPlan, FileEdit  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _skip_validate_sh_by_default(monkeypatch):
+    """Most apply tests exercise Stage 1-4 logic without a real ./validate.sh.
+
+    The FR-5 Stage 4 baseline-delta `validate.sh` run is covered by a dedicated
+    test class (`TestBaselineDeltaValidate`) that opts OUT of this fixture via
+    `monkeypatch.delenv`. Keeping the skip env var set by default preserves the
+    pre-existing 146-test hermeticity while letting the new tests drive the
+    real validate.sh branch deterministically via mocking.
+    """
+    monkeypatch.setenv("PATTERN_PROMOTION_SKIP_VALIDATE_SH", "1")
+
+
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
@@ -488,12 +501,48 @@ class TestRollback:
         assert not file_a.exists(), "first file should have been rolled back"
         assert not file_b.exists()
 
-    def test_baseline_run_failure_modify_restored(self, tmp_path):
-        """A modify-action file is written, but Stage 4 validation fails via
-        post-write validation callable; snapshot must restore the original
-        content byte-for-byte."""
+    def test_baseline_run_failure_modify_restored(self, tmp_path, monkeypatch):
+        """Per FR-5 Stage 4 / TD-5: if the baseline validate.sh run itself
+        exits non-zero (before any Stage 3 write), apply must abort with
+        stage_completed="baseline", rolled_back=False (no writes happened),
+        and the modify target's content must be untouched byte-for-byte.
+
+        This test OPTS OUT of the module-level
+        PATTERN_PROMOTION_SKIP_VALIDATE_SH=1 fixture so the real baseline path
+        is exercised, then mocks `_run_validate_sh` to simulate failure.
+        """
+        monkeypatch.delenv("PATTERN_PROMOTION_SKIP_VALIDATE_SH", raising=False)
         entry = _make_entry("Bline")
         plan = _make_skill_plan(tmp_path, entry_name="Bline")
+        target = plan.edits[0].path
+        original = target.read_text()
+        import pattern_promotion.apply as apply_mod
+
+        def failing_baseline(cwd=None):
+            return False, 0, set(), "simulated baseline failure"
+
+        with mock.patch.object(
+            apply_mod, "_run_validate_sh", side_effect=failing_baseline
+        ):
+            result = apply(entry, plan, target_type="skill")
+        assert result.success is False
+        # Baseline failure happens before any Stage 3 write -> no rollback.
+        assert result.rolled_back is False
+        assert result.stage_completed == "baseline"
+        # Modify target content must be untouched.
+        assert target.read_text() == original
+        assert result.reason and "baseline" in result.reason.lower()
+
+    def test_stage4_post_write_validation_failure_still_rolls_back(
+        self, tmp_path
+    ):
+        """Pre-existing coverage of the Stage 4 _stage4_validate callable
+        failing (distinct from the baseline-run-failure above) — this test
+        keeps the module-level SKIP_VALIDATE_SH fixture so Stage 4 is the
+        only source of failure, and snapshot must restore the modified file.
+        """
+        entry = _make_entry("PW")
+        plan = _make_skill_plan(tmp_path, entry_name="PW")
         target = plan.edits[0].path
         original = target.read_text()
         import pattern_promotion.apply as apply_mod
@@ -576,3 +625,152 @@ class TestHookTestScript:
         assert not plan.edits[0].path.exists()
         assert plan.edits[2].path.read_text() == original_json
         assert result.reason and "timeout" in result.reason.lower()
+
+
+# ---------------------------------------------------------------------------
+# FR-5 Stage 4 — Baseline-delta ./validate.sh (TD-5)
+# ---------------------------------------------------------------------------
+
+
+class TestBaselineDeltaValidate:
+    """Exercise the real baseline-delta validate.sh branch by mocking
+    `_run_validate_sh` to return controlled (count, categories) tuples pre vs
+    post write. These tests opt OUT of the module-level
+    PATTERN_PROMOTION_SKIP_VALIDATE_SH=1 fixture so the branch actually runs.
+    """
+
+    def test_no_regression_succeeds(self, tmp_path, monkeypatch):
+        """Baseline=5 errors, post=5 errors, no new categories -> success."""
+        monkeypatch.delenv("PATTERN_PROMOTION_SKIP_VALIDATE_SH", raising=False)
+        entry = _make_entry("NoRegress")
+        plan = _make_skill_plan(tmp_path, entry_name="NoRegress")
+        target = plan.edits[0].path
+        expected_after = plan.edits[0].after
+        import pattern_promotion.apply as apply_mod
+
+        # Two-call sequence: baseline then post-write delta. Identical tuples.
+        calls = {"n": 0}
+
+        def stub(cwd=None):
+            calls["n"] += 1
+            return True, 5, {"style", "format"}, None
+
+        with mock.patch.object(apply_mod, "_run_validate_sh", side_effect=stub):
+            result = apply(entry, plan, target_type="skill")
+
+        assert calls["n"] == 2, "expected baseline + post-write validate.sh"
+        assert result.success is True
+        assert result.rolled_back is False
+        assert result.stage_completed == 4
+        # Target file now holds the intended `after` content.
+        assert target.read_text() == expected_after
+
+    def test_regression_new_error_count_triggers_rollback(
+        self, tmp_path, monkeypatch
+    ):
+        """Baseline=3 errors, post=5 errors -> rollback; modify restored."""
+        monkeypatch.delenv("PATTERN_PROMOTION_SKIP_VALIDATE_SH", raising=False)
+        entry = _make_entry("CountRegress")
+        plan = _make_skill_plan(tmp_path, entry_name="CountRegress")
+        target = plan.edits[0].path
+        original = target.read_text()
+        import pattern_promotion.apply as apply_mod
+
+        sequence = [
+            (True, 3, {"style"}, None),  # baseline
+            (True, 5, {"style"}, None),  # post-write: more errors, same cats
+        ]
+        calls = {"n": 0}
+
+        def stub(cwd=None):
+            i = calls["n"]
+            calls["n"] += 1
+            return sequence[i]
+
+        with mock.patch.object(apply_mod, "_run_validate_sh", side_effect=stub):
+            result = apply(entry, plan, target_type="skill")
+
+        assert result.success is False
+        assert result.rolled_back is True
+        assert result.stage_completed == 4
+        assert result.reason and "regression" in result.reason.lower()
+        assert "baseline=3" in result.reason
+        assert "post=5" in result.reason
+        # Rollback restored original content.
+        assert target.read_text() == original
+
+    def test_regression_new_category_triggers_rollback(
+        self, tmp_path, monkeypatch
+    ):
+        """Baseline has {style}; post has {style, security} -> rollback even
+        though error count is unchanged."""
+        monkeypatch.delenv("PATTERN_PROMOTION_SKIP_VALIDATE_SH", raising=False)
+        entry = _make_entry("CatRegress")
+        plan = _make_skill_plan(tmp_path, entry_name="CatRegress")
+        target = plan.edits[0].path
+        original = target.read_text()
+        import pattern_promotion.apply as apply_mod
+
+        sequence = [
+            (True, 2, {"style"}, None),
+            (True, 2, {"style", "security"}, None),
+        ]
+        calls = {"n": 0}
+
+        def stub(cwd=None):
+            i = calls["n"]
+            calls["n"] += 1
+            return sequence[i]
+
+        with mock.patch.object(apply_mod, "_run_validate_sh", side_effect=stub):
+            result = apply(entry, plan, target_type="skill")
+
+        assert result.success is False
+        assert result.rolled_back is True
+        assert result.stage_completed == 4
+        assert result.reason and "regression" in result.reason.lower()
+        assert "security" in result.reason
+        assert target.read_text() == original
+
+    def test_validate_sh_run_helper_parses_count_and_categories(self, tmp_path):
+        """Direct coverage of _run_validate_sh's output parser. Uses a fake
+        validate.sh that prints controlled lines and exits 0."""
+        import pattern_promotion.apply as apply_mod
+
+        fake_script = tmp_path / "validate.sh"
+        fake_script.write_text(
+            "#!/usr/bin/env bash\n"
+            "echo 'Checking component...'\n"
+            "echo '[ERROR] style: line too long'\n"
+            "echo '[ERROR] security: hardcoded secret'\n"
+            "echo 'Errors: 2'\n"
+            "exit 0\n"
+        )
+        fake_script.chmod(0o755)
+        ok, count, categories, reason = apply_mod._run_validate_sh(cwd=tmp_path)
+        assert ok is True
+        assert count == 2
+        assert {"style", "security"}.issubset(categories)
+        assert reason is None
+
+    def test_validate_sh_nonzero_exit_surfaces_as_baseline_failure(
+        self, tmp_path, monkeypatch
+    ):
+        """If the real _run_validate_sh helper returns ok=False at baseline
+        (script missing or non-zero exit), apply must abort with
+        stage_completed='baseline' and zero writes."""
+        monkeypatch.delenv("PATTERN_PROMOTION_SKIP_VALIDATE_SH", raising=False)
+        entry = _make_entry("MissingScript")
+        plan = _make_skill_plan(tmp_path, entry_name="MissingScript")
+        target = plan.edits[0].path
+        original = target.read_text()
+        import pattern_promotion.apply as apply_mod
+
+        # monkeypatch cwd to a directory without validate.sh -> helper returns
+        # ok=False naturally (no mock needed).
+        monkeypatch.chdir(tmp_path)
+        result = apply(entry, plan, target_type="skill")
+        assert result.success is False
+        assert result.rolled_back is False
+        assert result.stage_completed == "baseline"
+        assert target.read_text() == original

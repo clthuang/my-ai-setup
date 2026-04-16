@@ -96,12 +96,17 @@ Read `$SANDBOX/classifications.json` — a list of
 
 If invoked with a substring argument, filter `entries.json` by case-insensitive
 substring match on `name` before presenting. Otherwise present up to 8 entries
-(if >8, include the hint "showing 8 of N — pass `<substring>` to filter").
+alphabetized. Per spec FR-1 and the >20-qualifying-entries error-table row:
+**when `N > 8`, prepend the AskUserQuestion prompt with the hint**
+`Showing 8 of N qualifying entries. Pass a substring argument to
+/pd:promote-pattern to filter.` This matches the spec's "showing 8 of N —
+pass `<substring>` argument to filter" UX contract and gives the user a
+way out when the list is large (spec's >20 trigger is a subset of >8).
 
 ```
 AskUserQuestion:
   questions: [{
-    "question": "Select entries to promote (one promotion per entry):",
+    "question": "<hint-when-N>8>Select entries to promote (one promotion per entry):",
     "header": "Entries",
     "options": [
       // One option per entry, label = entry.name, description = first
@@ -113,6 +118,15 @@ AskUserQuestion:
 ```
 
 If the user selects none → exit (clean up sandbox).
+
+**Per-entry classification-attempt counter (NFR-3):** at this point, initialize
+`classification_attempts = 0` for each selected entry. Every time the LLM
+classification runs (Step 2c FR-2c fallback) OR the user picks `Change target`
+in Step 4, increment this counter. **Hard cap: 2 attempts per entry per
+invocation.** If the counter reaches 2, surface
+`"Max 2 classification attempts reached for entry '<name>' — skipping."`
+and drop the entry from the batch. This is the NFR-3 change-target
+carry-over rule.
 
 ### 2c. Per-entry target resolution
 
@@ -136,8 +150,10 @@ AskUserQuestion:
   }]
 ```
 
-- **If `winner` is null OR `tied == true`** → run the LLM classification
-  fallback inline (FR-2c). Prompt (~300 tokens):
+- **If `winner` is null OR `tied == true`** → **increment
+  `classification_attempts` for this entry** and run the LLM classification
+  fallback inline (FR-2c). If the counter would exceed the NFR-3 hard cap of
+  2, skip the entry with the message defined in 2b. Prompt (~300 tokens):
 
   ```
   Pattern: <entry.name>
@@ -316,8 +332,12 @@ a per-file summary string from `diff_plan.json`:
 - For each edit: `path`, `action` (`create`|`modify`), and a 10-line preview
   of `after` (or a unified diff when `action == modify`).
 
-Render the summary into a single AskUserQuestion **per entry**. Keep option
-labels short so the description carries the detail:
+Render the summary into a single AskUserQuestion **per entry** with the four
+options mandated by spec FR-4: `{apply, edit-content, change-target, cancel}`.
+`Change target` is required to support HP-4 (feasibility reveals wrong
+classification) — it routes back to Step 2c's explicit target pick with the
+**current target excluded** so the user doesn't have to re-enumerate. Keep
+option labels short so the description carries the detail:
 
 ```
 AskUserQuestion:
@@ -326,20 +346,38 @@ AskUserQuestion:
     "header": "Approval",
     "options": [
       {"label": "Apply", "description": "Write files and mark KB entry"},
-      {"label": "Edit manually", "description": "Provide replacement content for one or more files"},
-      {"label": "Skip", "description": "Do not apply; continue to next entry"}
+      {"label": "Edit content", "description": "Provide replacement content for one or more files"},
+      {"label": "Change target", "description": "Return to target selection (current target excluded from options)"},
+      {"label": "Cancel", "description": "Drop this entry from the batch; no writes"}
     ],
     "multiSelect": false
   }]
 ```
 
-**On "Edit manually":** for each edit, ask a follow-up AskUserQuestion with
+**On "Edit content":** for each edit, ask a follow-up AskUserQuestion with
 the generated content shown in the question body and options `{Keep as-is,
 Replace content}`. When the user selects `Replace content`, capture the full
 replacement via a second AskUserQuestion whose option label acts as a
 placeholder — the free-text response replaces the edit's `after` field. Empty
-replacement → treat as Skip for this entry (no writes). Write the updated
+replacement → treat as Cancel for this entry (no writes). Write the updated
 plan back to `$SANDBOX/diff_plan.json` before Step 5.
+
+**On "Change target":**
+1. Invalidate the current `diff_plan.json` for this entry (delete or mark
+   superseded — downstream steps must NOT read it).
+2. **Increment `classification_attempts`** (NFR-3). If the counter would
+   exceed 2, surface
+   `"Max 2 classification attempts reached for entry '<name>' — skipping."`
+   and drop the entry from the batch.
+3. Re-enter Step 2c's explicit target pick AskUserQuestion for this entry
+   with the current target excluded from the offered options (the remaining
+   three of `{hook, skill, agent, command}` plus `Cancel`). This is the
+   `excluded_targets: [current_target]` contract.
+4. Re-invoke Step 3 `generate` for the new target (top-3 LLM, section-ID LLM,
+   generate subcommand). Then return to Step 4 for the newly generated plan.
+
+**On "Cancel":** drop the entry from the batch; no writes; continue to the
+next entry.
 
 ## Step 5: Apply + Mark (Sequential, Per Entry)
 

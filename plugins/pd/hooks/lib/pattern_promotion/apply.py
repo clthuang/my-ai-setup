@@ -9,9 +9,12 @@ Stages implemented here (1-4):
       sibling markdown file in the edited dirs that already carries a
       `Promoted ... {entry.name}` marker aborts the run.
 
-  Stage 2 — Snapshot:
+  Stage 2 — Snapshot + baseline validate.sh (per FR-5 Stage 4 / TD-5):
     * For every modify edit, read and record current bytes keyed by path.
     * Record the list of create-edits (rollback: unlink).
+    * Run `./validate.sh` and record (error_count, error_categories_set) as
+      the baseline BEFORE any Stage 3 write. If the baseline run itself fails
+      (non-zero exit), abort with NO writes and stage_completed="baseline".
 
   Stage 3 — Write:
     * Apply each FileEdit in ascending `write_order`, breaking ties by path.
@@ -23,11 +26,19 @@ Stages implemented here (1-4):
     * If target_type == "hook": execute the test script (write_order=1) with
       `subprocess.run(..., timeout=<env|30>, capture_output=True)`.
       Non-zero exit OR timeout -> rollback.
+    * Baseline-delta validate.sh: re-run and rollback ONLY if
+      post_count > baseline_count OR any new error category appears.
 
 Stage 5 (KB marker) is delegated to the `mark` CLI subcommand; see design C-7.
 
 Every stage emits a "[promote-pattern] Stage N: <label>" line to stderr so
 the skill orchestrator can show progress via Bash stderr capture.
+
+Env:
+  PATTERN_PROMOTION_SKIP_VALIDATE_SH=1  -- skip the baseline-delta validate.sh
+    step. Used by unit tests that don't want a real ./validate.sh invocation.
+  PATTERN_PROMOTION_HOOK_TEST_TIMEOUT=<secs>  -- override default 30s timeout
+    on the generated hook test script execution.
 """
 from __future__ import annotations
 
@@ -49,6 +60,23 @@ from pattern_promotion.types import DiffPlan, FileEdit, Result
 
 _TIMEOUT_ENV = "PATTERN_PROMOTION_HOOK_TEST_TIMEOUT"
 _DEFAULT_TIMEOUT_SECS = 30
+
+_SKIP_VALIDATE_ENV = "PATTERN_PROMOTION_SKIP_VALIDATE_SH"
+_VALIDATE_TIMEOUT_SECS = 60  # validate.sh typically <5s; generous ceiling
+
+# Regex for extracting error count / category headers from validate.sh output.
+# Matches "Errors: N", "N errors", "Total errors: N" (case-insensitive).
+_ERROR_COUNT_RE = re.compile(
+    r"(?:^|\s)(?:total\s+errors|errors?)\s*[:=]\s*(\d+)",
+    re.IGNORECASE | re.MULTILINE,
+)
+# Category headers look like "Checking X..." in validate.sh output. We treat
+# the set of check headers whose subsequent section contains an ERROR line as
+# distinct categories. Simpler proxy: any line matching `[ERROR] <category>:`
+# or `ERROR in <category>:` or `<category>: ERROR`.
+_ERROR_CATEGORY_RE = re.compile(
+    r"(?:\[ERROR\]|ERROR)\s*(?:in\s+)?([A-Za-z][\w\-./ ]*?)\s*[:\-]",
+)
 
 # Marker patterns per TD-8. Both the bash-comment form and the HTML-comment
 # form contain the literal `Promoted` adjacent to the entry name.
@@ -283,6 +311,67 @@ def _run_hook_test_script(script: Path) -> tuple[bool, Optional[str]]:
     return True, None
 
 
+def _run_validate_sh(
+    cwd: Optional[Path] = None,
+) -> tuple[bool, int, set[str], Optional[str]]:
+    """Run ./validate.sh once and parse error count + category set.
+
+    Returns:
+      (ok, error_count, categories, reason)
+      - ok=True means validate.sh exited 0 (clean OR warnings-only depending on
+        the script's exit-code semantics). ok=False indicates non-zero exit.
+      - error_count is the highest "Errors: N" mention found; 0 if none.
+      - categories is the set of error-category tokens (see _ERROR_CATEGORY_RE).
+      - reason is non-None only when ok=False (contains a short summary).
+
+    If validate.sh is absent, timeout, or otherwise unexecutable, returns
+    ok=False with a reason so callers can surface the error. Unit tests that
+    don't need real validate.sh should set PATTERN_PROMOTION_SKIP_VALIDATE_SH=1
+    and call apply() directly; this helper won't be invoked in that case.
+    """
+    script_path = Path("validate.sh")
+    if cwd is not None:
+        script_path = cwd / "validate.sh"
+    if not script_path.is_file():
+        return False, 0, set(), f"validate.sh not found at {script_path}"
+    try:
+        proc = subprocess.run(
+            ["bash", str(script_path)],
+            cwd=str(cwd) if cwd else None,
+            timeout=_VALIDATE_TIMEOUT_SECS,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.TimeoutExpired:
+        return (
+            False,
+            0,
+            set(),
+            f"validate.sh timeout after {_VALIDATE_TIMEOUT_SECS}s",
+        )
+    except OSError as exc:
+        return False, 0, set(), f"validate.sh failed to execute: {exc}"
+
+    combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    count = 0
+    for m in _ERROR_COUNT_RE.finditer(combined):
+        try:
+            n = int(m.group(1))
+        except ValueError:
+            continue
+        if n > count:
+            count = n
+    categories: set[str] = set()
+    for m in _ERROR_CATEGORY_RE.finditer(combined):
+        cat = m.group(1).strip()
+        if cat:
+            categories.add(cat.lower())
+
+    if proc.returncode != 0:
+        return False, count, categories, f"validate.sh exited {proc.returncode}"
+    return True, count, categories, None
+
+
 def _stage4_validate(
     diff_plan: DiffPlan, target_type: str
 ) -> tuple[bool, Optional[str]]:
@@ -356,6 +445,27 @@ def apply(
             stage_completed=2,
         )
 
+    # ---- Stage 2b: baseline validate.sh (per FR-5 Stage 4 baseline-delta).
+    # Run immediately after snapshot, BEFORE any Stage 3 writes so a baseline
+    # failure aborts with zero writes. Tests may skip via env var.
+    skip_validate = os.environ.get(_SKIP_VALIDATE_ENV) == "1"
+    baseline_count = 0
+    baseline_categories: set[str] = set()
+    if not skip_validate:
+        _log_stage(2, "baseline validate.sh")
+        ok_v, baseline_count, baseline_categories, v_reason = _run_validate_sh()
+        if not ok_v:
+            return Result(
+                success=False,
+                target_path=None,
+                reason=(
+                    f"baseline validate.sh failed before any writes: "
+                    f"{v_reason}"
+                ),
+                rolled_back=False,
+                stage_completed="baseline",
+            )
+
     # ---- Stage 3
     _log_stage(3, "write")
     ok, reason, applied = _stage3_write(diff_plan)
@@ -389,6 +499,28 @@ def apply(
             rolled_back=True,
             stage_completed=4,
         )
+
+    # ---- Stage 4b: baseline-delta validate.sh.
+    # Re-run validate.sh; rollback only if post_count > baseline_count OR any
+    # new category appeared (pre-existing errors are tolerated per TD-5).
+    if not skip_validate:
+        _log_stage(4, "baseline-delta validate.sh")
+        _, post_count, post_categories, post_reason = _run_validate_sh()
+        new_categories = post_categories - baseline_categories
+        if post_count > baseline_count or new_categories:
+            delta_reason = (
+                f"validate.sh regression: baseline={baseline_count} "
+                f"post={post_count} new_categories={sorted(new_categories)}"
+            )
+            print(f"[promote-pattern] rollback: {delta_reason}", file=sys.stderr)
+            _rollback(snapshot, applied)
+            return Result(
+                success=False,
+                target_path=None,
+                reason=delta_reason,
+                rolled_back=True,
+                stage_completed=4,
+            )
 
     return Result(
         success=True,
