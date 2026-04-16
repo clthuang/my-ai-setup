@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.15.2] - 2026-04-16
+
+### Fixed
+- `RankingEngine` now rejects bool values for `memory_vector_weight`, `memory_keyword_weight`, and `memory_prominence_weight` config fields. Previously these used plain `float(config.get(...))`, which silently coerced `true` to `1.0` (Python bool is an int subclass). All four weights now go through `_resolve_weight` for consistent validation. Surfaced by post-080 adversarial QA pass.
+
 ## [4.15.1] - 2026-04-16
 
 ### Added
