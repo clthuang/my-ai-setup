@@ -130,8 +130,7 @@ If search_memory returned entries before this dispatch:
     subagent_output_text=<full agent output text>,
     injected_entry_names=<list of entry names from search_memory results>,
     agent_role="test-deepener",
-    feature_type_id=<current feature type_id from .meta.json>,
-    threshold=0.70)
+    feature_type_id=<current feature type_id from .meta.json>)
   If record_influence_by_content fails: warn "Influence tracking failed: {error}", continue
   If .meta.json missing or type_id unresolvable: skip influence recording with warning
 
@@ -196,8 +195,7 @@ If search_memory returned entries before this dispatch:
     subagent_output_text=<full agent output text>,
     injected_entry_names=<list of entry names from search_memory results>,
     agent_role="test-deepener",
-    feature_type_id=<current feature type_id from .meta.json>,
-    threshold=0.70)
+    feature_type_id=<current feature type_id from .meta.json>)
   If record_influence_by_content fails: warn "Influence tracking failed: {error}", continue
   If .meta.json missing or type_id unresolvable: skip influence recording with warning
 
@@ -510,8 +508,7 @@ If search_memory returned entries before this dispatch:
     subagent_output_text=<full agent output text>,
     injected_entry_names=<list of entry names from search_memory results>,
     agent_role="implementation-reviewer",
-    feature_type_id=<current feature type_id from .meta.json>,
-    threshold=0.70)
+    feature_type_id=<current feature type_id from .meta.json>)
   If record_influence_by_content fails: warn "Influence tracking failed: {error}", continue
   If .meta.json missing or type_id unresolvable: skip influence recording with warning
 
@@ -672,8 +669,7 @@ If search_memory returned entries before this dispatch:
     subagent_output_text=<full agent output text>,
     injected_entry_names=<list of entry names from search_memory results>,
     agent_role="relevance-verifier",
-    feature_type_id=<current feature type_id from .meta.json>,
-    threshold=0.70)
+    feature_type_id=<current feature type_id from .meta.json>)
   If record_influence_by_content fails: warn "Influence tracking failed: {error}", continue
   If .meta.json missing or type_id unresolvable: skip influence recording with warning
 
@@ -851,8 +847,7 @@ If search_memory returned entries before this dispatch:
     subagent_output_text=<full agent output text>,
     injected_entry_names=<list of entry names from search_memory results>,
     agent_role="code-quality-reviewer",
-    feature_type_id=<current feature type_id from .meta.json>,
-    threshold=0.70)
+    feature_type_id=<current feature type_id from .meta.json>)
   If record_influence_by_content fails: warn "Influence tracking failed: {error}", continue
   If .meta.json missing or type_id unresolvable: skip influence recording with warning
 
@@ -1023,8 +1018,7 @@ If search_memory returned entries before this dispatch:
     subagent_output_text=<full agent output text>,
     injected_entry_names=<list of entry names from search_memory results>,
     agent_role="security-reviewer",
-    feature_type_id=<current feature type_id from .meta.json>,
-    threshold=0.70)
+    feature_type_id=<current feature type_id from .meta.json>)
   If record_influence_by_content fails: warn "Influence tracking failed: {error}", continue
   If .meta.json missing or type_id unresolvable: skip influence recording with warning
 
@@ -1187,8 +1181,7 @@ If search_memory returned entries before this dispatch:
     subagent_output_text=<full agent output text>,
     injected_entry_names=<list of entry names from search_memory results>,
     agent_role="implementer",
-    feature_type_id=<current feature type_id from .meta.json>,
-    threshold=0.70)
+    feature_type_id=<current feature type_id from .meta.json>)
   If record_influence_by_content fails: warn "Influence tracking failed: {error}", continue
   If .meta.json missing or type_id unresolvable: skip influence recording with warning
 

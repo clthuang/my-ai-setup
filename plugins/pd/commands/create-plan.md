@@ -165,8 +165,7 @@ c. **Parse response:** Extract `approved` field.
        subagent_output_text=<full agent output text>,
        injected_entry_names=<list of entry names from search_memory results>,
        agent_role="plan-reviewer",
-       feature_type_id=<current feature type_id from .meta.json>,
-       threshold=0.70)
+       feature_type_id=<current feature type_id from .meta.json>)
      If record_influence_by_content fails: warn "Influence tracking failed: {error}", continue
      If .meta.json missing or type_id unresolvable: skip influence recording with warning
 
@@ -323,8 +322,7 @@ e3. **Parse task-reviewer response:** Extract `approved` field.
        subagent_output_text=<full agent output text>,
        injected_entry_names=<list of entry names from search_memory results>,
        agent_role="task-reviewer",
-       feature_type_id=<current feature type_id from .meta.json>,
-       threshold=0.70)
+       feature_type_id=<current feature type_id from .meta.json>)
      If record_influence_by_content fails: warn "Influence tracking failed: {error}", continue
      If .meta.json missing or type_id unresolvable: skip influence recording with warning
 
@@ -478,8 +476,7 @@ e6. **Parse phase-reviewer response:** Extract `approved` field.
        subagent_output_text=<full agent output text>,
        injected_entry_names=<list of entry names from search_memory results>,
        agent_role="phase-reviewer",
-       feature_type_id=<current feature type_id from .meta.json>,
-       threshold=0.70)
+       feature_type_id=<current feature type_id from .meta.json>)
      If record_influence_by_content fails: warn "Influence tracking failed: {error}", continue
      If .meta.json missing or type_id unresolvable: skip influence recording with warning
 

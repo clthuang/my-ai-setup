@@ -600,6 +600,7 @@ Naming reviewer agents in plan.md from memory or from spec/design prose rather t
 - Observed in: Features #021, #022, #025, #070
 - Instead: Before finalizing plan.md, grep the relevant command files for reviewer dispatch lines and verify all agent names match
 - Confidence: high
+- Promoted: agent:plugins/pd/agents/plan-reviewer.md
 - Last observed: Feature #070
 - Observation count: 4
 
@@ -662,4 +663,12 @@ Raw description text spliced into SKILL.md / agent.md / command.md can smuggle t
 - Fix: `_sanitize_description` with fence replacement (` ``` ` → `'''`), backslash-escape of leading `#`/`---`/`===` per line, and hard length cap (e.g., 500 chars)
 - Confidence: high
 - Last observed: Feature #083
+- Observation count: 1
+
+### Anti-Pattern: Default-Change Without Caller Migration
+Changing a function's parameter default has zero production effect on callers that pass the argument explicitly. When a spec says "lower the default from X to Y," the spec MUST also require an explicit caller-migration task with a verification grep (`grep -rn "argument=X"` must return 0).
+- Observed in: feature/080-influence-wiring (lowering `threshold` default from 0.70 → 0.55 required migrating 14 `threshold=0.70` call sites in command markdown; spec-reviewer caught the gap in iter 1)
+- Fix: before approving a default-change spec, grep the codebase for explicit callers and add a caller-migration task plus inverse verification grep
+- Confidence: high
+- Last observed: Feature #080
 - Observation count: 1

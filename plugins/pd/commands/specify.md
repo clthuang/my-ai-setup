@@ -169,8 +169,7 @@ c. **Parse response:** Extract the `approved` field from reviewer's JSON respons
        subagent_output_text=<full agent output text>,
        injected_entry_names=<list of entry names from search_memory results>,
        agent_role="spec-reviewer",
-       feature_type_id=<current feature type_id from .meta.json>,
-       threshold=0.70)
+       feature_type_id=<current feature type_id from .meta.json>)
      If record_influence_by_content fails: warn "Influence tracking failed: {error}", continue
      If .meta.json missing or type_id unresolvable: skip influence recording with warning
 
@@ -330,8 +329,7 @@ e. **Invoke phase-reviewer:**
        subagent_output_text=<full agent output text>,
        injected_entry_names=<list of entry names from search_memory results>,
        agent_role="phase-reviewer",
-       feature_type_id=<current feature type_id from .meta.json>,
-       threshold=0.70)
+       feature_type_id=<current feature type_id from .meta.json>)
      If record_influence_by_content fails: warn "Influence tracking failed: {error}", continue
      If .meta.json missing or type_id unresolvable: skip influence recording with warning
 

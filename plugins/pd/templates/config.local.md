@@ -53,6 +53,12 @@ memory_silent_capture_budget: 5
 # Minimum observation count a KB entry must have to qualify for /pd:promote-pattern.
 # Raise if enumeration floods (>20 entries); lower if no entries qualify (0 entries).
 memory_promote_min_observations: 3
+# cosine similarity threshold for influence matching; lower = more permissive; range [0.0, 1.0] clamped
+memory_influence_threshold: 0.55
+# contribution of influence to ranking prominence; coefficient in _prominence formula; NOT auto-renormalized — raise only by subtracting from other weights so sum stays ≤1.0
+memory_influence_weight: 0.05
+# emit per-dispatch hit-rate diagnostics to ~/.claude/pd/memory/influence-debug.log
+memory_influence_debug: false
 
 # UI Server — Kanban board
 # Auto-start UI server on session start
