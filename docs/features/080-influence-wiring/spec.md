@@ -33,11 +33,11 @@ Ship a minimal tuning + diagnostics layer so the next tuning pass has data.
 4. Existing `threshold` clamp at line 313 (`max(0.01, min(1.0, threshold))`) stays — applies uniformly whether the value came from config, explicit override, or default.
 
 ### FR-2: Config-driven influence weight
-`Ranker._prominence()` in `plugins/pd/hooks/lib/semantic_memory/ranking.py:237` currently uses a hardcoded `0.05 * influence` coefficient. Extract this to an instance attribute `self._influence_weight` populated from `config.get("memory_influence_weight", 0.05)` in `__init__` (follow the existing pattern for `_prominence_weight` at line 35). Default value in config: `0.05` (unchanged baseline — behavioral parity until user opts into a higher weight).
+`RankingEngine._prominence()` in `plugins/pd/hooks/lib/semantic_memory/ranking.py:237` currently uses a hardcoded `0.05 * influence` coefficient. Extract this to an instance attribute `self._influence_weight` populated from `config.get("memory_influence_weight", 0.05)` in `__init__` (follow the existing pattern for `_prominence_weight` at line 35). Default value in config: `0.05` (unchanged baseline — behavioral parity until user opts into a higher weight).
 
 **Constraint:** The 5-component weight sum in `_prominence` (obs + confidence + recency + recall + influence) currently sums to exactly 1.00. The new config field MUST NOT be automatically renormalized — callers tuning influence up will implicitly tune other components down. Document this constraint in the config template comment.
 
-**Weight clamping:** Accept `[0.0, 1.0]`. Clamp silently if out of range. Non-float values fall back to default 0.05 and emit a one-line stderr warning at `Ranker.__init__`.
+**Weight clamping:** Accept `[0.0, 1.0]`. Clamp silently if out of range. Non-float values fall back to default 0.05 and emit a one-line stderr warning at `RankingEngine.__init__`.
 
 ### FR-3: Diagnostics emitter to dedicated log file
 Add per-dispatch hit-rate telemetry. Requirements:
@@ -61,7 +61,7 @@ Add three config fields:
 - Same three fields. `memory_influence_debug: true` (enable collection for Success Criteria measurement; flip to `false` in a follow-up commit after the 5-cycle baseline + post-change data are captured in the feature retro).
 
 ### FR-5: Error & Boundary Handling
-- **Non-float config value** (any of the 3 fields): fall back to default, emit one stderr warning line at the **first point of consumption** (NOT inside `read_config`/`_coerce` — those stay untouched to preserve the existing tolerant-parse pattern at `ranking.py:32-35`). Points of consumption: `Ranker.__init__` for `memory_influence_weight`; `_process_record_influence_by_content` first invocation per process for `memory_influence_threshold` and `memory_influence_debug`. Warning format: `[memory-server] config field 'memory_influence_{field}' value {raw!r} is not a float; using default {default}`. Use a module-level `_warned_fields: set[str]` guard so the warning fires at most once per field per process.
+- **Non-float config value** (any of the 3 fields): fall back to default, emit one stderr warning line at the **first point of consumption** (NOT inside `read_config`/`_coerce` — those stay untouched to preserve the existing tolerant-parse pattern at `ranking.py:32-35`). Points of consumption: `RankingEngine.__init__` for `memory_influence_weight`; `_process_record_influence_by_content` first invocation per process for `memory_influence_threshold` and `memory_influence_debug`. Warning format: `[memory-server] config field 'memory_influence_{field}' value {raw!r} is not a float; using default {default}`. Use a module-level `_warned_fields: set[str]` guard so the warning fires at most once per field per process.
 - **Threshold <0.01 or >1.0:** clamp to `[0.01, 1.0]` per existing line 313 behavior.
 - **Weight <0 or >1:** clamp to `[0.0, 1.0]`. No warning (operator is intentionally tuning).
 - **Missing `.claude/pd.local.md`:** existing config.py returns defaults silently. No change — AC-3 regression test passes because defaults produce identical behavior.
@@ -95,19 +95,21 @@ Verified: `README.md:97` references `memory_dedup_threshold` in passing prose (n
 ## Acceptance Criteria
 
 - [ ] **AC-1 threshold is config-driven:** Unit test against `_process_record_influence_by_content` directly (not through MCP server). Set module-level `_config = {"memory_influence_threshold": 0.80}`. Invoke with synthetic injected entry whose chunk similarity is 0.75. Assert `matched == []` (0.75 < 0.80). Then set config to 0.55, same similarity 0.75 → assert `matched` contains the entry (0.75 ≥ 0.55).
-- [ ] **AC-2 weight is config-driven:** With `memory_influence_weight=0.30` and otherwise identical entries, `Ranker._prominence` for an entry with `influence_count=10` exceeds the same entry with `influence_count=0` by ≥0.29 (weight × 1.0 minus tolerance for other components being equal). Unit test asserts this gap.
+- [ ] **AC-2 weight is config-driven:** With `memory_influence_weight=0.30` and otherwise identical entries, `RankingEngine._prominence` for an entry with `influence_count=10` exceeds the same entry with `influence_count=0` by ≥0.29 (weight × 1.0 minus tolerance for other components being equal). Unit test asserts this gap.
 - [ ] **AC-3 weight default preserved:** With config field absent, existing ranking unit tests pass unchanged. Regression assertion: run existing `test_ranking.py` (or equivalent); zero modifications; zero failures.
 - [ ] **AC-4 diagnostics emit when enabled:** With `_config = {"memory_influence_debug": True}`, invoke `_process_record_influence_by_content` on synthetic input with 3 injected entries. Read `~/.claude/pd/memory/influence-debug.log` (test uses a tmp path via monkeypatch of the log destination). File contains exactly 1 line matching regex `"event": ?"influence_dispatch"`.
 - [ ] **AC-5 diagnostics silent when disabled:** With `_config = {}` (or `memory_influence_debug: false`), invoke same synthetic input. Log file does NOT exist at the tmp path, OR contains zero lines matching the regex.
 - [ ] **AC-6 lowered default:** With no config override AND 14 command-file callers updated per FR-1 step 3, `_process_record_influence_by_content` uses threshold=0.55. Verified via unit test that sets `threshold=None` explicitly (simulating the post-update callers) and checks the clamped effective value.
 - [ ] **AC-7 caller migration:** `grep -rn "threshold=0.70" plugins/pd/commands/*.md | wc -l` returns `0` after the feature lands (aggregated line count, file-agnostic). Inverse verification of FR-1 step 3.
+- [ ] **AC-7b typo catch:** `grep -rEn "threshold=0\\.[0-9]" plugins/pd/commands/*.md | wc -l` returns `0` (catches any residual literal threshold argument, e.g., typos `0.7` / `0.75` / `0.55` that would pin the value in markdown).
 - [ ] **AC-8 config template + in-repo config:** `plugins/pd/templates/config.local.md` contains the 3 new fields with exact comment text per FR-4. `.claude/pd.local.md` contains the same 3 fields with `memory_influence_debug: true`.
 - [ ] **AC-9 no new MCP tools:** `list_mcp_tools` output unchanged (MCP tool count identical pre/post).
 - [ ] **AC-10 error handling:** Unit tests for FR-5:
   - (a) Seed module-level `_config = {"memory_influence_threshold": "not a float"}`. Invoke `_process_record_influence_by_content(..., threshold=None)`. Capture stderr via pytest `capsys`. Assert (1) effective threshold is 0.55 (via match/no-match pattern per AC-1), (2) stderr contains exactly one line matching regex `\[memory-server\].*memory_influence_threshold.*not a float.*using default 0\.55`.
-  - (b) Instantiate `Ranker` with `config = {"memory_influence_weight": 2.5}`. Assert `ranker._influence_weight == 1.0` (clamped silently, no warning).
+  - (b) Instantiate `RankingEngine` with `config = {"memory_influence_weight": 2.5}`. Assert `ranker._influence_weight == 1.0` (clamped silently, no warning).
   - (c) Monkeypatch `INFLUENCE_DEBUG_LOG_PATH = tmp_path / "missing_subdir" / "log.jsonl"`. Set `memory_influence_debug: true`. Invoke. Assert file exists after call.
   - (d) Monkeypatch `INFLUENCE_DEBUG_LOG_PATH` to a directory (write fails with IsADirectoryError). Invoke twice. Assert: total count of stderr lines matching the memory-server warning regex after both invocations equals exactly 1 (cumulative capsys). Response JSON from both calls is well-formed (influence recording not blocked).
+  - (e) Seed `_config = {"memory_influence_threshold": True}` (bool, not float). Invoke once. Assert: effective threshold is 0.55 (not 1.0 from `float(True)`), and stderr contains exactly one warning for `memory_influence_threshold`. Guards against silent bool→1.0 coercion that would render the threshold path useless.
 - [ ] **AC-11 README_FOR_DEV.md sync:** `grep -c "memory_influence_" README_FOR_DEV.md` returns exactly 3 after merge. The 3 lines match the format in FR-6 (prefix `- `, field name in backticks, default value).
 
 ## Success Criteria
@@ -117,7 +119,7 @@ Verified: `README.md:97` references `memory_dedup_threshold` in passing prose (n
   2. After merging 080, run 5 more dispatches at threshold=0.55; count the same ratio.
   3. Target: post-merge ratio ≥ 30% (roughly 3x the baseline). Both numbers logged to `retro.md` with raw counts.
 - **Code delta:** ≤150 LOC across 6 files: memory_server.py, ranking.py, templates/config.local.md, .claude/pd.local.md, README_FOR_DEV.md (3 new lines in the memory config table), and the 14-caller update to commands/*.md (mechanical, counts as 0 LOC of logic).
-- **Test delta:** ≥10 new test cases (1 per AC-1/AC-2/AC-4/AC-5/AC-6 + 4 AC-10 variants + AC-11 grep assertion).
+- **Test delta:** ≥12 new test cases (1 per AC-1/AC-2/AC-4/AC-5/AC-6 + 5 AC-10 variants (a-e) + AC-7 + AC-7b + AC-11 grep assertions).
 
 ## Happy Paths
 
