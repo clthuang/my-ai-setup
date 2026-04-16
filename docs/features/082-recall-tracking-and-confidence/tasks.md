@@ -2,6 +2,20 @@
 
 Each task is 5-15 minutes of focused work. Parallel groups marked with `[PARALLEL: group-X]`. Dependencies marked with `requires:`.
 
+## Serialization rules (critical)
+
+- **Within Phase 1:** all tasks share `test_maintenance.py` and `maintenance.py` → MUST be serialized. No parallel worktree dispatch.
+- **Within Phase 2:** all tasks share `test_database.py` and `database.py` → MUST be serialized. No parallel worktree dispatch.
+- **Within Phase 3:** all tasks share `test_maintenance.py` and `maintenance.py` → MUST be serialized.
+- **Within Phase 4:** bash-file edits serialized; Phase 4a tests + Phase 6 remediate + Phase 4b wiring MUST interleave in the order shown.
+- **Parallelism permitted ONLY** between Phase 5 tasks (pure text file edits to different files) and across Phase 5 ↔ later tasks (Phase 5 has no code dependency after Phase 3 completes).
+
+## TDD red/green convention
+
+- `[TDD red]` = write failing test; do NOT land any production code.
+- `[TDD green]` = land minimal production code to make the red test pass; no new test logic.
+- `[TDD red → green]` = single step where the red test and a trivial implementation land together because the impl depends only on previously-landed code (no new logic in current step). Used for acceptance tests that exercise already-implemented behavior.
+
 ---
 
 ## Phase 0: Baselines
@@ -25,10 +39,10 @@ Each task is 5-15 minutes of focused work. Parallel groups marked with `[PARALLE
 
 ## Phase 1: maintenance.py module + helpers (TDD)
 
-- [ ] **1.1** Create `plugins/pd/hooks/lib/semantic_memory/maintenance.py` skeleton.
-  - Contents: module docstring, imports (`sys`, `json`, `argparse`, `sqlite3`, `time`, `datetime`, `timedelta`, `timezone`, `Path`), 4 module-globals (`_decay_warned_fields: set[str] = set()`, `_decay_config_warned: bool = False`, `_decay_log_warned: bool = False`, `_decay_error_warned: bool = False`), `INFLUENCE_DEBUG_LOG_PATH: Path = Path.home() / ".claude" / "pd" / "memory" / "influence-debug.log"` constant with TD-2 duplication comment.
-  - Done: file exists, `from semantic_memory import maintenance` works in REPL without error.
-  - Size: 10 min. `requires: 0.3`
+- [ ] **1.1** Create `plugins/pd/hooks/lib/semantic_memory/maintenance.py` skeleton with stub functions.
+  - Contents: module docstring, imports (`sys`, `json`, `argparse`, `sqlite3`, `time`, `datetime`, `timedelta`, `timezone`, `Path`), 4 module-globals (`_decay_warned_fields: set[str] = set()`, `_decay_config_warned: bool = False`, `_decay_log_warned: bool = False`, `_decay_error_warned: bool = False`), `INFLUENCE_DEBUG_LOG_PATH: Path = Path.home() / ".claude" / "pd" / "memory" / "influence-debug.log"` constant with TD-2 duplication comment. **Stub bodies** for each function defined in Phases 1-3: `_warn_and_default`, `_resolve_int_config`, `_emit_decay_diagnostic`, `_build_summary_line`, `_select_candidates`, `decay_confidence`, `_main` — each raises `NotImplementedError`. Rationale: enables test_maintenance.py to import by name without collection failure during Phase 1's red-test steps.
+  - Done: file exists; `python -c "from semantic_memory import maintenance; maintenance._warn_and_default"` works without AttributeError.
+  - Size: 15 min. `requires: 0.3`
 
 - [ ] **1.2** Create `plugins/pd/hooks/lib/semantic_memory/test_maintenance.py` skeleton with autouse fixture per design I-10.
   - Contents: imports pytest + maintenance module, autouse fixture `reset_decay_state(monkeypatch, tmp_path)` that `monkeypatch.setattr(maintenance, ...)` for all 4 flags + INFLUENCE_DEBUG_LOG_PATH → tmp_path.
@@ -231,8 +245,8 @@ Each task is 5-15 minutes of focused work. Parallel groups marked with `[PARALLE
   - Size: 15 min. `requires: 3.17`
 
 - [ ] **3.19** Write AC-24 performance test [TDD red → green].
-  - Seed 10,000 entries (mix of confidence, source, age). Invoke. Assert `elapsed_ms < 5000`. Print canonical line `print(f"[AC-24 local] elapsed_ms={result['elapsed_ms']} (target: 500ms)")` for `pytest -s` capture.
-  - Done: 1 test passes.
+  - Seed 10,000 entries (mix of confidence, source, age). **Seeding contract:** use a single raw SQL `INSERT ... VALUES (...)` via `executemany` with one commit (NOT per-row `upsert_entry` loop) to keep seeding under ~2s. Invoke decay. Assert `elapsed_ms < 5000`. Print canonical line `print(f"[AC-24 local] elapsed_ms={result['elapsed_ms']} (target: 500ms)")` for `pytest -s` capture.
+  - Done: 1 test passes; seed+decay+assert under ~3s total.
   - Size: 15 min. `requires: 3.18`
 
 - [ ] **3.20** Write AC-31 threshold-equality edge test [TDD red → green].
@@ -240,10 +254,10 @@ Each task is 5-15 minutes of focused work. Parallel groups marked with `[PARALLE
   - Done: 1 test passes.
   - Size: 10 min. `requires: 3.19`
 
-- [ ] **3.21** Write AC-32 IN-list chunking test (decay-level) [TDD red → green].
-  - Seed 2000 high stale. Invoke decay. Assert all 2000 demoted to medium. Separately: monkeypatch `_execute_chunk` on 2nd chunk; assert all 2000 still at high (rollback).
-  - Done: 1 test (parametrized 2 cases).
-  - Size: 15 min. `requires: 3.20`
+- [ ] **3.21** Write AC-32 IN-list chunking happy-path test (decay-level) [TDD red → green].
+  - Seed 2000 high stale (via batched `executemany` — not per-row — for <2s seeding time). Invoke decay. Assert all 2000 demoted to medium. **Scope:** decay-level happy path ONLY. The partial-failure-with-_execute_chunk-monkeypatch is the authoritative test for Task 2.5 at the DB layer; Task 3.21 does NOT duplicate that seam. Rationale: spec AC-32 calls for ONE authoritative seam test; DB-layer ownership per NFR-5 scope exception 1.
+  - Done: 1 test passes.
+  - Size: 15 min. `requires: 3.20, 2.5`
 
 - [ ] **3.22** Implement CLI `_main()` in `maintenance.py` [TDD green-first for structure].
   - Per I-6: argparse for `--decay`, `--project-root`, `--dry-run`. Resolve project-root via `Path(args.project_root).resolve() if args.project_root else Path.cwd().resolve()`. Validate `is_dir()`. Read config via `read_config(str(project_root))`. NFR-3 enabled-check short-circuits BEFORE `MemoryDatabase(db_path)`. Finally close. `if __name__ == "__main__": _main()`.
@@ -256,9 +270,9 @@ Each task is 5-15 minutes of focused work. Parallel groups marked with `[PARALLE
   - Size: 15 min. `requires: 3.22`
 
 - [ ] **3.24** Write NFR-3 process-level zero-overhead test [TDD red → green].
-  - Subprocess invocation on fresh dir (no memory.db). Config `memory_decay_enabled: false`. Assert memory.db NOT created by the CLI invocation.
+  - Subprocess invocation on fresh dir with isolated HOME. **Isolation contract:** `env={"HOME": str(tmp_path), "PYTHONPATH": "plugins/pd/hooks/lib"}` passed to `subprocess.run`. Config `memory_decay_enabled: false` in `tmp_path / ".claude/pd.local.md"`. Invoke `python -m semantic_memory.maintenance --decay --project-root <tmp>`. Assert `(tmp_path / ".claude/pd/memory/memory.db").exists() == False` — the CLI short-circuit before DB open prevented file creation. Isolating HOME via env override is mandatory so the test does NOT assert on the user's real `~/.claude/pd/memory/memory.db`.
   - Done: 1 test passes.
-  - Size: 10 min. `requires: 3.23`
+  - Size: 15 min. `requires: 3.23`
 
 ---
 
@@ -272,49 +286,56 @@ Each task is 5-15 minutes of focused work. Parallel groups marked with `[PARALLE
   - Size: 15 min. `requires: 3.22`
 
 - [ ] **4.2** Add AC-22 missing-module tolerance test to same file [TDD red].
-  - Temporarily rename `maintenance.py → maintenance.py.bak`. Run session-start.sh. Assert exit 0, JSON well-formed, `additionalContext` does NOT contain "Decay:" line. Restore rename in teardown.
-  - Done: 1 additional test in the same bash file.
-  - Size: 10 min. `requires: 4.1`
+  - Temporarily rename `maintenance.py → maintenance.py.bak`. **Cleanup contract:** test MUST install a bash `trap 'mv "$PLUGIN_ROOT/hooks/lib/semantic_memory/maintenance.py.bak" "$PLUGIN_ROOT/hooks/lib/semantic_memory/maintenance.py" 2>/dev/null || true' EXIT` BEFORE the rename so the restore happens even if the test assertion fails mid-execution. Run session-start.sh. Assert exit 0, JSON well-formed, `additionalContext` does NOT contain "Decay:" line.
+  - **Test-hooks.sh discovery:** the new file `test-memory-decay-session-start.sh` MUST NOT be wired into the test-hooks.sh runner yet. Create as standalone invokable script; Task 4.8 adds it to the runner only after Phase 4b lands green. Until then, invoke directly via `bash plugins/pd/hooks/tests/test-memory-decay-session-start.sh` for Phase 4a red verification.
+  - Done: 2 tests in the standalone bash file; test-hooks.sh runner list unchanged.
+  - Size: 15 min. `requires: 4.1`
 
-### Phase 6: Existing-test audit + remediation (interleaved)
+### Phase 6: Existing-test audit + remediation (interleaves between Phase 4a and Phase 4b)
 
-- [ ] **6.1** Read Phase 0 audit output and enumerate impacted tests.
-  - Action: `cat agent_sandbox/082-baselines.txt` → list the hook-test files that reference `run_reconciliation`, `run_doctor_autofix`, or `build_memory_context` in ordering-sensitive ways.
-  - Done: enumerate complete (expected count 0-5).
-  - Size: 5 min. `requires: 0.3`
+- [ ] **6.1** Narrow-grep for tests that ASSERT ON session-start output ordering or section presence.
+  - Action: `grep -rn 'additionalContext\|full_context\|recon_summary\|doctor_summary\|memory_context' plugins/pd/hooks/tests/ > agent_sandbox/082-impacted-tests.txt`. Manually review each match — keep only those that do ORDERING assertions (not mere references). The Phase 0 Task 0.3 grep was overly broad; this narrower grep establishes the true impacted set.
+  - Done: `082-impacted-tests.txt` contains 0-N filtered matches. Expected count: 0-5 (most hook tests reference these vars via grep-free path).
+  - Size: 10 min. `requires: 0.3, 4.2`
 
-- [ ] **6.2** For each impacted test, apply remediation.
-  - For each: (a) if test asserts exact section ordering in additionalContext → update to be robust to new decay section (test existence, not order, OR add decay section to expected); (b) if test writes config for session-start → no change needed (default memory_decay_enabled: false means decay silently no-ops).
-  - Done: all impacted tests updated.
-  - Size: 5-15 min per test (variable).
+- [ ] **6.2** For each impacted test identified in Task 6.1, apply remediation.
+  - For each: (a) if test asserts exact section ordering in additionalContext → update to be robust to new decay section (test existence, not order, OR add decay section to expected); (b) if test writes config for session-start → no change needed (default `memory_decay_enabled: false` means decay silently no-ops).
+  - Done: all impacted tests updated (0 edits if grep returned no ordering-assertions).
+  - Size: 5-15 min per impacted test (variable; may be 0 min if Task 6.1 found no hits).
   - `requires: 6.1`
 
 - [ ] **6.3** Run hook-tests before Phase 4b to confirm baseline still passes.
-  - Action: `bash plugins/pd/hooks/tests/test-hooks.sh` → count passing tests ≥ `test_hooks_before_082`.
-  - Done: baseline re-verified.
+  - Action: `bash plugins/pd/hooks/tests/test-hooks.sh` → count passing tests ≥ `test_hooks_before_082`. This verifies that Phase 4a's new `test-memory-decay-session-start.sh` is NOT in the runner list yet (it shouldn't be — see Task 4.2 test-hooks.sh discovery note).
+  - Done: baseline re-verified; no regression from Phase 6 edits.
   - Size: 5 min. `requires: 6.2`
 
 ### Phase 4b: Land the session-start wiring (tests go green)
 
 - [ ] **4.3** Add `run_memory_decay()` bash function to `session-start.sh` per I-8.
-  - Insert the function before `main()` function block (around line 655). Use platform-aware `gtimeout 10 / timeout 10` pattern, PLUGIN_ROOT/.venv/bin/python fallback, PYTHONPATH, stderr-suppressed invocation. Include timeout-budget cross-ref comment.
-  - Done: function added; `bash -n session-start.sh` passes syntax check.
-  - Size: 10 min. `requires: 6.3`
+  - Insert the function BEFORE the `main()` function block (anchored textually: immediately before the `# Main` comment line at ~655; do NOT rely on exact line numbers). Copy the PLUGIN_ROOT resolution pattern VERBATIM from `run_doctor_autofix` — `$PLUGIN_ROOT` is set at script-top (line 7: `PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"`) so it IS available to the new function. Use platform-aware `gtimeout 10 / timeout 10` pattern, `$PLUGIN_ROOT/.venv/bin/python` with fallback to `python3`, `PYTHONPATH="${SCRIPT_DIR}/lib"`, stderr-suppressed `2>/dev/null || true`. Include timeout-budget cross-ref comment per I-8.
+  - **Verification sub-step:** `grep -n 'PLUGIN_ROOT=' plugins/pd/hooks/session-start.sh` must show line 7 export BEFORE the new function.
+  - Done: function added; `bash -n session-start.sh` passes syntax check; PLUGIN_ROOT grep confirms export.
+  - Size: 15 min. `requires: 6.3`
 
-- [ ] **4.4** Reorder `session-start.sh` main() line 701 to call `run_memory_decay` FIRST.
-  - Edit: insert `local decay_summary=""` declaration + `decay_summary=$(run_memory_decay)` BEFORE `memory_context=$(build_memory_context)`. Keep `run_reconciliation` and `run_doctor_autofix` calls unchanged in their positions.
-  - Done: `bash -n` passes; invocation order is `decay → memory_context → recon → doctor`.
-  - Size: 5 min. `requires: 4.3`
+- [ ] **4.4** Reorder `session-start.sh` main() to call `run_memory_decay` FIRST.
+  - Use textual anchor (NOT line numbers — they may shift): find the line `memory_context=$(build_memory_context)` and insert `local decay_summary=""` + `decay_summary=$(run_memory_decay)` IMMEDIATELY BEFORE it. Keep `run_reconciliation` and `run_doctor_autofix` calls unchanged in their positions (they run after `build_memory_context` in the final order).
+  - Done: `bash -n` passes; final invocation order is `decay → memory_context → recon → doctor`.
+  - Size: 10 min. `requires: 4.3`
 
 - [ ] **4.5** Add display-prepend block for `decay_summary` per I-8 authoritative anchor.
-  - Insert block BETWEEN the existing `doctor_summary` prepend block (lines 733-739) and the `cron_schedule_context` prepend block (lines 741-747). Use the exact pattern matching the other summary prepends.
-  - Done: block present in the right position.
+  - Use textual anchor: insert the new `if [[ -n "$decay_summary" ]]; then ... fi` block IMMEDIATELY AFTER the existing `if [[ -n "$doctor_summary" ]]; then ... fi` block and IMMEDIATELY BEFORE the existing `if [[ -n "$cron_schedule_context" ]]; then ... fi` block. Use the exact pattern matching the other summary prepends.
+  - Done: block present in the right position relative to neighboring blocks.
   - Size: 10 min. `requires: 4.4`
 
 - [ ] **4.6** Run AC-21 + AC-22 bash tests; confirm green.
   - Action: `bash plugins/pd/hooks/tests/test-memory-decay-session-start.sh` → both tests pass.
   - Done: Phase 4a tests go green.
   - Size: 5 min. `requires: 4.5`
+
+- [ ] **4.7** Wire new bash test into `test-hooks.sh` runner.
+  - Edit `plugins/pd/hooks/tests/test-hooks.sh` to include `test-memory-decay-session-start.sh` in the runner list (match the pattern used for the existing test files). Re-run `bash plugins/pd/hooks/tests/test-hooks.sh` — pass count should be `test_hooks_before_082 + 2` (AC-21 + AC-22) or `+N` depending on how the bash file reports.
+  - Done: runner includes the new test file; pass count is elevated by the AC-21/22 tests.
+  - Size: 10 min. `requires: 4.6`
 
 ---
 
@@ -362,14 +383,14 @@ Each task is 5-15 minutes of focused work. Parallel groups marked with `[PARALLE
   - Size: 5 min. `requires: 7.2`
 
 - [ ] **7.4** Capture `EXPLAIN QUERY PLAN` evidence per R-6.
-  - Open memory.db with 10k seeded rows, run `EXPLAIN QUERY PLAN <I-2 SELECT>`, record plan output + actual `elapsed_ms` in retro.md "Performance" section (retro.md is created during /pd:finish-feature; this task prepares an `agent_sandbox/082-perf-evidence.md` artifact to be copied in).
-  - Done: evidence file written.
+  - Open memory.db with 10k seeded rows, run `EXPLAIN QUERY PLAN <I-2 SELECT>`, record plan output + actual `elapsed_ms` from AC-24 test in `agent_sandbox/082-eqp.txt`. **Distinct from 082-baselines.txt** — this file is intentionally NOT deleted in Task 7.6; the retrospective command (in /pd:finish-feature) reads it and incorporates into retro.md "Performance" section. After retrospective runs, operator may manually delete `082-eqp.txt`.
+  - Done: `agent_sandbox/082-eqp.txt` exists with EQP output + elapsed_ms + hardware context.
   - Size: 10 min. `requires: 7.3`
 
-- [ ] **7.5** Delete `agent_sandbox/082-baselines.txt` (temp file).
-  - `rm agent_sandbox/082-baselines.txt`.
-  - Done: file removed.
-  - Size: 1 min. `requires: 7.4`
+- [ ] **7.5** Delete `agent_sandbox/082-baselines.txt` (temp file, Phase 7 cleanup).
+  - `rm agent_sandbox/082-baselines.txt` and `rm agent_sandbox/082-impacted-tests.txt` (created by Task 6.1). Leave `082-eqp.txt` alone — retrospective needs it.
+  - Done: two temp files removed; 082-eqp.txt preserved.
+  - Size: 2 min. `requires: 7.4`
 
 ---
 

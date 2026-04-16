@@ -144,9 +144,12 @@ Phase 7: Final verification (full test suite, validate.sh, test-hooks.sh, EXPLAI
 **Why this order:** Must follow Phase 4a (tests exist so shape is observable) and precede Phase 4b (gate landing).
 **Complexity:** Low (mechanical per-test updates — expected count: 0-5; may be zero since decay defaults to disabled).
 
-### Already addressed in Phase 4 breakdown above (Tasks 4.3 + 4.4).
+### Task-level breakdown:
+- Task 6.1: Narrow-grep for tests that ASSERT ON session-start output ordering (not just mention session-start). Write filtered list to `agent_sandbox/082-impacted-tests.txt`.
+- Task 6.2: For each impacted test, apply remediation per audit output.
+- Task 6.3: Re-run `bash plugins/pd/hooks/tests/test-hooks.sh`; pass count ≥ `test_hooks_before_082`.
 
-**Done when:** All previously-passing tests still pass; no test was skipped or deleted. Default-disabled config means most test environments will not trigger the decay path at all.
+**Done when:** All previously-passing tests still pass; no test was skipped or deleted. Default-disabled config means most test environments will not trigger the decay path at all. See tasks.md Phase 6 section for detailed task breakdown (Tasks 6.1, 6.2, 6.3).
 
 ## Phase 7: Final verification
 
