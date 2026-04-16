@@ -2,9 +2,65 @@
 from __future__ import annotations
 
 import math
+import sys
 from datetime import datetime, timezone
 
 from semantic_memory.retrieval_types import RetrievalResult
+
+# ---------------------------------------------------------------------------
+# Influence weight tuning helpers (feature 080-influence-wiring, design I-5)
+# ---------------------------------------------------------------------------
+
+# One-shot-per-field warning guard for malformed float config values.
+# Kept module-level (rather than instance-level on RankingEngine) so warnings
+# dedup across multiple engine instantiations within the same process.
+_ranker_warned_fields: set[str] = set()
+
+
+def _ranker_warn_and_default(
+    key: str, raw, default: float, warned: set[str]
+) -> float:
+    """Emit a one-shot stderr warning for a malformed config value.
+
+    Deduped via the caller-supplied ``warned`` set: each key warns at most
+    once per process.
+    """
+    if key not in warned:
+        sys.stderr.write(
+            f"[ranker] config field {key!r} value {raw!r} "
+            f"is not a float; using default {default}\n"
+        )
+        warned.add(key)
+    return default
+
+
+def _resolve_weight(
+    config: dict, key: str, default: float, *, warned: set[str]
+) -> float:
+    """Read a float-valued config weight, clamping to ``[0.0, 1.0]`` silently.
+
+    Accepts int, float, or numeric string values.  ``bool`` is rejected
+    explicitly (Python ``bool`` is an ``int`` subclass, so ``float(True)=1.0``
+    would otherwise silently coerce).  Unparseable values emit one stderr
+    warning per key per process (via ``_ranker_warn_and_default``) and return
+    ``default``.
+
+    Out-of-range values (<0.0 or >1.0) clamp silently -- the operator is
+    intentionally tuning, so no warning is emitted for clamping.
+    """
+    raw = config.get(key, default)
+    # Explicit bool rejection MUST come before the int/float branch.
+    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+        val = _ranker_warn_and_default(key, raw, default, warned)
+    elif isinstance(raw, (int, float)):
+        val = float(raw)
+    else:  # str
+        try:
+            val = float(raw)
+        except ValueError:
+            val = _ranker_warn_and_default(key, raw, default, warned)
+    # Clamp silently -- operator-tuned values get corrected, no warning.
+    return max(0.0, min(1.0, val))
 
 
 class RankingEngine:
@@ -33,6 +89,13 @@ class RankingEngine:
         self._vector_weight: float = float(config.get("memory_vector_weight", 0.5))
         self._keyword_weight: float = float(config.get("memory_keyword_weight", 0.2))
         self._prominence_weight: float = float(config.get("memory_prominence_weight", 0.3))
+        # Feature 080: config-driven influence coefficient for _prominence.
+        # Clamped to [0.0, 1.0]; malformed values fall back to 0.05 with one
+        # dedup'd stderr warning.  NOT auto-renormalized vs the other prominence
+        # components -- operator raising this must reduce others to stay <=1.0.
+        self._influence_weight: float = _resolve_weight(
+            config, "memory_influence_weight", 0.05, warned=_ranker_warned_fields
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -249,7 +312,13 @@ class RankingEngine:
         recall = self._recall_frequency(entry.get("recall_count", 0), entry.get("last_recalled_at"), now)
         influence = self._influence_score(entry)
 
-        return 0.30 * norm_obs + 0.15 * confidence + 0.35 * recency + 0.15 * recall + 0.05 * influence
+        return (
+            0.30 * norm_obs
+            + 0.15 * confidence
+            + 0.35 * recency
+            + 0.15 * recall
+            + self._influence_weight * influence
+        )
 
     def _project_blend(
         self,

@@ -1,4 +1,11 @@
-"""Tests for semantic_memory.ranking module."""
+"""Tests for semantic_memory.ranking module.
+
+Test state conventions
+----------------------
+An autouse fixture (``reset_ranker_state``) resets
+``_ranker_warned_fields`` before each test so warning-dedup assertions are
+order-independent.
+"""
 from __future__ import annotations
 
 import math
@@ -6,6 +13,7 @@ from datetime import datetime, timezone, timedelta
 
 import pytest
 
+from semantic_memory import ranking
 from semantic_memory.ranking import RankingEngine
 from semantic_memory.retrieval_types import CandidateScores, RetrievalResult
 
@@ -50,6 +58,93 @@ def _default_config() -> dict:
         "memory_keyword_weight": 0.2,
         "memory_prominence_weight": 0.3,
     }
+
+
+# ---------------------------------------------------------------------------
+# Autouse fixture: reset module-level state per test (design C-4)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def reset_ranker_state(monkeypatch):
+    """Reset module-level ``_ranker_warned_fields`` before each test.
+
+    The warning dedup set is module-global; without this reset, tests that
+    assert "exactly one warning was emitted" become ordering-dependent.
+    """
+    monkeypatch.setattr(ranking, "_ranker_warned_fields", set())
+    yield
+
+
+# ---------------------------------------------------------------------------
+# _resolve_weight helper tests (design I-5)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveWeight:
+    """Verify _resolve_weight coerces config values, clamps to [0.0, 1.0].
+
+    Critical behaviour:
+      * float / int values pass through (int coerced to float)
+      * bool is rejected explicitly (Python bool is int subclass)
+      * out-of-range values clamp silently (no warning -- operator tuning)
+      * unparseable values emit one stderr warning per key (dedup via the
+        ``warned`` set the caller passes in)
+    """
+
+    def test_float_passthrough(self):
+        warned: set[str] = set()
+        result = ranking._resolve_weight(
+            {"memory_influence_weight": 0.42},
+            "memory_influence_weight",
+            0.05,
+            warned=warned,
+        )
+        assert result == 0.42
+        assert isinstance(result, float)
+        assert warned == set()
+
+    def test_bool_rejected_returns_default_and_warns(self, capsys):
+        warned: set[str] = set()
+        result = ranking._resolve_weight(
+            {"memory_influence_weight": True},
+            "memory_influence_weight",
+            0.05,
+            warned=warned,
+        )
+        assert result == 0.05  # default, NOT float(True)=1.0
+        captured = capsys.readouterr()
+        assert "memory_influence_weight" in captured.err
+        assert "not a float" in captured.err
+        assert "memory_influence_weight" in warned
+
+    def test_value_25_clamped_to_1_silently(self, capsys):
+        """2.5 should clamp to 1.0 silently -- no warning, operator is tuning."""
+        warned: set[str] = set()
+        result = ranking._resolve_weight(
+            {"memory_influence_weight": 2.5},
+            "memory_influence_weight",
+            0.05,
+            warned=warned,
+        )
+        assert result == 1.0
+        captured = capsys.readouterr()
+        assert captured.err == ""
+        assert warned == set()
+
+    def test_invalid_string_returns_default_and_warns(self, capsys):
+        warned: set[str] = set()
+        result = ranking._resolve_weight(
+            {"memory_influence_weight": "not-a-number"},
+            "memory_influence_weight",
+            0.05,
+            warned=warned,
+        )
+        assert result == 0.05
+        captured = capsys.readouterr()
+        assert "memory_influence_weight" in captured.err
+        assert "not a float" in captured.err
+        assert "memory_influence_weight" in warned
 
 
 # ---------------------------------------------------------------------------
@@ -612,6 +707,42 @@ class TestInfluenceScore:
 # ---------------------------------------------------------------------------
 # Influence affects prominence ranking (AC-9)
 # ---------------------------------------------------------------------------
+
+
+class TestInfluenceWeightConfigDriven:
+    """AC-2 / AC-10(b): memory_influence_weight drives _prominence + clamp."""
+
+    def test_ac2_weight_030_produces_prominence_gap(self):
+        """Two entries identical except for influence_count=10 vs 0; with
+        memory_influence_weight=0.30, the prominence gap is >= 0.29 (weight×1.0
+        minus tolerance, since _influence_score maxes at 1.0 with influence_count=10).
+        """
+        config = dict(_default_config())
+        config["memory_influence_weight"] = 0.30
+        engine = RankingEngine(config)
+        assert engine._influence_weight == 0.30  # attribute populated
+
+        _, entry_hi = _make_entry("hi", influence_count=10)
+        _, entry_lo = _make_entry("lo", influence_count=0)
+
+        max_obs = 10  # match influence_count=10 scale
+        p_hi = engine._prominence(entry_hi, max_obs, _NOW)
+        p_lo = engine._prominence(entry_lo, max_obs, _NOW)
+
+        gap = p_hi - p_lo
+        # With influence_score saturating at 1.0 for count>=10:
+        #     gap == self._influence_weight * 1.0 == 0.30
+        # Tolerance for floating-point drift; spec says >= 0.29.
+        assert gap >= 0.29, f"Expected gap >= 0.29, got {gap}"
+
+    def test_ac10b_weight_25_clamped_to_1_silently(self, capsys):
+        """memory_influence_weight=2.5 → clamped to 1.0, NO stderr warning."""
+        config = dict(_default_config())
+        config["memory_influence_weight"] = 2.5
+        engine = RankingEngine(config)
+        assert engine._influence_weight == 1.0
+        captured = capsys.readouterr()
+        assert captured.err == "", f"Expected no stderr, got {captured.err!r}"
 
 
 class TestInfluenceInProminence:

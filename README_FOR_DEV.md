@@ -525,6 +525,9 @@ Without an API key, memory still works via FTS5 keyword search and prominence ra
 - `memory_promote_low_threshold` — Evidence count threshold for promoting low→medium confidence (default: 3)
 - `memory_promote_medium_threshold` — Evidence count threshold for promoting medium→high confidence (default: 5)
 - `memory_promote_min_observations` — Min observation count a KB entry needs to qualify for `/pd:promote-pattern` (default: 3)
+- `memory_influence_threshold` — Cosine similarity threshold for influence matching (default: 0.55)
+- `memory_influence_weight` — Coefficient for influence in ranking prominence (default: 0.05)
+- `memory_influence_debug` — Emit per-dispatch hit-rate diagnostics to `~/.claude/pd/memory/influence-debug.log` (default: false)
 - `max_concurrent_agents` — Max parallel Task dispatches across skills and commands (default: 5)
 
 ## Entity Registry

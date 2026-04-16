@@ -10,6 +10,7 @@ import os
 import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 
 # Make semantic_memory importable from hooks/lib/.
 _hooks_lib = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "hooks", "lib"))
@@ -298,17 +299,25 @@ def _process_record_influence_by_content(
     injected_entry_names: list[str],
     agent_role: str,
     feature_type_id: str | None = None,
-    threshold: float = 0.70,
+    threshold: float | None = None,
 ) -> str:
     """Record influence using embedding similarity instead of name matching.
 
     Chunks the output by paragraph, computes per-chunk embeddings, and
     compares against stored entry embeddings. Records influence for entries
     where max chunk similarity >= threshold.
+
+    ``threshold=None`` resolves from ``_config["memory_influence_threshold"]``
+    (default 0.55).  The existing ``[0.01, 1.0]`` clamp applies uniformly
+    to explicit caller-passed values, config-driven values, and the default.
     """
 
     if not injected_entry_names:
         return json.dumps({"matched": [], "skipped": 0})
+
+    # Feature 080: resolve threshold from config when caller passed None.
+    if threshold is None:
+        threshold = _resolve_float_config("memory_influence_threshold", 0.55)
 
     threshold = max(0.01, min(1.0, threshold))
 
@@ -399,6 +408,101 @@ _db: MemoryDatabase | None = None
 _provider: EmbeddingProvider | None = None
 _config: dict = {}
 _project_root: str = ""
+
+# ---------------------------------------------------------------------------
+# Influence tuning + diagnostics state (feature 080-influence-wiring)
+# ---------------------------------------------------------------------------
+
+# One-shot-per-field warning guard for malformed float config values.
+_warned_fields: set[str] = set()
+
+# One-shot flag: suppress repeated stderr warnings after first log write failure.
+_influence_debug_write_failed: bool = False
+
+# Destination for per-dispatch influence diagnostics (opt-in via
+# memory_influence_debug config).  Tests monkeypatch this constant.
+INFLUENCE_DEBUG_LOG_PATH: Path = (
+    Path.home() / ".claude" / "pd" / "memory" / "influence-debug.log"
+)
+
+
+def _warn_and_default(key: str, raw, default: float) -> float:
+    """Emit a one-shot stderr warning for a malformed config value, return default.
+
+    Deduped via module-level ``_warned_fields``: each key warns at most once
+    per process.  Called from ``_resolve_float_config`` on any invalid-value
+    path (bool, non-string/numeric, or unparseable string).
+    """
+    if key not in _warned_fields:
+        sys.stderr.write(
+            f"[memory-server] config field {key!r} value {raw!r} "
+            f"is not a float; using default {default}\n"
+        )
+        _warned_fields.add(key)
+    return default
+
+
+def _resolve_float_config(key: str, default: float) -> float:
+    """Read a float-valued config entry, falling back to ``default`` on error.
+
+    Accepts int, float, or numeric string values.  ``bool`` is rejected
+    explicitly (Python ``bool`` is an ``int`` subclass, so ``float(True)=1.0``
+    would otherwise silently coerce).  Unparseable values emit one stderr
+    warning per key per process (via ``_warn_and_default``) and return
+    ``default``.
+    """
+    raw = _config.get(key, default)
+    # Explicit bool rejection MUST come before the int/float branch.
+    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+        return _warn_and_default(key, raw, default)
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    # raw is str
+    try:
+        return float(raw)
+    except ValueError:
+        return _warn_and_default(key, raw, default)
+
+
+def _emit_influence_diagnostic(
+    *,
+    agent_role: str,
+    injected: int,
+    matched: int,
+    threshold: float,
+    feature_type_id: str | None,
+) -> None:
+    """Append one JSON line to ``INFLUENCE_DEBUG_LOG_PATH`` describing a dispatch.
+
+    Called from the MCP wrapper (outside ``@with_retry``) so retries don't
+    double-log.  Parent directory is created lazily.  On first IO failure
+    (permission denied, disk full, target-is-a-directory, etc.) emit one
+    stderr warning and set ``_influence_debug_write_failed`` to suppress
+    subsequent warnings for the remainder of the process lifetime.
+    """
+    global _influence_debug_write_failed
+    try:
+        INFLUENCE_DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps({
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "event": "influence_dispatch",
+            "agent_role": agent_role,
+            "injected": injected,
+            "matched": matched,
+            "recorded": matched,
+            "threshold": threshold,
+            "feature_type_id": feature_type_id,
+        })
+        with INFLUENCE_DEBUG_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except (OSError, IOError) as exc:
+        if not _influence_debug_write_failed:
+            sys.stderr.write(
+                f"[memory-server] influence-debug log write failed ({exc}); "
+                f"suppressing further diagnostic write errors this session\n"
+            )
+            _influence_debug_write_failed = True
+
 
 # ---------------------------------------------------------------------------
 # Lifespan handler
@@ -616,7 +720,7 @@ async def record_influence_by_content(
     injected_entry_names: list[str],
     agent_role: str,
     feature_type_id: str | None = None,
-    threshold: float = 0.70,
+    threshold: float | None = None,
 ) -> str:
     """Record influence by comparing subagent output against injected memory entries.
 
@@ -634,7 +738,9 @@ async def record_influence_by_content(
     feature_type_id:
         Current feature context. Optional.
     threshold:
-        Cosine similarity threshold for attribution. Default: 0.70.
+        Cosine similarity threshold for attribution.  ``None`` (default)
+        resolves from ``_config["memory_influence_threshold"]`` at the
+        helper's single canonical resolution point.
 
     Returns JSON with matched entries and their similarity scores.
     """
@@ -642,7 +748,7 @@ async def record_influence_by_content(
         return json.dumps({"matched": [], "skipped": len(injected_entry_names), "warning": "database not initialized"})
 
     try:
-        return _process_record_influence_by_content(
+        result_json = _process_record_influence_by_content(
             db=_db,
             provider=_provider,
             subagent_output_text=subagent_output_text,
@@ -653,6 +759,32 @@ async def record_influence_by_content(
         )
     except Exception as exc:
         return json.dumps({"error": str(exc)})
+
+    # Feature 080: diagnostic emission lives OUTSIDE @with_retry so retries
+    # don't double-log, AND so every terminal path of the inner helper
+    # (happy + 5 early returns) produces exactly one diagnostic line.
+    if _config.get("memory_influence_debug", False):
+        try:
+            parsed = json.loads(result_json)
+            matched_count = len(parsed.get("matched", [])) if isinstance(parsed, dict) else 0
+        except (json.JSONDecodeError, TypeError):
+            matched_count = 0
+        effective = (
+            threshold
+            if threshold is not None
+            else _resolve_float_config("memory_influence_threshold", 0.55)
+        )
+        # Clamp parity with helper (line 313): diagnostic shows the value
+        # the helper actually used, not the raw config value.
+        effective = max(0.01, min(1.0, effective))
+        _emit_influence_diagnostic(
+            agent_role=agent_role,
+            injected=len(injected_entry_names),
+            matched=matched_count,
+            threshold=effective,
+            feature_type_id=feature_type_id,
+        )
+    return result_json
 
 
 # ---------------------------------------------------------------------------
