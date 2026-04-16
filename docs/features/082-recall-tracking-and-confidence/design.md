@@ -239,6 +239,7 @@
 
 - **Severity:** low
 - **Mitigation:** AC-24 enforces CI ceiling at 5000ms. Local 500ms target is informational but captured in retro. No explicit index on `last_recalled_at` — full scan for 10k rows empirically within budget. If CI trends toward 5000, retro prompts follow-up (add index).
+- **Implementation evidence requirement:** During implementation, run `EXPLAIN QUERY PLAN` on the I-2 SELECT against a realistic 10k-row DB and record the result in the feature `retro.md` "Performance" section alongside actual `elapsed_ms`. If the plan shows a full table scan AND `elapsed_ms > 300ms` on local dev hardware, flag follow-up for `CREATE INDEX idx_entries_last_recalled_at ON entries(last_recalled_at)` in the next release.
 - **Remaining risk:** A pathological memory DB with 100k+ entries could breach 5000ms. Follow-up via explicit index if observed.
 
 ---
@@ -377,6 +378,14 @@ def decay_confidence(db, config, *, now=None):
     # We intentionally let it propagate (tests catch it; production should crash
     # early). FR-8's "never propagate" invariant applies to config/DB/IO errors,
     # not programming bugs.
+    #
+    # DIAGNOSTIC EMISSION CONTRACT: under ValueError propagation, elapsed_ms is
+    # never set on diag and _emit_decay_diagnostic is NOT called. This is by
+    # design — we do not want a half-complete diag dict hitting the log when
+    # the internal invariant is broken. Tests MUST NOT assert on elapsed_ms or
+    # log lines in ValueError test cases. All other error paths (config
+    # malformed, DB error, log write failure) preserve elapsed_ms + diagnostic
+    # emission via the normal return path.
 
     diag["elapsed_ms"] = int((time.perf_counter() - t0) * 1000)
 
@@ -439,44 +448,61 @@ Where `staleness_ts = last_recalled_at if NOT NULL else created_at` (per spec FR
 ### I-3: `_resolve_int_config` (private helper, copy-of-081-pattern)
 
 ```python
+def _warn_and_default(key: str, raw, default: int, warned: set[str]) -> int:
+    """Emit one stderr warning (per-key-deduped) and return `default`.
+
+    Called from `_resolve_int_config` on any invalid-value path.
+    Direct copy-shape of refresh._warn_and_default at refresh.py:127-140,
+    diverging only in the stderr prefix (`[memory-decay]` vs `[refresh]`)
+    per spec FR-8.
+    """
+    if key not in warned:
+        sys.stderr.write(
+            f"[memory-decay] config field {key!r} value {raw!r} "
+            f"is not an int; using default {default}\n"
+        )
+        warned.add(key)
+    return default
+
+
 def _resolve_int_config(
     config: dict,
     key: str,
     default: int,
     *,
-    clamp: tuple[int, int],
+    clamp: tuple[int, int] | None = None,
     warned: set[str],
 ) -> int:
-    """Resolve an int config field with bool-rejection, clamp, and dedup-warn.
+    """Resolve an int-valued config field with bool rejection + dedup warning.
 
-    MUST reject bool BEFORE int check (isinstance(raw, bool) first) because
-    bool is an int subclass. Silent clamp, one-shot-per-key stderr warning.
+    Body mirrors refresh._resolve_int_config (refresh.py:143-183) verbatim —
+    spec FR-8 'near-identical' reuse contract. Only stderr prefix differs
+    (`[memory-decay]` via _warn_and_default copy). Accepts int and numeric
+    strings parseable via int(raw). Rejects bool (bool-is-int-subclass trap)
+    and float (this is the int variant; 5.7 is not a valid int).
 
-    See spec FR-8 (coercion helper ownership). Prefix: [memory-decay].
+    clamp — optional (min, max). Out-of-range values clamped SILENTLY.
     """
     raw = config.get(key, default)
 
+    # Bool rejection MUST come first: bool is int subclass, isinstance(True, int) is True.
     if isinstance(raw, bool):
-        if key not in warned:
-            sys.stderr.write(
-                f"[memory-decay] config field '{key}' value {raw!r} is not an int; "
-                f"using default {default}\n"
-            )
-            warned.add(key)
-        return default
+        value = _warn_and_default(key, raw, default, warned)
+    elif isinstance(raw, int):
+        value = raw
+    elif isinstance(raw, str):
+        try:
+            value = int(raw)
+        except ValueError:
+            value = _warn_and_default(key, raw, default, warned)
+    else:
+        # float, None, list, dict, ... → reject with warning
+        value = _warn_and_default(key, raw, default, warned)
 
-    if not isinstance(raw, int):
-        if key not in warned:
-            sys.stderr.write(
-                f"[memory-decay] config field '{key}' value {raw!r} is not an int; "
-                f"using default {default}\n"
-            )
-            warned.add(key)
-        return default
-
-    # Silent clamp.
-    lo, hi = clamp
-    return max(lo, min(hi, raw))
+    if clamp is not None:
+        lo, hi = clamp
+        value = max(lo, min(hi, value))
+    return value
 ```
 
 ### I-4: `_emit_decay_diagnostic` (private helper)
@@ -648,6 +674,15 @@ class MemoryDatabase:
         some rows fail the `updated_at < ?` guard, e.g., back-to-back
         invocations within the same logical tick per FR-5).
 
+        **Duplicate-ids contract:** the caller is responsible for passing a
+        de-duplicated list. `decay_confidence` sources ids from the `entries.id`
+        PRIMARY KEY column via `_select_candidates`, so duplicates cannot occur
+        in the production path. If a future caller passes duplicates, SQLite
+        de-dupes internally within a chunk's IN-list (so `cursor.rowcount` for
+        that chunk is correct) but duplicates split across chunk boundaries
+        would be counted twice in the sum — prefer `list(dict.fromkeys(ids))`
+        at the call site rather than adding dedup inside `batch_demote`.
+
         **Atomicity note (AC-32):** Python's sqlite3 default `isolation_level=""`
         means Python issues implicit BEGIN before DML statements. Since this
         method issues an EXPLICIT `BEGIN IMMEDIATE` first, subsequent UPDATEs
@@ -748,10 +783,16 @@ recon_summary=$(run_reconciliation)
 doctor_summary=$(run_doctor_autofix)
 ```
 
-**Display-prepend** (after existing `doctor_summary` block around line 733-739, before `cron_schedule_context` block at 741):
+**Display-prepend** — authoritative insertion anchor per spec FR-4:
+
+Insert the decay block **BETWEEN the existing `doctor_summary` block (session-start.sh:733-739) AND the `cron_schedule_context` block (session-start.sh:741-747)**. Do NOT place after `cron_schedule_context` — spec FR-4's authoritative ordering is "after doctor_summary, before cron_schedule_context / memory_context". The full relevant chain with decay inserted:
 
 ```bash
-# Decay summary (silent when zero changes; spec FR-4 display order)
+# ... earlier blocks ...
+if [[ -n "$doctor_summary" ]]; then          # existing (733-739)
+    ...
+fi
+# Decay summary (NEW — insert here; silent when zero changes per spec FR-4)
 if [[ -n "$decay_summary" ]]; then
     if [[ -n "$full_context" ]]; then
         full_context="${full_context}\n\n${decay_summary}"
@@ -759,6 +800,10 @@ if [[ -n "$decay_summary" ]]; then
         full_context="${decay_summary}"
     fi
 fi
+if [[ -n "$cron_schedule_context" ]]; then   # existing (741-747)
+    ...
+fi
+# ... later blocks (memory_context, context) ...
 ```
 
 ### I-9: Module globals (authoritative contract per spec FR-8a)
