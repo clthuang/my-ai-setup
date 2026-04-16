@@ -353,6 +353,10 @@ def decay_confidence(db, config, *, now=None):
 
         if not dry_run:
             # Atomic: batch_demote opens BEGIN IMMEDIATE, loops chunks, commits.
+            # DO NOT wrap these calls in try/except(ValueError). ValueError from
+            # batch_demote (invalid new_confidence) propagates intentionally —
+            # it signals a bug in this function, not a user-facing error. See
+            # the NOTE block below and spec FR-8 diagnostic emission contract.
             if candidates["high_ids"]:
                 diag["demoted_high_to_medium"] = db.batch_demote(
                     candidates["high_ids"], "medium", now_iso
