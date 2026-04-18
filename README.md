@@ -94,7 +94,7 @@ Three MCP tools persist and leverage learnings across sessions:
 | `search_memory` | Search past learnings by topic using semantic similarity |
 | `record_influence` | Record that a retrieved memory influenced a subagent dispatch, improving future ranking |
 
-Memory entries are injected automatically at session start. Duplicate entries are suppressed at capture time using cosine similarity (configurable via `memory_dedup_threshold`). The global store (`~/.claude/pd/memory/`) accumulates knowledge across all projects. See [README_FOR_DEV.md](./README_FOR_DEV.md) for configuration.
+Memory entries are injected automatically at session start. Duplicate entries are suppressed at capture time using cosine similarity (configurable via `memory_dedup_threshold`). Confidence decays over time when entries go unrecalled — high-confidence entries demote to medium after `memory_decay_high_threshold_days` days without recall, and medium demotes to low after `memory_decay_medium_threshold_days` days. Decay runs on session start and is opt-in via `memory_decay_enabled`. The global store (`~/.claude/pd/memory/`) accumulates knowledge across all projects. See [README_FOR_DEV.md](./README_FOR_DEV.md) for configuration.
 
 ### Domain Knowledge
 
