@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.15.4] - 2026-04-18
+
+### Added
+- Confidence decay for semantic memory — entries that go unrecalled automatically demote from high → medium → low confidence over configurable time windows. Decay runs on session start and is opt-in (disabled by default).
+- Five new `memory_decay_*` config fields in `.claude/pd.local.md`:
+  - `memory_decay_enabled` (default: false) — opt-in to enable decay on session start
+  - `memory_decay_high_threshold_days` (default: 30) — days without recall before high → medium
+  - `memory_decay_medium_threshold_days` (default: 60) — days without recall before medium → low
+  - `memory_decay_grace_period_days` (default: 14) — grace period after creation before a never-recalled entry is eligible for decay
+  - `memory_decay_dry_run` (default: false) — report what would be demoted without modifying the database
+
 ## [4.15.3] - 2026-04-16
 
 ### Added
