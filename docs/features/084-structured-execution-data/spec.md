@@ -72,7 +72,7 @@ CREATE INDEX idx_pe_timestamp ON phase_events(timestamp);
 
 **`_process_transition_phase` additions** (workflow_state_server.py):
 
-After the existing metadata update that sets `phase_timing[target_phase]["started"]`, also INSERT:
+After the existing metadata update that sets `phase_timing[target_phase]["started"]`, also INSERT. **Timestamp consistency:** capture `ts = _iso_now()` ONCE and reuse the same value for both the metadata dict update and the `insert_phase_event` call, ensuring consistency between the two stores:
 ```python
 db.insert_phase_event(
     type_id=feature_type_id,
@@ -112,7 +112,7 @@ db.insert_phase_event(
 
 **Backward transitions:** Backward transitions are orchestrated by the `workflow-transitions` skill at the SKILL layer, NOT inside `_process_transition_phase` (which has no backward-awareness parameter). The skill layer calls `update_entity` to append to `backward_history` in metadata and writes `backward_transition_reason` to the `workflow_phases` DB column. Therefore, backward event insertion MUST happen at the skill layer, NOT inside `_process_transition_phase`.
 
-**Mechanism:** Add a new MCP tool `record_backward_event` (or extend an existing flow) that the workflow-transitions skill calls AFTER it writes `backward_transition_reason`:
+**Mechanism:** Add a new MCP tool `record_backward_event` (or extend an existing flow) that the workflow-transitions skill calls AFTER calling `transition_phase` (which moves the engine to the target phase). The event records the transition that already occurred, using the known source_phase and target_phase values from the reviewer response:
 
 ```python
 db.insert_phase_event(
@@ -147,7 +147,7 @@ def insert_phase_event(
     backward_target: str | None = None,
     source: str = "live",
 ) -> int:
-    """Insert a phase event record. Returns the row id."""
+    """Insert a phase event record. Returns None (append-only log; row id not consumed)."""
 ```
 
 Uses a simple `INSERT INTO phase_events ... VALUES (...)`. Returns `cursor.lastrowid`.
@@ -234,11 +234,12 @@ async def query_phase_analytics(
 - [ ] **AC-4 transition_phase dual-write**: Call `transition_phase(feature_type_id, "specify")`. Query `SELECT * FROM phase_events WHERE type_id=? AND phase='specify' AND event_type='started'` → 1 row with correct timestamp.
 - [ ] **AC-5 complete_phase dual-write**: Call `complete_phase(feature_type_id, "specify", iterations=3)`. Query `SELECT * FROM phase_events WHERE type_id=? AND phase='specify' AND event_type='completed'` → 1 row with `iterations=3`.
 - [ ] **AC-6 skipped phases**: Call `transition_phase` with `skipped_phases='["brainstorm"]'` (JSON-encoded list). Query for `event_type='skipped' AND phase='brainstorm'` → 1 row.
-- [ ] **AC-7 backward event**: Trigger a backward transition. Query for `event_type='backward'` → 1 row with `backward_reason` populated.
+- [ ] **AC-7 backward event**: Call `record_backward_event(type_id="feature:test", source_phase="design", target_phase="specify", reason="scope gap")`. Query `SELECT * FROM phase_events WHERE type_id='feature:test' AND event_type='backward'` → 1 row with `phase='design'` (source), `backward_target='specify'`, `backward_reason='scope gap'`.
 - [ ] **AC-8 backfill**: Seed 3 entities with metadata containing `phase_timing` dicts. Run migration 10. Query `SELECT COUNT(*) FROM phase_events WHERE source='backfill'` → N rows matching the seeded phase_timing entries.
 - [ ] **AC-9 backfill malformed**: Seed 1 entity with `metadata='not json'`. Migration 10 completes without error. That entity has 0 rows in `phase_events`.
 - [ ] **AC-10 live source tag**: Events from dual-write have `source='live'`. Events from backfill have `source='backfill'`.
 - [ ] **AC-11 query phase_duration**: Seed events with known timestamps. Call `query_phase_analytics(query_type="phase_duration")`. Response contains correct duration_seconds for each feature+phase pair.
+- [ ] **AC-11b query phase_duration multi-cycle**: Seed 2 started + 2 completed events for the same feature+phase with known timestamps in order (s1 < c1 < s2 < c2). Call `query_phase_analytics(query_type="phase_duration")`. Response contains 2 duration rows with correct pairing (s1→c1 and s2→c2), NOT s1→c2.
 - [ ] **AC-12 query iteration_summary**: Call with `query_type="iteration_summary"`. Response includes `iterations` counts sorted descending.
 - [ ] **AC-13 query backward_frequency**: Call with `query_type="backward_frequency"`. Response shows per-phase backward event counts.
 - [ ] **AC-14 query raw_events**: Call with `query_type="raw_events", limit=10`. Response contains ≤10 raw event rows.
