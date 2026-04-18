@@ -146,11 +146,11 @@ def insert_phase_event(
     backward_reason: str | None = None,
     backward_target: str | None = None,
     source: str = "live",
-) -> int:
-    """Insert a phase event record. Returns None (append-only log; row id not consumed)."""
+) -> None:
+    """Insert a phase event record. Returns None."""
 ```
 
-Uses a simple `INSERT INTO phase_events ... VALUES (...)`. Returns `cursor.lastrowid`.
+Uses a simple `INSERT INTO phase_events ... VALUES (...)`.
 
 **Transaction context:** When called from within an existing transaction (e.g., inside `_process_transition_phase`'s `with db.transaction()` block), the INSERT participates in that transaction. When called standalone (e.g., from a new `record_backward_event` MCP tool), it uses autocommit.
 
