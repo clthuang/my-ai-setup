@@ -53,12 +53,10 @@ CREATE TABLE phase_events (
 );
 ```
 
-Indexes:
+Indexes (composite for query efficiency, not per-column — avoids over-indexing an append-only table):
 ```sql
-CREATE INDEX idx_pe_type_id ON phase_events(type_id);
-CREATE INDEX idx_pe_project_id ON phase_events(project_id);
-CREATE INDEX idx_pe_phase ON phase_events(phase);
-CREATE INDEX idx_pe_event_type ON phase_events(event_type);
+CREATE INDEX idx_pe_lookup ON phase_events(type_id, phase, event_type);
+CREATE INDEX idx_pe_project ON phase_events(project_id, event_type);
 CREATE INDEX idx_pe_timestamp ON phase_events(timestamp);
 ```
 
@@ -112,18 +110,23 @@ db.insert_phase_event(
 )
 ```
 
-**Backward transitions** (when `backward_transition_reason` is set in `transition_phase`):
+**Backward transitions:** Backward transitions are orchestrated by the `workflow-transitions` skill at the SKILL layer, NOT inside `_process_transition_phase` (which has no backward-awareness parameter). The skill layer calls `update_entity` to append to `backward_history` in metadata and writes `backward_transition_reason` to the `workflow_phases` DB column. Therefore, backward event insertion MUST happen at the skill layer, NOT inside `_process_transition_phase`.
+
+**Mechanism:** Add a new MCP tool `record_backward_event` (or extend an existing flow) that the workflow-transitions skill calls AFTER it writes `backward_transition_reason`:
+
 ```python
 db.insert_phase_event(
     type_id=feature_type_id,
     project_id=entity["project_id"],
-    phase=target_phase,
+    phase=source_phase,       # the phase being DEPARTED (not target)
     event_type="backward",
-    timestamp=started_at_iso,
-    backward_reason=backward_reason,
-    backward_target=target_phase,
+    timestamp=now_iso,
+    backward_reason=reason,
+    backward_target=target_phase,  # the phase being returned to
 )
 ```
+
+**Semantic clarification (authoritative):** For backward events, `phase` = the source phase being departed, `backward_target` = the target phase being returned to. This makes `phase` and `backward_target` semantically distinct (source vs destination), not redundant.
 
 ### FR-3: `EntityDatabase.insert_phase_event` method
 
@@ -147,7 +150,18 @@ def insert_phase_event(
     """Insert a phase event record. Returns the row id."""
 ```
 
-Uses a simple `INSERT INTO phase_events ... VALUES (...)` — no transaction needed (single statement, autocommit). Returns `cursor.lastrowid`.
+Uses a simple `INSERT INTO phase_events ... VALUES (...)`. Returns `cursor.lastrowid`.
+
+**Transaction context:** When called from within an existing transaction (e.g., inside `_process_transition_phase`'s `with db.transaction()` block), the INSERT participates in that transaction. When called standalone (e.g., from a new `record_backward_event` MCP tool), it uses autocommit.
+
+**Failure resilience (NFR-3):** The `insert_phase_event` call MUST be wrapped in `try/except` at the call site, INSIDE any existing transaction block, to prevent an INSERT failure from rolling back the broader phase-transition transaction. Pattern:
+```python
+try:
+    db.insert_phase_event(...)
+except Exception as e:
+    print(f"[workflow-state] phase_events INSERT failed: {e}", file=sys.stderr)
+```
+This ensures phase transitions succeed even if the analytics table is corrupted or full.
 
 ### FR-4: Backfill migration
 
@@ -158,8 +172,8 @@ Migration 10 MUST backfill existing entities' `phase_timing` data into the new t
 3. For each phase in `phase_timing`:
    - If `started` timestamp exists → INSERT a `started` event with `source='backfill'`.
    - If `completed` timestamp exists → INSERT a `completed` event with `iterations` and `reviewerNotes` from the dict, `source='backfill'`.
-4. For each phase in `skipped_phases` list → INSERT a `skipped` event with `source='backfill'`, using the entity's `created_at` as a proxy timestamp.
-5. For `backward_history` entries (if present in metadata) → INSERT `backward` events with `source='backfill'`.
+4. For each phase in `skipped_phases` list → INSERT a `skipped` event with `source='backfill'`, using the entity's `created_at` as a proxy timestamp. **Data quality note:** proxy timestamps mean backfilled skip events may have inaccurate timing (e.g., a feature created months ago with a recently skipped phase shows the skip as months old). The `source='backfill'` tag allows filtering these out of time-based analytics.
+5. For `backward_history` entries (if present in metadata) → INSERT `backward` events with `source='backfill'`. Map fields: `phase=entry["source_phase"]` (the phase being departed), `backward_target=entry["target_phase"]` (the phase being returned to), `backward_reason=entry["reason"]`, `timestamp=entry["timestamp"]`. Matches the authoritative semantic from FR-2.
 
 **Error handling:** If any entity's metadata is malformed JSON, skip it and continue. Log a warning to stderr. The backfill is best-effort — partial data is better than no data.
 
@@ -182,7 +196,7 @@ async def query_phase_analytics(
 
 **Query types:**
 
-- **`phase_duration`**: For each feature + phase with both `started` and `completed` events, compute `completed_timestamp - started_timestamp` in seconds. Returns JSON array sorted by duration descending.
+- **`phase_duration`**: For each feature + phase with both `started` and `completed` events, compute duration in seconds. **Computation:** fetch both timestamps in Python, parse via `datetime.fromisoformat()`, compute `(completed - started).total_seconds()`. SQLite's `julianday()` is an alternative but Python-side parsing is more portable and handles timezone offsets correctly. **Multiple cycles:** if a feature+phase has multiple started/completed pairs (due to backward transitions causing re-entry), each cycle is reported as a separate row. Pair events chronologically: the Nth `started` event pairs with the Nth `completed` event for the same feature+phase, ordered by `timestamp`. Returns JSON array sorted by duration descending.
 - **`iteration_summary`**: For each feature + phase with a `completed` event, return `iterations` count. Returns JSON array sorted by iterations descending.
 - **`backward_frequency`**: Count `backward` events grouped by phase. Returns JSON array: `[{"phase": "design", "backward_count": 5}, ...]`.
 - **`raw_events`**: Return raw phase_events rows matching filters. Respects `limit`.
@@ -216,10 +230,10 @@ async def query_phase_analytics(
 
 - [ ] **AC-1 table exists**: After migration 10, `SELECT name FROM sqlite_master WHERE type='table' AND name='phase_events'` returns 1 row.
 - [ ] **AC-2 schema correct**: `PRAGMA table_info(phase_events)` returns all columns per FR-1 with correct types and constraints.
-- [ ] **AC-3 indexes exist**: All 5 indexes from FR-1 exist (verify via `SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='phase_events'`).
+- [ ] **AC-3 indexes exist**: All 3 composite indexes from FR-1 exist (verify via `SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='phase_events'` → 3 rows matching `idx_pe_lookup`, `idx_pe_project`, `idx_pe_timestamp`).
 - [ ] **AC-4 transition_phase dual-write**: Call `transition_phase(feature_type_id, "specify")`. Query `SELECT * FROM phase_events WHERE type_id=? AND phase='specify' AND event_type='started'` → 1 row with correct timestamp.
 - [ ] **AC-5 complete_phase dual-write**: Call `complete_phase(feature_type_id, "specify", iterations=3)`. Query `SELECT * FROM phase_events WHERE type_id=? AND phase='specify' AND event_type='completed'` → 1 row with `iterations=3`.
-- [ ] **AC-6 skipped phases**: Call `transition_phase` with `skipped_phases="brainstorm"`. Query for `event_type='skipped' AND phase='brainstorm'` → 1 row.
+- [ ] **AC-6 skipped phases**: Call `transition_phase` with `skipped_phases='["brainstorm"]'` (JSON-encoded list). Query for `event_type='skipped' AND phase='brainstorm'` → 1 row.
 - [ ] **AC-7 backward event**: Trigger a backward transition. Query for `event_type='backward'` → 1 row with `backward_reason` populated.
 - [ ] **AC-8 backfill**: Seed 3 entities with metadata containing `phase_timing` dicts. Run migration 10. Query `SELECT COUNT(*) FROM phase_events WHERE source='backfill'` → N rows matching the seeded phase_timing entries.
 - [ ] **AC-9 backfill malformed**: Seed 1 entity with `metadata='not json'`. Migration 10 completes without error. That entity has 0 rows in `phase_events`.
