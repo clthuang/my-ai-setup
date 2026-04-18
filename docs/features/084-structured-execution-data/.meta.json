@@ -1,0 +1,15 @@
+{
+  "id": "084",
+  "slug": "structured-execution-data",
+  "mode": "full",
+  "status": "active",
+  "created": "2026-04-18T05:55:56.026930+00:00",
+  "branch": "feature/084-structured-execution-data",
+  "backlog_source": "00051",
+  "lastCompletedPhase": null,
+  "phases": {
+    "brainstorm": {
+      "started": "2026-04-18T05:55:56.026781+00:00"
+    }
+  }
+}
