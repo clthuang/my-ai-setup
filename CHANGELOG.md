@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.15.4] - 2026-04-18
+
 ### Added
 - Confidence decay for semantic memory — entries that go unrecalled automatically demote from high → medium → low confidence over configurable time windows. Decay runs on session start and is opt-in (disabled by default).
 - Five new `memory_decay_*` config fields in `.claude/pd.local.md`:
