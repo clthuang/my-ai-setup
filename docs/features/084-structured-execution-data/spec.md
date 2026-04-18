@@ -112,7 +112,7 @@ db.insert_phase_event(
 
 **Backward transitions:** Backward transitions are orchestrated by the `workflow-transitions` skill at the SKILL layer, NOT inside `_process_transition_phase` (which has no backward-awareness parameter). The skill layer calls `update_entity` to append to `backward_history` in metadata and writes `backward_transition_reason` to the `workflow_phases` DB column. Therefore, backward event insertion MUST happen at the skill layer, NOT inside `_process_transition_phase`.
 
-**Mechanism:** Add a new MCP tool `record_backward_event` (or extend an existing flow) that the workflow-transitions skill calls AFTER calling `transition_phase` (which moves the engine to the target phase). The event records the transition that already occurred, using the known source_phase and target_phase values from the reviewer response:
+**Mechanism:** Add a new MCP tool `record_backward_event` (standalone tool, matching AC-7's call signature) that the workflow-transitions skill calls AFTER calling `transition_phase` (which moves the engine to the target phase). The event records the transition that already occurred, using the known source_phase and target_phase values from the reviewer response:
 
 ```python
 db.insert_phase_event(
