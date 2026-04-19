@@ -2821,6 +2821,92 @@ assert 'Decay:' not in ctx, f'expected NO decay summary when venv missing, got: 
     fi
 }
 
+# Test: session-start.sh enforces decay subprocess timeout so a hung
+# maintenance CLI does not block the hook (feature 088 AC-40 / FR-10.7).
+#
+# Strategy: replace maintenance.py with a stub that sleeps 30s (well above
+# the 10s internal budget enforced inside run_memory_decay). Wrap the hook
+# in a bash-level 20s guard. The hook MUST complete in <20s (honoring its
+# own budget), exit 0, and omit the "Decay:" summary from additionalContext.
+test_session_start_decay_timeout_does_not_block_hook() {
+    log_test "session-start decay timeout does not block hook (feature 088 AC-40)"
+
+    local tmp_home
+    tmp_home=$(mktemp -d)
+    local maint_py="${HOOKS_DIR}/lib/semantic_memory/maintenance.py"
+    local maint_bak="${maint_py}.bak-088-timeout"
+
+    # CRITICAL: install trap BEFORE rename so restoration always runs.
+    trap 'mv "'"$maint_bak"'" "'"$maint_py"'" 2>/dev/null || true; rm -rf "'"$tmp_home"'"' RETURN
+
+    # Enable decay so the CLI is invoked.
+    mkdir -p "$tmp_home/.claude"
+    cat > "$tmp_home/.claude/pd.local.md" << 'PDCFG'
+---
+memory_decay_enabled: true
+---
+PDCFG
+
+    # Replace maintenance.py with a sleep-30s stub.
+    mv "$maint_py" "$maint_bak" || { log_fail "Failed to rename maintenance.py"; return; }
+    cat > "$maint_py" << 'STUB'
+"""Feature 088 AC-40 timeout stub — sleeps 30s then exits."""
+import time
+time.sleep(30)
+STUB
+
+    # Wrap session-start in a pytest-equivalent outer timeout. The hook's
+    # internal budget is 10s, so 20s outer gives ample margin. If the
+    # internal budget is NOT enforced, the outer timeout fires and we fail.
+    local outer_timeout=""
+    if command -v gtimeout >/dev/null 2>&1; then
+        outer_timeout="gtimeout 20"
+    elif command -v timeout >/dev/null 2>&1; then
+        outer_timeout="timeout 20"
+    fi
+
+    local t_start t_end wall
+    t_start=$(date +%s)
+    local output exit_code=0
+    if [[ -n "$outer_timeout" ]]; then
+        output=$(cd "$tmp_home" && HOME="$tmp_home" $outer_timeout bash "${HOOKS_DIR}/session-start.sh" < /dev/null 2>/dev/null) || exit_code=$?
+    else
+        # No outer timeout available (rare); rely on hook's internal guard.
+        output=$(cd "$tmp_home" && HOME="$tmp_home" bash "${HOOKS_DIR}/session-start.sh" < /dev/null 2>/dev/null) || exit_code=$?
+    fi
+    t_end=$(date +%s)
+    wall=$((t_end - t_start))
+
+    # Exit code 124 = outer timeout fired → hook did NOT honor its budget.
+    if [[ $exit_code -eq 124 ]]; then
+        log_fail "outer 20s timeout fired — session-start decay did not honor 10s internal budget (wall=${wall}s)"
+        return
+    fi
+
+    if [[ $exit_code -ne 0 ]]; then
+        log_fail "session-start.sh exited non-zero ($exit_code) under decay timeout stub"
+        return
+    fi
+
+    # Wall time must be < 20s (should be ~10s given the internal budget).
+    if [[ $wall -ge 20 ]]; then
+        log_fail "wall time ${wall}s >= 20s — internal timeout not enforced"
+        return
+    fi
+
+    # additionalContext MUST NOT contain "Decay:" (CLI was killed by timeout).
+    if echo "$output" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+ctx = d.get('hookSpecificOutput', {}).get('additionalContext', '')
+assert 'Decay:' not in ctx, f'expected NO decay summary after timeout, got: {ctx[:300]}'
+" 2>/dev/null; then
+        log_pass
+    else
+        log_fail "Decay summary present despite timeout, or JSON malformed. Wall=${wall}s, Output: ${output:0:400}"
+    fi
+}
+
 # Test: session-start.sh is resilient when maintenance.py is missing (AC-22)
 test_memory_decay_missing_module() {
     log_test "session-start resilient when maintenance.py is missing (AC-22)"
@@ -3017,6 +3103,7 @@ main() {
     test_memory_decay_missing_module
     test_session_start_refuses_meta_json_injection
     test_session_start_decay_skips_when_venv_missing
+    test_session_start_decay_timeout_does_not_block_hook
 
     echo ""
     echo "--- Path Portability Tests ---"

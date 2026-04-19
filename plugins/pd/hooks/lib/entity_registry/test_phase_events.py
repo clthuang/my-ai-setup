@@ -662,3 +662,97 @@ class TestFeature088BundleE:
             "insert_phase_event prematurely committed despite outer "
             "db.transaction() context manager being active"
         )
+
+
+# ---------------------------------------------------------------------------
+# Feature 088 Bundle H.4 — Feature 084 test additions (FR-10.10, AC-43)
+# ---------------------------------------------------------------------------
+
+
+class TestFeature088BundleH4PhaseEvents:
+    """AC-43 coverage additions targeting phase_events layer behavior."""
+
+    def test_insert_phase_event_rejects_invalid_event_type_and_source(self, db):
+        """AC-43 (FR-10.10): CHECK constraint negative test.
+
+        The ``phase_events.event_type`` column is CHECK-constrained to
+        ``('started', 'completed', 'skipped', 'backward')`` and
+        ``phase_events.source`` is CHECK-constrained to
+        ``('live', 'backfill')``. Inserts violating either constraint MUST
+        raise ``sqlite3.IntegrityError``.
+        """
+        # Invalid event_type.
+        with pytest.raises(sqlite3.IntegrityError):
+            db.insert_phase_event(
+                type_id="feature:bad-et-001",
+                project_id=TEST_PROJECT_ID,
+                phase="design",
+                event_type="gibberish",  # NOT in the CHECK set
+                timestamp="2026-04-01T10:00:00Z",
+            )
+
+        # Invalid source.
+        with pytest.raises(sqlite3.IntegrityError):
+            db.insert_phase_event(
+                type_id="feature:bad-src-001",
+                project_id=TEST_PROJECT_ID,
+                phase="design",
+                event_type="started",
+                timestamp="2026-04-01T10:00:00Z",
+                source="forbidden",  # NOT in the CHECK set
+            )
+
+        # No rows inserted for either failing call.
+        rows = db._conn.execute(
+            "SELECT COUNT(*) AS c FROM phase_events "
+            "WHERE type_id IN ('feature:bad-et-001', 'feature:bad-src-001')"
+        ).fetchone()["c"]
+        assert rows == 0
+
+    def test_migration_10_rerun_on_pre_existing_rows_does_not_duplicate_backfill(self):
+        """AC-43 (FR-10.10): re-running migration 10 over a backfilled DB
+        MUST NOT duplicate rows (partial UNIQUE index + INSERT OR IGNORE).
+        """
+        from entity_registry.database import _migration_10_phase_events
+
+        database = EntityDatabase(":memory:")
+        database.register_entity(
+            "feature", "rerun-001", "Rerun",
+            project_id=TEST_PROJECT_ID,
+            metadata={
+                "phase_timing": {
+                    "brainstorm": {
+                        "started": "2026-04-01T00:00:00Z",
+                        "completed": "2026-04-01T01:00:00Z",
+                        "iterations": 1,
+                    },
+                },
+            },
+        )
+        _reset_phase_events_to_pre_migration(database)
+
+        # First migration run.
+        _migration_10_phase_events(database._conn)
+        first_count = database._conn.execute(
+            "SELECT COUNT(*) AS c FROM phase_events WHERE source='backfill'"
+        ).fetchone()["c"]
+        assert first_count > 0, "control backfill must produce rows"
+
+        # Reset schema_version BUT keep phase_events rows — simulates a
+        # rerun against a partially-migrated DB (e.g., after a crash).
+        database._conn.execute(
+            "INSERT INTO _metadata(key, value) VALUES('schema_version', '9') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+        database._conn.commit()
+
+        # Second migration run — must be a no-op for backfill rows.
+        _migration_10_phase_events(database._conn)
+        second_count = database._conn.execute(
+            "SELECT COUNT(*) AS c FROM phase_events WHERE source='backfill'"
+        ).fetchone()["c"]
+        assert second_count == first_count, (
+            f"backfill rerun duplicated rows: first={first_count}, "
+            f"second={second_count}"
+        )
+        database.close()

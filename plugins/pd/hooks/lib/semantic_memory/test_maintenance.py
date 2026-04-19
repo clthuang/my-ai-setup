@@ -316,38 +316,21 @@ def _seed_entry(
     created_at: str,
 ):
     """Minimal entry seed that lets confidence/source/timestamps be set
-    directly. Uses raw INSERT so tests can set confidence/source/timestamps
-    outside upsert_entry's normalization path (and to bypass the
-    observation_count++ on-conflict behaviour).
+    directly. Uses the public ``insert_test_entry_for_testing`` method so
+    tests do not touch the private connection (feature 088 FR-10.3 / AC-36).
 
     Constraint note: `source` is CHECK-constrained to ('retro',
     'session-capture', 'manual', 'import'); default is 'session-capture'
     for the non-import path. `source_project` and `source_hash` are NOT
     NULL so both must be supplied.
     """
-    db._conn.execute(
-        "INSERT INTO entries (id, name, description, category, keywords, "
-        "source, source_project, source_hash, confidence, recall_count, "
-        "last_recalled_at, created_at, updated_at, observation_count) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            entry_id,
-            f"name-{entry_id}",
-            "desc",
-            "patterns",
-            json.dumps(["k"]),
-            source,
-            "/tmp/test-project",
-            "0" * 16,
-            confidence,
-            1 if last_recalled_at else 0,
-            last_recalled_at,
-            created_at,
-            created_at,
-            1,
-        ),
+    db.insert_test_entry_for_testing(
+        entry_id=entry_id,
+        confidence=confidence,
+        source=source,
+        last_recalled_at=last_recalled_at,
+        created_at=created_at,
     )
-    db._conn.commit()
 
 
 @pytest.fixture
@@ -459,7 +442,15 @@ class TestSelectCandidates:
 # ---------------------------------------------------------------------------
 
 
-NOW = datetime(2026, 4, 16, 12, 0, 0, tzinfo=timezone.utc)
+# Feature 088 FR-9.7 / AC-33: canonical test-epoch constant. The ``_TEST_EPOCH``
+# name signals test-only scope (underscore prefix) and deterministic value
+# (``datetime(2026, 4, 16, 12, 0, 0, tzinfo=UTC)``) against which all
+# ``_days_ago(...)`` offsets are computed. The ``NOW`` alias is preserved so
+# existing tests reading ``now=NOW`` continue to work unchanged — the
+# ``_days_ago`` default argument ``base=NOW`` still resolves to the same
+# datetime after the rename.
+_TEST_EPOCH = datetime(2026, 4, 16, 12, 0, 0, tzinfo=timezone.utc)
+NOW = _TEST_EPOCH  # backward-compat alias
 
 
 def _iso(dt: datetime) -> str:
@@ -471,7 +462,7 @@ def _iso(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _days_ago(days: float, *, base: datetime = NOW) -> str:
+def _days_ago(days: float, *, base: datetime = _TEST_EPOCH) -> str:
     return _iso(base - timedelta(days=days))
 
 
@@ -489,13 +480,18 @@ def _enabled_config(**overrides) -> dict:
 
 
 def _get_row(db: MemoryDatabase, entry_id: str) -> dict:
-    row = db._conn.execute(
+    """Read a handful of columns for assertions (feature 088 FR-10.3).
+
+    Uses ``db.fetch_row_for_testing`` instead of reaching into the private
+    connection.
+    """
+    row = db.fetch_row_for_testing(
         "SELECT id, confidence, updated_at, last_recalled_at, source "
         "FROM entries WHERE id = ?",
         (entry_id,),
-    ).fetchone()
+    )
     assert row is not None, f"entry {entry_id} not found"
-    return dict(row)
+    return row
 
 
 class TestDecayBasicTierTransitions:
@@ -855,12 +851,14 @@ class TestDecayConfigCoercion:
     def test_ac11a_high_threshold_zero_clamped_to_one(
         self, fresh_db, capsys
     ):
-        # 0 → clamped to 1.  But 0 is a VALID int, so NO warning is emitted
-        # (clamp is silent by design per spec FR-3).  See design I-3 docstring.
+        # 0 → clamped to 1.  Feature 088 FR-9.2 / AC-28: clamp is NOT silent —
+        # the shared ``_config_utils._resolve_int_config`` emits a stderr
+        # warning when ``warn_on_clamp=True`` (maintenance.py binding). The
+        # ``capsys`` assertion pins this so the correction from the original
+        # "clamped silently" I-3 docstring never regresses.
         #
-        # However, seeding with last_recalled_at < NOW - 1 day makes the entry
-        # stale after clamp.  Use 2 days stale so the clamped threshold of 1
-        # triggers decay.
+        # Seeding with last_recalled_at 2 days stale so the clamped
+        # threshold of 1 triggers decay.
         stale = _days_ago(2)
         _seed_entry(
             fresh_db,
@@ -871,11 +869,19 @@ class TestDecayConfigCoercion:
         )
         cfg = _enabled_config(memory_decay_high_threshold_days=0)
         result = maintenance.decay_confidence(fresh_db, cfg, now=NOW)
-        # Clamp 0 → 1 is silent; decay still fires.
         assert result["demoted_high_to_medium"] == 1
+        # AC-28: stderr warning pins the warn-on-clamp behavior.
+        captured = capsys.readouterr()
+        assert re.search(
+            r"\[memory-decay\].*memory_decay_high_threshold_days",
+            captured.err,
+        ), f"expected clamp warning, got stderr: {captured.err!r}"
 
-    def test_ac11b_high_threshold_overflow_clamped_to_365(self, fresh_db):
+    def test_ac11b_high_threshold_overflow_clamped_to_365(
+        self, fresh_db, capsys,
+    ):
         # 500 → clamped to 365.  Entry stale 400 days should still demote.
+        # Feature 088 AC-28: stderr warning pinned via capsys.
         stale = _days_ago(400)
         _seed_entry(
             fresh_db,
@@ -887,9 +893,21 @@ class TestDecayConfigCoercion:
         cfg = _enabled_config(memory_decay_high_threshold_days=500)
         result = maintenance.decay_confidence(fresh_db, cfg, now=NOW)
         assert result["demoted_high_to_medium"] == 1
+        captured = capsys.readouterr()
+        assert re.search(
+            r"\[memory-decay\].*memory_decay_high_threshold_days",
+            captured.err,
+        ), f"expected clamp warning, got stderr: {captured.err!r}"
 
-    def test_ac11c_grace_period_negative_clamped_to_zero(self, fresh_db):
-        """AC-11c: grace=-5 clamped to 0 → never-recalled rows past any age decay."""
+    def test_ac11c_grace_period_negative_clamped_to_zero(
+        self, fresh_db, capsys,
+    ):
+        """AC-11c: grace=-5 clamped to 0 → never-recalled rows past any age decay.
+
+        Feature 088 AC-28: augmented with capsys to pin the warn-on-clamp
+        behavior for ``memory_decay_grace_period_days`` (parallel key to the
+        high-threshold case exercised by AC-28a/b).
+        """
         # Seed a never-recalled medium created 1 day ago.  With grace=0,
         # any created_at < NOW passes the grace filter.  But medium decay
         # still needs 60 days staleness vs created_at; here created_at=1
@@ -908,6 +926,15 @@ class TestDecayConfigCoercion:
         result = maintenance.decay_confidence(fresh_db, cfg, now=NOW)
         assert result["skipped_grace"] == 0
         assert result["demoted_medium_to_low"] == 1
+        # AC-28: clamp warning for the grace-period key. The spec regex
+        # targets ``memory_decay_high_threshold_days`` for AC-28a/b; here the
+        # parallel key is ``memory_decay_grace_period_days`` (same FR-9.2
+        # warn-on-clamp invariant).
+        captured = capsys.readouterr()
+        assert re.search(
+            r"\[memory-decay\].*memory_decay_grace_period_days",
+            captured.err,
+        ), f"expected clamp warning, got stderr: {captured.err!r}"
 
     def test_ac12_bool_threshold_rejected(self, fresh_db, capsys):
         # memory_decay_high_threshold_days: True → default 30 + warning.
@@ -1189,11 +1216,10 @@ class TestDecayPromotionAfterDecay:
         # reaches >=5 at the time of the promotion check.
         # merge_duplicate reads pre-increment count, then checks >= threshold.
         # We need post-increment count >= 5, so pre-increment >= 4 at start.
-        fresh_db._conn.execute(
+        fresh_db.execute_test_sql_for_testing(
             "UPDATE entries SET observation_count = ? WHERE id = ?",
             (4, "e1"),
         )
-        fresh_db._conn.commit()
 
         # Decay to medium.
         r = maintenance.decay_confidence(
@@ -1219,15 +1245,9 @@ def _bulk_seed(db: MemoryDatabase, rows: list[tuple]) -> None:
 
     ``rows`` is a list of 14-tuples matching the INSERT column order in
     ``_seed_entry``.  Caller is responsible for generating plausible values.
+    Uses ``db.insert_test_entries_bulk_for_testing`` (feature 088 FR-10.3).
     """
-    db._conn.executemany(
-        "INSERT INTO entries (id, name, description, category, keywords, "
-        "source, source_project, source_hash, confidence, recall_count, "
-        "last_recalled_at, created_at, updated_at, observation_count) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        rows,
-    )
-    db._conn.commit()
+    db.insert_test_entries_bulk_for_testing(rows)
 
 
 class TestDecayPerformance:
@@ -1337,10 +1357,11 @@ class TestDecayChunkingHappyPath:
             fresh_db, _enabled_config(), now=NOW
         )
         assert result["demoted_high_to_medium"] == 2000
-        count_medium = fresh_db._conn.execute(
-            "SELECT COUNT(*) FROM entries WHERE confidence = 'medium'"
-        ).fetchone()[0]
-        assert count_medium == 2000
+        # Feature 088 FR-10.3: public-API read.
+        row = fresh_db.fetch_row_for_testing(
+            "SELECT COUNT(*) AS cnt FROM entries WHERE confidence = 'medium'"
+        )
+        assert row["cnt"] == 2000
 
 
 # ---------------------------------------------------------------------------
@@ -1423,12 +1444,11 @@ class TestDecayRefreshEndToEnd:
         emb_stale = np.zeros(768, dtype=np.float32)
         emb_stale[0] = 1.0
         fresh_db.update_embedding("stale", emb_stale.tobytes())
-        fresh_db._conn.execute(
+        fresh_db.execute_test_sql_for_testing(
             "UPDATE entries SET last_recalled_at = ?, updated_at = ? "
             "WHERE id = ?",
             (stale, stale, "stale"),
         )
-        fresh_db._conn.commit()
 
         # 5 fresh entries.
         for i in range(5):
@@ -1450,12 +1470,11 @@ class TestDecayRefreshEndToEnd:
             emb = np.zeros(768, dtype=np.float32)
             emb[0] = 1.0
             fresh_db.update_embedding(f"fresh-{i}", emb.tobytes())
-            fresh_db._conn.execute(
+            fresh_db.execute_test_sql_for_testing(
                 "UPDATE entries SET last_recalled_at = ?, updated_at = ? "
                 "WHERE id = ?",
                 (fresh_ts, fresh_ts, f"fresh-{i}"),
             )
-            fresh_db._conn.commit()
 
         # Decay — stale medium → low.
         r = maintenance.decay_confidence(
@@ -1554,10 +1573,10 @@ class TestCliDryRunOverride:
         # DB unchanged (entry still high, updated_at unchanged).
         verify_db = MemoryDatabase(str(db_path))
         try:
-            row = verify_db._conn.execute(
+            row = verify_db.fetch_row_for_testing(
                 "SELECT confidence, updated_at FROM entries WHERE id = ?",
                 ("e1",),
-            ).fetchone()
+            )
             assert row["confidence"] == "high"
             # updated_at equals the original stale timestamp seeded above.
             assert row["updated_at"] == _days_ago(31)
@@ -1892,3 +1911,422 @@ class TestInfluenceLogSymlinkRefusal:
             r"\[memory-decay\].*log write failed", captured.err
         )
         assert len(matches) == 1
+
+
+# ---------------------------------------------------------------------------
+# Feature 088 Bundle H.3a — Concurrency + integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestConcurrentWriterViaDecayConfidence:
+    """AC-31 (FR-9.5, #00108): end-to-end concurrent-writer test.
+
+    Thread A holds a BEGIN IMMEDIATE write lock past the busy_timeout budget;
+    thread B calls ``decay_confidence`` against the same file-backed DB. The
+    decay-layer sqlite3.Error catch MUST surface as an error-dict return
+    value (NOT a raised exception — FR-8 invariant).
+    """
+
+    def test_concurrent_writer_via_decay_confidence(self, tmp_path):
+        import threading
+
+        db_path = str(tmp_path / "concurrent-decay.db")
+
+        # Seed: create a stale-high entry so decay would want to demote it.
+        seed_db = MemoryDatabase(db_path)
+        try:
+            stale = _days_ago(31)
+            seed_db.insert_test_entry_for_testing(
+                entry_id="contention-1",
+                confidence="high",
+                last_recalled_at=stale,
+                created_at=stale,
+            )
+        finally:
+            seed_db.close()
+
+        # Open thread B's DB BEFORE the lock-holder starts, so its __init__
+        # migration completes without contention. Very short busy_timeout so
+        # batch_demote's BEGIN IMMEDIATE raises rather than waiting.
+        db_b = MemoryDatabase(db_path, busy_timeout_ms=200)
+
+        hold_lock_started = threading.Event()
+        release_lock = threading.Event()
+
+        def writer_holds_lock():
+            # Raw sqlite3 connection, long timeout so lock acquisition
+            # succeeds immediately.
+            conn_a = sqlite3.connect(db_path, timeout=10.0)
+            try:
+                conn_a.execute("BEGIN IMMEDIATE")
+                # Apply a no-op write so the IMMEDIATE lock is unambiguous.
+                conn_a.execute(
+                    "UPDATE entries SET description = description "
+                    "WHERE id = ?",
+                    ("contention-1",),
+                )
+                hold_lock_started.set()
+                # Hold the lock until told to release.
+                release_lock.wait(timeout=10.0)
+                conn_a.rollback()
+            finally:
+                conn_a.close()
+
+        thread_a = threading.Thread(target=writer_holds_lock)
+        thread_a.start()
+
+        try:
+            assert hold_lock_started.wait(timeout=5.0), (
+                "Thread A failed to acquire write lock within 5s"
+            )
+            result = maintenance.decay_confidence(
+                db_b, _enabled_config(), now=NOW
+            )
+        finally:
+            db_b.close()
+            release_lock.set()
+            thread_a.join(timeout=10.0)
+
+        # FR-8 invariant: decay MUST NOT raise on DB errors. It returns a
+        # diagnostic dict with the ``error`` key populated.
+        assert isinstance(result, dict), (
+            f"decay_confidence must return dict, got {type(result).__name__}"
+        )
+        assert "error" in result, (
+            f"expected 'error' key under lock contention; got: {result!r}"
+        )
+        # No demotion happened (write path never acquired the lock).
+        assert result["demoted_high_to_medium"] == 0
+
+
+class TestConcurrentDecayAndRecordInfluence:
+    """AC-39 part 1 (FR-10.6, #00115): decay + record_influence together."""
+
+    def test_concurrent_decay_and_record_influence_both_succeed_eventually(
+        self, tmp_path,
+    ):
+        import threading
+
+        db_path = str(tmp_path / "cross-feature.db")
+        loop_count = 20
+
+        # Seed: 5 stale-high entries (decay candidates) + 1 influence target.
+        seed_db = MemoryDatabase(db_path)
+        try:
+            stale = _days_ago(31)
+            for i in range(5):
+                seed_db.insert_test_entry_for_testing(
+                    entry_id=f"decay-{i}",
+                    confidence="high",
+                    last_recalled_at=stale,
+                    created_at=stale,
+                )
+            # Influence target — a separate entry, not a decay candidate.
+            seed_db.insert_test_entry_for_testing(
+                entry_id="influence-target",
+                confidence="medium",
+                last_recalled_at=_days_ago(1),
+                created_at=_days_ago(1),
+            )
+        finally:
+            seed_db.close()
+
+        errors: list[BaseException] = []
+
+        def run_record_influence():
+            try:
+                db = MemoryDatabase(db_path, busy_timeout_ms=5000)
+                try:
+                    for _ in range(loop_count):
+                        db.record_influence(
+                            "influence-target", "reviewer", "feature:cross-001"
+                        )
+                finally:
+                    db.close()
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        def run_decay_once():
+            try:
+                db = MemoryDatabase(db_path, busy_timeout_ms=5000)
+                try:
+                    maintenance.decay_confidence(
+                        db, _enabled_config(), now=NOW
+                    )
+                finally:
+                    db.close()
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        t_influence = threading.Thread(target=run_record_influence)
+        t_decay = threading.Thread(target=run_decay_once)
+
+        t_influence.start()
+        t_decay.start()
+        t_influence.join(timeout=30.0)
+        t_decay.join(timeout=30.0)
+
+        assert not t_influence.is_alive(), "record_influence thread hung"
+        assert not t_decay.is_alive(), "decay thread hung"
+        assert errors == [], f"unexpected errors: {errors}"
+
+        # Post-run invariants (AC-39 strengthened assertions).
+        verify_db = MemoryDatabase(db_path)
+        try:
+            # (1) At least one stale-high entry was demoted to medium.
+            demoted = verify_db.fetch_row_for_testing(
+                "SELECT COUNT(*) AS cnt FROM entries "
+                "WHERE confidence = 'medium' AND id LIKE 'decay-%'"
+            )
+            assert demoted["cnt"] >= 1, (
+                f"expected >=1 decay-demotion, got {demoted['cnt']}"
+            )
+
+            # (2) influence_log has >= loop_count rows from the record_influence loop.
+            log_rows = verify_db.fetch_row_for_testing(
+                "SELECT COUNT(*) AS cnt FROM influence_log "
+                "WHERE entry_id = 'influence-target'"
+            )
+            assert log_rows["cnt"] >= loop_count, (
+                f"expected >= {loop_count} influence_log rows, "
+                f"got {log_rows['cnt']}"
+            )
+        finally:
+            verify_db.close()
+
+
+class TestFts5QueriesStillWorkAfterBulkDecay:
+    """AC-39 part 2 (FR-10.6, #00115): FTS5 survives bulk decay."""
+
+    def test_fts5_queries_still_work_after_bulk_decay(self, fresh_db):
+        if not fresh_db.fts5_available:
+            pytest.skip("FTS5 not available on this SQLite build")
+
+        stale = _days_ago(31)
+        distinctive_keyword = "glyphosaurus"  # unlikely to collide
+        # Seed 50 stale-high entries with the distinctive keyword in `name`
+        # so the FTS5 `name` column indexes it.
+        rows = []
+        for i in range(50):
+            rows.append(
+                (
+                    f"fts-{i}",
+                    f"{distinctive_keyword} entry {i}",
+                    f"description {i}",
+                    "patterns",
+                    json.dumps(["keyword"]),
+                    "session-capture",
+                    "/tmp/p",
+                    f"{i:016x}",
+                    "high",
+                    1,
+                    stale,
+                    stale,
+                    stale,
+                    1,
+                )
+            )
+        _bulk_seed(fresh_db, rows)
+
+        # Record last_recalled_at before decay — decay must NOT change it
+        # (only updated_at is touched by batch_demote).
+        before = fresh_db.fetch_row_for_testing(
+            "SELECT last_recalled_at FROM entries WHERE id = 'fts-0'"
+        )
+        before_ts = before["last_recalled_at"]
+
+        # Run decay — all 50 demote from high to medium.
+        result = maintenance.decay_confidence(
+            fresh_db, _enabled_config(), now=NOW
+        )
+        assert result["demoted_high_to_medium"] == 50
+
+        # FTS5 MATCH query must still return all 50 rows.
+        matches = fresh_db.fts5_search(distinctive_keyword, limit=100)
+        assert len(matches) == 50, (
+            f"FTS5 returned {len(matches)} rows, expected 50"
+        )
+
+        # Every returned row has post-decay confidence in (medium, low).
+        returned_ids = [m[0] for m in matches]
+        placeholders = ", ".join("?" * len(returned_ids))
+        conf_row = fresh_db.fetch_row_for_testing(
+            f"SELECT COUNT(*) AS cnt FROM entries "
+            f"WHERE id IN ({placeholders}) "
+            f"AND confidence IN ('medium', 'low')",
+            returned_ids,
+        )
+        assert conf_row["cnt"] == 50
+
+        # last_recalled_at on those rows is unchanged (decay only touches
+        # confidence + updated_at, NOT the recall timestamp).
+        after = fresh_db.fetch_row_for_testing(
+            "SELECT last_recalled_at FROM entries WHERE id = 'fts-0'"
+        )
+        assert after["last_recalled_at"] == before_ts
+
+
+class TestRejectsOrNormalizesNaiveDatetimeNow:
+    """AC-38 (FR-10.5, #00114): tz-naive ``now`` handling is pinned."""
+
+    def test_rejects_or_normalizes_naive_datetime_now(self, fresh_db):
+        """Pass a tz-naive ``datetime(2026,4,16,12)`` to ``decay_confidence``.
+
+        Current implementation (maintenance.py:316-324) normalizes by NOT
+        calling ``astimezone`` when ``tzinfo is None`` — leaving the naive
+        datetime in place. This test PINS that branch: decay runs without
+        raising (no TypeError / ValueError) despite the lack of tzinfo.
+        A future refactor that tightens this MUST update this test.
+        """
+        stale = _days_ago(31)
+        _seed_entry(
+            fresh_db,
+            entry_id="naive-1",
+            confidence="high",
+            last_recalled_at=stale,
+            created_at=stale,
+        )
+        naive_now = datetime(2026, 4, 16, 12, 0, 0)  # NO tzinfo
+        assert naive_now.tzinfo is None
+
+        # MUST NOT raise — naive datetime is accepted (left un-normalized).
+        result = maintenance.decay_confidence(
+            fresh_db, _enabled_config(), now=naive_now
+        )
+        assert isinstance(result, dict)
+        # The decay still runs — no error key required, scanning happened.
+        assert "error" not in result, (
+            f"decay should not error on naive datetime: {result!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Feature 088 Bundle H.3b — Boundary + error-path + augmentation tests
+# ---------------------------------------------------------------------------
+
+
+class TestEmptyDbReturnsAllZerosWithNoError:
+    """AC-40 part 1 (FR-10.7, #00116): empty DB → all-zero diag, no error."""
+
+    def test_empty_db_returns_all_zeros_with_no_error(self, fresh_db):
+        # fresh_db has zero entries.
+        result = maintenance.decay_confidence(
+            fresh_db, _enabled_config(), now=NOW
+        )
+        assert result["scanned"] == 0
+        assert result["demoted_high_to_medium"] == 0
+        assert result["demoted_medium_to_low"] == 0
+        assert result["skipped_floor"] == 0
+        assert result["skipped_import"] == 0
+        assert result["skipped_grace"] == 0
+        # No error key on the happy (empty) path.
+        assert "error" not in result, (
+            f"expected no error key on empty DB, got: {result!r}"
+        )
+
+
+class TestNanInfinityAndNegativeZeroThresholdValues:
+    """AC-40 part 2 (FR-10.7): NaN/Inf threshold values → default + warn."""
+
+    def test_nan_threshold_falls_back_to_default_with_warning(
+        self, fresh_db, capsys, monkeypatch,
+    ):
+        # Ensure the warned-set is empty at start of this test (autouse
+        # fixture does this, but reset here for defense-in-depth).
+        monkeypatch.setattr(maintenance, "_decay_warned_fields", set())
+
+        stale = _days_ago(31)
+        _seed_entry(
+            fresh_db,
+            entry_id="nan-1",
+            confidence="high",
+            last_recalled_at=stale,
+            created_at=stale,
+        )
+        # NaN: _resolve_int_config rejects float (bool/str/int only); NaN hits
+        # the "unsupported type" branch and falls back to default=30.
+        cfg_nan = _enabled_config(
+            memory_decay_high_threshold_days=float("nan"),
+        )
+        result_nan = maintenance.decay_confidence(fresh_db, cfg_nan, now=NOW)
+        # Default 30 applies → entry 31 days stale demotes.
+        assert result_nan["demoted_high_to_medium"] == 1
+        captured = capsys.readouterr()
+        assert re.search(
+            r"\[memory-decay\].*memory_decay_high_threshold_days",
+            captured.err,
+        ), f"expected NaN warning, got stderr: {captured.err!r}"
+
+    def test_infinity_threshold_falls_back_to_default_with_warning(
+        self, fresh_db, capsys, monkeypatch,
+    ):
+        # Separate test (not shared warned-set) so the dedup guard does not
+        # swallow the second warning. AC-40 covers both float('nan') and
+        # float('inf') independently.
+        monkeypatch.setattr(maintenance, "_decay_warned_fields", set())
+
+        stale = _days_ago(31)
+        _seed_entry(
+            fresh_db,
+            entry_id="inf-1",
+            confidence="high",
+            last_recalled_at=stale,
+            created_at=stale,
+        )
+        cfg_inf = _enabled_config(
+            memory_decay_high_threshold_days=float("inf"),
+        )
+        result_inf = maintenance.decay_confidence(fresh_db, cfg_inf, now=NOW)
+        assert result_inf["demoted_high_to_medium"] == 1
+        captured = capsys.readouterr()
+        assert re.search(
+            r"\[memory-decay\].*memory_decay_high_threshold_days",
+            captured.err,
+        ), f"expected inf warning, got stderr: {captured.err!r}"
+
+
+class TestSqliteErrorDuringSelectPhase:
+    """AC-40 part 3 (FR-10.7): sqlite3.Error during SELECT → error dict."""
+
+    def test_sqlite_error_during_select_phase_returns_error_dict(
+        self, fresh_db, monkeypatch,
+    ):
+        """Monkeypatch ``maintenance._select_candidates`` (the module-level
+        SELECT helper) to raise ``sqlite3.OperationalError('disk I/O error')``.
+        The ``decay_confidence`` sqlite3.Error branch MUST surface an error
+        dict with zero demotion counts (FR-8 invariant).
+
+        Uses monkeypatch on the public module binding rather than reaching
+        into the private connection (feature 088 FR-10.3 / AC-36).
+        """
+        stale = _days_ago(31)
+        _seed_entry(
+            fresh_db,
+            entry_id="err-1",
+            confidence="high",
+            last_recalled_at=stale,
+            created_at=stale,
+        )
+
+        def _raising_select_candidates(*args, **kwargs):
+            raise sqlite3.OperationalError("disk I/O error")
+
+        monkeypatch.setattr(
+            maintenance, "_select_candidates", _raising_select_candidates
+        )
+
+        result = maintenance.decay_confidence(
+            fresh_db, _enabled_config(), now=NOW
+        )
+
+        assert "error" in result, (
+            f"expected error dict on SELECT failure, got: {result!r}"
+        )
+        assert result["demoted_high_to_medium"] == 0
+        assert result["demoted_medium_to_low"] == 0
+
+
+# Note: AC-28 (FR-9.2) — the ``test_ac11a/b/c`` methods in
+# ``TestDecayConfigCoercion`` were augmented in-place with ``capsys`` +
+# stderr regex assertions (per the spec DoD wording). No separate augmented
+# class is needed.
