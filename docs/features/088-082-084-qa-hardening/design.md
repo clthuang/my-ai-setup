@@ -824,6 +824,11 @@ call record_backward_event(type_id=feature_type_id, phase=phase, reason=reason,
 
 Since `WorkflowDriftResult` is frozen, Bundle L adds drift entries via a SIBLING top-level JSON key `phase_events_drift` in the `_process_reconcile_*` serialization functions (additive JSON — no dataclass schema change).
 
+**Required imports** (add to workflow_state_server.py top-of-file imports):
+```python
+from entity_registry.metadata import parse_metadata  # per CLAUDE.md gotcha
+```
+
 **L.1 — Drift detection wired into `_process_reconcile_check`:**
 ```python
 # NEW function in workflow_state_server.py (or a helper module):
@@ -834,11 +839,14 @@ def _detect_phase_events_drift(db: EntityDatabase, feature_type_id: str | None) 
     drift entry dicts (empty when no drift).
     """
     drift: list[dict] = []
-    # Scope: single feature if feature_type_id given, else all active features
-    entities = (
-        [db.get_entity(feature_type_id)] if feature_type_id
-        else db.list_entities(entity_type='feature', status='active')
-    )
+    # Scope: single feature if feature_type_id given, else all features
+    # (list_entities signature at database.py:2133 does not accept status kwarg —
+    # filter active entities Python-side after the call).
+    if feature_type_id:
+        entities = [db.get_entity(feature_type_id)]
+    else:
+        all_features = db.list_entities(entity_type='feature')
+        entities = [e for e in all_features if e and e.get('status') == 'active']
     for entity in entities:
         if not entity:
             continue
