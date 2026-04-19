@@ -20,7 +20,7 @@ Research skipped under YOLO — findings are concrete with file:line anchors and
 
 Key external primitives (stdlib, no external deps):
 - `os.O_NOFOLLOW` (symlink protection) — POSIX, macOS + Linux supported.
-- `sqlite3.Connection.in_transaction` — pysqlite3 attribute for transaction detection.
+- (EntityDatabase uses its own `self._in_transaction` instance attribute, set/cleared by the `transaction()` context manager — NOT `sqlite3.Connection.in_transaction`.)
 - `itertools.zip_longest` — imbalanced pair iteration.
 - `threading.Barrier` — aligned concurrent dispatch in tests.
 
@@ -174,12 +174,15 @@ def _select_candidates(db, high_cutoff, med_cutoff, grace_cutoff): ...
 # And update call site in decay_confidence.
 ```
 
-**B.4 (FR-9.6, #00107) — LIMIT + cursor streaming in _select_candidates:**
+**B.4 (FR-9.6, #00107) — LIMIT-bounded candidate selection in _select_candidates:**
+
+**Memory-safety claim:** LIMIT clause bounds peak memory to ~scan_limit dicts (default 100k → tens of MB). The yield-based signature is a stylistic choice; caller uses `list(...)` since downstream aggregation needs a full list. Switching to true row-by-row streaming would require refactoring `decay_confidence`'s aggregation loop — out of scope for this fix. LIMIT alone is the load-bearing memory guard.
+
 ```python
 def _select_candidates(db, high_cutoff, med_cutoff, grace_cutoff, *, scan_limit=100000):
     """
-    Stream candidate rows via cursor iteration (no fetchall()).
-    `scan_limit` caps the result set to prevent OOM on huge DBs.
+    Return candidate rows, capped at `scan_limit`. Returns a generator that
+    yields dict rows; caller may list() or iterate as needed.
     """
     sql = """
         SELECT id, confidence, last_recalled_at, created_at, source
@@ -370,7 +373,17 @@ def _migration_10_phase_events(self, conn) -> None:
     # Existing CREATE TABLE IF NOT EXISTS at :1380-1398 stays as-is.
     # ... existing DDL ...
 
-    # NEW (feature 088): one-shot dedup of rows from prior concurrent-race backfills.
+    # NEW (feature 088): schema_version re-check inside transaction (belt-and-
+    # suspenders with the partial UNIQUE index). If another process already
+    # completed migration 10, this is a no-op.
+    try:
+        v_row = conn.execute("SELECT version FROM schema_version").fetchone()
+        if v_row and v_row[0] >= 10:
+            return  # already migrated by another process
+    except sqlite3.OperationalError:
+        pass  # schema_version table not yet created — safe to proceed
+
+    # One-shot dedup of rows from prior concurrent-race backfills.
     # Only rows with source='backfill' can have re-run duplicates (live rows have
     # unique created_at). GROUP key excludes created_at so backfill dupes collapse.
     conn.execute("""
@@ -536,7 +549,7 @@ def _process_transition_phase(type_id, phase, ...):
 
 **E.2 (FR-5.2, #00134) — insert_phase_event transaction participation:**
 
-**CORRECTION (iter 2):** Finding #00134 is a VERIFIED-FALSE-ALARM (same pattern as feature 085 #00090). `insert_phase_event` at `database.py:2954` already calls `self._commit()`, and `_commit()` at `database.py:1551-1554` already guards on the instance-level `self._in_transaction` flag (set/cleared by the existing `transaction()` context manager at ~line 1790). When called from within an outer `db.transaction()` block, commit is correctly deferred.
+**CORRECTION (iter 2):** Finding #00134 is a VERIFIED-FALSE-ALARM (same pattern as feature 085 #00090). `insert_phase_event` at `database.py:2954` already calls `self._commit()`, and `_commit()` at `database.py:1551-1554` already guards on the **instance-level** `self._in_transaction` attribute of `EntityDatabase` (NOT the pysqlite3 Connection's `in_transaction` attribute). The instance flag is set to True on entering the `transaction()` context manager at `database.py:~1802` and cleared on exit at `:1787/:1813`. When `insert_phase_event` is called from within an outer `db.transaction()` block, commit is correctly deferred.
 
 **Required change:** Only the `ValueError` guard for oversized reviewer_notes (per FR-2.4 defense-in-depth):
 ```python
@@ -555,7 +568,7 @@ def insert_phase_event(self, *, type_id, project_id, phase, event_type,
 
 **Retro note:** mark #00134 as verified-false-alarm in feature 088's retro.md (analogous to 086's treatment of #00090).
 
-**E.3 (FR-2.4, #00125) — Entry-point reviewer_notes size guard + single-parse:**
+**E.3 (FR-2.4, #00125) — Entry-point reviewer_notes size guard + single-parse + malformed-JSON rejection:**
 ```python
 # workflow_state_server.py::_process_complete_phase — TOP of function
 if reviewer_notes and len(reviewer_notes) > 10000:
@@ -565,8 +578,15 @@ if reviewer_notes and len(reviewer_notes) > 10000:
         "Reduce reviewer_notes payload size",
     )
 
-# Parse once (not twice): existing code parses at line 791 AND 804.
-parsed_notes = json.loads(reviewer_notes) if reviewer_notes else None
+# Parse once with hardened error path (not twice like existing code at lines 791+804).
+try:
+    parsed_notes = json.loads(reviewer_notes) if reviewer_notes else None
+except json.JSONDecodeError as exc:
+    return _make_error(
+        "invalid_reviewer_notes",
+        f"reviewer_notes is not valid JSON: {exc.msg}",
+        "Pass a JSON-serializable payload",
+    )
 
 # Line 791 equivalent — use parsed_notes directly:
 # BEFORE: phase_timing[phase]['reviewerNotes'] = json.loads(reviewer_notes)
@@ -763,6 +783,8 @@ Replace `db._conn.execute(...)` in helpers with new `MemoryDatabase.insert_test_
 
 **Files:** `plugins/pd/skills/workflow-transitions/SKILL.md`.
 
+**Test-call-site migration note:** `record_backward_event`'s removal of the `project_id` caller-visible parameter means any test that passes `project_id=` as a kwarg will break with `TypeError: unexpected keyword argument`. Pre-flight grep: `grep -rn 'record_backward_event.*project_id=' plugins/pd/mcp/test_*.py plugins/pd/skills/**/test*.py` and migrate each to drop the kwarg.
+
 **I.1 — project_id resolution in handleReviewerResponse:**
 
 Current text (pseudocode) around lines 395-415:
@@ -795,23 +817,36 @@ call record_backward_event(type_id=feature_type_id, phase=phase, reason=reason,
 
 **Files:** `plugins/pd/mcp/workflow_state_server.py` (reconcile_check / reconcile_apply).
 
-**L.1 — Drift detection in reconcile_check:**
+**Integration surface:** Real reconcile shape (verified at `workflow_state_server.py:920-961`):
+- `_process_reconcile_check` returns `json.dumps({'features': [...serialized reports...], 'summary': ...})`.
+- `_process_reconcile_apply` returns `json.dumps({'actions': [...], 'summary': ...})`.
+- Both delegate to `workflow_engine/reconciliation.py::check_workflow_drift` / `apply_workflow_reconciliation`, returning frozen `WorkflowDriftResult` / `ReconciliationResult` dataclasses.
+
+Since `WorkflowDriftResult` is frozen, Bundle L adds drift entries via a SIBLING top-level JSON key `phase_events_drift` in the `_process_reconcile_*` serialization functions (additive JSON — no dataclass schema change).
+
+**L.1 — Drift detection wired into `_process_reconcile_check`:**
 ```python
-# Add a new detector to reconcile_check's assembly of report entries.
-def _detect_phase_events_drift(db) -> list[dict]:
+# NEW function in workflow_state_server.py (or a helper module):
+def _detect_phase_events_drift(db: EntityDatabase, feature_type_id: str | None) -> list[dict]:
     """
     Detect entities whose metadata.phase_timing contains a completed phase
-    with no corresponding phase_events row.
+    with no corresponding phase_events 'completed' row. Returns list of
+    drift entry dicts (empty when no drift).
     """
-    drift = []
-    # Iterate entities (scoped to current project via existing reconcile scope)
-    for entity in db.list_entities(project_id=_project_id):
+    drift: list[dict] = []
+    # Scope: single feature if feature_type_id given, else all active features
+    entities = (
+        [db.get_entity(feature_type_id)] if feature_type_id
+        else db.list_entities(entity_type='feature', status='active')
+    )
+    for entity in entities:
+        if not entity:
+            continue
         meta = parse_metadata(entity.get('metadata'))
         phase_timing = meta.get('phase_timing') or {}
         for phase_name, timing in phase_timing.items():
             if not isinstance(timing, dict) or not timing.get('completed'):
                 continue
-            # Expect a 'completed' row in phase_events
             rows = db.query_phase_events(
                 type_id=entity['type_id'], phase=phase_name,
                 event_type='completed', limit=1,
@@ -825,28 +860,42 @@ def _detect_phase_events_drift(db) -> list[dict]:
                 })
     return drift
 
-# In reconcile_check, append the detected drift to the report
-def reconcile_check(...):
-    # ... existing checks ...
-    drift_entries = _detect_phase_events_drift(_db)
-    report['phase_events_drift'] = drift_entries
-    # ...
+# Modify _process_reconcile_check to include the new sibling key:
+def _process_reconcile_check(engine, db, artifacts_root, feature_type_id):
+    if feature_type_id is not None:
+        _validate_feature_type_id(feature_type_id, artifacts_root)
+    result = check_workflow_drift(engine, db, artifacts_root, feature_type_id)
+    phase_events_drift = _detect_phase_events_drift(db, feature_type_id)
+    return json.dumps({
+        'features': [_serialize_workflow_drift_report(r) for r in result.features],
+        'summary': result.summary,
+        'phase_events_drift': phase_events_drift,  # NEW — additive key
+    })
 ```
 
-**L.2 — reconcile_apply does NOT auto-insert (additive-safe):**
+**L.2 — reconcile_apply warns but does NOT insert:**
 ```python
-def reconcile_apply(...):
-    # ... existing apply logic ...
-    # phase_events drift: WARN ONLY; do not auto-insert (analytics is additive,
-    # silent backfill would mask real analytics integrity issues).
-    for entry in report.get('phase_events_drift', []):
+# Modify _process_reconcile_apply similarly:
+def _process_reconcile_apply(engine, db, artifacts_root, feature_type_id, dry_run):
+    if feature_type_id is not None:
+        _validate_feature_type_id(feature_type_id, artifacts_root)
+    result = apply_workflow_reconciliation(engine, db, artifacts_root, feature_type_id, dry_run)
+    # Detect phase_events drift and emit stderr warnings (NOT auto-fixed).
+    phase_events_drift = _detect_phase_events_drift(db, feature_type_id)
+    for entry in phase_events_drift:
         sys.stderr.write(
             f"[reconcile] phase_events drift for {entry['type_id']}:{entry['phase']} "
-            f"(metadata has completed={entry['metadata_completed_at']}, phase_events missing) — "
+            f"(metadata completed={entry['metadata_completed_at']}, phase_events missing) — "
             f"NOT auto-fixing (manual inspection recommended)\n"
         )
-    # Do NOT insert missing rows.
+    return json.dumps({
+        'actions': [_serialize_reconcile_action(a) for a in result.actions],
+        'summary': result.summary,
+        'phase_events_drift_count': len(phase_events_drift),  # advisory count
+    })
 ```
+
+**AC coverage:** AC-42 seeds metadata.phase_timing.design.completed with no matching phase_events row, calls reconcile_check, asserts `phase_events_drift` list contains one entry. AC-42b calls reconcile_apply on the same fixture, asserts `phase_events` row count unchanged pre/post + stderr warning matched via capsys.
 
 **AC coverage:** AC-42 tests `reconcile_check` returns drift entry; AC-42b tests `reconcile_apply` does not modify phase_events table (pre/post row count equal + stderr warning).
 
@@ -916,8 +965,8 @@ AORTA-style sections minimum 50 lines:
 - Aims: what 084 set out to do.
 - Outcomes: what it delivered (MCP tools, schema migration, 21 ACs).
 - Reflections: what surprised the team — reading the git log and the QA backlog #00080-#00084 (known) + #00117-#00137 (088-discovered).
-- Tune: knowledge-bank entries for the recurring patterns (SELECT *, dual-write-inside-transaction, missing _check_db_available, project_id scoping convention).
-- Adopt: what to keep doing (dual-write pattern overall, column-list explicitness in migrations).
+- Tune: knowledge-bank entries for the recurring patterns (SELECT *, dual-write-INSIDE-transaction anti-pattern, missing _check_db_available, project_id scoping convention).
+- Adopt: dual-write ONLY with the analytics INSERT OUTSIDE the main transaction commit boundary (so primary workflow writes never silently roll back on analytics failure); column-list explicitness in migrations; `_check_db_available()` as the first statement of every new MCP handler.
 
 **K.2 — Backlog #00138:**
 Add entry for remaining #00116 / #00136 sub-items that are NOT addressed by FR-10.7 / FR-10.10 minimums. Explicitly list deferred sub-items.
@@ -1036,21 +1085,7 @@ Each bundle is one commit. Rollback any single bundle via `git revert <SHA>` wit
 
 ## Migration 10 Pre-Index Dedup
 
-Because migration 10 is already deployed in production and existing DBs may contain duplicate rows (from the very race this feature fixes), the migration body runs a dedup pass BEFORE creating the UNIQUE index:
-
-```python
-# Early in _migration_10_phase_events, before CREATE UNIQUE INDEX
-conn.execute("""
-    DELETE FROM phase_events
-    WHERE id NOT IN (
-        SELECT MIN(id) FROM phase_events
-        GROUP BY type_id, phase, event_type, timestamp, source
-    )
-""")
-# Then safe to create UNIQUE index
-```
-
-This is a one-shot dedup on migration re-run (since the table already exists at schema_version ≥ 10). For fresh migrations, the table is empty; DELETE is a no-op.
+See Bundle D.2 for the authoritative migration body. Both the dedup pass and the UNIQUE index are scoped to `source='backfill'` (via `WHERE source='backfill'` partial index + scoped DELETE). Live rows are NOT deduped and NOT constrained by the partial index, preserving legitimate same-second `source='live'` distinct entries.
 
 ## AC → Test/Verification Mapping
 
