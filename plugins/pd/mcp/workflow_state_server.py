@@ -44,6 +44,7 @@ from entity_registry.frontmatter_sync import (
     detect_drift,
     scan_all,
 )
+from entity_registry.metadata import parse_metadata
 from semantic_memory.config import read_config
 from semantic_memory.database import MemoryDatabase
 from semantic_memory.embedding import EmbeddingProvider, create_provider
@@ -982,6 +983,53 @@ def _process_list_features_by_status(engine: WorkflowStateEngine, status: str) -
 # ---------------------------------------------------------------------------
 
 
+def _detect_phase_events_drift(
+    db: EntityDatabase,
+    feature_type_id: str | None,
+) -> list[dict]:
+    """Detect entities whose metadata.phase_timing has a completed phase with
+    no corresponding ``phase_events`` row (Feature 088 FR-10.9 / AC-42).
+
+    Dual-write drift between ``entities.metadata.phase_timing`` and the
+    ``phase_events`` append-only log can accumulate when the analytics write
+    (which runs OUTSIDE the main transaction per FR-5.1) fails silently or when
+    historical rows pre-date migration 10. This helper enumerates the drift —
+    the apply path warns but does NOT auto-insert (additive-safe).
+
+    Returns an (empty) list of drift entry dicts. Each entry has keys:
+    ``kind``, ``type_id``, ``phase``, ``metadata_completed_at``.
+    """
+    drift: list[dict] = []
+    if feature_type_id:
+        entities = [db.get_entity(feature_type_id)]
+    else:
+        # ``list_entities`` accepts no ``status`` kwarg — filter Python-side.
+        all_features = db.list_entities(entity_type="feature")
+        entities = [e for e in all_features if e and e.get("status") == "active"]
+    for entity in entities:
+        if not entity:
+            continue
+        meta = parse_metadata(entity.get("metadata"))
+        phase_timing = meta.get("phase_timing") or {}
+        for phase_name, timing in phase_timing.items():
+            if not isinstance(timing, dict) or not timing.get("completed"):
+                continue
+            rows = db.query_phase_events(
+                type_id=entity["type_id"],
+                phase=phase_name,
+                event_type="completed",
+                limit=1,
+            )
+            if not rows:
+                drift.append({
+                    "kind": "phase_events_missing_completed",
+                    "type_id": entity["type_id"],
+                    "phase": phase_name,
+                    "metadata_completed_at": timing["completed"],
+                })
+    return drift
+
+
 @_with_error_handling
 @_catch_value_error
 def _process_reconcile_check(
@@ -1000,9 +1048,14 @@ def _process_reconcile_check(
     if feature_type_id is not None:
         _validate_feature_type_id(feature_type_id, artifacts_root)
     result = check_workflow_drift(engine, db, artifacts_root, feature_type_id)
+    # Feature 088 FR-10.9 / AC-42: additive sibling key surfacing drift between
+    # entities.metadata.phase_timing and phase_events rows. Does not affect the
+    # existing WorkflowDriftResult (frozen dataclass) schema.
+    phase_events_drift = _detect_phase_events_drift(db, feature_type_id)
     return json.dumps({
         "features": [_serialize_workflow_drift_report(r) for r in result.features],
         "summary": result.summary,
+        "phase_events_drift": phase_events_drift,
     })
 
 
@@ -1022,9 +1075,21 @@ def _process_reconcile_apply(
     result = apply_workflow_reconciliation(
         engine, db, artifacts_root, feature_type_id, dry_run
     )
+    # Feature 088 FR-10.9 / AC-42b: detect phase_events-vs-metadata drift and
+    # emit stderr warnings. We do NOT auto-insert phase_events rows — drift of
+    # this kind requires manual inspection (a live row backfill would falsify
+    # the created_at audit trail).
+    phase_events_drift = _detect_phase_events_drift(db, feature_type_id)
+    for entry in phase_events_drift:
+        sys.stderr.write(
+            f"[reconcile] phase_events drift for {entry['type_id']}:{entry['phase']} "
+            f"(metadata completed={entry['metadata_completed_at']}, phase_events missing) — "
+            f"NOT auto-fixing (manual inspection recommended)\n"
+        )
     return json.dumps({
         "actions": [_serialize_reconcile_action(a) for a in result.actions],
         "summary": result.summary,
+        "phase_events_drift_count": len(phase_events_drift),
     })
 
 

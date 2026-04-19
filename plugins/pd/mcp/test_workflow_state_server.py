@@ -2954,11 +2954,12 @@ class TestReconciliationBoundaryValues:
         result = _process_reconcile_check(engine, db, str(tmp_path), "feature:011-shape")
         data = json.loads(result)
 
-        # Then exact top-level key set
-        assert set(data.keys()) == {"features", "summary"}
+        # Then exact top-level key set (phase_events_drift added in feature 088
+        # Bundle L for FR-10.9 / AC-42 — additive sibling of features/summary).
+        assert set(data.keys()) == {"features", "summary", "phase_events_drift"}
 
     def test_reconcile_apply_response_json_shape(self, db, tmp_path):
-        """reconcile_apply response has exactly {actions, summary} top-level keys.
+        """reconcile_apply response has exactly {actions, summary, phase_events_drift_count} top-level keys.
         derived_from: dimension:boundary_values (JSON shape contract)
 
         Anticipate: Missing "summary" or extra keys would break clients.
@@ -2968,7 +2969,8 @@ class TestReconciliationBoundaryValues:
             engine, db, str(tmp_path), None, False
         )
         data = json.loads(result)
-        assert set(data.keys()) == {"actions", "summary"}
+        # phase_events_drift_count added in feature 088 Bundle L (FR-10.9 / AC-42b).
+        assert set(data.keys()) == {"actions", "summary", "phase_events_drift_count"}
 
     def test_reconcile_status_response_json_shape(self, db, tmp_path):
         """reconcile_status response has exactly 5 top-level keys.
@@ -3128,6 +3130,131 @@ class TestReconciliationAdversarial:
             assert set(action.keys()) == {
                 "feature_type_id", "action", "direction", "changes", "message"
             }
+
+
+# ===========================================================================
+# Feature 088 Bundle L (FR-10.9 / AC-42, AC-42b): phase_events drift detection
+# ===========================================================================
+
+
+class TestReconcilePhaseEventsDrift:
+    """Drift between entities.metadata.phase_timing and phase_events rows.
+
+    AC-42  — reconcile_check surfaces drift in a ``phase_events_drift`` list.
+    AC-42b — reconcile_apply does NOT modify phase_events (warns via stderr).
+    """
+
+    def _seed_feature_with_phase_timing_drift(self, db, tmp_path, slug):
+        """Register a feature + .meta.json directory, then patch the entity
+        metadata to contain a completed ``design`` phase timing WITHOUT any
+        corresponding phase_events row."""
+        type_id = f"feature:{slug}"
+        db.register_entity(
+            "feature", slug, f"Drift Test {slug}",
+            status="active", project_id="__unknown__",
+        )
+        db.create_workflow_phase(
+            type_id,
+            workflow_phase="design",
+            last_completed_phase="specify",
+            mode="standard",
+        )
+        # Filesystem presence is required so _validate_feature_type_id passes.
+        feat_dir = os.path.join(str(tmp_path), "features", slug)
+        os.makedirs(feat_dir, exist_ok=True)
+        with open(os.path.join(feat_dir, ".meta.json"), "w") as f:
+            json.dump({
+                "id": slug.split("-", 1)[0],
+                "slug": slug,
+                "status": "active",
+                "mode": "standard",
+                "lastCompletedPhase": "design",
+                "phases": {
+                    "brainstorm": {"status": "completed"},
+                    "specify": {"status": "completed"},
+                    "design": {"status": "completed"},
+                },
+            }, f)
+        # Patch the entity metadata to contain phase_timing.design.completed
+        # WITHOUT inserting a matching phase_events row — this is the drift.
+        existing = db.get_entity(type_id)
+        meta = json.loads(existing["metadata"]) if existing["metadata"] else {}
+        meta["phase_timing"] = {
+            "design": {
+                "started": "2026-04-18T00:00:00Z",
+                "completed": "2026-04-19T00:00:00Z",
+            },
+        }
+        db.update_entity(type_id, metadata=meta)
+        return type_id
+
+    def test_reconcile_check_reports_phase_events_drift(self, db, tmp_path):
+        """AC-42: reconcile_check returns a phase_events_drift entry for
+        metadata.phase_timing.{phase}.completed with no matching phase_events
+        row (event_type='completed')."""
+        slug = "088-l-check"
+        type_id = self._seed_feature_with_phase_timing_drift(db, tmp_path, slug)
+
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        result = _process_reconcile_check(engine, db, str(tmp_path), type_id)
+        data = json.loads(result)
+
+        assert "error" not in data
+        assert "phase_events_drift" in data
+        drift = data["phase_events_drift"]
+        assert isinstance(drift, list)
+        assert len(drift) == 1
+        entry = drift[0]
+        assert entry["kind"] == "phase_events_missing_completed"
+        assert entry["type_id"] == type_id
+        assert entry["phase"] == "design"
+        assert entry["metadata_completed_at"] == "2026-04-19T00:00:00Z"
+
+    def test_reconcile_apply_does_not_modify_phase_events(
+        self, db, tmp_path, capsys,
+    ):
+        """AC-42b: reconcile_apply warns via stderr and does NOT auto-insert
+        or otherwise modify phase_events rows when drift is detected."""
+        slug = "088-l-apply"
+        type_id = self._seed_feature_with_phase_timing_drift(db, tmp_path, slug)
+
+        # Seed a few unrelated phase_events rows so we can count pre/post.
+        for phase, ev, ts in [
+            ("brainstorm", "started", "2026-04-17T00:00:00Z"),
+            ("brainstorm", "completed", "2026-04-17T01:00:00Z"),
+            ("specify", "started", "2026-04-17T02:00:00Z"),
+        ]:
+            db.insert_phase_event(
+                type_id=type_id, project_id="__unknown__", phase=phase,
+                event_type=ev, timestamp=ts, source="live",
+            )
+
+        pre_rows = db.query_phase_events(type_id=type_id, limit=500)
+        pre_count = len(pre_rows)
+
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        # Drain captured output up to this point so capsys.readouterr() below
+        # only sees stderr from the reconcile_apply call.
+        capsys.readouterr()
+        result = _process_reconcile_apply(
+            engine, db, str(tmp_path), type_id, False,
+        )
+        data = json.loads(result)
+        captured = capsys.readouterr()
+
+        post_rows = db.query_phase_events(type_id=type_id, limit=500)
+        post_count = len(post_rows)
+
+        # (a) no phase_events table modification
+        assert post_count == pre_count
+        # (b) stderr warning emitted
+        import re
+        assert re.search(r"\[reconcile\] phase_events drift", captured.err), (
+            f"Expected stderr reconcile drift warning; got: {captured.err!r}"
+        )
+        # (c) response has phase_events_drift_count >= 1
+        assert "phase_events_drift_count" in data
+        assert data["phase_events_drift_count"] >= 1
 
 
 # ===========================================================================
