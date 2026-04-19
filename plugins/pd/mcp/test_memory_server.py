@@ -118,6 +118,8 @@ def reset_memory_server_state(monkeypatch):
     """
     monkeypatch.setattr(memory_server, "_warned_fields", set())
     monkeypatch.setattr(memory_server, "_influence_debug_write_failed", False)
+    # Feature 086 #00089: new one-shot flag for rotation failures.
+    monkeypatch.setattr(memory_server, "_rotation_failure_warned", False)
     monkeypatch.setattr(memory_server, "_config", {})
     yield
 
@@ -2111,6 +2113,15 @@ class TestSingleResolutionThresholdFR6:
     intercept the consumer's usage). `wraps=_real_resolve_float_config`
     ensures the real logic still executes so the wrapped code path
     behaves identically; only call-counting is observed.
+
+    Note on SC-9(a) / feature 086 #00094: The spec also listed an SC-9(a)
+    source grep (`grep -n 'resolve_float_config' ... | grep ... | wc -l`)
+    which returns 0 (not the expected 1) because the live call spans
+    multiple lines post-migration. That grep is cosmetic — SC-9(b) here
+    is the authoritative single-resolution check. Future SC assertions
+    that rely on source-counting should pre-flatten multiline code
+    (e.g., `tr -d '\\n' | grep -oE`) or use AST-level counting; prefer
+    runtime spy tests like this one when possible.
     """
 
     def test_record_influence_by_content_resolves_threshold_once(
@@ -2156,6 +2167,68 @@ class TestSingleResolutionThresholdFR6:
                     f"expected exactly 1 resolve_float_config call for "
                     f"memory_influence_threshold, got {len(matching)}: "
                     f"{spy.call_args_list!r}"
+                )
+        finally:
+            memory_server._db = old_db
+            memory_server._provider = old_provider
+
+    # Feature 086 #00087: caller-passed threshold should BYPASS resolve.
+    # Memory heuristic "SC assertions using single-line grep are fragile
+    # to multiline code" applies to SC-9(a) — the runtime spy in this
+    # class (SC-9(b)) is the authoritative check for FR-6's single-
+    # resolution invariant. This test extends that authority to the
+    # caller-passed branch, which SC-9's `None`-path test alone misses.
+    def test_caller_passed_threshold_bypasses_resolve(
+        self, db: MemoryDatabase, monkeypatch
+    ):
+        """#00087: when caller passes an explicit threshold, `resolve_float_config`
+        must NOT be invoked for key='memory_influence_threshold'.
+
+        SC-9(b) asserts "exactly one" resolution per invocation for the `None`
+        path; this symmetric assertion covers the non-None path. Together the
+        two pin the full FR-6 single-resolution contract.
+        """
+        from unittest import mock
+
+        _seed_influence_entry(db, "inf-caller", "Influence Caller")
+        provider = _FixedSimilarityProvider(similarity=0.90)
+
+        monkeypatch.setitem(memory_server._config, "memory_influence_debug", True)
+
+        old_db = memory_server._db
+        old_provider = memory_server._provider
+        memory_server._db = db
+        memory_server._provider = provider
+        try:
+            with mock.patch(
+                "memory_server.resolve_float_config",
+                wraps=_real_resolve_float_config,
+            ) as spy:
+                import asyncio
+
+                asyncio.run(
+                    memory_server.record_influence_by_content(
+                        subagent_output_text=_SYNTH_SUBAGENT_OUTPUT,
+                        injected_entry_names=["Influence Caller"],
+                        agent_role="implementer",
+                        feature_type_id="feature:086",
+                        threshold=0.8,  # caller-passed — bypass resolve
+                    )
+                )
+
+                matching = [
+                    c
+                    for c in spy.call_args_list
+                    if (c.kwargs.get("key") == "memory_influence_threshold")
+                    or (
+                        len(c.args) >= 2
+                        and c.args[1] == "memory_influence_threshold"
+                    )
+                ]
+                assert len(matching) == 0, (
+                    f"caller-passed threshold should bypass resolve_float_config, "
+                    f"but it was called {len(matching)} time(s) for "
+                    f"memory_influence_threshold: {spy.call_args_list!r}"
                 )
         finally:
             memory_server._db = old_db
@@ -2254,18 +2327,13 @@ class TestInfluenceDebugLogRotationFR3:
         mode = os.stat(str(log_path)).st_mode & 0o777
         assert mode == 0o600, f"post-rotation primary mode 0o{mode:03o}"
 
-    def test_rotation_failure_skips_write_with_warning(
-        self, tmp_path, monkeypatch, capsys
-    ):
-        """AC-E4: os.rename failure (parent dir read-only) → one-shot warning."""
+    def test_no_rotation_just_below_threshold(self, tmp_path, monkeypatch):
+        """#00092: size = 10 MB - 1 byte must NOT trigger rotation."""
         log_path = tmp_path / "diag.log"
-        # Seed > 10 MB so rotation is attempted.
-        log_path.write_bytes(b"x" * (self._ROTATE_BYTES + 1024))
+        log_path.write_bytes(b"x" * (self._ROTATE_BYTES - 1))
         monkeypatch.setattr(memory_server, "INFLUENCE_DEBUG_LOG_PATH", log_path)
 
-        # Make the parent directory read-only so os.rename fails.
-        orig_mode = tmp_path.stat().st_mode
-        os.chmod(str(tmp_path), 0o555)
+        old_umask = os.umask(0o022)
         try:
             memory_server._emit_influence_diagnostic(
                 agent_role="implementer",
@@ -2275,13 +2343,115 @@ class TestInfluenceDebugLogRotationFR3:
                 feature_type_id=None,
             )
         finally:
-            os.chmod(str(tmp_path), orig_mode)
+            os.umask(old_umask)
+
+        rotated = tmp_path / "diag.log.1"
+        assert not rotated.exists(), "rotation must not fire one byte below threshold"
+        # Primary should contain seed + appended diagnostic line.
+        assert log_path.stat().st_size > self._ROTATE_BYTES - 1
+
+    def test_rotation_at_exact_threshold(self, tmp_path, monkeypatch):
+        """#00092: size == 10 MB exactly must trigger rotation (inclusive >=)."""
+        log_path = tmp_path / "diag.log"
+        log_path.write_bytes(b"x" * self._ROTATE_BYTES)
+        monkeypatch.setattr(memory_server, "INFLUENCE_DEBUG_LOG_PATH", log_path)
+
+        old_umask = os.umask(0o022)
+        try:
+            memory_server._emit_influence_diagnostic(
+                agent_role="implementer",
+                injected=1,
+                matched=0,
+                resolved_threshold=0.55,
+                feature_type_id=None,
+            )
+        finally:
+            os.umask(old_umask)
+
+        rotated = tmp_path / "diag.log.1"
+        assert rotated.exists(), "rotation must fire at exact >= threshold"
+        assert rotated.stat().st_size == self._ROTATE_BYTES
+
+    def test_rotation_failure_isolated_from_write_failure(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """Feature 086 #00089: rotation failure must emit one-shot warning
+        AND proceed to write. A transient rename failure no longer silences
+        subsequent writes (the old behavior prior to #00089 was to set
+        ``_influence_debug_write_failed=True`` on any OSError, which
+        permanently muted diagnostics).
+
+        Setup: seed >10 MB, make parent dir read-only to force rename()
+        to raise. Assert:
+          - one warning mentioning "rotation failed" is emitted
+          - `_rotation_failure_warned` is True
+          - `_influence_debug_write_failed` remains False (writes not silenced)
+          - a second call with the parent dir still read-only emits NO
+            new rotation warning (one-shot), but does produce a write
+            warning because the mkdir check fails on parent == read-only.
+
+        We test the isolation invariant by making the parent dir read-only
+        ONLY during the rename step — mkdir is fine (exist_ok=True), rename
+        fails, but we need the fd open to succeed. Using a slightly different
+        setup: seed the file, then make parent read-only — mkdir skips
+        (dir exists), rename fails, os.open also fails (can't create a new
+        file inode in a read-only dir). So we use an alternate failure mode:
+        monkeypatch os.rename to raise while leaving the dir writable.
+        """
+        log_path = tmp_path / "diag.log"
+        log_path.write_bytes(b"x" * (self._ROTATE_BYTES + 1024))
+        monkeypatch.setattr(memory_server, "INFLUENCE_DEBUG_LOG_PATH", log_path)
+
+        # Simulate rename failure without breaking subsequent writes.
+        original_rename = os.rename
+
+        def failing_rename(src, dst):
+            if dst.endswith(".1"):
+                raise OSError("simulated rotation failure")
+            return original_rename(src, dst)
+
+        monkeypatch.setattr(os, "rename", failing_rename)
+
+        memory_server._emit_influence_diagnostic(
+            agent_role="implementer",
+            injected=1,
+            matched=0,
+            resolved_threshold=0.55,
+            feature_type_id=None,
+        )
 
         captured = capsys.readouterr()
-        warn_lines = [
+        rotation_warns = [
             line for line in captured.err.splitlines()
-            if "[memory-server]" in line and "influence-debug" in line
+            if "[memory-server]" in line and "rotation failed" in line
         ]
-        assert len(warn_lines) == 1, (
-            f"expected 1 one-shot warning, got {len(warn_lines)}: {captured.err!r}"
+        assert len(rotation_warns) == 1, (
+            f"expected 1 rotation-failure warning, got {len(rotation_warns)}: {captured.err!r}"
+        )
+
+        # Isolation: write must have succeeded (file grew by the diagnostic line).
+        assert log_path.stat().st_size > self._ROTATE_BYTES + 1024, (
+            "write did not proceed after rotation failure — isolation broken"
+        )
+
+        # Subsequent calls emit NO new rotation warning (one-shot),
+        # and writes keep succeeding.
+        memory_server._emit_influence_diagnostic(
+            agent_role="implementer",
+            injected=1,
+            matched=0,
+            resolved_threshold=0.55,
+            feature_type_id=None,
+        )
+        captured2 = capsys.readouterr()
+        rotation_warns_2 = [
+            line for line in captured2.err.splitlines()
+            if "[memory-server]" in line and "rotation failed" in line
+        ]
+        assert len(rotation_warns_2) == 0, (
+            f"expected 0 repeat rotation warnings (one-shot), got {len(rotation_warns_2)}"
+        )
+        assert memory_server._rotation_failure_warned is True
+        assert memory_server._influence_debug_write_failed is False, (
+            "rotation failure must NOT set _influence_debug_write_failed"
         )
