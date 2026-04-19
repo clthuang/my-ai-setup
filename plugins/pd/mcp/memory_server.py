@@ -21,6 +21,7 @@ if _hooks_lib not in (os.path.normpath(p) for p in sys.path):
 import semantic_memory  # noqa: F401
 from semantic_memory import VALID_CATEGORIES, VALID_CONFIDENCE, VALID_SOURCES, content_hash, source_hash
 from semantic_memory.config import read_config
+from semantic_memory.config_utils import resolve_float_config
 from semantic_memory.database import MemoryDatabase
 from semantic_memory.embedding import EmbeddingProvider, create_provider
 from semantic_memory.refresh import hybrid_retrieve
@@ -316,7 +317,13 @@ def _process_record_influence_by_content(
 
     # Feature 080: resolve threshold from config when caller passed None.
     if threshold is None:
-        threshold = _resolve_float_config("memory_influence_threshold", 0.55)
+        threshold = resolve_float_config(
+            _config,
+            "memory_influence_threshold",
+            0.55,
+            prefix="[memory-server]",
+            warned=_warned_fields,
+        )
 
     threshold = max(0.01, min(1.0, threshold))
 
@@ -423,44 +430,6 @@ _influence_debug_write_failed: bool = False
 INFLUENCE_DEBUG_LOG_PATH: Path = (
     Path.home() / ".claude" / "pd" / "memory" / "influence-debug.log"
 )
-
-
-def _warn_and_default(key: str, raw, default: float) -> float:
-    """Emit a one-shot stderr warning for a malformed config value, return default.
-
-    Deduped via module-level ``_warned_fields``: each key warns at most once
-    per process.  Called from ``_resolve_float_config`` on any invalid-value
-    path (bool, non-string/numeric, or unparseable string).
-    """
-    if key not in _warned_fields:
-        sys.stderr.write(
-            f"[memory-server] config field {key!r} value {raw!r} "
-            f"is not a float; using default {default}\n"
-        )
-        _warned_fields.add(key)
-    return default
-
-
-def _resolve_float_config(key: str, default: float) -> float:
-    """Read a float-valued config entry, falling back to ``default`` on error.
-
-    Accepts int, float, or numeric string values.  ``bool`` is rejected
-    explicitly (Python ``bool`` is an ``int`` subclass, so ``float(True)=1.0``
-    would otherwise silently coerce).  Unparseable values emit one stderr
-    warning per key per process (via ``_warn_and_default``) and return
-    ``default``.
-    """
-    raw = _config.get(key, default)
-    # Explicit bool rejection MUST come before the int/float branch.
-    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
-        return _warn_and_default(key, raw, default)
-    if isinstance(raw, (int, float)):
-        return float(raw)
-    # raw is str
-    try:
-        return float(raw)
-    except ValueError:
-        return _warn_and_default(key, raw, default)
 
 
 def _emit_influence_diagnostic(
@@ -771,7 +740,13 @@ async def record_influence_by_content(
         effective = (
             threshold
             if threshold is not None
-            else _resolve_float_config("memory_influence_threshold", 0.55)
+            else resolve_float_config(
+                _config,
+                "memory_influence_threshold",
+                0.55,
+                prefix="[memory-server]",
+                warned=_warned_fields,
+            )
         )
         # Clamp parity with helper (line 313): diagnostic shows the value
         # the helper actually used, not the raw config value.

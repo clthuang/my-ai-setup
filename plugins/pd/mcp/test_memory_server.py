@@ -120,85 +120,111 @@ def reset_memory_server_state(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# _resolve_float_config helper tests (design I-3)
+# resolve_float_config helper tests (design I-3 / feature 085 FR-4)
 # ---------------------------------------------------------------------------
+
+from semantic_memory.config_utils import resolve_float_config  # noqa: E402
 
 
 class TestResolveFloatConfig:
-    """Verify _resolve_float_config coerces config values to float safely.
+    """Verify `resolve_float_config` (shared helper) coerces values safely.
 
-    Critical behaviour:
-      * float / int values pass through (int coerced to float)
-      * strings parse via float() with ValueError fallback
-      * bools are rejected explicitly (Python bool is int subclass; float(True)=1.0
-        would silently succeed without explicit rejection)
-      * invalid values emit one stderr warning per key per process (dedup via
-        module-level ``_warned_fields`` set)
+    Migrated in feature 085 (FR-4) from the memory-server-local helper pair
+    to the shared `semantic_memory.config_utils.resolve_float_config`.
+
+    The dedup key is `(prefix, key)` — we assert on the tuple in
+    ``memory_server._warned_fields`` using ``prefix="[memory-server]"``
+    to match how the server itself invokes the helper.
     """
 
     def test_float_passthrough(self, monkeypatch):
         monkeypatch.setitem(memory_server._config, "memory_influence_threshold", 0.42)
-        result = memory_server._resolve_float_config(
-            "memory_influence_threshold", 0.55
+        result = resolve_float_config(
+            memory_server._config,
+            "memory_influence_threshold",
+            0.55,
+            prefix="[memory-server]",
+            warned=memory_server._warned_fields,
         )
         assert result == 0.42
         assert isinstance(result, float)
-        assert "memory_influence_threshold" not in memory_server._warned_fields
+        assert ("[memory-server]", "memory_influence_threshold") not in memory_server._warned_fields
 
     def test_int_passthrough_returns_float(self, monkeypatch):
         monkeypatch.setitem(memory_server._config, "memory_influence_threshold", 1)
-        result = memory_server._resolve_float_config(
-            "memory_influence_threshold", 0.55
+        result = resolve_float_config(
+            memory_server._config,
+            "memory_influence_threshold",
+            0.55,
+            prefix="[memory-server]",
+            warned=memory_server._warned_fields,
         )
         assert result == 1.0
         assert isinstance(result, float)
-        assert "memory_influence_threshold" not in memory_server._warned_fields
+        assert ("[memory-server]", "memory_influence_threshold") not in memory_server._warned_fields
 
     def test_string_parses(self, monkeypatch):
         monkeypatch.setitem(
             memory_server._config, "memory_influence_threshold", "0.42"
         )
-        result = memory_server._resolve_float_config(
-            "memory_influence_threshold", 0.55
+        result = resolve_float_config(
+            memory_server._config,
+            "memory_influence_threshold",
+            0.55,
+            prefix="[memory-server]",
+            warned=memory_server._warned_fields,
         )
         assert result == 0.42
         assert isinstance(result, float)
-        assert "memory_influence_threshold" not in memory_server._warned_fields
+        assert ("[memory-server]", "memory_influence_threshold") not in memory_server._warned_fields
 
     def test_bool_rejected_returns_default_and_warns(self, monkeypatch, capsys):
         """Critical: bool is int subclass; must be explicitly rejected."""
         monkeypatch.setitem(memory_server._config, "memory_influence_threshold", True)
-        result = memory_server._resolve_float_config(
-            "memory_influence_threshold", 0.55
+        result = resolve_float_config(
+            memory_server._config,
+            "memory_influence_threshold",
+            0.55,
+            prefix="[memory-server]",
+            warned=memory_server._warned_fields,
         )
         assert result == 0.55  # default, NOT float(True)=1.0
         captured = capsys.readouterr()
         assert "memory_influence_threshold" in captured.err
         assert "not a float" in captured.err
         assert "using default 0.55" in captured.err
-        assert "memory_influence_threshold" in memory_server._warned_fields
+        assert ("[memory-server]", "memory_influence_threshold") in memory_server._warned_fields
 
     def test_invalid_string_returns_default_and_warns(self, monkeypatch, capsys):
         monkeypatch.setitem(
             memory_server._config, "memory_influence_threshold", "not-a-number"
         )
-        result = memory_server._resolve_float_config(
-            "memory_influence_threshold", 0.55
+        result = resolve_float_config(
+            memory_server._config,
+            "memory_influence_threshold",
+            0.55,
+            prefix="[memory-server]",
+            warned=memory_server._warned_fields,
         )
         assert result == 0.55
         captured = capsys.readouterr()
         assert "memory_influence_threshold" in captured.err
         assert "not a float" in captured.err
-        assert "memory_influence_threshold" in memory_server._warned_fields
+        assert ("[memory-server]", "memory_influence_threshold") in memory_server._warned_fields
 
     def test_warning_deduped_across_repeated_calls(self, monkeypatch, capsys):
         """Second call for same key should NOT emit a second warning."""
         monkeypatch.setitem(
             memory_server._config, "memory_influence_threshold", "garbage"
         )
-        memory_server._resolve_float_config("memory_influence_threshold", 0.55)
-        memory_server._resolve_float_config("memory_influence_threshold", 0.55)
-        memory_server._resolve_float_config("memory_influence_threshold", 0.55)
+        for _ in range(3):
+            resolve_float_config(
+                memory_server._config,
+                "memory_influence_threshold",
+                0.55,
+                prefix="[memory-server]",
+                warned=memory_server._warned_fields,
+            )
         captured = capsys.readouterr()
         # Exactly one warning line for this key
         warning_lines = [
