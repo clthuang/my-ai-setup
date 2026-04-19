@@ -2197,3 +2197,91 @@ class TestInfluenceDebugLogModeFR2:
         assert log_path.exists()
         mode = os.stat(str(log_path)).st_mode & 0o777
         assert mode == 0o600, f"expected 0o600, got 0o{mode:03o}"
+
+
+# ---------------------------------------------------------------------------
+# Feature 085 FR-3: 10 MB log rotation (SC-4 / AC-H3 / AC-E4)
+# ---------------------------------------------------------------------------
+
+
+class TestInfluenceDebugLogRotationFR3:
+    """SC-4 / AC-H3: log rotates to `.1` at 10 MB threshold.
+
+    Pre-seeds the log path with 10.5 MB of content, then calls the
+    emitter and asserts:
+    - primary log is small (one JSON line)
+    - `.1` exists with ~10.5 MB of pre-seed content
+    - post-rotation primary log retains mode 0o600 (AC-H3 requirement)
+    """
+
+    _ROTATE_BYTES = 10 * 1024 * 1024  # 10 MB (mirrors private constant)
+
+    def test_influence_debug_log_rotates_at_10mb(
+        self, tmp_path, monkeypatch
+    ):
+        log_path = tmp_path / "diag.log"
+        # Seed > 10 MB so the size check fires.
+        seed_size = self._ROTATE_BYTES + 512 * 1024  # 10.5 MB
+        log_path.write_bytes(b"x" * seed_size)
+        monkeypatch.setattr(memory_server, "INFLUENCE_DEBUG_LOG_PATH", log_path)
+
+        old_umask = os.umask(0o022)
+        try:
+            memory_server._emit_influence_diagnostic(
+                agent_role="implementer",
+                injected=1,
+                matched=0,
+                resolved_threshold=0.55,
+                feature_type_id=None,
+            )
+        finally:
+            os.umask(old_umask)
+
+        # Primary log should now hold just the one diagnostic JSON line.
+        assert log_path.exists()
+        primary_size = log_path.stat().st_size
+        assert primary_size < 1_000, f"primary size {primary_size} is not a single line"
+
+        # Rotated file should exist and hold the pre-seed content.
+        rotated = tmp_path / "diag.log.1"
+        assert rotated.exists(), "rotated .1 file not created"
+        rotated_size = rotated.stat().st_size
+        assert rotated_size == seed_size, (
+            f"rotated size {rotated_size} != seed_size {seed_size}"
+        )
+
+        # Post-rotation primary log must be created with 0o600 (FR-2).
+        mode = os.stat(str(log_path)).st_mode & 0o777
+        assert mode == 0o600, f"post-rotation primary mode 0o{mode:03o}"
+
+    def test_rotation_failure_skips_write_with_warning(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """AC-E4: os.rename failure (parent dir read-only) → one-shot warning."""
+        log_path = tmp_path / "diag.log"
+        # Seed > 10 MB so rotation is attempted.
+        log_path.write_bytes(b"x" * (self._ROTATE_BYTES + 1024))
+        monkeypatch.setattr(memory_server, "INFLUENCE_DEBUG_LOG_PATH", log_path)
+
+        # Make the parent directory read-only so os.rename fails.
+        orig_mode = tmp_path.stat().st_mode
+        os.chmod(str(tmp_path), 0o555)
+        try:
+            memory_server._emit_influence_diagnostic(
+                agent_role="implementer",
+                injected=1,
+                matched=0,
+                resolved_threshold=0.55,
+                feature_type_id=None,
+            )
+        finally:
+            os.chmod(str(tmp_path), orig_mode)
+
+        captured = capsys.readouterr()
+        warn_lines = [
+            line for line in captured.err.splitlines()
+            if "[memory-server]" in line and "influence-debug" in line
+        ]
+        assert len(warn_lines) == 1, (
+            f"expected 1 one-shot warning, got {len(warn_lines)}: {captured.err!r}"
+        )

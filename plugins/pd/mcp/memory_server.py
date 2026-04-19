@@ -442,6 +442,10 @@ INFLUENCE_DEBUG_LOG_PATH: Path = (
     Path.home() / ".claude" / "pd" / "memory" / "influence-debug.log"
 )
 
+# Feature 085 FR-3: rotate the diagnostic log when it reaches this size.
+# Hardcoded (NFR-3: no new config keys) — revisit if an operator asks.
+_INFLUENCE_DEBUG_ROTATE_BYTES: int = 10 * 1024 * 1024  # 10 MB
+
 
 def _emit_influence_diagnostic(
     *,
@@ -468,6 +472,21 @@ def _emit_influence_diagnostic(
     global _influence_debug_write_failed
     try:
         INFLUENCE_DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+        # FR-3: rotate to `.1` when the log reaches 10 MB. `os.rename`
+        # is atomic on POSIX and overwrites any existing `.1` in one
+        # syscall. Best-effort single-writer — concurrent-writer races
+        # are out of scope (see AC-E5 in spec.md).
+        try:
+            current_size = INFLUENCE_DEBUG_LOG_PATH.stat().st_size
+        except FileNotFoundError:
+            current_size = 0
+        if current_size >= _INFLUENCE_DEBUG_ROTATE_BYTES:
+            os.rename(
+                str(INFLUENCE_DEBUG_LOG_PATH),
+                str(INFLUENCE_DEBUG_LOG_PATH) + ".1",
+            )
+
         line = json.dumps({
             "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "event": "influence_dispatch",
