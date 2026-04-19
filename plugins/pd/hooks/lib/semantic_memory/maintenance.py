@@ -136,9 +136,23 @@ def _emit_decay_diagnostic(diag: dict) -> None:
         # and "path is a directory" errors (AC-19 monkeypatch) are caught.
         # OSError covers IsADirectoryError, PermissionError, FileNotFoundError,
         # and IOError (alias in Python 3).
-        INFLUENCE_DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with INFLUENCE_DEBUG_LOG_PATH.open("a") as f:
-            f.write(line + "\n")
+        # FR-1.2 (#00097): parent dir 0o700; symlink-safe open via O_NOFOLLOW.
+        # Note: mkdir(mode=) only applies when the dir is newly created — existing
+        # dirs keep their current mode (documented platform behavior).
+        INFLUENCE_DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(str(INFLUENCE_DEBUG_LOG_PATH), flags, 0o600)
+        try:
+            if hasattr(os, "fchmod"):
+                try:
+                    os.fchmod(fd, 0o600)
+                except (OSError, NotImplementedError):
+                    pass  # platforms without fchmod / filesystems without perm bits
+            os.write(fd, (line + "\n").encode("utf-8"))
+        finally:
+            os.close(fd)
     except OSError as e:
         global _decay_log_warned
         if not _decay_log_warned:

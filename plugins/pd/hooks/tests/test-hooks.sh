@@ -2709,6 +2709,118 @@ assert 'Decay: demoted high->medium' in ctx, f'expected decay summary in ctx, go
     fi
 }
 
+# Test: session-start.sh rejects injection payloads in .meta.json (feature 088 AC-1)
+test_session_start_refuses_meta_json_injection() {
+    log_test "session-start refuses .meta.json python injection (feature 088 AC-1)"
+
+    local tmp_home tmp_proj
+    tmp_home=$(mktemp -d)
+    tmp_proj=$(mktemp -d)
+    # Ensure the canary file does not exist before the test.
+    local canary="/tmp/pd-088-pwned"
+    rm -f "$canary" 2>/dev/null
+
+    trap 'rm -f "'"$canary"'" 2>/dev/null; rm -rf "'"$tmp_home"'" "'"$tmp_proj"'"' RETURN
+
+    # Build fixture feature dir with poisoned .meta.json.
+    # Injection payload in project_id tries to break out of single-quoted
+    # Python source via embedded quote + os.system touch call.
+    mkdir -p "$tmp_proj/.git" "$tmp_proj/.claude" "$tmp_proj/docs/features/099-test-feature"
+    cat > "$tmp_proj/.claude/pd.local.md" << 'PDCFG'
+---
+memory_injection_enabled: false
+memory_decay_enabled: false
+PDCFG
+    cat > "$tmp_proj/docs/features/099-test-feature/.meta.json" << 'EOFMETA'
+{
+  "id": "099",
+  "slug": "test-feature",
+  "name": "test-feature",
+  "mode": "Standard",
+  "branch": "feature/099-test-feature",
+  "status": "active",
+  "project_id": "'; import os; os.system('touch /tmp/pd-088-pwned'); #"
+}
+EOFMETA
+
+    # Run session-start.sh with PROJECT_ROOT pointing at the fixture.
+    local output exit_code=0
+    output=$(cd "$tmp_proj" && HOME="$tmp_home" bash "${HOOKS_DIR}/session-start.sh" < /dev/null 2>/dev/null) || exit_code=$?
+
+    # Hook must exit 0 (never crash session-start on poisoned input).
+    if [[ $exit_code -ne 0 ]]; then
+        log_fail "session-start.sh exited non-zero on poisoned meta: $exit_code"
+        return
+    fi
+
+    # The injection MUST NOT have created the canary file.
+    if [[ -e "$canary" ]]; then
+        log_fail "INJECTION SUCCEEDED — ${canary} was created by poisoned .meta.json"
+        return
+    fi
+
+    # Output must be parseable JSON (hook didn't emit malformed JSON).
+    if ! echo "$output" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
+        log_fail "session-start.sh produced invalid JSON on poisoned meta"
+        return
+    fi
+
+    log_pass
+}
+
+# Test: session-start.sh skips decay cleanly when plugin venv python is missing
+# (feature 088 AC-3 — FR-1.3 venv hard-fail, no $PATH fallback).
+test_session_start_decay_skips_when_venv_missing() {
+    log_test "session-start skips decay silently when plugin venv python is missing (feature 088 AC-3)"
+
+    local tmp_home tmp_proj
+    tmp_home=$(mktemp -d)
+    tmp_proj=$(mktemp -d)
+    local venv_python="${HOOKS_DIR}/../.venv/bin/python"
+    local venv_python_bak="${venv_python}.bak-088"
+
+    # CRITICAL: install trap BEFORE rename so restoration happens on any failure.
+    trap 'mv "'"$venv_python_bak"'" "'"$venv_python"'" 2>/dev/null || true; rm -rf "'"$tmp_home"'" "'"$tmp_proj"'"' RETURN
+
+    mkdir -p "$tmp_proj/.git" "$tmp_proj/.claude"
+    cat > "$tmp_proj/.claude/pd.local.md" << 'PDCFG'
+---
+memory_decay_enabled: true
+memory_decay_high_threshold_days: 30
+PDCFG
+
+    # Rename venv python so the hard-fail path is exercised. If the venv
+    # doesn't exist at all (CI without setup), skip.
+    if [[ ! -x "$venv_python" ]]; then
+        log_skip "plugin venv python not present (CI without setup)"
+        return
+    fi
+    mv "$venv_python" "$venv_python_bak" || { log_fail "Failed to rename venv python"; return; }
+
+    local output exit_code=0
+    output=$(cd "$tmp_proj" && HOME="$tmp_home" bash "${HOOKS_DIR}/session-start.sh" < /dev/null 2>/dev/null) || exit_code=$?
+
+    # Restore immediately so subsequent tests work (trap will also restore on return).
+    mv "$venv_python_bak" "$venv_python" 2>/dev/null || true
+
+    if [[ $exit_code -ne 0 ]]; then
+        log_fail "session-start.sh exited non-zero when venv missing: $exit_code"
+        return
+    fi
+
+    # JSON well-formed and NO "Decay:" marker in additionalContext.
+    if echo "$output" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+ctx = d.get('hookSpecificOutput', {}).get('additionalContext', '')
+assert 'Decay:' not in ctx, f'expected NO decay summary when venv missing, got: {ctx[:300]}'
+" 2>/dev/null; then
+        log_pass
+    else
+        log_fail "Decay summary unexpectedly present or JSON malformed. Output: ${output:0:400}"
+    fi
+}
+
 # Test: session-start.sh is resilient when maintenance.py is missing (AC-22)
 test_memory_decay_missing_module() {
     log_test "session-start resilient when maintenance.py is missing (AC-22)"
@@ -2903,6 +3015,8 @@ main() {
 
     test_memory_decay_session_start
     test_memory_decay_missing_module
+    test_session_start_refuses_meta_json_injection
+    test_session_start_decay_skips_when_venv_missing
 
     echo ""
     echo "--- Path Portability Tests ---"

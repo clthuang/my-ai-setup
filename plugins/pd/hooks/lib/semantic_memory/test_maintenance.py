@@ -1832,3 +1832,63 @@ class TestForeignUidProjectRootRefuses:
         assert "REFUSING" in captured.err
         assert "uid=2000" in captured.err
         assert "uid=1000" in captured.err
+
+
+class TestInfluenceLogSymlinkRefusal:
+    """AC-2 (FR-1.2, #00097): O_NOFOLLOW prevents symlink-clobber attack."""
+
+    def test_influence_log_refuses_symlink_follow(
+        self, fresh_db, tmp_path, monkeypatch, capsys
+    ):
+        """Symlink at the log path MUST cause write failure, not follow.
+
+        Threat model: attacker pre-creates `influence-debug.log` as a symlink
+        to a sensitive file (e.g. /tmp/target). Without O_NOFOLLOW, the
+        maintenance process would append to the symlink target. With the
+        FR-1.2 fix, `os.open(..., O_NOFOLLOW, ...)` raises OSError (ELOOP)
+        and the try/except OSError swallows it into a one-shot warning.
+        """
+        # Target file that MUST remain untouched.
+        target = tmp_path / "target_sentinel"
+        target.write_text("untouched\n")
+        target_mtime_before = target.stat().st_mtime
+
+        # Symlink at the log path → target.
+        log_link = tmp_path / "symlink-log.log"
+        log_link.symlink_to(target)
+
+        monkeypatch.setattr(maintenance, "INFLUENCE_DEBUG_LOG_PATH", log_link)
+
+        # Seed one stale high entry + enable influence-debug so the diagnostic
+        # emission codepath fires.
+        stale = _days_ago(31)
+        _seed_entry(
+            fresh_db,
+            entry_id="sym-1",
+            confidence="high",
+            last_recalled_at=stale,
+            created_at=stale,
+        )
+        cfg = _enabled_config()
+        cfg["memory_influence_debug"] = True
+
+        # Run decay. Should not raise — OSError must be swallowed by the
+        # _emit_decay_diagnostic try/except (best-effort logging).
+        result = maintenance.decay_confidence(fresh_db, cfg, now=NOW)
+
+        # Decay itself completed successfully (log failure is non-blocking).
+        assert result["demoted_high_to_medium"] == 1
+
+        # Symlink target MUST be unchanged (O_NOFOLLOW prevented the write).
+        assert target.read_text() == "untouched\n"
+        assert target.stat().st_mtime == target_mtime_before
+
+        # Symlink itself remains a symlink (was not replaced by a regular file).
+        assert log_link.is_symlink()
+
+        # Exactly one stderr warning about the log write failure.
+        captured = capsys.readouterr()
+        matches = re.findall(
+            r"\[memory-decay\].*log write failed", captured.err
+        )
+        assert len(matches) == 1

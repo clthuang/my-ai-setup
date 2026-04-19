@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import re
 import sys
 import time
@@ -171,7 +172,10 @@ def _emit_refresh_diagnostic(
     """
     global _refresh_error_warned
     try:
-        INFLUENCE_DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        # FR-1.2 (#00097): parent dir 0o700; symlink-safe open via O_NOFOLLOW.
+        # mkdir(mode=) only applies to newly created dirs; existing dirs keep
+        # their mode (documented platform behavior).
+        INFLUENCE_DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         line = json.dumps({
             "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "event": "memory_refresh",
@@ -181,8 +185,19 @@ def _emit_refresh_diagnostic(
             "entry_count": entry_count,
             "elapsed_ms": elapsed_ms,
         })
-        with INFLUENCE_DEBUG_LOG_PATH.open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
+        flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(str(INFLUENCE_DEBUG_LOG_PATH), flags, 0o600)
+        try:
+            if hasattr(os, "fchmod"):
+                try:
+                    os.fchmod(fd, 0o600)
+                except (OSError, NotImplementedError):
+                    pass  # platforms without fchmod / filesystems without perm bits
+            os.write(fd, (line + "\n").encode("utf-8"))
+        finally:
+            os.close(fd)
     except (OSError, IOError) as exc:
         if not _refresh_error_warned:
             sys.stderr.write(
