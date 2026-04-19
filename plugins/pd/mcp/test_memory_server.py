@@ -27,6 +27,9 @@ import numpy as np
 import pytest
 
 from semantic_memory import content_hash
+from semantic_memory.config_utils import (
+    resolve_float_config as _real_resolve_float_config,
+)
 from semantic_memory.database import MemoryDatabase
 
 
@@ -120,85 +123,111 @@ def reset_memory_server_state(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# _resolve_float_config helper tests (design I-3)
+# resolve_float_config helper tests (design I-3 / feature 085 FR-4)
 # ---------------------------------------------------------------------------
+
+from semantic_memory.config_utils import resolve_float_config  # noqa: E402
 
 
 class TestResolveFloatConfig:
-    """Verify _resolve_float_config coerces config values to float safely.
+    """Verify `resolve_float_config` (shared helper) coerces values safely.
 
-    Critical behaviour:
-      * float / int values pass through (int coerced to float)
-      * strings parse via float() with ValueError fallback
-      * bools are rejected explicitly (Python bool is int subclass; float(True)=1.0
-        would silently succeed without explicit rejection)
-      * invalid values emit one stderr warning per key per process (dedup via
-        module-level ``_warned_fields`` set)
+    Migrated in feature 085 (FR-4) from the memory-server-local helper pair
+    to the shared `semantic_memory.config_utils.resolve_float_config`.
+
+    The dedup key is `(prefix, key)` — we assert on the tuple in
+    ``memory_server._warned_fields`` using ``prefix="[memory-server]"``
+    to match how the server itself invokes the helper.
     """
 
     def test_float_passthrough(self, monkeypatch):
         monkeypatch.setitem(memory_server._config, "memory_influence_threshold", 0.42)
-        result = memory_server._resolve_float_config(
-            "memory_influence_threshold", 0.55
+        result = resolve_float_config(
+            memory_server._config,
+            "memory_influence_threshold",
+            0.55,
+            prefix="[memory-server]",
+            warned=memory_server._warned_fields,
         )
         assert result == 0.42
         assert isinstance(result, float)
-        assert "memory_influence_threshold" not in memory_server._warned_fields
+        assert ("[memory-server]", "memory_influence_threshold") not in memory_server._warned_fields
 
     def test_int_passthrough_returns_float(self, monkeypatch):
         monkeypatch.setitem(memory_server._config, "memory_influence_threshold", 1)
-        result = memory_server._resolve_float_config(
-            "memory_influence_threshold", 0.55
+        result = resolve_float_config(
+            memory_server._config,
+            "memory_influence_threshold",
+            0.55,
+            prefix="[memory-server]",
+            warned=memory_server._warned_fields,
         )
         assert result == 1.0
         assert isinstance(result, float)
-        assert "memory_influence_threshold" not in memory_server._warned_fields
+        assert ("[memory-server]", "memory_influence_threshold") not in memory_server._warned_fields
 
     def test_string_parses(self, monkeypatch):
         monkeypatch.setitem(
             memory_server._config, "memory_influence_threshold", "0.42"
         )
-        result = memory_server._resolve_float_config(
-            "memory_influence_threshold", 0.55
+        result = resolve_float_config(
+            memory_server._config,
+            "memory_influence_threshold",
+            0.55,
+            prefix="[memory-server]",
+            warned=memory_server._warned_fields,
         )
         assert result == 0.42
         assert isinstance(result, float)
-        assert "memory_influence_threshold" not in memory_server._warned_fields
+        assert ("[memory-server]", "memory_influence_threshold") not in memory_server._warned_fields
 
     def test_bool_rejected_returns_default_and_warns(self, monkeypatch, capsys):
         """Critical: bool is int subclass; must be explicitly rejected."""
         monkeypatch.setitem(memory_server._config, "memory_influence_threshold", True)
-        result = memory_server._resolve_float_config(
-            "memory_influence_threshold", 0.55
+        result = resolve_float_config(
+            memory_server._config,
+            "memory_influence_threshold",
+            0.55,
+            prefix="[memory-server]",
+            warned=memory_server._warned_fields,
         )
         assert result == 0.55  # default, NOT float(True)=1.0
         captured = capsys.readouterr()
         assert "memory_influence_threshold" in captured.err
         assert "not a float" in captured.err
         assert "using default 0.55" in captured.err
-        assert "memory_influence_threshold" in memory_server._warned_fields
+        assert ("[memory-server]", "memory_influence_threshold") in memory_server._warned_fields
 
     def test_invalid_string_returns_default_and_warns(self, monkeypatch, capsys):
         monkeypatch.setitem(
             memory_server._config, "memory_influence_threshold", "not-a-number"
         )
-        result = memory_server._resolve_float_config(
-            "memory_influence_threshold", 0.55
+        result = resolve_float_config(
+            memory_server._config,
+            "memory_influence_threshold",
+            0.55,
+            prefix="[memory-server]",
+            warned=memory_server._warned_fields,
         )
         assert result == 0.55
         captured = capsys.readouterr()
         assert "memory_influence_threshold" in captured.err
         assert "not a float" in captured.err
-        assert "memory_influence_threshold" in memory_server._warned_fields
+        assert ("[memory-server]", "memory_influence_threshold") in memory_server._warned_fields
 
     def test_warning_deduped_across_repeated_calls(self, monkeypatch, capsys):
         """Second call for same key should NOT emit a second warning."""
         monkeypatch.setitem(
             memory_server._config, "memory_influence_threshold", "garbage"
         )
-        memory_server._resolve_float_config("memory_influence_threshold", 0.55)
-        memory_server._resolve_float_config("memory_influence_threshold", 0.55)
-        memory_server._resolve_float_config("memory_influence_threshold", 0.55)
+        for _ in range(3):
+            resolve_float_config(
+                memory_server._config,
+                "memory_influence_threshold",
+                0.55,
+                prefix="[memory-server]",
+                warned=memory_server._warned_fields,
+            )
         captured = capsys.readouterr()
         # Exactly one warning line for this key
         warning_lines = [
@@ -1772,7 +1801,7 @@ class TestInfluenceThresholdConfigDriven:
         )
         provider = _FixedSimilarityProvider(similarity=0.75)
 
-        result_json = _process_record_influence_by_content(
+        result_json, _ = _process_record_influence_by_content(
             db=db,
             provider=provider,
             subagent_output_text=_SYNTH_SUBAGENT_OUTPUT,
@@ -1793,7 +1822,7 @@ class TestInfluenceThresholdConfigDriven:
         )
         provider = _FixedSimilarityProvider(similarity=0.75)
 
-        result_json = _process_record_influence_by_content(
+        result_json, _ = _process_record_influence_by_content(
             db=db,
             provider=provider,
             subagent_output_text=_SYNTH_SUBAGENT_OUTPUT,
@@ -1816,7 +1845,7 @@ class TestInfluenceLoweredDefault:
         _seed_influence_entry(db, "inf-ac6a", "Influence AC6a")
         provider = _FixedSimilarityProvider(similarity=0.60)
 
-        result_json = _process_record_influence_by_content(
+        result_json, _ = _process_record_influence_by_content(
             db=db,
             provider=provider,
             subagent_output_text=_SYNTH_SUBAGENT_OUTPUT,
@@ -1833,7 +1862,7 @@ class TestInfluenceLoweredDefault:
         _seed_influence_entry(db, "inf-ac6b", "Influence AC6b")
         provider = _FixedSimilarityProvider(similarity=0.50)
 
-        result_json = _process_record_influence_by_content(
+        result_json, _ = _process_record_influence_by_content(
             db=db,
             provider=provider,
             subagent_output_text=_SYNTH_SUBAGENT_OUTPUT,
@@ -1906,7 +1935,9 @@ class TestInfluenceDiagnosticsEmit:
         assert parsed["injected"] == 3
         # All 3 entries match (similarity 0.80 >= default 0.55)
         assert parsed["matched"] == 3
-        assert parsed["recorded"] == 3
+        # Feature 085 FR-5: `recorded` field was a duplicate of `matched`
+        # (TD-4) and has been removed from the schema.
+        assert "recorded" not in parsed
         assert parsed["agent_role"] == "implementer"
         assert parsed["feature_type_id"] == "feature:080"
 
@@ -1948,7 +1979,7 @@ class TestInfluenceErrorHandlingAC10:
         _seed_influence_entry(db, "inf-ac10a", "Influence AC10a")
         provider = _FixedSimilarityProvider(similarity=0.60)
 
-        result_json = _process_record_influence_by_content(
+        result_json, _ = _process_record_influence_by_content(
             db=db,
             provider=provider,
             subagent_output_text=_SYNTH_SUBAGENT_OUTPUT,
@@ -1977,7 +2008,7 @@ class TestInfluenceErrorHandlingAC10:
             agent_role="implementer",
             injected=1,
             matched=0,
-            threshold=0.55,
+            resolved_threshold=0.55,
             feature_type_id=None,
         )
         assert log_path.exists()
@@ -2048,7 +2079,7 @@ class TestInfluenceErrorHandlingAC10:
         # similarity 0.60 matches 0.55 default but NOT 1.0 → proves default was used
         provider = _FixedSimilarityProvider(similarity=0.60)
 
-        result_json = _process_record_influence_by_content(
+        result_json, _ = _process_record_influence_by_content(
             db=db,
             provider=provider,
             subagent_output_text=_SYNTH_SUBAGENT_OUTPUT,
@@ -2063,3 +2094,194 @@ class TestInfluenceErrorHandlingAC10:
         captured = capsys.readouterr()
         warnings = self._WARN_REGEX.findall(captured.err)
         assert len(warnings) == 1, f"Expected 1 warning, got: {captured.err!r}"
+
+
+# ---------------------------------------------------------------------------
+# Feature 085 FR-6: single-resolution of memory_influence_threshold (SC-9)
+# ---------------------------------------------------------------------------
+
+
+class TestSingleResolutionThresholdFR6:
+    """SC-9(b): `record_influence_by_content` resolves the threshold once per call.
+
+    Patches the bound-import name `memory_server.resolve_float_config`
+    (NOT `semantic_memory.config_utils.resolve_float_config` — the
+    `from X import Y` statement binds `Y` into the consumer's
+    namespace at import time; patching the source module would not
+    intercept the consumer's usage). `wraps=_real_resolve_float_config`
+    ensures the real logic still executes so the wrapped code path
+    behaves identically; only call-counting is observed.
+    """
+
+    def test_record_influence_by_content_resolves_threshold_once(
+        self, db: MemoryDatabase, monkeypatch
+    ):
+        from unittest import mock
+
+        # Seed one entry so the helper reaches its body (not the
+        # `not injected_entry_names` early return).
+        _seed_influence_entry(db, "inf-fr6", "Influence FR6")
+        provider = _FixedSimilarityProvider(similarity=0.80)
+
+        monkeypatch.setitem(memory_server._config, "memory_influence_debug", True)
+
+        old_db = memory_server._db
+        old_provider = memory_server._provider
+        memory_server._db = db
+        memory_server._provider = provider
+        try:
+            with mock.patch(
+                "memory_server.resolve_float_config",
+                wraps=_real_resolve_float_config,
+            ) as spy:
+                import asyncio
+
+                asyncio.run(
+                    memory_server.record_influence_by_content(
+                        subagent_output_text=_SYNTH_SUBAGENT_OUTPUT,
+                        injected_entry_names=["Influence FR6"],
+                        agent_role="implementer",
+                        feature_type_id="feature:085",
+                        threshold=None,
+                    )
+                )
+
+                matching = [
+                    c
+                    for c in spy.call_args_list
+                    if (c.kwargs.get("key") == "memory_influence_threshold")
+                    or (len(c.args) >= 2 and c.args[1] == "memory_influence_threshold")
+                ]
+                assert len(matching) == 1, (
+                    f"expected exactly 1 resolve_float_config call for "
+                    f"memory_influence_threshold, got {len(matching)}: "
+                    f"{spy.call_args_list!r}"
+                )
+        finally:
+            memory_server._db = old_db
+            memory_server._provider = old_provider
+
+
+# ---------------------------------------------------------------------------
+# Feature 085 FR-2: atomic 0o600 file creation (SC-3)
+# ---------------------------------------------------------------------------
+
+
+class TestInfluenceDebugLogModeFR2:
+    """SC-3 / AC-H2: influence-debug.log is created with mode 0o600.
+
+    The test forces ambient umask to 0o022 (typical on shared hosts) so
+    that the pre-PR code path — `Path.open("a")` inheriting umask —
+    would produce 0o644 instead of 0o600. The post-PR implementation
+    uses `os.open(..., 0o600)` wrapped in `umask(0)` per design I-3.
+    """
+
+    def test_influence_debug_log_created_with_mode_0o600(
+        self, db: MemoryDatabase, tmp_path, monkeypatch
+    ):
+        log_path = tmp_path / "diag.log"
+        monkeypatch.setattr(memory_server, "INFLUENCE_DEBUG_LOG_PATH", log_path)
+        # Force a non-zero ambient umask so the pre-PR `Path.open`
+        # path would produce 0o644 (0o666 & ~0o022 == 0o644).
+        old_umask = os.umask(0o022)
+        try:
+            memory_server._emit_influence_diagnostic(
+                agent_role="implementer",
+                injected=1,
+                matched=0,
+                resolved_threshold=0.55,
+                feature_type_id=None,
+            )
+        finally:
+            os.umask(old_umask)
+        assert log_path.exists()
+        mode = os.stat(str(log_path)).st_mode & 0o777
+        assert mode == 0o600, f"expected 0o600, got 0o{mode:03o}"
+
+
+# ---------------------------------------------------------------------------
+# Feature 085 FR-3: 10 MB log rotation (SC-4 / AC-H3 / AC-E4)
+# ---------------------------------------------------------------------------
+
+
+class TestInfluenceDebugLogRotationFR3:
+    """SC-4 / AC-H3: log rotates to `.1` at 10 MB threshold.
+
+    Pre-seeds the log path with 10.5 MB of content, then calls the
+    emitter and asserts:
+    - primary log is small (one JSON line)
+    - `.1` exists with ~10.5 MB of pre-seed content
+    - post-rotation primary log retains mode 0o600 (AC-H3 requirement)
+    """
+
+    _ROTATE_BYTES = 10 * 1024 * 1024  # 10 MB (mirrors private constant)
+
+    def test_influence_debug_log_rotates_at_10mb(
+        self, tmp_path, monkeypatch
+    ):
+        log_path = tmp_path / "diag.log"
+        # Seed > 10 MB so the size check fires.
+        seed_size = self._ROTATE_BYTES + 512 * 1024  # 10.5 MB
+        log_path.write_bytes(b"x" * seed_size)
+        monkeypatch.setattr(memory_server, "INFLUENCE_DEBUG_LOG_PATH", log_path)
+
+        old_umask = os.umask(0o022)
+        try:
+            memory_server._emit_influence_diagnostic(
+                agent_role="implementer",
+                injected=1,
+                matched=0,
+                resolved_threshold=0.55,
+                feature_type_id=None,
+            )
+        finally:
+            os.umask(old_umask)
+
+        # Primary log should now hold just the one diagnostic JSON line.
+        assert log_path.exists()
+        primary_size = log_path.stat().st_size
+        assert primary_size < 1_000, f"primary size {primary_size} is not a single line"
+
+        # Rotated file should exist and hold the pre-seed content.
+        rotated = tmp_path / "diag.log.1"
+        assert rotated.exists(), "rotated .1 file not created"
+        rotated_size = rotated.stat().st_size
+        assert rotated_size == seed_size, (
+            f"rotated size {rotated_size} != seed_size {seed_size}"
+        )
+
+        # Post-rotation primary log must be created with 0o600 (FR-2).
+        mode = os.stat(str(log_path)).st_mode & 0o777
+        assert mode == 0o600, f"post-rotation primary mode 0o{mode:03o}"
+
+    def test_rotation_failure_skips_write_with_warning(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """AC-E4: os.rename failure (parent dir read-only) → one-shot warning."""
+        log_path = tmp_path / "diag.log"
+        # Seed > 10 MB so rotation is attempted.
+        log_path.write_bytes(b"x" * (self._ROTATE_BYTES + 1024))
+        monkeypatch.setattr(memory_server, "INFLUENCE_DEBUG_LOG_PATH", log_path)
+
+        # Make the parent directory read-only so os.rename fails.
+        orig_mode = tmp_path.stat().st_mode
+        os.chmod(str(tmp_path), 0o555)
+        try:
+            memory_server._emit_influence_diagnostic(
+                agent_role="implementer",
+                injected=1,
+                matched=0,
+                resolved_threshold=0.55,
+                feature_type_id=None,
+            )
+        finally:
+            os.chmod(str(tmp_path), orig_mode)
+
+        captured = capsys.readouterr()
+        warn_lines = [
+            line for line in captured.err.splitlines()
+            if "[memory-server]" in line and "influence-debug" in line
+        ]
+        assert len(warn_lines) == 1, (
+            f"expected 1 one-shot warning, got {len(warn_lines)}: {captured.err!r}"
+        )

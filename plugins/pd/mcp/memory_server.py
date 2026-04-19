@@ -21,6 +21,7 @@ if _hooks_lib not in (os.path.normpath(p) for p in sys.path):
 import semantic_memory  # noqa: F401
 from semantic_memory import VALID_CATEGORIES, VALID_CONFIDENCE, VALID_SOURCES, content_hash, source_hash
 from semantic_memory.config import read_config
+from semantic_memory.config_utils import resolve_float_config
 from semantic_memory.database import MemoryDatabase
 from semantic_memory.embedding import EmbeddingProvider, create_provider
 from semantic_memory.refresh import hybrid_retrieve
@@ -299,24 +300,38 @@ def _process_record_influence_by_content(
     agent_role: str,
     feature_type_id: str | None = None,
     threshold: float | None = None,
-) -> str:
+) -> tuple[str, float]:
     """Record influence using embedding similarity instead of name matching.
 
     Chunks the output by paragraph, computes per-chunk embeddings, and
     compares against stored entry embeddings. Records influence for entries
     where max chunk similarity >= threshold.
 
+    Returns ``(json_body_str, resolved_threshold)``. Feature 085 (FR-6)
+    changed the return shape from plain ``str`` to ``tuple[str, float]``
+    so the MCP wrapper can consume the single-resolution threshold for
+    diagnostic emission without re-resolving.
+
     ``threshold=None`` resolves from ``_config["memory_influence_threshold"]``
     (default 0.55).  The existing ``[0.01, 1.0]`` clamp applies uniformly
     to explicit caller-passed values, config-driven values, and the default.
+    The pre-resolution early return (``not injected_entry_names``) returns
+    ``0.0`` as the resolved-threshold placeholder; the wrapper does not
+    emit diagnostics for zero-entry calls in practice.
     """
 
     if not injected_entry_names:
-        return json.dumps({"matched": [], "skipped": 0})
+        return json.dumps({"matched": [], "skipped": 0}), 0.0
 
     # Feature 080: resolve threshold from config when caller passed None.
     if threshold is None:
-        threshold = _resolve_float_config("memory_influence_threshold", 0.55)
+        threshold = resolve_float_config(
+            _config,
+            "memory_influence_threshold",
+            0.55,
+            prefix="[memory-server]",
+            warned=_warned_fields,
+        )
 
     threshold = max(0.01, min(1.0, threshold))
 
@@ -324,13 +339,13 @@ def _process_record_influence_by_content(
         return json.dumps({
             "matched": [], "skipped": len(injected_entry_names),
             "warning": "numpy unavailable",
-        })
+        }), threshold
 
     if provider is None:
         return json.dumps({
             "matched": [], "skipped": len(injected_entry_names),
             "warning": "embedding provider unavailable",
-        })
+        }), threshold
 
     # Truncate to last 2000 chars (conclusion/summary typically at end)
     text = subagent_output_text
@@ -340,7 +355,10 @@ def _process_record_influence_by_content(
     # Chunk by paragraph, filter short chunks
     chunks = [c.strip() for c in text.split("\n\n") if len(c.strip()) >= 20]
     if not chunks:
-        return json.dumps({"matched": [], "skipped": len(injected_entry_names), "warning": "no valid chunks"})
+        return json.dumps({
+            "matched": [], "skipped": len(injected_entry_names),
+            "warning": "no valid chunks",
+        }), threshold
 
     # Compute embeddings for each chunk
     chunk_embeddings = []
@@ -355,7 +373,7 @@ def _process_record_influence_by_content(
         return json.dumps({
             "matched": [], "skipped": len(injected_entry_names),
             "warning": "chunk embedding failed",
-        })
+        }), threshold
 
     # Compare against each injected entry
     matched = []
@@ -380,7 +398,7 @@ def _process_record_influence_by_content(
         else:
             skipped += 1
 
-    return json.dumps({"matched": matched, "skipped": skipped})
+    return json.dumps({"matched": matched, "skipped": skipped}), threshold
 
 
 # ---------------------------------------------------------------------------
@@ -424,43 +442,9 @@ INFLUENCE_DEBUG_LOG_PATH: Path = (
     Path.home() / ".claude" / "pd" / "memory" / "influence-debug.log"
 )
 
-
-def _warn_and_default(key: str, raw, default: float) -> float:
-    """Emit a one-shot stderr warning for a malformed config value, return default.
-
-    Deduped via module-level ``_warned_fields``: each key warns at most once
-    per process.  Called from ``_resolve_float_config`` on any invalid-value
-    path (bool, non-string/numeric, or unparseable string).
-    """
-    if key not in _warned_fields:
-        sys.stderr.write(
-            f"[memory-server] config field {key!r} value {raw!r} "
-            f"is not a float; using default {default}\n"
-        )
-        _warned_fields.add(key)
-    return default
-
-
-def _resolve_float_config(key: str, default: float) -> float:
-    """Read a float-valued config entry, falling back to ``default`` on error.
-
-    Accepts int, float, or numeric string values.  ``bool`` is rejected
-    explicitly (Python ``bool`` is an ``int`` subclass, so ``float(True)=1.0``
-    would otherwise silently coerce).  Unparseable values emit one stderr
-    warning per key per process (via ``_warn_and_default``) and return
-    ``default``.
-    """
-    raw = _config.get(key, default)
-    # Explicit bool rejection MUST come before the int/float branch.
-    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
-        return _warn_and_default(key, raw, default)
-    if isinstance(raw, (int, float)):
-        return float(raw)
-    # raw is str
-    try:
-        return float(raw)
-    except ValueError:
-        return _warn_and_default(key, raw, default)
+# Feature 085 FR-3: rotate the diagnostic log when it reaches this size.
+# Hardcoded (NFR-3: no new config keys) — revisit if an operator asks.
+_INFLUENCE_DEBUG_ROTATE_BYTES: int = 10 * 1024 * 1024  # 10 MB
 
 
 def _emit_influence_diagnostic(
@@ -468,7 +452,7 @@ def _emit_influence_diagnostic(
     agent_role: str,
     injected: int,
     matched: int,
-    threshold: float,
+    resolved_threshold: float,
     feature_type_id: str | None,
 ) -> None:
     """Append one JSON line to ``INFLUENCE_DEBUG_LOG_PATH`` describing a dispatch.
@@ -478,21 +462,64 @@ def _emit_influence_diagnostic(
     (permission denied, disk full, target-is-a-directory, etc.) emit one
     stderr warning and set ``_influence_debug_write_failed`` to suppress
     subsequent warnings for the remainder of the process lifetime.
+
+    Feature 085 (FR-6): parameter renamed from ``threshold`` to
+    ``resolved_threshold`` to make the single-resolution contract
+    explicit — the wrapper passes the value returned by
+    ``_process_record_influence_by_content``; this function does not
+    resolve config on its own.
     """
     global _influence_debug_write_failed
     try:
         INFLUENCE_DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+        # FR-3: rotate to `.1` when the log reaches 10 MB. `os.rename`
+        # is atomic on POSIX and overwrites any existing `.1` in one
+        # syscall. Best-effort single-writer — concurrent-writer races
+        # are out of scope (see AC-E5 in spec.md).
+        try:
+            current_size = INFLUENCE_DEBUG_LOG_PATH.stat().st_size
+        except FileNotFoundError:
+            current_size = 0
+        if current_size >= _INFLUENCE_DEBUG_ROTATE_BYTES:
+            os.rename(
+                str(INFLUENCE_DEBUG_LOG_PATH),
+                str(INFLUENCE_DEBUG_LOG_PATH) + ".1",
+            )
+
         line = json.dumps({
             "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "event": "influence_dispatch",
             "agent_role": agent_role,
             "injected": injected,
             "matched": matched,
-            "recorded": matched,
-            "threshold": threshold,
+            # FR-5: `recorded` field dropped — was identical to `matched` per
+            # TD-4; removal is a semantic no-op but unclutters consumers.
+            "threshold": resolved_threshold,
             "feature_type_id": feature_type_id,
         })
-        with INFLUENCE_DEBUG_LOG_PATH.open("a", encoding="utf-8") as f:
+        # FR-2: create the log file with mode 0o600 atomically. Umask on
+        # POSIX masks the mode arg of `os.open`; temporarily force 0 so
+        # the exact 0o600 is honored regardless of ambient umask (per
+        # OpenStack secure-file-creation guidance). `O_EXCL` is
+        # deliberately NOT used — the log persists across process
+        # invocations; `O_EXCL` would raise on every call after the
+        # first. The TOCTOU window is accepted: the path lives under
+        # ~/.claude/pd/memory/ which is single-user-scoped.
+        # Pre-existing log files keep their mode unchanged (O_CREAT is
+        # a no-op when the file already exists) — operators wanting
+        # retroactive 0o600 must delete the old file and let the next
+        # call re-create.
+        old_umask = os.umask(0)
+        try:
+            fd = os.open(
+                str(INFLUENCE_DEBUG_LOG_PATH),
+                os.O_APPEND | os.O_CREAT | os.O_WRONLY,
+                0o600,
+            )
+        finally:
+            os.umask(old_umask)
+        with os.fdopen(fd, "a", encoding="utf-8") as f:
             f.write(line + "\n")
     except (OSError, IOError) as exc:
         if not _influence_debug_write_failed:
@@ -747,7 +774,7 @@ async def record_influence_by_content(
         return json.dumps({"matched": [], "skipped": len(injected_entry_names), "warning": "database not initialized"})
 
     try:
-        result_json = _process_record_influence_by_content(
+        result_json, resolved_threshold = _process_record_influence_by_content(
             db=_db,
             provider=_provider,
             subagent_output_text=subagent_output_text,
@@ -762,25 +789,20 @@ async def record_influence_by_content(
     # Feature 080: diagnostic emission lives OUTSIDE @with_retry so retries
     # don't double-log, AND so every terminal path of the inner helper
     # (happy + 5 early returns) produces exactly one diagnostic line.
+    # Feature 085 (FR-6): threshold is resolved exactly once by the helper
+    # and returned in the tuple; the wrapper consumes `resolved_threshold`
+    # directly instead of re-invoking `resolve_float_config`.
     if _config.get("memory_influence_debug", False):
         try:
             parsed = json.loads(result_json)
             matched_count = len(parsed.get("matched", [])) if isinstance(parsed, dict) else 0
         except (json.JSONDecodeError, TypeError):
             matched_count = 0
-        effective = (
-            threshold
-            if threshold is not None
-            else _resolve_float_config("memory_influence_threshold", 0.55)
-        )
-        # Clamp parity with helper (line 313): diagnostic shows the value
-        # the helper actually used, not the raw config value.
-        effective = max(0.01, min(1.0, effective))
         _emit_influence_diagnostic(
             agent_role=agent_role,
             injected=len(injected_entry_names),
             matched=matched_count,
-            threshold=effective,
+            resolved_threshold=resolved_threshold,
             feature_type_id=feature_type_id,
         )
     return result_json
