@@ -27,6 +27,9 @@ import numpy as np
 import pytest
 
 from semantic_memory import content_hash
+from semantic_memory.config_utils import (
+    resolve_float_config as _real_resolve_float_config,
+)
 from semantic_memory.database import MemoryDatabase
 
 
@@ -1798,7 +1801,7 @@ class TestInfluenceThresholdConfigDriven:
         )
         provider = _FixedSimilarityProvider(similarity=0.75)
 
-        result_json = _process_record_influence_by_content(
+        result_json, _ = _process_record_influence_by_content(
             db=db,
             provider=provider,
             subagent_output_text=_SYNTH_SUBAGENT_OUTPUT,
@@ -1819,7 +1822,7 @@ class TestInfluenceThresholdConfigDriven:
         )
         provider = _FixedSimilarityProvider(similarity=0.75)
 
-        result_json = _process_record_influence_by_content(
+        result_json, _ = _process_record_influence_by_content(
             db=db,
             provider=provider,
             subagent_output_text=_SYNTH_SUBAGENT_OUTPUT,
@@ -1842,7 +1845,7 @@ class TestInfluenceLoweredDefault:
         _seed_influence_entry(db, "inf-ac6a", "Influence AC6a")
         provider = _FixedSimilarityProvider(similarity=0.60)
 
-        result_json = _process_record_influence_by_content(
+        result_json, _ = _process_record_influence_by_content(
             db=db,
             provider=provider,
             subagent_output_text=_SYNTH_SUBAGENT_OUTPUT,
@@ -1859,7 +1862,7 @@ class TestInfluenceLoweredDefault:
         _seed_influence_entry(db, "inf-ac6b", "Influence AC6b")
         provider = _FixedSimilarityProvider(similarity=0.50)
 
-        result_json = _process_record_influence_by_content(
+        result_json, _ = _process_record_influence_by_content(
             db=db,
             provider=provider,
             subagent_output_text=_SYNTH_SUBAGENT_OUTPUT,
@@ -1932,7 +1935,9 @@ class TestInfluenceDiagnosticsEmit:
         assert parsed["injected"] == 3
         # All 3 entries match (similarity 0.80 >= default 0.55)
         assert parsed["matched"] == 3
-        assert parsed["recorded"] == 3
+        # Feature 085 FR-5: `recorded` field was a duplicate of `matched`
+        # (TD-4) and has been removed from the schema.
+        assert "recorded" not in parsed
         assert parsed["agent_role"] == "implementer"
         assert parsed["feature_type_id"] == "feature:080"
 
@@ -1974,7 +1979,7 @@ class TestInfluenceErrorHandlingAC10:
         _seed_influence_entry(db, "inf-ac10a", "Influence AC10a")
         provider = _FixedSimilarityProvider(similarity=0.60)
 
-        result_json = _process_record_influence_by_content(
+        result_json, _ = _process_record_influence_by_content(
             db=db,
             provider=provider,
             subagent_output_text=_SYNTH_SUBAGENT_OUTPUT,
@@ -2003,7 +2008,7 @@ class TestInfluenceErrorHandlingAC10:
             agent_role="implementer",
             injected=1,
             matched=0,
-            threshold=0.55,
+            resolved_threshold=0.55,
             feature_type_id=None,
         )
         assert log_path.exists()
@@ -2074,7 +2079,7 @@ class TestInfluenceErrorHandlingAC10:
         # similarity 0.60 matches 0.55 default but NOT 1.0 → proves default was used
         provider = _FixedSimilarityProvider(similarity=0.60)
 
-        result_json = _process_record_influence_by_content(
+        result_json, _ = _process_record_influence_by_content(
             db=db,
             provider=provider,
             subagent_output_text=_SYNTH_SUBAGENT_OUTPUT,
@@ -2089,3 +2094,106 @@ class TestInfluenceErrorHandlingAC10:
         captured = capsys.readouterr()
         warnings = self._WARN_REGEX.findall(captured.err)
         assert len(warnings) == 1, f"Expected 1 warning, got: {captured.err!r}"
+
+
+# ---------------------------------------------------------------------------
+# Feature 085 FR-6: single-resolution of memory_influence_threshold (SC-9)
+# ---------------------------------------------------------------------------
+
+
+class TestSingleResolutionThresholdFR6:
+    """SC-9(b): `record_influence_by_content` resolves the threshold once per call.
+
+    Patches the bound-import name `memory_server.resolve_float_config`
+    (NOT `semantic_memory.config_utils.resolve_float_config` — the
+    `from X import Y` statement binds `Y` into the consumer's
+    namespace at import time; patching the source module would not
+    intercept the consumer's usage). `wraps=_real_resolve_float_config`
+    ensures the real logic still executes so the wrapped code path
+    behaves identically; only call-counting is observed.
+    """
+
+    def test_record_influence_by_content_resolves_threshold_once(
+        self, db: MemoryDatabase, monkeypatch
+    ):
+        from unittest import mock
+
+        # Seed one entry so the helper reaches its body (not the
+        # `not injected_entry_names` early return).
+        _seed_influence_entry(db, "inf-fr6", "Influence FR6")
+        provider = _FixedSimilarityProvider(similarity=0.80)
+
+        monkeypatch.setitem(memory_server._config, "memory_influence_debug", True)
+
+        old_db = memory_server._db
+        old_provider = memory_server._provider
+        memory_server._db = db
+        memory_server._provider = provider
+        try:
+            with mock.patch(
+                "memory_server.resolve_float_config",
+                wraps=_real_resolve_float_config,
+            ) as spy:
+                import asyncio
+
+                asyncio.run(
+                    memory_server.record_influence_by_content(
+                        subagent_output_text=_SYNTH_SUBAGENT_OUTPUT,
+                        injected_entry_names=["Influence FR6"],
+                        agent_role="implementer",
+                        feature_type_id="feature:085",
+                        threshold=None,
+                    )
+                )
+
+                matching = [
+                    c
+                    for c in spy.call_args_list
+                    if (c.kwargs.get("key") == "memory_influence_threshold")
+                    or (len(c.args) >= 2 and c.args[1] == "memory_influence_threshold")
+                ]
+                assert len(matching) == 1, (
+                    f"expected exactly 1 resolve_float_config call for "
+                    f"memory_influence_threshold, got {len(matching)}: "
+                    f"{spy.call_args_list!r}"
+                )
+        finally:
+            memory_server._db = old_db
+            memory_server._provider = old_provider
+
+
+# ---------------------------------------------------------------------------
+# Feature 085 FR-2: atomic 0o600 file creation (SC-3)
+# ---------------------------------------------------------------------------
+
+
+class TestInfluenceDebugLogModeFR2:
+    """SC-3 / AC-H2: influence-debug.log is created with mode 0o600.
+
+    The test forces ambient umask to 0o022 (typical on shared hosts) so
+    that the pre-PR code path — `Path.open("a")` inheriting umask —
+    would produce 0o644 instead of 0o600. The post-PR implementation
+    uses `os.open(..., 0o600)` wrapped in `umask(0)` per design I-3.
+    """
+
+    def test_influence_debug_log_created_with_mode_0o600(
+        self, db: MemoryDatabase, tmp_path, monkeypatch
+    ):
+        log_path = tmp_path / "diag.log"
+        monkeypatch.setattr(memory_server, "INFLUENCE_DEBUG_LOG_PATH", log_path)
+        # Force a non-zero ambient umask so the pre-PR `Path.open`
+        # path would produce 0o644 (0o666 & ~0o022 == 0o644).
+        old_umask = os.umask(0o022)
+        try:
+            memory_server._emit_influence_diagnostic(
+                agent_role="implementer",
+                injected=1,
+                matched=0,
+                resolved_threshold=0.55,
+                feature_type_id=None,
+            )
+        finally:
+            os.umask(old_umask)
+        assert log_path.exists()
+        mode = os.stat(str(log_path)).st_mode & 0o777
+        assert mode == 0o600, f"expected 0o600, got 0o{mode:03o}"
