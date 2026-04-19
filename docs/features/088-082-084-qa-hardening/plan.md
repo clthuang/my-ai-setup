@@ -52,6 +52,7 @@
 **Task B.3 — `_select_candidates` LIMIT + cursor streaming (FR-9.6).**
 - Modify `_select_candidates`: add `scan_limit` kwarg (default 100000). SQL: add `LIMIT ?` binding `scan_limit`. Convert fetchall to yield-based.
 - Add `memory_decay_scan_limit` to `config.py` DEFAULTS (covered in Task G.1).
+- Note on ordering: B.3 runs BEFORE G.1 in the overall bundle order (B lands before G). Because `_resolve_int_config` falls back to the hardcoded default (100000) when the config key is absent in DEFAULTS, B.3 is functional before G.1 lands; G.1 merely makes the key operator-configurable.
 - Wire caller in `decay_confidence` per design final reconciled form:
   ```python
   scan_limit = _resolve_int_config(config, 'memory_decay_scan_limit', 100000, prefix='[memory-decay]', warned=_warned, clamp=(1000, 10_000_000))
@@ -220,6 +221,18 @@ Commit: `feat(088): Bundle C — session-start heredoc fix, symlink-safe logs, P
 - Add FR-10.5 test: `test_rejects_or_normalizes_naive_datetime_now` (AC-38) — pass tz-naive `now=datetime(2026,4,16,12)` to `decay_confidence`; assert behavior matches current normalization path at `maintenance.py:316-324` (attach UTC). The test PINS this branch so a future refactor that drops the normalization is caught.
 - Pass: all tests pass.
 
+**Task H.3a — Concurrency + integration tests (split from H.3):**
+- `test_concurrent_writer_via_decay_confidence` (AC-31) — threading.Barrier-aligned concurrent writers.
+- `test_concurrent_decay_and_record_influence_both_succeed_eventually` (AC-39 part 1).
+- `test_fts5_queries_still_work_after_bulk_decay` (AC-39 part 2).
+- `test_rejects_or_normalizes_naive_datetime_now` (AC-38).
+- Pass: all 4 tests pass.
+
+**Task H.3b — Boundary + error-path + augmentation tests (split from H.3):**
+- Four FR-10.7 tests (AC-40): empty DB, NaN/Inf config, sqlite error during SELECT, session-start timeout.
+- Augment `test_ac11a/b/c` with capsys (AC-28).
+- Pass: all 5 tests pass.
+
 **Task H.4 — Feature 084 test additions (FR-10.10, AC-43).**
 - Add `test_phase_duration_handles_mismatched_started_completed_counts`.
 - Add `test_insert_phase_event_rejects_invalid_event_type_and_source` (CHECK constraint negative test).
@@ -267,9 +280,8 @@ Commit: `feat(088): Bundle L — reconcile drift detection for phase_events vs m
 - Pass: `grep -n "clamped silently" plugins/pd/hooks/lib/semantic_memory/maintenance.py` returns 0.
 
 **Task J.3 — Regenerate `agent_sandbox/082-eqp.txt` (FR-9.4, AC-30).**
-- Write a small reproducer script that seeds 10000 entries with `source != 'import'` (matching the 082 `test_performance_10k_entries` fixture shape), calls `decay_confidence`, captures the returned `diag` dict (`scanned`, `skipped_import`, `elapsed_ms`).
-- Write `scanned=10000 skipped_import=0 elapsed_ms=<N>` to `agent_sandbox/082-eqp.txt`.
-- Pass: `grep -n "skipped_import=0" agent_sandbox/082-eqp.txt` matches.
+- Place a reproducer script at `agent_sandbox/088-eqp-regen.py` that seeds 10000 entries with `source != 'import'` (matching the 082 `test_performance_10k_entries` fixture shape from `test_maintenance.py`), calls `decay_confidence`, captures the returned `diag` dict (`scanned`, `skipped_import`, `elapsed_ms`), and writes `scanned=10000 skipped_import=0 elapsed_ms=<N>` to `agent_sandbox/082-eqp.txt`. Delete the reproducer script after writing the output.
+- Pass: `grep -n "skipped_import=0" agent_sandbox/082-eqp.txt` matches; reproducer script no longer exists.
 
 Commit: `docs(088): Bundle J — spec 082 amendments + EQP regen (FR-9)`.
 
@@ -304,7 +316,7 @@ Commit: `docs(088): Bundle K — retroactive 084 retro.md + backlog #00138 (FR-1
 | A | 4 | 0 |
 | B | 4 | A |
 | G | 3 | A (shares maintenance.py with B) |
-| D | 4 | 0 (independent file set) |
+| D | 4 | I (D.3 specifically — SKILL.md must drop `project_id=` kwarg before MCP removes the parameter; other D tasks are 0-dep) |
 | E | 4 | D |
 | F | 2 | E (shares workflow_state_server.py) |
 | C | 4 | A, B, G (C.2 modifies maintenance.py and refresh.py — serialize after A/B/G) |
