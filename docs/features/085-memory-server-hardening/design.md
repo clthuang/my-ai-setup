@@ -257,7 +257,7 @@ Delete lines 771-778 (the redundant resolution + independent clamp).
 
 **Test migration (6 call sites):** `plugins/pd/mcp/test_memory_server.py` call sites at lines 1775, 1796, 1819, 1836, 1951, 2051 currently bind `result_json = _process_record_influence_by_content(...)`. Migrate to `result_json, _ = _process_record_influence_by_content(...)` (ignore threshold with `_`) where the test doesn't assert on it. For any test specifically verifying threshold resolution, unpack both and assert.
 
-**`with_retry` decorator interaction:** `with_retry` at `plugins/pd/hooks/lib/sqlite_retry.py` is return-shape agnostic — it re-invokes the wrapped function on transient SQLite errors and returns whatever the wrapped function returns. Tuple return works identically to str return.
+**`with_retry` decorator interaction:** `with_retry` imported via `from sqlite_retry import with_retry` at `memory_server.py` (current import; relative via `sys.path` insertion) from `plugins/pd/hooks/lib/sqlite_retry.py`. The decorator is return-shape agnostic — it re-invokes the wrapped function on transient SQLite errors and returns whatever the wrapped function returns. Tuple return works identically to str return.
 
 **FR-2 + FR-3 + FR-5:** Rewrite `_emit_influence_diagnostic` (lines 466-500). **Schema preservation:** `injected` field remains `int` (count) per existing test assertion `test_memory_server.py:1906` `assert parsed["injected"] == 3`. Only `recorded` is removed (FR-5). No other JSON keys change.
 
@@ -479,7 +479,9 @@ def _render_test_sh(feasibility: dict) -> str:
     ...
 ```
 
-**Invariant relaxation clarified:** Spec AC-H6/H7/H8 ("simple regex → no complex-regex comment") is BEST-EFFORT, not guaranteed. If `_construct_matching_sample` fails or the verify step misses, the classifier emits the comment (safe fallback). This is correct by design: a generic POSITIVE_INPUT that doesn't match the regex would make the generated test fail — the comment preempts that. Spec AC-H6/H7/H8 assertions MAY require relaxation during implementation; if so, update spec in the same PR.
+**Invariant relaxation clarified:** Spec AC-H6/H7/H8 ("simple regex → no complex-regex comment") is BEST-EFFORT, not guaranteed. If `_construct_matching_sample` fails or the verify step misses, the classifier emits the comment (safe fallback). This is correct by design: a generic POSITIVE_INPUT that doesn't match the regex would make the generated test fail — the comment preempts that.
+
+**Decision rule for spec-update trigger:** After implementation, run the AC-H6/H7/H8 test cases. If `_construct_matching_sample` returns a verified match for each (comment absent), spec ACs stand unchanged. If any case triggers fallback (comment emitted), update spec AC-H6/H7/H8 wording to read "the comment MAY be absent" (best-effort) before merging. Do NOT leave the spec/implementation mismatched.
 
 ## Interfaces
 
