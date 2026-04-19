@@ -129,7 +129,17 @@ def _process_store_memory(
         print("memory-server: near-duplicate check skipped: embedding provider unavailable", file=sys.stderr)
 
     # -- Dedup merge check (0.90, existing behavior) --
-    threshold = cfg.get("memory_dedup_threshold", 0.90)
+    # Feature 086 #00091: route through the shared resolver for bool-rejection,
+    # type coercion, clamp, and one-shot warning parity with other
+    # memory-server thresholds (memory_influence_threshold, etc.).
+    threshold = resolve_float_config(
+        cfg,
+        "memory_dedup_threshold",
+        0.90,
+        prefix="[memory-server]",
+        warned=_warned_fields,
+        clamp=(0.0, 1.0),
+    )
     if embedding_vec is not None:
         dedup_result = check_duplicate(embedding_vec, db, threshold)
         if dedup_result.is_duplicate:
@@ -436,6 +446,12 @@ _warned_fields: set[str] = set()
 # One-shot flag: suppress repeated stderr warnings after first log write failure.
 _influence_debug_write_failed: bool = False
 
+# Feature 086 #00089: rotation failures are decoupled from write failures.
+# A transient rename failure (cross-device, permission glitch, disk full on
+# the .1 target) must NOT silence subsequent writes — we warn once about
+# rotation but continue appending to the oversized log.
+_rotation_failure_warned: bool = False
+
 # Destination for per-dispatch influence diagnostics (opt-in via
 # memory_influence_debug config).  Tests monkeypatch this constant.
 INFLUENCE_DEBUG_LOG_PATH: Path = (
@@ -469,58 +485,114 @@ def _emit_influence_diagnostic(
     ``_process_record_influence_by_content``; this function does not
     resolve config on its own.
     """
-    global _influence_debug_write_failed
+    global _influence_debug_write_failed, _rotation_failure_warned
+
+    # FR-3 rotation — feature 086 #00089: isolated try/except so a transient
+    # rename failure (cross-device, permission glitch) does NOT silence
+    # subsequent write attempts. Rotation is best-effort; on failure we
+    # warn once and continue to append to the oversized log. The separate
+    # write try/except below still catches and suppresses repeated write
+    # errors via `_influence_debug_write_failed`.
     try:
         INFLUENCE_DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        # mkdir failure is a pre-write condition; route through the write-
+        # failure path so the one-shot applies consistently.
+        if not _influence_debug_write_failed:
+            sys.stderr.write(
+                f"[memory-server] influence-debug log parent mkdir failed ({exc}); "
+                f"suppressing further diagnostic write errors this session\n"
+            )
+            _influence_debug_write_failed = True
+        return
 
-        # FR-3: rotate to `.1` when the log reaches 10 MB. `os.rename`
-        # is atomic on POSIX and overwrites any existing `.1` in one
-        # syscall. Best-effort single-writer — concurrent-writer races
-        # are out of scope (see AC-E5 in spec.md).
+    # FR-3 rotate: atomic `os.rename` on POSIX. `.1` overwrites in one
+    # syscall (AC-E9). Best-effort single-writer; concurrent-writer races
+    # out of scope (AC-E5).
+    try:
+        current_size = INFLUENCE_DEBUG_LOG_PATH.stat().st_size
+    except FileNotFoundError:
+        current_size = 0
+    except OSError as exc:
+        # stat-level error is treated like a failed rotation — warn once,
+        # continue. We skip this write because the filesystem is unhealthy.
+        if not _rotation_failure_warned:
+            sys.stderr.write(
+                f"[memory-server] influence-debug log stat failed ({exc}); "
+                f"skipping rotation check; further rotation errors suppressed\n"
+            )
+            _rotation_failure_warned = True
+        current_size = 0  # proceed to write; skip rotation
+
+    if current_size >= _INFLUENCE_DEBUG_ROTATE_BYTES:
         try:
-            current_size = INFLUENCE_DEBUG_LOG_PATH.stat().st_size
-        except FileNotFoundError:
-            current_size = 0
-        if current_size >= _INFLUENCE_DEBUG_ROTATE_BYTES:
             os.rename(
                 str(INFLUENCE_DEBUG_LOG_PATH),
                 str(INFLUENCE_DEBUG_LOG_PATH) + ".1",
             )
+        except OSError as exc:
+            # #00089: isolated — DO NOT set _influence_debug_write_failed.
+            # Emit one-shot rotation warning and fall through to write.
+            if not _rotation_failure_warned:
+                sys.stderr.write(
+                    f"[memory-server] influence-debug log rotation failed ({exc}); "
+                    f"continuing to append to oversized log; further rotation errors "
+                    f"suppressed this session\n"
+                )
+                _rotation_failure_warned = True
 
-        line = json.dumps({
-            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "event": "influence_dispatch",
-            "agent_role": agent_role,
-            "injected": injected,
-            "matched": matched,
-            # FR-5: `recorded` field dropped — was identical to `matched` per
-            # TD-4; removal is a semantic no-op but unclutters consumers.
-            "threshold": resolved_threshold,
-            "feature_type_id": feature_type_id,
-        })
-        # FR-2: create the log file with mode 0o600 atomically. Umask on
-        # POSIX masks the mode arg of `os.open`; temporarily force 0 so
-        # the exact 0o600 is honored regardless of ambient umask (per
-        # OpenStack secure-file-creation guidance). `O_EXCL` is
-        # deliberately NOT used — the log persists across process
-        # invocations; `O_EXCL` would raise on every call after the
-        # first. The TOCTOU window is accepted: the path lives under
-        # ~/.claude/pd/memory/ which is single-user-scoped.
-        # Pre-existing log files keep their mode unchanged (O_CREAT is
-        # a no-op when the file already exists) — operators wanting
-        # retroactive 0o600 must delete the old file and let the next
-        # call re-create.
-        old_umask = os.umask(0)
+    line = json.dumps({
+        "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "event": "influence_dispatch",
+        "agent_role": agent_role,
+        "injected": injected,
+        "matched": matched,
+        # FR-5: `recorded` field dropped — was identical to `matched` per
+        # TD-4; removal is a semantic no-op but unclutters consumers.
+        "threshold": resolved_threshold,
+        "feature_type_id": feature_type_id,
+    })
+
+    # FR-2 (feature 085) + feature 086 #00086: create the log with mode 0o600
+    # atomically. Historical approach used `os.umask(0)` + restore; under
+    # asyncio (the MCP server is async), the umask=0 window could leak to
+    # unrelated `os.open` calls in concurrent coroutines. The safer pattern
+    # is `os.open` (mode arg masked by ambient umask, typically producing
+    # 0o644) followed by `os.fchmod(fd, 0o600)` on the already-open fd —
+    # this is atomic with respect to the fd (no symlink race possible) and
+    # does not touch process-global umask. `O_EXCL` is deliberately NOT
+    # used: the log persists across invocations; `O_EXCL` would raise on
+    # every call after the first. Pre-existing log files keep their mode
+    # unchanged (O_CREAT + fchmod only forces mode for newly-created files,
+    # since fchmod on an already-permissive log would down-grade its mode —
+    # see below for the newly-created vs pre-existing branch).
+    try:
+        existed_before = INFLUENCE_DEBUG_LOG_PATH.exists()
+        fd = os.open(
+            str(INFLUENCE_DEBUG_LOG_PATH),
+            os.O_APPEND | os.O_CREAT | os.O_WRONLY,
+            0o600,
+        )
         try:
-            fd = os.open(
-                str(INFLUENCE_DEBUG_LOG_PATH),
-                os.O_APPEND | os.O_CREAT | os.O_WRONLY,
-                0o600,
-            )
-        finally:
-            os.umask(old_umask)
-        with os.fdopen(fd, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
+            if not existed_before:
+                # Only force mode for newly-created files. Pre-existing
+                # files keep their mode per AC-E3 (operators opt into
+                # upgrade by deleting the old file).
+                try:
+                    os.fchmod(fd, 0o600)
+                except (OSError, NotImplementedError):
+                    # Platforms without fchmod (e.g. Windows) — accept
+                    # umask-derived mode; spec scopes pd to POSIX anyway.
+                    pass
+            with os.fdopen(fd, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except BaseException:
+            # Ensure fd is closed on any error that bypasses fdopen's with-block.
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            raise
     except (OSError, IOError) as exc:
         if not _influence_debug_write_failed:
             sys.stderr.write(
