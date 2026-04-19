@@ -3,6 +3,12 @@
 
 set -euo pipefail
 
+# Ignore SIGPIPE: during /clear or /compact, CC may close stdout before the
+# hook finishes writing JSON. Without this, cat <<EOF gets SIGPIPE (exit 141),
+# ERR trap's echo also gets SIGPIPE (stdout closed), exit 0 never runs, and
+# CC reports "Failed with non-blocking status code: No stderr output".
+trap '' PIPE
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
