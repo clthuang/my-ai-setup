@@ -141,3 +141,7 @@
 
 **Feature 084 process gap:**
 - **#00137** **[MED/process]** Feature 084 has no `retro.md` despite `mode=full`. Artifact-completeness check at `workflow_state_server.py:691` lists `retro.md` as required for full mode. Fix: generate retrospective.
+
+## Feature 088 Deferred Sub-items (2026-04-19)
+
+- **#00138** Deferred 082/084 test-gap sub-items not addressed by feature 088's FR-10.7 / FR-10.10 minimums. Each sub-item is a low-priority test addition surfaced by the feature-088 adversarial review (test-deepener agents on features 082 and 084). None is a correctness blocker; all are mutation-resistance improvements. **From #00116 (feature 082 test gaps):** duplicate timestamp handling, special-char entry IDs in batch_demote, `update_recall` + decay concurrent race, promote-decay-promote full cycle, `last_recalled_at NOT NULL AND recall_count=0` inconsistent-state test, session-start double-fire microsecond race. **From #00136 (feature 084 test gaps):** duplicate timestamp pairing determinism, oversized/unicode/null-byte `reviewer_notes` at DB layer, invalid ISO timestamp warning-vs-silent-drop semantics, special-char `project_id` preservation, concurrent analytics-while-inserting snapshot consistency, interleaved backward+restart pairing, iterations overflow/underflow, skipped-phase revisited via backward transition, delete-then-recreate entity collision, backfill missing `started` uses `created_at` proxy per FR-4 vs falls back to `now`. To be addressed in a future test-hardening feature or during regression triage.
