@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.15.10] - 2026-04-19
+
 ### Security
 - **ReDoS hardening** in `pattern_promotion/generators/hook.py`: `_is_complex_regex` now detects nested-quantifier patterns like `(a+)+b` via `_NESTED_QUANTIFIER_RE`, preventing attacker-authored KB regexes from hanging `/pd:promote-pattern` via catastrophic backtracking (CWE-1333)
 
