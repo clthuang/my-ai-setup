@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **ReDoS hardening** in `pattern_promotion/generators/hook.py`: `_is_complex_regex` now detects nested-quantifier patterns like `(a+)+b` via `_NESTED_QUANTIFIER_RE`, preventing attacker-authored KB regexes from hanging `/pd:promote-pattern` via catastrophic backtracking (CWE-1333)
+
+### Changed
+- **Influence debug log atomic 0o600 creation** now uses `os.fchmod(fd, 0o600)` after `os.open` instead of `os.umask(0)` manipulation. The prior pattern leaked umask=0 to unrelated `os.open` calls in concurrent asyncio coroutines; fchmod-on-fd is race-free and does not touch process-global state
+- **Rotation failure isolated from write failure** in `_emit_influence_diagnostic`: transient `os.rename` failures now emit a one-shot rotation warning and continue to append to the oversized log, rather than permanently silencing all subsequent diagnostic writes
+- **`memory_dedup_threshold` routed through `resolve_float_config`** for bool-rejection / type-coercion / clamp / warn-once parity with other memory-server thresholds
+- **Hook generator test stubs** now construct JSON bodies via `json.dumps` (compact separators) and wrap bash assignments with `shlex.quote`; previously-raw f-string interpolation could produce malformed JSON for samples containing shell/regex metacharacters (CWE-116 correctness hole)
+
+### Added
+- Regression tests: caller-passed threshold bypass (FR-6 #00087), 10 MB rotation boundary off-by-one cases (#00092), ReDoS classifier cases (#00085), JSON/shell quoting roundtrip (#00088), end-to-end bash subprocess roundtrip (#00093)
+
+### Fixed
+- Backlog items #00085-#00094 (feature 080/085 post-release QA findings) addressed in feature 086-memory-server-qa-round-2. #00090 verified as already mitigated.
+
 ## [4.15.9] - 2026-04-19
 
 ### Added

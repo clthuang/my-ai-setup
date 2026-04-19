@@ -2,11 +2,12 @@
   "id": "085",
   "slug": "memory-server-hardening",
   "mode": "standard",
-  "status": "active",
+  "status": "completed",
   "created": "2026-04-19T03:06:27.604206+00:00",
   "branch": "feature/085-memory-server-hardening",
+  "completed": "2026-04-19T04:39:12.668262+00:00",
   "brainstorm_source": "docs/brainstorms/20260419-105300-memory-server-hardening.prd.md",
-  "lastCompletedPhase": "implement",
+  "lastCompletedPhase": "finish",
   "phases": {
     "brainstorm": {
       "started": "2026-04-19T03:06:27.603092+00:00"
@@ -26,6 +27,10 @@
     },
     "implement": {
       "completed": "2026-04-19T04:35:28.850436+00:00",
+      "iterations": 1
+    },
+    "finish": {
+      "completed": "2026-04-19T04:39:12.668262+00:00",
       "iterations": 1
     }
   }

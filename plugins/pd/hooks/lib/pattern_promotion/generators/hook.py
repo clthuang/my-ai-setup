@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from pathlib import Path
 from typing import Optional
 
@@ -81,6 +82,19 @@ _COMPLEX_REGEX_MARKERS: tuple[str, ...] = (
 # Inline-flag detector catches `(?i)`, `(?s)`, `(?is)`, `(?imsx)` etc.
 _INLINE_FLAG_RE = re.compile(r"\(\?[aiLmsux]+\)")
 
+# Feature 086 #00085: Nested-quantifier detector — catches catastrophic
+# backtracking patterns like `(a+)+b`, `(x+x+)+y`, `(ab*)+c`. These cause
+# exponential backtracking when `re.search` attempts to match against a
+# crafted input; since `_construct_matching_sample` runs `re.search` on
+# candidates constructed from the regex itself (bounded length), the
+# worst case is bounded but still measurable. We reject at classifier
+# time so the generator never tries — fallback produces a safe generic
+# stub with the manual-review comment.
+#
+# Pattern: a `(` followed by any non-closing chars containing a quantifier,
+# then `)` followed by another quantifier.
+_NESTED_QUANTIFIER_RE = re.compile(r"\([^)]*[+*?][^)]*\)[+*?]")
+
 # Marker comment injected into the generated test script when the
 # classifier treats a regex as complex. Exact text is asserted by
 # ACs H9 / E11 / E12.
@@ -100,11 +114,21 @@ _REGEX_METACHARS = set(".^$*+?{}[]|()\\")
 
 
 def _is_complex_regex(expr: str) -> bool:
-    """Classify a regex as complex (lookaround, inline flag, backref)."""
+    """Classify a regex as complex (lookaround, inline flag, backref, or
+    nested quantifier).
+
+    Feature 086 #00085: nested-quantifier patterns like ``(a+)+b`` cause
+    catastrophic backtracking (ReDoS). The classifier now rejects these
+    up-front so ``_construct_matching_sample`` never calls ``re.search``
+    on such a pattern — fallback emits a generic stub with the manual-
+    review comment, eliminating the hang-the-generator vector.
+    """
     for marker in _COMPLEX_REGEX_MARKERS:
         if marker in expr:
             return True
     if _INLINE_FLAG_RE.search(expr):
+        return True
+    if _NESTED_QUANTIFIER_RE.search(expr):
         return True
     return False
 
@@ -425,38 +449,73 @@ def _render_test_sh(
     # the test in CI. The important invariants are:
     #   POSITIVE_INPUT → hook exit != 0
     #   NEGATIVE_INPUT → hook exit == 0
+    # Feature 086 #00088: construct JSON bodies via `json.dumps` so
+    # characters inside `sample` (quotes, backslashes, newlines) are
+    # properly escaped. The prior f-string approach would produce malformed
+    # JSON for samples containing `"` or `\`. Shell-side protection relies
+    # on `shlex.quote` when composing the POSITIVE_INPUT / NEGATIVE_INPUT
+    # bash variable values, so arbitrary JSON bodies are safe as shell
+    # literals regardless of content.
     if check_kind == "file_path_regex":
-        negative = '{"tool_input":{"file_path":"/absolute/path/file.txt"}}'
+        negative = json.dumps(
+            {"tool_input": {"file_path": "/absolute/path/file.txt"}},
+            separators=(",", ":"),
+        )
         sample = None
         if not _is_complex_regex(check_expression):
             sample = _construct_matching_sample(check_expression)
         if sample is not None and re.search(check_expression, sample):
-            positive = f'{{"tool_input":{{"file_path":"{sample}"}}}}'
+            positive = json.dumps(
+                {"tool_input": {"file_path": sample}}, separators=(",", ":")
+            )
         else:
-            positive = f'{{"tool_input":{{"file_path":"{_GENERIC_POSITIVE_FILE_PATH}"}}}}'
+            positive = json.dumps(
+                {"tool_input": {"file_path": _GENERIC_POSITIVE_FILE_PATH}},
+                separators=(",", ":"),
+            )
             complex_comment_block = _COMPLEX_REGEX_NOTE + "\n"
     elif check_kind == "content_regex":
-        negative = f'{{"tool_input":{{"content":"{_GENERIC_NEGATIVE_CONTENT}"}}}}'
+        negative = json.dumps(
+            {"tool_input": {"content": _GENERIC_NEGATIVE_CONTENT}},
+            separators=(",", ":"),
+        )
         sample = None
         if not _is_complex_regex(check_expression):
             sample = _construct_matching_sample(check_expression)
         if sample is not None and re.search(check_expression, sample):
-            positive = f'{{"tool_input":{{"content":"{sample}"}}}}'
+            positive = json.dumps(
+                {"tool_input": {"content": sample}}, separators=(",", ":")
+            )
         else:
-            positive = f'{{"tool_input":{{"content":"{_GENERIC_POSITIVE_CONTENT}"}}}}'
+            positive = json.dumps(
+                {"tool_input": {"content": _GENERIC_POSITIVE_CONTENT}},
+                separators=(",", ":"),
+            )
             complex_comment_block = _COMPLEX_REGEX_NOTE + "\n"
     elif check_kind == "json_field":
-        positive = '{"tool_input":{"field":"any-value"}}'
-        negative = '{"tool_input":{}}'
-    else:  # composite
-        positive = (
-            '{"tool_input":{"file_path":"relative/path","content":"x"}}'
+        positive = json.dumps(
+            {"tool_input": {"field": "any-value"}}, separators=(",", ":")
         )
-        negative = (
-            '{"tool_input":{"file_path":"/ok/path","content":"ok"}}'
+        negative = json.dumps({"tool_input": {}}, separators=(",", ":"))
+    else:  # composite
+        positive = json.dumps(
+            {"tool_input": {"file_path": "relative/path", "content": "x"}},
+            separators=(",", ":"),
+        )
+        negative = json.dumps(
+            {"tool_input": {"file_path": "/ok/path", "content": "ok"}},
+            separators=(",", ":"),
         )
 
     entry_name_comment = entry_name.replace("\r", " ").replace("\n", " ")
+
+    # Feature 086 #00088: wrap JSON bodies with `shlex.quote` so shell
+    # variable assignment is safe regardless of quotes/escapes inside.
+    # `shlex.quote` returns the value already wrapped with shell-safe
+    # delimiters (typically single quotes with `'\''` escaping), so the
+    # template assigns `VAR=<quoted>` with no surrounding literals.
+    positive_shell = shlex.quote(positive)
+    negative_shell = shlex.quote(negative)
 
     return (
         f"#!/usr/bin/env bash\n"
@@ -469,8 +528,8 @@ def _render_test_sh(
         f"HOOK=\"$SCRIPT_DIR/../{Path(hook_rel_path).name}\"\n"
         f"\n"
         f"{complex_comment_block}"
-        f"POSITIVE_INPUT='{positive}'\n"
-        f"NEGATIVE_INPUT='{negative}'\n"
+        f"POSITIVE_INPUT={positive_shell}\n"
+        f"NEGATIVE_INPUT={negative_shell}\n"
         f"\n"
         f"fail=0\n"
         f"\n"
