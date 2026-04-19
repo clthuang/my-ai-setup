@@ -124,7 +124,7 @@ All 43 findings from #00095–#00137. Spec organizes them into 9 Functional Requ
 
 ### FR-9: Spec Patches (Feature 082)
 
-**Patch style:** All spec patches to `docs/features/082-recall-tracking-and-confidence/spec.md` are appended as an `## Amendments (2026-04-19 — feature 088)` section at the END of that spec. The amendment section lists each patched text with old-text / new-text pairs. The original spec body is left unchanged to preserve historical auditability. This preserves the "retrospective acknowledged the spec bug" signal without rewriting history.
+**Patch style:** All spec patches to `docs/features/082-recall-tracking-and-confidence/spec.md` are appended as an `## Amendments (2026-04-19 — feature 088)` section at the END of that spec. The amendment section lists each patched text with old-text / new-text pairs. The original spec body is left unchanged to preserve historical auditability. This preserves the "retrospective acknowledged the spec bug" signal without rewriting history. **retro.md for feature 082 MUST NOT be modified** (see NFR-6).
 
 **Findings covered:** #00100, #00101, #00107, #00108, #00109, #00110, #00111
 
@@ -226,7 +226,7 @@ Each finding ID maps to one AC. ACs below are grouped by FR. Test files referenc
 - **AC-20 (FR-6.4, #00129):** `_migration_10_phase_events` code layout: `try:` line precedes `conn.execute("BEGIN IMMEDIATE")` line.
 - **AC-21 (FR-6.5, #00130):** `grep -n "try:.*finally:.*_db = " plugins/pd/mcp/test_workflow_state_server.py` (multiline) finds zero matches in feature-084 test classes.
 - **AC-22 (FR-6.6, #00098):** Both `maintenance.py::_resolve_int_config` and `refresh.py::_resolve_int_config` MUST be line-for-line identical (except for docstring prefix string). Verify via diff after extracting the shared helper per FR-6.7.
-- **AC-23 (FR-6.7, #00105):** `plugins/pd/hooks/lib/semantic_memory/_config_utils.py` exists with `_warn_and_default` and `_resolve_int_config` functions. Both `maintenance.py` and `refresh.py` import from it. `wc -l maintenance.py refresh.py` total drops by ≥ 50 lines vs baseline.
+- **AC-23 (FR-6.7, #00105):** `plugins/pd/hooks/lib/semantic_memory/_config_utils.py` exists with `_warn_and_default` and `_resolve_int_config` functions. Both `maintenance.py` and `refresh.py` import from it. `wc -l maintenance.py refresh.py` total drops by ≥ 50 lines vs baseline (baseline = pre-fix git SHA captured in `agent_sandbox/088-baselines.txt` per NFR-2).
 - **AC-24 (FR-7.1, #00132):** Seed 10 completed events; 5 have `iterations=None`, 5 have `iterations=3`. Call `query_phase_analytics(query_type='iteration_summary', limit=5)`. Result MUST contain all 5 rows with `iterations=3` (filter-then-limit).
 - **AC-25 (FR-7.2, #00133):** `grep -n "_ANALYTICS_EVENT_SCAN_LIMIT" plugins/pd/mcp/workflow_state_server.py` matches.
 
@@ -249,7 +249,7 @@ Each finding ID maps to one AC. ACs below are grouped by FR. Test files referenc
 - **AC-34 (FR-10.1, #00102):** `plugins/pd/hooks/lib/semantic_memory/config.py::DEFAULTS` contains `memory_decay_enabled`, `memory_decay_high_threshold_days`, `memory_decay_medium_threshold_days`, `memory_decay_grace_period_days`, `memory_decay_dry_run` keys. Typo `memory_decay_enabaled: true` in config emits stderr warning at session-start.
 - **AC-34b (FR-10.1, #00096 part B):** `_coerce` accepts `{True, 'true', '1', 1}` as True and `{False, 'false', '0', 0, ''}` as False (case-sensitive lowercase). `_coerce('False')` (capital F) MUST return the default value (not True) AND emit stderr warning matching `r'ambiguous boolean'`. `_coerce('True')` (capital T) same. Test pins both via `capsys.readouterr()`.
 - **AC-35 (FR-10.2, #00103):** Running `maintenance.py --project-root /foreign/user/path` (simulated with mock uid) exits non-zero with stderr warning.
-- **AC-36 (FR-10.3, #00104):** `grep -n "db._conn" plugins/pd/hooks/lib/semantic_memory/test_maintenance.py` finds fewer matches than baseline (migrated to public API or `_for_testing` method).
+- **AC-36 (FR-10.3, #00104):** `grep -c "db._conn" plugins/pd/hooks/lib/semantic_memory/test_maintenance.py` returns 0 (all call sites migrated to public API or `_for_testing` method). Baseline count is recorded in `agent_sandbox/088-baselines.txt` per NFR-2.
 
 ### Test ACs
 
@@ -262,7 +262,7 @@ Each finding ID maps to one AC. ACs below are grouped by FR. Test files referenc
   - `test_empty_db_returns_all_zeros_with_no_error`: run `decay_confidence` on empty DB; return dict has `scanned=0, demoted_*=0, skipped_*=0, error` key absent.
   - `test_nan_infinity_and_negative_zero_threshold_values_fall_back_to_default`: pass `memory_decay_high_threshold_days=float('nan')` and `float('inf')`; assert default (30) used and stderr warning emitted.
   - `test_sqlite_error_during_select_phase_returns_error_dict`: monkeypatch `db._conn.execute` for SELECT path to raise `sqlite3.OperationalError('disk I/O error')`; assert return dict has `error` key, demoted counts 0.
-  - `test_session_start_decay_timeout_does_not_block_hook`: stub the maintenance CLI with `time.sleep(30)`; run `bash session-start.sh` with timeout enforced via `subprocess.run(..., timeout=5)` from the pytest wrapper (portable Python-side enforcement); assert `TimeoutExpired` NOT raised on the hook wrapper (hook itself honored its internal timeout budget and returned early), exit code 0, script completes in < 10s wall time, no 'Decay:' line in JSON additionalContext.
+  - `test_session_start_decay_timeout_does_not_block_hook`: session-start.sh enforces an internal timeout on the maintenance decay subprocess (currently 10s via `gtimeout`/`timeout` on POSIX; where unavailable, the spec requires implementer to introduce a Python-level `subprocess.run(..., timeout=10)` within `run_memory_decay` — see FR-1.3's "hard-fail" clause which implies a bounded subprocess). Test procedure: stub the maintenance CLI with `time.sleep(30)`; run `bash session-start.sh` wrapped in pytest-side `subprocess.run(..., timeout=20)` (double the expected internal budget). Assert: pytest wrapper's `TimeoutExpired` NOT raised (hook honored its own 10s budget), hook exit code 0, wall time < 20s, no 'Decay:' line in JSON additionalContext.
 - **AC-41 (FR-10.8, #00131):** Strengthened `test_ac19_metadata_still_has_phase_timing` includes both `iterations == 2` and `reviewerNotes` assertions.
 - **AC-42 (FR-10.9, #00135):** `reconcile_check` returns a drift entry for metadata-vs-phase_events mismatch; test seeds the mismatch and asserts.
 - **AC-42b (FR-10.9, #00135):** After `reconcile_check` reports drift, `reconcile_apply` MUST NOT modify `phase_events` table rows. Assert: post-apply `phase_events` row count equals pre-apply count; stderr warning emitted via capsys.
