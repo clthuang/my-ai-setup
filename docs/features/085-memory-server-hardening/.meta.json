@@ -6,7 +6,7 @@
   "created": "2026-04-19T03:06:27.604206+00:00",
   "branch": "feature/085-memory-server-hardening",
   "brainstorm_source": "docs/brainstorms/20260419-105300-memory-server-hardening.prd.md",
-  "lastCompletedPhase": "specify",
+  "lastCompletedPhase": "design",
   "phases": {
     "brainstorm": {
       "started": "2026-04-19T03:06:27.603092+00:00"
@@ -14,6 +14,10 @@
     "specify": {
       "started": "2026-04-19T03:24:06.716536+00:00",
       "completed": "2026-04-19T03:24:30.410215+00:00",
+      "iterations": 4
+    },
+    "design": {
+      "completed": "2026-04-19T03:42:45.847927+00:00",
       "iterations": 4
     }
   }
