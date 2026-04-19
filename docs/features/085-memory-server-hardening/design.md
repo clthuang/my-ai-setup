@@ -17,11 +17,7 @@ plugins/pd/
 │   │   ├── config_utils.py           ← NEW — shared resolve_float_config helper
 │   │   ├── ranking.py                ← MODIFIED — imports from config_utils
 │   │   ├── test_config_utils.py      ← NEW — FR-4 shared helper tests (bool-handling, clamp, warn-once)
-│   │   ├── test_ranking.py           ← MODIFIED — migrate 6 call sites (lines 80,85,97,109,124,137)
-│   │   └── fixtures/feature_085_snapshots/   ← FR-14 golden-file snapshots (co-located)
-│   │       ├── input_kb.md
-│   │       ├── render_block.md
-│   │       └── md_insert.md
+│   │   └── test_ranking.py           ← MODIFIED — migrate 6 call sites (lines 80,85,97,109,124,137)
 │   └── pattern_promotion/generators/
 │       ├── _md_insert.py             ← MODIFIED — FR-1 entry_name sanitizer
 │       ├── test_md_insert.py         ← MODIFIED — APPEND FR-1 sanitization tests to existing file (do NOT create new)
@@ -30,13 +26,19 @@ plugins/pd/
 ├── mcp/
 │   ├── memory_server.py              ← MODIFIED — FR-2/3/5/6 (log perm + rotation + diagnostic schema + single-resolution)
 │   └── test_memory_server.py         ← MODIFIED — migrate 6 tuple-unpack sites (lines 1775,1796,1819,1836,1951,2051); update INFLUENCE_DEBUG_LOG_PATH mocks; add FR-3 rotation test
+└── hooks/tests/                      ← CROSS-MODULE SNAPSHOT LOCATION (matches spec SC-14)
+    ├── test_feature_085_snapshots.py ← NEW — golden-file snapshot tests for _render_block + insert_block
+    └── fixtures/feature_085_snapshots/
+        ├── input_kb.md
+        ├── render_block.md
+        └── md_insert.md
 
 validate.sh                           ← MODIFIED — FR-8 docs-sync guards + circular-import smoke test
 ```
 
 **Test migration discipline:** `test_md_insert.py` and `test_hook.py` already exist at the generators/ paths above — extending them avoids pytest nondeterministic collection from duplicate module names and keeps FR-specific tests co-located with their SUT per pd convention (spec.md Feasibility line 221). New tests for new code (`test_config_utils.py`) are created only where no file exists.
 
-**FR-14 snapshot location:** Golden files live at `plugins/pd/hooks/lib/semantic_memory/fixtures/feature_085_snapshots/` — a single co-located fixture dir used by cross-module snapshot tests. Pytest collects them via a single `test_feature_085_snapshots.py` file in the same dir. Classifier snapshot is DROPPED (see TD-13): `pattern_promotion` has no `classify_entries` top-level function; `classify_keywords(entry)` operates per-entry. Snapshots cover only `_render_block` and `insert_block` outputs, which are the user-facing markdown-writing surfaces.
+**SC-14 snapshot location:** Golden files live at `plugins/pd/hooks/tests/fixtures/feature_085_snapshots/` per spec SC-14 (cross-module snapshot tests naturally live outside any one package — the SUT spans `pattern_promotion/generators/_md_insert.py` for rendering). Pytest collects `plugins/pd/hooks/tests/test_feature_085_snapshots.py`. Classifier snapshot is DROPPED (see TD-13): `pattern_promotion` has no `classify_entries` top-level function; `classify_keywords(entry)` operates per-entry. Snapshots cover only `_render_block` and `insert_block` outputs, which are the user-facing markdown-writing surfaces.
 
 ### Data Flow: pre-PR vs post-PR
 
@@ -596,7 +598,7 @@ No new external library or pattern introduced. Design is pure stdlib and follows
 
 Per feasibility advisor + spec Test Migration section:
 
-0. **SC-14 snapshots (FIRST — MUST precede any behavior-affecting change)**: Capture golden-file baselines at `plugins/pd/hooks/lib/semantic_memory/fixtures/feature_085_snapshots/`. Run `_render_block(<clean_entry>, <clean_description>, mode)` and `_md_insert.insert_block(<target_md>, <block_lines>)` against the PRE-PR codebase with inputs from `input_kb.md` fixture; write outputs to `render_block.md` and `md_insert.md`. Classifier snapshot DROPPED (TD-13): `pattern_promotion.classifier` exposes only `classify_keywords(entry: KBEntry)` — per-entry, not per-document — so a document-level snapshot has no corresponding public API. The user-facing surfaces (`_render_block`, `insert_block`) are the correct snapshot targets. Commit snapshots and snapshot-test file (new: `plugins/pd/hooks/lib/semantic_memory/test_feature_085_snapshots.py`) as part of step 0.
+0. **SC-14 snapshots (FIRST — MUST precede any behavior-affecting change)**: Capture golden-file baselines at `plugins/pd/hooks/tests/fixtures/feature_085_snapshots/` (matches spec SC-14). Run `_render_block(<clean_entry>, <clean_description>, mode)` and `_md_insert.insert_block(<target_md>, <block_lines>)` against the PRE-PR codebase with inputs from `input_kb.md` fixture; write outputs to `render_block.md` and `md_insert.md`. Classifier snapshot DROPPED (TD-13): `pattern_promotion.classifier` exposes only `classify_keywords(entry: KBEntry)` — per-entry, not per-document — so a document-level snapshot has no corresponding public API. The user-facing surfaces (`_render_block`, `insert_block`) are the correct snapshot targets. Commit snapshots and snapshot-test file (new: `plugins/pd/hooks/tests/test_feature_085_snapshots.py`) as part of step 0.
 1. **FR-4 foundation**: Create `config_utils.py`. Update `memory_server.py` + `ranking.py` imports + callers. Delete local helpers. Migrate test files (`test_memory_server.py` ~10 refs, `test_ranking.py` ~6 refs). Run pytest to confirm green.
 2. **FR-2 + FR-5 + FR-6 batch**: All touch `memory_server.py` around `_emit_influence_diagnostic`. Apply in order: (a) FR-5 remove `recorded` key; (b) FR-6 change `_process_record_influence_by_content` to return `tuple[str, float]`, update wrapper to unpack, delete lines 771-775 redundant resolution, migrate 6 test callers to unpack; (c) FR-2 `os.open + fdopen` with `os.umask(0)` guard. Run pytest.
 3. **FR-3 rotation**: Extend `_emit_influence_diagnostic` with size-check + `os.rename`. Add rotation test. Run pytest.
