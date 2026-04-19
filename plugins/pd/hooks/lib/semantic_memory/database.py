@@ -798,6 +798,108 @@ class MemoryDatabase:
         self._conn.commit()
 
     # ------------------------------------------------------------------
+    # Test-only helpers (Feature 088 FR-10.3 / AC-36)
+    # ------------------------------------------------------------------
+
+    def insert_test_entry_for_testing(
+        self,
+        *,
+        entry_id: str,
+        name: str | None = None,
+        description: str = "desc",
+        category: str = "patterns",
+        keywords: str | None = None,
+        source: str = "session-capture",
+        source_project: str = "/tmp/test-project",
+        source_hash: str | None = None,
+        confidence: str = "medium",
+        recall_count: int | None = None,
+        last_recalled_at: str | None = None,
+        created_at: str,
+        updated_at: str | None = None,
+        observation_count: int = 1,
+    ) -> None:
+        """Test-only seed helper (feature 088 FR-10.3).
+
+        Replaces direct ``db._conn.execute`` access from test files so the
+        internal connection remains encapsulated per
+        `engineering-memory` anti-pattern. The ``_for_testing`` suffix
+        signals to reviewers this is NOT for production callers.
+
+        Bypasses ``upsert_entry``'s normalization path so tests can control
+        ``confidence``, ``source``, and ``last_recalled_at`` directly.
+        """
+        if name is None:
+            name = f"name-{entry_id}"
+        if keywords is None:
+            keywords = json.dumps(["k"])
+        if source_hash is None:
+            source_hash = "0" * 16
+        if updated_at is None:
+            updated_at = created_at
+        if recall_count is None:
+            recall_count = 1 if last_recalled_at else 0
+        self._conn.execute(
+            "INSERT INTO entries (id, name, description, category, keywords, "
+            "source, source_project, source_hash, confidence, recall_count, "
+            "last_recalled_at, created_at, updated_at, observation_count) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                entry_id, name, description, category, keywords,
+                source, source_project, source_hash, confidence, recall_count,
+                last_recalled_at, created_at, updated_at, observation_count,
+            ),
+        )
+        self._conn.commit()
+
+    def insert_test_entries_bulk_for_testing(
+        self, rows: list[tuple],
+    ) -> None:
+        """Batched executemany seed helper for large test fixtures.
+
+        ``rows`` is a list of 14-tuples matching the INSERT column order
+        used by ``insert_test_entry_for_testing``: ``(id, name, description,
+        category, keywords, source, source_project, source_hash, confidence,
+        recall_count, last_recalled_at, created_at, updated_at,
+        observation_count)``. Caller generates plausible values.
+        """
+        self._conn.executemany(
+            "INSERT INTO entries (id, name, description, category, keywords, "
+            "source, source_project, source_hash, confidence, recall_count, "
+            "last_recalled_at, created_at, updated_at, observation_count) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+        self._conn.commit()
+
+    def fetch_row_for_testing(
+        self, sql: str, params: tuple | list = (),
+    ) -> dict | None:
+        """Test-only read helper (feature 088 FR-10.3).
+
+        Executes a raw SELECT on the internal connection and returns the
+        first row as a dict (or None). Scoped to test files that previously
+        reached into ``db._conn.execute(...).fetchone()`` for assertions.
+        """
+        cur = self._conn.execute(sql, params)
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return dict(row)
+
+    def execute_test_sql_for_testing(
+        self, sql: str, params: tuple | list = (),
+    ) -> None:
+        """Test-only write helper (feature 088 FR-10.3).
+
+        Executes a raw UPDATE/INSERT/DELETE on the internal connection and
+        commits. Scoped to test files that previously reached into
+        ``db._conn.execute(...)``.
+        """
+        self._conn.execute(sql, params)
+        self._conn.commit()
+
+    # ------------------------------------------------------------------
     # Confidence decay (Feature 082)
     # ------------------------------------------------------------------
 

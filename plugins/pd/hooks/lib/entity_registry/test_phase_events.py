@@ -347,3 +347,412 @@ class TestQueryPhaseEvents:
         )
         assert len(results) == 1
         assert results[0]["phase"] == "brainstorm"
+
+
+# ---------------------------------------------------------------------------
+# Feature 088 Bundle D: migration 10 hardening tests
+# ---------------------------------------------------------------------------
+
+
+def _reset_phase_events_to_pre_migration(database):
+    """Drop phase_events artefacts + reset schema_version to 9.
+
+    Used by feature 088 Bundle D tests to exercise ``_migration_10_phase_events``
+    directly against a clean slate.
+    """
+    database._conn.execute("DROP TABLE IF EXISTS phase_events")
+    database._conn.execute("DROP INDEX IF EXISTS idx_pe_lookup")
+    database._conn.execute("DROP INDEX IF EXISTS idx_pe_project")
+    database._conn.execute("DROP INDEX IF EXISTS idx_pe_timestamp")
+    database._conn.execute("DROP INDEX IF EXISTS phase_events_backfill_dedup")
+    database._conn.execute(
+        "INSERT INTO _metadata(key, value) VALUES('schema_version', '9') "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    )
+    database._conn.commit()
+
+
+class TestFeature088Migration10Hardening:
+    """Feature 088 Bundle D: migration 10 concurrency, backfill validation."""
+
+    def test_migration_10_concurrent_idempotent(self, tmp_path):
+        """AC-5: two threads running migration 10 simultaneously yield single-run row count.
+
+        Uses ``threading.Barrier`` to align both threads inside the migration
+        entry point. The partial UNIQUE index + INSERT OR IGNORE (plus the
+        inside-BEGIN schema_version re-check) MUST produce the same row count
+        as a single-threaded control run.
+        """
+        import threading
+        import time
+        from entity_registry.database import _migration_10_phase_events
+
+        db_path = str(tmp_path / "concurrent.db")
+
+        # Seed one control DB and one concurrent DB with identical entity set.
+        def seed_entities(database):
+            # Three entities with phase_timing metadata.
+            database.register_entity(
+                "feature", "001-alpha", "Alpha",
+                project_id=TEST_PROJECT_ID,
+                metadata={
+                    "phase_timing": {
+                        "brainstorm": {
+                            "started": "2026-01-01T00:00:00Z",
+                            "completed": "2026-01-01T01:00:00Z",
+                            "iterations": 2,
+                        },
+                        "specify": {"started": "2026-01-01T02:00:00Z"},
+                    },
+                    "skipped_phases": ["design"],
+                },
+            )
+            database.register_entity(
+                "feature", "002-beta", "Beta",
+                project_id=TEST_PROJECT_ID,
+                metadata={
+                    "phase_timing": {
+                        "brainstorm": {
+                            "started": "2026-01-02T00:00:00Z",
+                            "completed": "2026-01-02T01:00:00Z",
+                        },
+                    },
+                    "backward_history": [{
+                        "source_phase": "specify",
+                        "target_phase": "brainstorm",
+                        "reason": "gap",
+                        "timestamp": "2026-01-02T02:00:00Z",
+                    }],
+                },
+            )
+
+        # Control: single-thread run
+        control_db = EntityDatabase(":memory:")
+        seed_entities(control_db)
+        _reset_phase_events_to_pre_migration(control_db)
+        _migration_10_phase_events(control_db._conn)
+        control_count = control_db._conn.execute(
+            "SELECT COUNT(*) FROM phase_events"
+        ).fetchone()[0]
+        control_db.close()
+        assert control_count > 0, "control run must produce backfill rows"
+
+        # Concurrent: two threads race on the same file-backed DB.
+        seed_db = EntityDatabase(db_path)
+        seed_entities(seed_db)
+        _reset_phase_events_to_pre_migration(seed_db)
+        seed_db.close()
+
+        barrier = threading.Barrier(2)
+        errors: list[BaseException] = []
+
+        def worker():
+            try:
+                conn = sqlite3.connect(db_path, timeout=10.0)
+                try:
+                    barrier.wait(timeout=5.0)
+                    _migration_10_phase_events(conn)
+                finally:
+                    conn.close()
+            except BaseException as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10.0)
+            assert not t.is_alive(), "migration thread hung"
+
+        # At least one thread may raise sqlite3.OperationalError under heavy
+        # lock contention; that is acceptable as long as the winning run
+        # produced the correct row count.  But a RuntimeError from the
+        # barrier or an unrelated crash is not acceptable.
+        for exc in errors:
+            assert isinstance(exc, sqlite3.Error), (
+                f"unexpected non-sqlite exception in worker: {exc!r}"
+            )
+
+        final_conn = sqlite3.connect(db_path)
+        try:
+            final_count = final_conn.execute(
+                "SELECT COUNT(*) FROM phase_events"
+            ).fetchone()[0]
+        finally:
+            final_conn.close()
+
+        # Concurrent run must produce EXACTLY the same count as single-run.
+        assert final_count == control_count, (
+            f"concurrent run produced {final_count} rows; "
+            f"control produced {control_count}"
+        )
+
+    def test_migration_skips_unparseable_timestamp(self, capsys):
+        """AC-9: unparseable timestamp is skipped with stderr warning."""
+        from entity_registry.database import _migration_10_phase_events
+
+        database = EntityDatabase(":memory:")
+        # Seed an entity with an unparseable timestamp in metadata.phase_timing.
+        database.register_entity(
+            "feature", "bad-ts", "Bad Timestamp",
+            project_id=TEST_PROJECT_ID,
+            metadata={
+                "phase_timing": {
+                    "design": {"started": "not-a-date"},
+                    "brainstorm": {
+                        "started": "2026-01-01T00:00:00Z",
+                        "completed": "2026-01-01T01:00:00Z",
+                    },
+                },
+            },
+        )
+        _reset_phase_events_to_pre_migration(database)
+        _migration_10_phase_events(database._conn)
+
+        # Row for (type_id, design, started) MUST NOT exist.
+        rows = database._conn.execute(
+            "SELECT * FROM phase_events "
+            "WHERE type_id='feature:bad-ts' AND phase='design' "
+            "AND event_type='started'"
+        ).fetchall()
+        assert rows == []
+
+        # Valid rows still landed.
+        rows_ok = database._conn.execute(
+            "SELECT * FROM phase_events "
+            "WHERE type_id='feature:bad-ts' AND phase='brainstorm'"
+        ).fetchall()
+        assert len(rows_ok) == 2
+
+        # Stderr warning was emitted.
+        captured = capsys.readouterr()
+        assert "[migration-10] skipping unparseable timestamp" in captured.err
+        database.close()
+
+    def test_migration_truncates_backward_reason_at_500(self):
+        """AC-9b: backward_reason and backward_target truncated to 500 chars."""
+        from entity_registry.database import _migration_10_phase_events
+
+        database = EntityDatabase(":memory:")
+        database.register_entity(
+            "feature", "trunc-001", "Trunc",
+            project_id=TEST_PROJECT_ID,
+            metadata={
+                "backward_history": [{
+                    "source_phase": "design",
+                    "target_phase": "y" * 800,
+                    "reason": "x" * 800,
+                    "timestamp": "2026-04-01T00:00:00Z",
+                }],
+            },
+        )
+        _reset_phase_events_to_pre_migration(database)
+        _migration_10_phase_events(database._conn)
+
+        row = database._conn.execute(
+            "SELECT backward_reason, backward_target "
+            "FROM phase_events WHERE type_id='feature:trunc-001' "
+            "AND event_type='backward'"
+        ).fetchone()
+        assert row is not None
+        assert len(row["backward_reason"]) == 500
+        assert len(row["backward_target"]) == 500
+
+        # Original metadata blob is unchanged (AC-9b invariant).
+        entity = database.get_entity("feature:trunc-001")
+        meta = json.loads(entity["metadata"])
+        bh = meta["backward_history"][0]
+        assert len(bh["reason"]) == 800
+        assert len(bh["target_phase"]) == 800
+        database.close()
+
+
+# ---------------------------------------------------------------------------
+# Feature 088 Bundle E: DB-layer reviewer_notes guard + transaction participation
+# ---------------------------------------------------------------------------
+
+
+class TestFeature088BundleE:
+    """Feature 088 Bundle E: DB-layer reviewer_notes cap + transaction pin.
+
+    Covers FR-2.4 (DB-layer defense-in-depth) and FR-5.2 / AC-16
+    (``insert_phase_event`` participates in an outer ``db.transaction()``
+    block rather than committing prematurely). The latter is a pin of the
+    existing ``_commit()`` guard at ``database.py:1672-1675`` — no source
+    change is made by this test; it merely locks in current behavior.
+    """
+
+    def test_insert_phase_event_rejects_oversized_reviewer_notes(self, db):
+        """FR-2.4 DB-layer defense: reviewer_notes >10000 chars raises
+        ``ValueError`` before SQL execution.
+        """
+        oversized = "x" * 10001
+        with pytest.raises(ValueError, match="reviewer_notes exceeds 10000 chars"):
+            db.insert_phase_event(
+                type_id="feature:oversized-001",
+                project_id=TEST_PROJECT_ID,
+                phase="specify",
+                event_type="completed",
+                timestamp="2026-04-01T10:00:00Z",
+                reviewer_notes=oversized,
+            )
+
+        # No row was inserted.
+        rows = db._conn.execute(
+            "SELECT * FROM phase_events WHERE type_id = 'feature:oversized-001'"
+        ).fetchall()
+        assert rows == []
+
+        # Exact-boundary sanity: 10000 chars is allowed.
+        at_boundary = "x" * 10000
+        db.insert_phase_event(
+            type_id="feature:boundary-001",
+            project_id=TEST_PROJECT_ID,
+            phase="specify",
+            event_type="completed",
+            timestamp="2026-04-01T10:00:00Z",
+            reviewer_notes=at_boundary,
+        )
+        rows_ok = db._conn.execute(
+            "SELECT * FROM phase_events WHERE type_id = 'feature:boundary-001'"
+        ).fetchall()
+        assert len(rows_ok) == 1
+
+    def test_insert_phase_event_does_not_prematurely_commit_outer_transaction(
+        self, db,
+    ):
+        """AC-16 (FR-5.2): inside ``db.transaction()``, ``insert_phase_event``
+        MUST participate in the outer transaction rather than auto-commit.
+
+        Pins the existing ``_commit()`` guard at ``database.py:1672-1675``
+        which defers to ``self._in_transaction`` (set by the ``transaction()``
+        context manager). A rollback triggered by an exception inside the
+        ``with`` block MUST remove the inserted row.
+        """
+        type_id_under_test = "feature:txn-pin-001"
+
+        # Precondition: no rows for this type_id.
+        pre = db._conn.execute(
+            "SELECT COUNT(*) AS c FROM phase_events WHERE type_id = ?",
+            (type_id_under_test,),
+        ).fetchone()["c"]
+        assert pre == 0
+
+        # Run the transaction wrapper; expect our sentinel to propagate.
+        with pytest.raises(RuntimeError, match="rollback test"):
+            with db.transaction():
+                db.insert_phase_event(
+                    type_id=type_id_under_test,
+                    project_id=TEST_PROJECT_ID,
+                    phase="specify",
+                    event_type="started",
+                    timestamp="2026-04-01T10:00:00Z",
+                )
+                # Force an abort BEFORE the ``with`` block exits — the
+                # outer transaction must roll back, discarding the insert.
+                raise RuntimeError("rollback test")
+
+        # Post-rollback: the inserted row MUST be absent. If the insert had
+        # auto-committed via an unguarded ``self._commit()``, it would persist.
+        post = db._conn.execute(
+            "SELECT COUNT(*) AS c FROM phase_events WHERE type_id = ?",
+            (type_id_under_test,),
+        ).fetchone()["c"]
+        assert post == 0, (
+            "insert_phase_event prematurely committed despite outer "
+            "db.transaction() context manager being active"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Feature 088 Bundle H.4 — Feature 084 test additions (FR-10.10, AC-43)
+# ---------------------------------------------------------------------------
+
+
+class TestFeature088BundleH4PhaseEvents:
+    """AC-43 coverage additions targeting phase_events layer behavior."""
+
+    def test_insert_phase_event_rejects_invalid_event_type_and_source(self, db):
+        """AC-43 (FR-10.10): CHECK constraint negative test.
+
+        The ``phase_events.event_type`` column is CHECK-constrained to
+        ``('started', 'completed', 'skipped', 'backward')`` and
+        ``phase_events.source`` is CHECK-constrained to
+        ``('live', 'backfill')``. Inserts violating either constraint MUST
+        raise ``sqlite3.IntegrityError``.
+        """
+        # Invalid event_type.
+        with pytest.raises(sqlite3.IntegrityError):
+            db.insert_phase_event(
+                type_id="feature:bad-et-001",
+                project_id=TEST_PROJECT_ID,
+                phase="design",
+                event_type="gibberish",  # NOT in the CHECK set
+                timestamp="2026-04-01T10:00:00Z",
+            )
+
+        # Invalid source.
+        with pytest.raises(sqlite3.IntegrityError):
+            db.insert_phase_event(
+                type_id="feature:bad-src-001",
+                project_id=TEST_PROJECT_ID,
+                phase="design",
+                event_type="started",
+                timestamp="2026-04-01T10:00:00Z",
+                source="forbidden",  # NOT in the CHECK set
+            )
+
+        # No rows inserted for either failing call.
+        rows = db._conn.execute(
+            "SELECT COUNT(*) AS c FROM phase_events "
+            "WHERE type_id IN ('feature:bad-et-001', 'feature:bad-src-001')"
+        ).fetchone()["c"]
+        assert rows == 0
+
+    def test_migration_10_rerun_on_pre_existing_rows_does_not_duplicate_backfill(self):
+        """AC-43 (FR-10.10): re-running migration 10 over a backfilled DB
+        MUST NOT duplicate rows (partial UNIQUE index + INSERT OR IGNORE).
+        """
+        from entity_registry.database import _migration_10_phase_events
+
+        database = EntityDatabase(":memory:")
+        database.register_entity(
+            "feature", "rerun-001", "Rerun",
+            project_id=TEST_PROJECT_ID,
+            metadata={
+                "phase_timing": {
+                    "brainstorm": {
+                        "started": "2026-04-01T00:00:00Z",
+                        "completed": "2026-04-01T01:00:00Z",
+                        "iterations": 1,
+                    },
+                },
+            },
+        )
+        _reset_phase_events_to_pre_migration(database)
+
+        # First migration run.
+        _migration_10_phase_events(database._conn)
+        first_count = database._conn.execute(
+            "SELECT COUNT(*) AS c FROM phase_events WHERE source='backfill'"
+        ).fetchone()["c"]
+        assert first_count > 0, "control backfill must produce rows"
+
+        # Reset schema_version BUT keep phase_events rows — simulates a
+        # rerun against a partially-migrated DB (e.g., after a crash).
+        database._conn.execute(
+            "INSERT INTO _metadata(key, value) VALUES('schema_version', '9') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+        database._conn.commit()
+
+        # Second migration run — must be a no-op for backfill rows.
+        _migration_10_phase_events(database._conn)
+        second_count = database._conn.execute(
+            "SELECT COUNT(*) AS c FROM phase_events WHERE source='backfill'"
+        ).fetchone()["c"]
+        assert second_count == first_count, (
+            f"backfill rerun duplicated rows: first={first_count}, "
+            f"second={second_count}"
+        )
+        database.close()
