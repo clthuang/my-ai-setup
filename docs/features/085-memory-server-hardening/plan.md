@@ -51,7 +51,7 @@ Step 8 (final: plugin.json bump + full gate)
 
 **Sub-sequence:**
 - **0.1**: Write input fixture `plugins/pd/hooks/tests/fixtures/feature_085_snapshots/input_kb.md` with 3 clean KB entries (no `-->`, `<!--`, triple-backtick in entry_name/description).
-- **0.2**: Write one-shot capture script `plugins/pd/hooks/tests/fixtures/feature_085_snapshots/_capture.py` that imports current `_render_block` + `insert_block`, runs against the fixture, writes `render_block.md` + `md_insert.md`.
+- **0.2**: Write one-shot capture script `plugins/pd/hooks/tests/generate_feature_085_snapshots.py` (canonical path; at tests/ root, NOT inside fixtures/) that imports current `_render_block` + `insert_block`, runs against the fixture, writes `render_block.md` + `md_insert.md`. pytest ignores `generate_*.py` by default.
 - **0.3**: Run capture against PRE-PR code; commit generated .md files. Capture script remains committed as documentation of capture method.
 - **0.4**: Write `plugins/pd/hooks/tests/test_feature_085_snapshots.py` with 2 tests asserting `actual == Path(snapshot).read_text()`.
 - **0.5**: Run full pytest — tests pass against PRE-PR code (self-consistency proof: the captured baseline matches current code). This is the GREEN state for Step 0; there is no RED because the baseline equals reality at capture time.
