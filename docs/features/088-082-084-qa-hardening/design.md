@@ -207,13 +207,19 @@ def _select_candidates(db, high_cutoff, med_cutoff, grace_cutoff, *, scan_limit=
         yield dict(row)
 ```
 
-Caller change in `decay_confidence`:
+Caller change in `decay_confidence` (applied AFTER B.1 — final reconciled form):
 ```python
-scan_limit = _resolve_int_config(config, 'memory_decay_scan_limit', 100000,
-                                  prefix='[memory-decay]', warned=_warned,
-                                  clamp=(1000, 10_000_000))
-candidates = list(_select_candidates(db, high_cutoff, med_cutoff, grace_cutoff,
-                                     scan_limit=scan_limit))
+# After B.1's timestamp format unification AND B.4's scan_limit:
+high_cutoff  = _iso_utc(now - timedelta(days=high_days))
+med_cutoff   = _iso_utc(now - timedelta(days=med_days))
+grace_cutoff = _iso_utc(now - timedelta(days=grace_days))
+scan_limit = _resolve_int_config(
+    config, 'memory_decay_scan_limit', 100000,
+    prefix='[memory-decay]', warned=_warned, clamp=(1000, 10_000_000),
+)
+candidates = list(_select_candidates(
+    db, high_cutoff, med_cutoff, grace_cutoff, scan_limit=scan_limit,
+))
 # Downstream code already treats candidates as a list — unchanged.
 ```
 
@@ -1049,7 +1055,7 @@ Full suite (NFR-3):
 
 ## Technical Decisions
 
-**TD-A (Migration 10 concurrent safety):** Chose UNIQUE index + INSERT OR IGNORE over BEGIN IMMEDIATE re-check. Rationale: storage-layer idempotency guarantee doesn't depend on future author discipline. Cost: one extra index (negligible storage). Tradeoff accepted.
+**TD-A (Migration 10 concurrent safety):** Chose UNIQUE index + INSERT OR IGNORE as the primary mechanism, with a schema_version re-check inside the transaction as belt-and-suspenders (both are intentional, not accidental duplication). Rationale: storage-layer idempotency (the partial UNIQUE index) doesn't depend on future author discipline; the schema_version re-check avoids 2x write work on concurrent race by making the second thread a no-op. Cost: one extra index (negligible storage). Tradeoff accepted.
 
 **TD-B (Dual-write ordering):** insert_phase_event runs AFTER main transaction commits. Chosen because phase_events is additive analytics (NFR-3), and placing the INSERT inside the main transaction causes both writes to roll back on phase_events IntegrityError — silently breaking the transition workflow the caller relied on.
 
@@ -1127,12 +1133,12 @@ See Bundle D.2 for the authoritative migration body. Both the dedup pass and the
 | AC-25 | grep _ANALYTICS_EVENT_SCAN_LIMIT | F |
 | AC-26 | grep project_id assignment in SKILL.md | I |
 | AC-27 | grep Amendments section | J |
-| AC-28 | pytest test_ac11a/b/c capsys assertion | J |
+| AC-28 | pytest test_ac11a/b/c capsys assertion | J (doc amendment) + H (test_maintenance.py code change batched) |
 | AC-29 | grep Amendment B content | J |
 | AC-30 | grep skipped_import=0 in 082-eqp.txt | J |
 | AC-31 | pytest concurrent_writer_via_decay_confidence | H |
 | AC-32 | grep LIMIT in _select_candidates + pytest scan_limit fixture | B |
-| AC-33 | grep _TEST_EPOCH or fixture | H |
+| AC-33 | grep _TEST_EPOCH or fixture | H (NOW rename batched with test_maintenance.py changes) |
 | AC-34 | pytest memory_decay_enabaled typo fixture | G |
 | AC-34b | pytest _coerce('False') assertion | G |
 | AC-35 | pytest foreign-uid project_root fixture | G |
