@@ -10,6 +10,7 @@ redirected to a per-test ``tmp_path`` so tests that enable
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 from datetime import MAXYEAR, datetime, timedelta, timezone
@@ -2330,3 +2331,92 @@ class TestSqliteErrorDuringSelectPhase:
 # ``TestDecayConfigCoercion`` were augmented in-place with ``capsys`` +
 # stderr regex assertions (per the spec DoD wording). No separate augmented
 # class is needed.
+
+
+# ---------------------------------------------------------------------------
+# Feature 089 Bundle A — Security hardening tests
+# ---------------------------------------------------------------------------
+
+
+class TestFeature089BundleA:
+    """Feature 089 Bundle A (#00139, #00141, #00154): strict boolean
+    coercion routed through ``read_config``, tz-naive rejection in
+    ``_iso_utc``, and insecure-parent-dir refusal in the influence log.
+    """
+
+    def test_coerce_bool_routed_from_read_config(self, tmp_path, capsys):
+        """AC-1 (FR-1.1 / #00139).
+
+        ``read_config`` MUST route bool-default keys through ``_coerce_bool``
+        so ambiguous variants like the capital-F ``'False'`` fall back to
+        the DEFAULTS value (False) AND emit a one-line stderr warning.
+
+        Pre-089 this string round-tripped as ``'False'`` (truthy) and later
+        truthy-checks silently ran decay against the operator's intent.
+        """
+        from semantic_memory.config import read_config
+
+        project_root = tmp_path
+        (project_root / ".claude").mkdir()
+        (project_root / ".claude" / "pd.local.md").write_text(
+            "memory_decay_enabled: False\n"
+        )
+
+        config = read_config(str(project_root))
+
+        assert config["memory_decay_enabled"] is False, (
+            f"capital 'False' must coerce to False (default), got "
+            f"{config['memory_decay_enabled']!r}"
+        )
+        captured = capsys.readouterr()
+        assert re.search(r"ambiguous boolean", captured.err), (
+            f"expected 'ambiguous boolean' stderr warning, got: "
+            f"{captured.err!r}"
+        )
+
+    def test_iso_utc_raises_on_naive_datetime(self):
+        """AC-3 (FR-1.3 / #00141).
+
+        ``_iso_utc`` MUST raise ``ValueError`` for tz-naive inputs and
+        return a Z-suffix string for tz-aware inputs.
+        """
+        # Naive datetime → ValueError.
+        with pytest.raises(ValueError, match="timezone-aware"):
+            maintenance._iso_utc(datetime(2026, 1, 1, 12, 0, 0))
+
+        # Tz-aware datetime → expected Z-suffix string.
+        result = maintenance._iso_utc(
+            datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        )
+        assert result == "2026-01-01T12:00:00Z"
+
+    def test_influence_log_refuses_insecure_parent_dir_mode(
+        self, tmp_path, monkeypatch
+    ):
+        """AC-7 (FR-1.7 / #00154).
+
+        Parent directory with group/world-readable mode (0o755) MUST cause
+        ``_emit_decay_diagnostic`` to decline the write (no log file
+        created, no data leaked to a weakly-protected path).
+        """
+        # Build a parent dir with INSECURE mode 0o755.
+        insecure_parent = tmp_path / "insecure"
+        insecure_parent.mkdir(mode=0o755)
+        # Explicitly chmod in case the umask masked bits we asked for.
+        os.chmod(str(insecure_parent), 0o755)
+
+        log_path = insecure_parent / "influence-debug.log"
+        monkeypatch.setattr(maintenance, "INFLUENCE_DEBUG_LOG_PATH", log_path)
+
+        diag = _make_diag()
+        maintenance._emit_decay_diagnostic(diag)
+
+        # File MUST NOT exist, or at minimum have zero bytes written.
+        if log_path.exists():
+            assert log_path.stat().st_size == 0, (
+                f"insecure parent dir must not receive log writes, "
+                f"but {log_path} has {log_path.stat().st_size} bytes"
+            )
+
+        # Tighten mode back down so pytest cleanup can remove the dir.
+        os.chmod(str(insecure_parent), 0o700)

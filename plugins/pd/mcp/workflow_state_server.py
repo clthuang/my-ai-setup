@@ -1836,6 +1836,20 @@ async def query_phase_analytics(
     if _db is None:
         return _NOT_INITIALIZED
 
+    # Feature 089 FR-1.5 / AC-5 (#00143): allowlist ``project_id`` to avoid
+    # cross-project data disclosure via arbitrary scope strings. Accepted:
+    #   - ``None`` → defaults to current project below
+    #   - ``'*'``   → explicit cross-project opt-in
+    #   - ``_project_id`` → explicit current project
+    # Anything else is refused.
+    if project_id is not None and project_id != "*" and project_id != _project_id:
+        return _make_error(
+            "forbidden",
+            f'cross-project query requires project_id="*" or current '
+            f'project ({_project_id!r}); got {project_id!r}',
+            'Pass project_id=None for current, "*" for all projects',
+        )
+
     # FR-2.1: default to current project; "*" means opt into cross-project.
     resolved_project_id = None if project_id == "*" else (project_id or _project_id)
 

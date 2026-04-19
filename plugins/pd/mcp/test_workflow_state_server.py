@@ -8474,9 +8474,20 @@ class TestQueryPhaseAnalytics:
         assert len(result["results"]) <= 3
 
     def test_ac15_project_id_filter(self, analytics_db):
-        """AC-15: project_id filter returns only matching project."""
+        """AC-15: project_id filter returns only matching project.
+
+        Feature 089 FR-1.5 / AC-5 (#00143): ``query_phase_analytics`` now
+        enforces a project_id allowlist. The legacy wide-open scoping that
+        accepted any string is gone; to exercise P002 in this test, we set
+        the current project to P002 (current-project resolves to P002 via
+        the explicit ``project_id='P002'`` argument passing the allowlist
+        check).
+        """
         import asyncio
         import workflow_state_server
+
+        # Set current project to P002 so the allowlist accepts project_id='P002'.
+        workflow_state_server._project_id = "P002"
 
         result_str = asyncio.run(
             workflow_state_server.query_phase_analytics(
@@ -9225,3 +9236,69 @@ class TestFeature088BundleH4:
         assert events == [], (
             f"phase_events row unexpectedly present after lock: {events!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Feature 089 Bundle A — query_phase_analytics project_id allowlist
+# ---------------------------------------------------------------------------
+
+
+class TestFeature089BundleA:
+    """Feature 089 Bundle A (#00143): ``query_phase_analytics`` rejects
+    unknown ``project_id`` values so callers cannot probe foreign
+    projects by guessing IDs.
+    """
+
+    def test_query_phase_analytics_rejects_unknown_project_id(self):
+        """AC-5 (FR-1.5 / #00143).
+
+        Calling with ``project_id='arbitrary'`` from a different current
+        project MUST return an ``error`` dict with a ``forbidden`` tag.
+        Calling with ``project_id='*'`` MUST pass validation (wildcard is
+        the explicit cross-project opt-in).
+        """
+        import asyncio
+        import workflow_state_server as wss
+
+        # Seed a real DB so the wildcard call can succeed past validation.
+        db = EntityDatabase(":memory:")
+        db.insert_phase_event(
+            type_id="feature:z-001", project_id="ProjZ",
+            phase="design", event_type="started",
+            timestamp="2026-04-10T10:00:00Z",
+        )
+
+        wss._db = db
+        wss._project_id = "ProjZ"
+
+        # Unknown project_id → forbidden error.
+        forbidden_result = json.loads(asyncio.run(
+            wss.query_phase_analytics(
+                query_type="raw_events", project_id="arbitrary", limit=10,
+            )
+        ))
+        assert "error" in forbidden_result, (
+            f"expected error dict for unknown project_id, got {forbidden_result!r}"
+        )
+        # _make_error shape: {"error": True, "error_type": "forbidden", ...}
+        assert forbidden_result.get("error_type") == "forbidden", (
+            f"expected error_type=forbidden, got "
+            f"{forbidden_result.get('error_type')!r}"
+        )
+        # The message should mention the cross-project rule.
+        assert "cross-project" in forbidden_result.get("message", ""), (
+            f"forbidden error should reference cross-project rule: "
+            f"{forbidden_result!r}"
+        )
+
+        # Wildcard → passes validation and returns a result (no error).
+        star_result = json.loads(asyncio.run(
+            wss.query_phase_analytics(
+                query_type="raw_events", project_id="*", limit=10,
+            )
+        ))
+        assert "error" not in star_result, (
+            f"wildcard must pass validation, got {star_result!r}"
+        )
+
+        db.close()

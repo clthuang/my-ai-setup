@@ -756,3 +756,60 @@ class TestFeature088BundleH4PhaseEvents:
             f"second={second_count}"
         )
         database.close()
+
+
+# ---------------------------------------------------------------------------
+# Feature 089 Bundle A — Security hardening (narrow OperationalError catch)
+# ---------------------------------------------------------------------------
+
+
+class TestFeature089BundleA:
+    """Feature 089 Bundle A (#00142): migration 10 MUST only swallow the
+    ``no such table`` OperationalError — every other error (e.g. ``database
+    is locked``) must propagate so the caller sees the real failure.
+    """
+
+    def test_migration_10_rethrows_non_missing_table_operational_error(self):
+        """AC-4 (FR-1.4 / #00142).
+
+        A ``database is locked`` OperationalError raised from the schema
+        re-check SELECT MUST propagate out of ``_migration_10_phase_events``.
+        Pre-089 the bare ``except sqlite3.OperationalError: pass`` silently
+        swallowed any cause.
+
+        Strategy: wrap the real connection in a proxy that intercepts
+        the schema_version SELECT and raises ``database is locked``. All
+        other SQL passes through to the real connection.
+        """
+        from entity_registry.database import _migration_10_phase_events
+
+        database = EntityDatabase(":memory:")
+        real_conn = database._conn
+
+        class _ProxyConn:
+            """Minimal connection proxy that raises on the schema SELECT."""
+
+            def __init__(self, inner):
+                self._inner = inner
+
+            def execute(self, sql, *args, **kwargs):
+                if "SELECT value FROM _metadata" in sql:
+                    raise sqlite3.OperationalError("database is locked")
+                return self._inner.execute(sql, *args, **kwargs)
+
+            def rollback(self):
+                return self._inner.rollback()
+
+            def commit(self):
+                return self._inner.commit()
+
+            def __getattr__(self, name):
+                return getattr(self._inner, name)
+
+        proxy = _ProxyConn(real_conn)
+
+        # Expect the OperationalError to propagate (not swallowed).
+        with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+            _migration_10_phase_events(proxy)
+
+        database.close()

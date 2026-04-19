@@ -1408,9 +1408,14 @@ def _migration_10_phase_events(conn: sqlite3.Connection) -> None:
                 if current_version >= 10:
                     conn.rollback()
                     return
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as e:
+            # Feature 089 FR-1.4 / AC-4 (#00142): narrow the catch so only the
+            # "_metadata table does not yet exist" case is swallowed — any
+            # other OperationalError (e.g. ``database is locked``) must
+            # propagate so callers see the real failure.
+            if 'no such table' not in str(e).lower():
+                raise
             # _metadata table does not yet exist — safe to proceed.
-            pass
 
         # Existing DDL (unchanged per design — deployed schema).
         conn.execute("""

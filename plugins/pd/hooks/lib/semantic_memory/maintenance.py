@@ -64,10 +64,14 @@ def _iso_utc(dt: datetime) -> str:
     so cutoffs and ``now_iso`` compare lexicographically against stored
     ``last_recalled_at`` / ``created_at`` values written by ``merge_duplicate``
     (which uses the same Z-suffix format).  Feature 088 FR-3.1.
+
+    Feature 089 FR-1.3 / AC-3 (#00141): tz-naive datetimes are REJECTED with
+    ``ValueError`` — silent fall-through previously allowed local-time values
+    to be stamped as ``Z`` (UTC) and mis-compare against stored timestamps.
     """
-    if dt.tzinfo is not None:
-        dt = dt.astimezone(timezone.utc)
-    return dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+    if dt.tzinfo is None:
+        raise ValueError("_iso_utc requires timezone-aware datetime")
+    return dt.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
 # ---------------------------------------------------------------------------
@@ -140,10 +144,48 @@ def _emit_decay_diagnostic(diag: dict) -> None:
         # Note: mkdir(mode=) only applies when the dir is newly created — existing
         # dirs keep their current mode (documented platform behavior).
         INFLUENCE_DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
+
+        # Feature 089 FR-1.7 / AC-7 (#00154): verify parent dir ownership +
+        # mode BEFORE opening the log. An attacker with write access to the
+        # parent dir (group/world-writable) could race-swap the log file; a
+        # foreign uid on the parent is an active compromise signal.
+        parent_stat = INFLUENCE_DEBUG_LOG_PATH.parent.stat()
+        if parent_stat.st_uid != os.getuid() or (parent_stat.st_mode & 0o077):
+            # Silently decline to write — treat like any other log failure.
+            raise OSError(
+                f"refusing to write log: parent dir "
+                f"{INFLUENCE_DEBUG_LOG_PATH.parent} has insecure "
+                f"uid={parent_stat.st_uid} or mode=0o{parent_stat.st_mode & 0o777:o}"
+            )
+
+        base_flags = os.O_APPEND | os.O_WRONLY
         if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        fd = os.open(str(INFLUENCE_DEBUG_LOG_PATH), flags, 0o600)
+            base_flags |= os.O_NOFOLLOW
+        # First attempt: O_EXCL — atomic create-and-acquire. If EEXIST, we
+        # fall back to append-only (no O_CREAT, no O_EXCL) and verify the
+        # existing file's ownership via fstat so a symlink-swap or foreign-uid
+        # hijack is caught BEFORE we write.
+        try:
+            fd = os.open(
+                str(INFLUENCE_DEBUG_LOG_PATH),
+                base_flags | os.O_CREAT | os.O_EXCL,
+                0o600,
+            )
+        except FileExistsError:
+            fd = os.open(str(INFLUENCE_DEBUG_LOG_PATH), base_flags)
+            # Re-stat the fd — not the path — so a TOCTOU symlink swap post-
+            # open is caught.
+            try:
+                fd_stat = os.fstat(fd)
+            except OSError:
+                os.close(fd)
+                raise
+            if fd_stat.st_uid != os.getuid():
+                os.close(fd)
+                raise OSError(
+                    f"refusing to append log: file owner uid={fd_stat.st_uid} "
+                    f"!= running uid={os.getuid()}"
+                )
         try:
             if hasattr(os, "fchmod"):
                 try:
@@ -335,7 +377,13 @@ def decay_confidence(
     # Normalize to UTC to prevent false-positive demotions from SQLite's
     # lexicographic string comparison on ISO-8601 timestamps with different
     # timezone offsets (adversarial QA finding #1).
-    if now.tzinfo is not None:
+    #
+    # Feature 089 FR-1.3 (#00141): _iso_utc now REJECTS naive datetimes, so
+    # naive inputs must be assumed-UTC here (back-compat with AC-38 test that
+    # pins naive-input acceptance at the decay entry point).
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    else:
         now = now.astimezone(timezone.utc)
 
     # Resolve config via shared helper (bool-reject + clamp + dedup-warn).
