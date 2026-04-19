@@ -5,7 +5,9 @@ Feature 080 (`/pd:promote-pattern` + memory influence logging) left 8 post-QA re
 
 ## Success Criteria
 
-- [ ] **SC-1**: All 8 backlog items annotated in `docs/backlog.md`. Verified by shell: `for n in 00067 00068 00069 00070 00071 00072 00073 00074; do grep -c "(fixed in feature:085-memory-server-hardening)" <(grep -A0 "^\| $n " docs/backlog.md) || echo "MISS:$n"; done` — expect no `MISS:*` line; total `(fixed in feature:085-memory-server-hardening)` count ≥ 8.
+- [ ] **SC-1**: All 8 backlog items annotated in `docs/backlog.md`. Verified by TWO distinct shell checks:
+  - (a) Per-item completeness: `missing=$(for n in 00067 00068 00069 00070 00071 00072 00073 00074; do grep -q "| $n .*(fixed in feature:085-memory-server-hardening)" docs/backlog.md || echo $n; done); [ -z "$missing" ]` — exits 0 only when every target row has the annotation.
+  - (b) Total count: `[ "$(grep -c 'fixed in feature:085-memory-server-hardening' docs/backlog.md)" -ge 8 ]` — guards against duplicate IDs or re-annotation oddities.
 
 - [ ] **SC-2**: `_render_block` raises `ValueError` for `entry_name` containing `-->`, `<!--`, or triple-backtick — proven by 3 pytest cases in new `plugins/pd/hooks/tests/test_md_insert.py`, each asserting `pytest.raises(ValueError, match=<substring>)`.
 
@@ -25,7 +27,7 @@ Feature 080 (`/pd:promote-pattern` + memory influence logging) left 8 post-QA re
 
 - [ ] **SC-9**: `record_influence_by_content` resolves `memory_influence_threshold` exactly once per invocation. Verified by TWO mechanisms:
   - (a) Source grep (static): `grep -n 'resolve_float_config' plugins/pd/mcp/memory_server.py | grep 'memory_influence_threshold' | wc -l` → `1` (single canonical call site).
-  - (b) Runtime spy (dynamic): pytest `unittest.mock.patch('plugins.pd.mcp.memory_server.resolve_float_config', wraps=resolve_float_config)`, invoke `record_influence_by_content(...)` once, assert `spy.call_count == 1` for calls with `key="memory_influence_threshold"`.
+  - (b) Runtime spy (dynamic): existing test file `plugins/pd/mcp/test_memory_server.py` inserts its parent directory into `sys.path` (see current test setup, lines 22-24), then imports via `import memory_server`. Therefore the pytest patch target MUST be the bound-import name at the consumer site: `unittest.mock.patch('memory_server.resolve_float_config', wraps=<reference to the real helper>)`. Rationale: Python's `from X import Y` binds `Y` into the importer's namespace at import time; patching `semantic_memory.config_utils.resolve_float_config` would NOT intercept calls made from within `memory_server`. Assertion: compute `matching = [c for c in spy.call_args_list if (c.kwargs.get("key") == "memory_influence_threshold") or (len(c.args) >= 2 and c.args[1] == "memory_influence_threshold")]; assert len(matching) == 1`.
 
 - [ ] **SC-10**: Test stubs for `file_path_regex` / `content_regex` embed the actual `check_expression` for simple regexes and fall back with a comment for complex — proven by 5 pytest cases: (i) simple literal `\.env$` matches POSITIVE; (ii) alternation `foo|bar` matches first branch; (iii) character class `[a-z]+` matches; (iv) complex `(?i)secret` falls back with comment; (v) backreference `(foo)\1` falls back with comment.
 
@@ -38,7 +40,12 @@ Feature 080 (`/pd:promote-pattern` + memory influence logging) left 8 post-QA re
 
 - [ ] **SC-13**: `plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/ plugins/pd/mcp/` exits 0.
 
-- [ ] **SC-14**: No user-facing change to `/pd:promote-pattern` — dry-run snapshot tests for classifier output, generator output, and markdown insertion remain byte-identical pre-/post-PR (capture snapshots before FR-1; re-run after all FRs; assert equality).
+- [ ] **SC-14**: No user-facing change to `/pd:promote-pattern`. Verified by golden-file snapshot tests stored at `plugins/pd/hooks/tests/fixtures/feature_085_snapshots/`:
+  - **Input fixture**: `plugins/pd/hooks/tests/fixtures/feature_085_snapshots/input_kb.md` — a checked-in KB fragment with 3 promotable entries (none containing `-->`, `<!--`, or triple-backtick per FR-1 sanitizer; these snapshots verify unchanged happy-path output, not FR-1 rejection behavior).
+  - **Snapshot targets**: (i) classifier output via `promote_pattern.classifier.classify_entries(input_kb)` serialized to deterministic JSON (sorted keys); (ii) `_render_block(...)` output for one entry; (iii) full `_md_insert.insert_block(...)` output against a target markdown fixture.
+  - **Storage**: expected outputs at `plugins/pd/hooks/tests/fixtures/feature_085_snapshots/{classifier.json, render_block.md, md_insert.md}`, generated at start of implementation by running against the PRE-PR codebase.
+  - **Test mechanism**: pytest cases in new `plugins/pd/hooks/tests/test_feature_085_snapshots.py` call the current code and assert `actual == Path(snapshot).read_text()`. Fixtures committed to the PR.
+  - **Gating**: only FR-1 (sanitization) and FR-4 (helper extraction used indirectly by classifier via ranking) could plausibly change these outputs; FR-2, FR-3, FR-5, FR-6, FR-8 do not affect them. Snapshots MUST match exactly post-PR; any drift requires explicit update-in-PR with justification in commit message.
 
 ## Scope
 
@@ -102,7 +109,7 @@ Migration approach: direct rewrite to import and call `resolve_float_config` fro
 **AC-H5: Single-resolution threshold in influence wrapper**
 - **Given** `memory_influence_threshold` configured to `0.70`
 - **When** `record_influence_by_content(...)` MCP tool is invoked once
-- **Then** `resolve_float_config` is invoked exactly once with `key="memory_influence_threshold"` during that MCP call. Verified by `unittest.mock.patch('plugins.pd.mcp.memory_server.resolve_float_config', wraps=resolve_float_config)` spy; assert `[c for c in spy.call_args_list if c.kwargs.get('key') == 'memory_influence_threshold' or (len(c.args) >= 2 and c.args[1] == 'memory_influence_threshold')] == 1` (exactly one call with that key).
+- **Then** `resolve_float_config` is invoked exactly once with `key="memory_influence_threshold"` during that MCP call. Verified by `unittest.mock.patch('memory_server.resolve_float_config', wraps=<real helper>)` spy (NOT `plugins.pd.mcp.memory_server.*` — the test harness inserts the `mcp/` dir into sys.path and imports `memory_server` directly; patching must target the bound-import name at the consumer site). Assertion: `matching = [c for c in spy.call_args_list if (c.kwargs.get("key") == "memory_influence_threshold") or (len(c.args) >= 2 and c.args[1] == "memory_influence_threshold")]; assert len(matching) == 1`.
 
 **AC-H6: Regex-aware test stub generation (simple literal regex)**
 - **Given** feasibility dict with `check_kind="file_path_regex"` and `check_expression=r"\.env$"`
@@ -189,17 +196,17 @@ Migration approach: direct rewrite to import and call `resolve_float_config` fro
 **AC-E10: Numpy-bool and bool-subclass inputs (documented acceptance)**
 - **Given** config dict containing any subclass of `bool` (e.g., if a future loader introduces `numpy.bool_`)
 - **When** `resolve_float_config(...)` is called
-- **Then** treated as bool, returns default. This holds because `isinstance(raw, bool)` matches `numpy.bool_` (which inherits from Python `bool`). Note: pd config loading is pure stdlib (`config.py` uses only `dict` and YAML via `yaml.safe_load`); verified by `grep -r "numpy" plugins/pd/hooks/lib/semantic_memory/config.py plugins/pd/mcp/memory_server.py` returning 0 matches. No numpy test dependency introduced per NFR-3; this AC documents the invariant, not a runtime test.
+- **Then** treated as bool, returns default. This holds because `isinstance(raw, bool)` matches `numpy.bool_` (which inherits from Python `bool`). Note: **the config-loading boundary** — `plugins/pd/hooks/lib/semantic_memory/config.py` — does not import numpy (verified by `grep -n 'numpy\|np\.' plugins/pd/hooks/lib/semantic_memory/config.py` → 0 matches). `memory_server.py` DOES import numpy for embedding math (at `memory_server.py:31`) but config values never flow through that embedding path before reaching `resolve_float_config`; config values are read from the pd config file (stdlib YAML/JSON), then handed to the resolver with no numpy involvement. This AC documents the invariant as static analysis; no runtime numpy test is added (NFR-3: no new deps).
 
 **AC-E11: `_render_test_sh` regex contains backreference `\1` — complex**
 - **Given** `check_expression = r"(foo)\1"`
 - **When** `_render_test_sh(...)` runs
-- **Then** classified as complex (backreference = `sre_parse.GROUPREF` node); generic POSITIVE_INPUT with complex-regex comment injected.
+- **Then** classified as complex (backreference — substring `\1`..`\9` detected in expression); generic POSITIVE_INPUT with complex-regex comment injected.
 
 **AC-E12: `_render_test_sh` regex contains lookahead `(?=...)`  — complex**
 - **Given** `check_expression = r"foo(?=bar)"`
 - **When** `_render_test_sh(...)` runs
-- **Then** classified as complex (lookahead = `sre_parse.ASSERT` node); generic POSITIVE_INPUT with complex-regex comment injected.
+- **Then** classified as complex (substring `(?=` detected); generic POSITIVE_INPUT with complex-regex comment injected.
 
 ### State Transitions
 
@@ -213,7 +220,7 @@ No nontrivial state machine — sequential code changes. Rotation state is impli
    - `_sanitize_description` handles markdown structure but NOT HTML comment markers (verified at `_md_insert.py:27-74`) — AC-E1 rationale holds because description lands outside the comment marker, not inside.
    - Test files are inline (NOT in `tests/` subdir): `plugins/pd/mcp/test_memory_server.py`, `plugins/pd/hooks/lib/semantic_memory/test_dedup.py`, `plugins/pd/hooks/lib/semantic_memory/test_ranking.py` — FR-8 grep uses `--exclude='test_*.py'` not `--exclude-dir=tests`.
    - `_resolve_float_config` (server) at `mcp/memory_server.py:428-463`; `_resolve_weight` (ranker) at `hooks/lib/semantic_memory/ranking.py:20-63`.
-3. **External Evidence**: OpenStack Security Guide confirms `os.open + fdopen + umask=0` pattern. MDN confirms `-->` universally terminates HTML comments. Python `sre_parse` docs confirm `ASSERT`, `GROUPREF`, inline-flag detection for complex-regex classifier.
+3. **External Evidence**: OpenStack Security Guide confirms `os.open + fdopen + umask=0` pattern. MDN confirms `-->` universally terminates HTML comments. FR-7 complex-regex classifier uses pure substring detection (search for literal `(?=`, `(?!`, `(?<=`, `(?<!`, `(?P`, `(?#`, `(?i)`, `(?s)`, `(?m)`, `\1`..`\9`) — NOT `sre_parse` (deprecated in Python 3.12, scheduled for removal). Substring detection is future-proof and handles every cited complex case correctly; false-negatives are acceptable because the fallback for complex regexes is the safe (non-asserting) generic test stub, not a broken assertion.
 
 ### Assessment
 **Overall:** Confirmed
