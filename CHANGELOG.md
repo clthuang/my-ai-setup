@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.15.9] - 2026-04-19
+
+### Added
+- Docs-sync regression guards in `validate.sh`: block `threshold=0.70` literal in non-test Python files; require >= 3 `memory_influence_*` references in README_FOR_DEV.md
+- Circular-import smoke test in `validate.sh` covering `semantic_memory.config_utils` and `ranking` boundaries
+- Golden-file snapshot tests for `_render_block` + `insert_block` outputs (regression oracle for future pattern-promotion changes)
+
+### Changed
+- Extracted shared `resolve_float_config()` helper to `semantic_memory/config_utils.py`; eliminates ~80 LOC of near-duplicate float-config resolution between `mcp/memory_server.py` and `hooks/lib/semantic_memory/ranking.py`; preserves `[0.01, 1.0]` threshold clamp
+- `_emit_influence_diagnostic` influence log file now created with mode `0o600` atomically (previously inherited process umask, typically 0o644)
+- `_emit_influence_diagnostic` rotates `influence-debug.log` to `.1` at 10 MB (previously unbounded growth)
+- `_process_record_influence_by_content` now returns `tuple[str, float]` carrying the resolved threshold to the MCP wrapper, eliminating a redundant second resolution
+- `_render_block` in `pattern_promotion/generators/_md_insert.py` rejects `entry_name` containing `-->`, `<!--`, or triple-backtick (prevents HTML comment marker corruption)
+- Hook generator test stubs for `file_path_regex` / `content_regex` check kinds now embed actual `check_expression` for simple regexes; inject a manual-review comment for complex regexes (lookahead, backreference, inline flag)
+
+### Removed
+- Redundant `recorded` field from `_emit_influence_diagnostic` JSON output (was identical to `matched`)
+
+### Fixed
+- Backlog items #00067-#00074 (feature 080 QA bundle) closed in feature 085-memory-server-hardening
+
 ## [4.15.8] - 2026-04-19
 
 ### Fixed

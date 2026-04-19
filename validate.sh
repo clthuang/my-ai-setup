@@ -822,6 +822,34 @@ else
 fi
 echo ""
 
+# --- docs-sync regression guards (feature 085 FR-8; from feature 080 AC-7/AC-11) ---
+# (a) The literal `threshold=0.70` must NOT resurface in non-test .py files
+#     under plugins/pd/ — feature 080 established 0.55 as the correct default.
+#     `--exclude='test_*.py'` is the right filter because pd's inline-test
+#     convention places test files next to sources (not in tests/ subdirs).
+bad_threshold=$(grep -rE --include='*.py' --exclude='test_*.py' 'threshold=0\.70' plugins/pd/ 2>/dev/null | wc -l | tr -d ' ')
+if [ "$bad_threshold" != "0" ]; then
+    echo -e "${RED}FAIL: threshold=0.70 literal resurfaced ($bad_threshold occurrences)${NC}"
+    exit 1
+fi
+# (b) README_FOR_DEV.md must continue documenting the memory_influence_*
+#     config knobs (feature 080 committed to at least 3 distinct references).
+influence_refs=$(grep -c 'memory_influence_' README_FOR_DEV.md 2>/dev/null || echo 0)
+if [ "$influence_refs" -lt 3 ]; then
+    echo -e "${RED}FAIL: memory_influence_* docs in README_FOR_DEV.md dropped below 3 ($influence_refs)${NC}"
+    exit 1
+fi
+
+# --- circular-import smoke test (feature 085 FR-8 / SC-7) ---
+# `config_utils.py` must stay importable without pulling `ranking`,
+# `database`, or any other semantic_memory submodule. A regression
+# that adds such an import will surface as ImportError here.
+if ! PYTHONPATH=plugins/pd/hooks/lib python3 -c 'from semantic_memory import config_utils; from semantic_memory import ranking' 2>/dev/null; then
+    echo -e "${RED}FAIL: circular import detected in semantic_memory.config_utils${NC}"
+    exit 1
+fi
+echo ""
+
 # Summary
 echo "=========================================="
 echo "Validation Complete"

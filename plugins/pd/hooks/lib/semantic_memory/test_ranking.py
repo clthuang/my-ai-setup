@@ -77,55 +77,67 @@ def reset_ranker_state(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# _resolve_weight helper tests (design I-5)
+# resolve_float_config helper tests (design I-5 / feature 085 FR-4)
 # ---------------------------------------------------------------------------
+
+from semantic_memory.config_utils import resolve_float_config  # noqa: E402
 
 
 class TestResolveWeight:
-    """Verify _resolve_weight coerces config values, clamps to [0.0, 1.0].
+    """Verify the shared `resolve_float_config` helper for ranker weights.
+
+    Migrated in feature 085 (FR-4) from the ranker-local helper pair to
+    the shared ``semantic_memory.config_utils.resolve_float_config``.
+    The ranker uses ``prefix="[ranker]"`` and ``clamp=(0.0, 1.0)``.
 
     Critical behaviour:
       * float / int values pass through (int coerced to float)
       * bool is rejected explicitly (Python bool is int subclass)
       * out-of-range values clamp silently (no warning -- operator tuning)
-      * unparseable values emit one stderr warning per key (dedup via the
-        ``warned`` set the caller passes in)
+      * unparseable values emit one stderr warning per (prefix, key) dedup
+        via the ``warned`` set the caller passes in
     """
 
     def test_float_passthrough(self):
-        warned: set[str] = set()
-        result = ranking._resolve_weight(
+        warned: set = set()
+        result = resolve_float_config(
             {"memory_influence_weight": 0.42},
             "memory_influence_weight",
             0.05,
+            prefix="[ranker]",
             warned=warned,
+            clamp=(0.0, 1.0),
         )
         assert result == 0.42
         assert isinstance(result, float)
         assert warned == set()
 
     def test_bool_rejected_returns_default_and_warns(self, capsys):
-        warned: set[str] = set()
-        result = ranking._resolve_weight(
+        warned: set = set()
+        result = resolve_float_config(
             {"memory_influence_weight": True},
             "memory_influence_weight",
             0.05,
+            prefix="[ranker]",
             warned=warned,
+            clamp=(0.0, 1.0),
         )
         assert result == 0.05  # default, NOT float(True)=1.0
         captured = capsys.readouterr()
         assert "memory_influence_weight" in captured.err
         assert "not a float" in captured.err
-        assert "memory_influence_weight" in warned
+        assert ("[ranker]", "memory_influence_weight") in warned
 
     def test_value_25_clamped_to_1_silently(self, capsys):
         """2.5 should clamp to 1.0 silently -- no warning, operator is tuning."""
-        warned: set[str] = set()
-        result = ranking._resolve_weight(
+        warned: set = set()
+        result = resolve_float_config(
             {"memory_influence_weight": 2.5},
             "memory_influence_weight",
             0.05,
+            prefix="[ranker]",
             warned=warned,
+            clamp=(0.0, 1.0),
         )
         assert result == 1.0
         captured = capsys.readouterr()
@@ -133,18 +145,20 @@ class TestResolveWeight:
         assert warned == set()
 
     def test_invalid_string_returns_default_and_warns(self, capsys):
-        warned: set[str] = set()
-        result = ranking._resolve_weight(
+        warned: set = set()
+        result = resolve_float_config(
             {"memory_influence_weight": "not-a-number"},
             "memory_influence_weight",
             0.05,
+            prefix="[ranker]",
             warned=warned,
+            clamp=(0.0, 1.0),
         )
         assert result == 0.05
         captured = capsys.readouterr()
         assert "memory_influence_weight" in captured.err
         assert "not a float" in captured.err
-        assert "memory_influence_weight" in warned
+        assert ("[ranker]", "memory_influence_weight") in warned
 
 
 # ---------------------------------------------------------------------------

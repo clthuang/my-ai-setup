@@ -15,7 +15,8 @@ Phase 1 public surface:
 
 Phase 1 internals:
 - ``_resolve_int_config`` — int config resolver with bool/float rejection +
-  one-shot dedup warning (mirrors 080's ``_resolve_float_config``).
+  one-shot dedup warning (int-variant of the shared float helper at
+  ``semantic_memory.config_utils.resolve_float_config``).
 - ``_emit_refresh_diagnostic`` — appends a JSON line to
   ``INFLUENCE_DEBUG_LOG_PATH`` (reused from 080; duplicated constant to
   avoid cross-subprocess import).
@@ -120,7 +121,7 @@ def build_refresh_query(
 
 
 # ---------------------------------------------------------------------------
-# Config helpers (int variant mirrors 080's ``_resolve_float_config``)
+# Config helpers (int-variant; float-variant now lives in config_utils.py)
 # ---------------------------------------------------------------------------
 
 
