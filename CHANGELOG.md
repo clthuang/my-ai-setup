@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.16.0] - 2026-04-20
+
 ### Added
 - **`MemoryDatabase.scan_decay_candidates`** public method — encapsulates the decay-candidate read path previously inlined at `maintenance._select_candidates`. Closes the "Direct `db._conn` Access" anti-pattern (feature:091 FR-4, #00078).
 - **`test-hooks.sh` AC-22b / AC-22c blocks** — SyntaxError and ImportError fault-injection tests for `run_memory_decay` using a temp-PYTHONPATH subshell harness. Extends AC-22 coverage beyond the file-missing case (feature:091 FR-3, #00077).
