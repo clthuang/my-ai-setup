@@ -400,7 +400,9 @@ plugins/pd/.venv/bin/python -m pytest plugins/pd/hooks/lib/semantic_memory/test_
 **Plan Item:** PI-5 (FR-4)
 **Files:** `plugins/pd/hooks/lib/semantic_memory/maintenance.py`
 **Complexity:** Simple
-**Depends on:** T4b
+**Depends on:** T4b, T6
+
+**Why T6:** T5's AC-7d regression check runs `TestSelectCandidates` tests. If T6 has not yet landed, the tests still use `.isoformat()`-based cutoffs; any AC-7d drift could be misattributed to the caller swap when it's really isoformat format drift. Serializing T6 before T5 ensures the regression signal is attributable.
 
 **Action:**
 1. At `plugins/pd/hooks/lib/semantic_memory/maintenance.py:235-268`, keep the full signature including `grace_cutoff`. Replace only the body (lines 257-268):
@@ -751,7 +753,7 @@ echo "AC-8: no dead SQL branch"
 echo "✓ Dead branch removed"
 
 echo "AC-9: no .isoformat() in TestSelectCandidates"
-n=$(awk '/^class TestSelectCandidates/,/^class [A-Z]/' plugins/pd/hooks/lib/semantic_memory/test_maintenance.py | grep -cE '\.isoformat\(\)')
+n=$(awk '/^class TestSelectCandidates:/{flag=1; next} /^class [A-Z]/{flag=0} flag' plugins/pd/hooks/lib/semantic_memory/test_maintenance.py | grep -cE '\.isoformat\(\)')
 [ "$n" = "0" ]
 echo "✓ isoformat replaced"
 

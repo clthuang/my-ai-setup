@@ -19,15 +19,17 @@ Ordered from lowest risk / docs-only to higher-risk / code changes. Stream lette
 
 | # | Plan Item | Stream | FR | Depends on | Parallelizable |
 |---|-----------|--------|----|----|----------------|
-| PI-1 | Backlog hygiene — 23 closure markers | D | FR-1 | none (independent) | With PI-2..PI-7 |
-| PI-2 | `_execute_chunk` dead SQL branch | B | FR-5 | none | With PI-1, PI-3..PI-7 |
-| PI-3 | Equal-threshold warning predicate | A | FR-2 | none | With PI-1, PI-2, PI-4..PI-7 |
-| PI-4 | `MemoryDatabase.scan_decay_candidates` method | B | FR-4 | none (adds method) | With PI-1..PI-3, PI-5..PI-7 |
-| PI-5 | `_select_candidates` caller swap | B | FR-4 | PI-4 (method must exist) | With PI-1..PI-3 after PI-4 |
-| PI-6 | `TestSelectCandidates` isoformat → _iso swap | C | FR-6 | none | With all others |
-| PI-7 | `test-hooks.sh` AC-22b/c blocks | C | FR-3 | none | With all others |
+| PI-1 | Backlog hygiene — 23 closure markers | D | FR-1 | none | Runs first, serial — reviewer-bandwidth isolation |
+| PI-2 | `_execute_chunk` dead SQL branch | B | FR-5 | PI-1 | With PI-3, PI-4, PI-6, PI-7 |
+| PI-3 | Equal-threshold warning predicate | A | FR-2 | PI-1 | With PI-2, PI-4, PI-6, PI-7 |
+| PI-4 | `MemoryDatabase.scan_decay_candidates` method | B | FR-4 | PI-1 | With PI-2, PI-3, PI-6, PI-7 |
+| PI-5 | `_select_candidates` caller swap | B | FR-4 | PI-4 AND PI-6 | Sequential after PI-4 + PI-6 |
+| PI-6 | `TestSelectCandidates` isoformat → _iso swap | C | FR-6 | PI-1 | With PI-2, PI-3, PI-4, PI-7 |
+| PI-7 | `test-hooks.sh` AC-22b/c blocks | C | FR-3 | PI-1 | With PI-2, PI-3, PI-4, PI-6 |
 
-**Critical dependency:** PI-5 (caller swap) requires PI-4 (new method) to exist on disk. Everything else is independent.
+**Critical dependencies:**
+1. PI-5 (caller swap) requires PI-4 (new method on disk) AND PI-6 (TestSelectCandidates in post-isoformat-swap state) — the latter so any AC-7d regression signal is attributable to the caller swap, not to isoformat drift.
+2. All code-change PIs depend on PI-1 landing first (docs-only commit frees reviewer bandwidth; enforces single-purpose commits per TD-6).
 
 ## Dependency Graph
 
@@ -44,11 +46,12 @@ Ordered from lowest risk / docs-only to higher-risk / code changes. Stream lette
 
 ## Parallel Group Structure
 
-- **Group Alpha (parallel, no dependencies):** PI-1, PI-2, PI-3, PI-4, PI-6, PI-7 — all independent.
-- **Group Beta (sequential after PI-4):** PI-5 depends on PI-4 completing.
+- **Group Alpha-docs (serial, first):** PI-1 — docs-only, lands first so reviewer can focus subsequent bandwidth on code commits.
+- **Group Alpha-code (parallel, up to 5, after PI-1):** PI-2, PI-3, PI-4, PI-6, PI-7 — independent code/test changes.
+- **Group Beta (sequential after PI-4 + PI-6):** PI-5 — requires PI-4 (method on disk) AND PI-6 (TestSelectCandidates post-isoformat-swap baseline for attributable regression).
 - **Final validation (after all):** full test suite + validate.sh + pd:doctor + AC verification.
 
-Given max_concurrent_agents=5, Group Alpha can dispatch 5 at a time; Group Beta follows. Single implementer dispatch is also viable given scope (~250 LOC production + 200 LOC tests).
+Given max_concurrent_agents=5, Group Alpha-code dispatches 5 in parallel after PI-1 completes; Group Beta follows. Single implementer dispatch is also viable given scope (~250 LOC production + 200 LOC tests).
 
 ## TDD Ordering (per plan item)
 
@@ -125,7 +128,7 @@ Same as spec and design. Not revisited.
 
 ## Next Steps
 
-1. Task breakdown (tasks.md) — each PI decomposed into atomic 5-15 min steps with DoDs.
+1. Task breakdown (tasks.md) — each PI decomposed into atomic Simple/Medium tasks with binary DoDs.
 2. Combined reviewer loop (plan-reviewer, task-reviewer, phase-reviewer) max 5 iterations.
 3. Relevance gate pre-implementation.
 4. `/pd:implement` dispatch.
