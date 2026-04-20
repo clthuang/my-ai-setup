@@ -421,11 +421,11 @@ def decay_confidence(
     # Semantic-coupling warning (spec FR-3 / AC-14) — dedup via module flag.
     # Declare all module-global flags mutated in this function up-front (PEP 8).
     global _decay_config_warned, _decay_error_warned
-    if med_days < high_days and not _decay_config_warned:
+    if med_days <= high_days and not _decay_config_warned:
         sys.stderr.write(
             "[memory-decay] memory_decay_medium_threshold_days "
-            f"({med_days}) < memory_decay_high_threshold_days ({high_days}); "
-            "medium tier will decay faster than high\n"
+            f"({med_days}) <= memory_decay_high_threshold_days ({high_days}); "
+            "medium tier will decay at same pace or faster than high\n"
         )
         _decay_config_warned = True
 
