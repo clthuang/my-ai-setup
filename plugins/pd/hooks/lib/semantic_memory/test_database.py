@@ -1909,7 +1909,7 @@ class TestScanDecayCandidates:
     """
 
     def test_scan_decay_candidates_respects_where_predicate(self, db: MemoryDatabase):
-        """AC-7: seed 3 stale + 7 fresh; scan_limit=100 returns only 3 stale."""
+        """AC-7 (WHERE predicate): seed 3 stale + 7 fresh; scan_limit=100 returns only 3 stale."""
         cutoff = "2026-04-20T00:00:00Z"
         for i in range(3):
             db.insert_test_entry_for_testing(
@@ -1935,7 +1935,7 @@ class TestScanDecayCandidates:
         assert len(rows) == 3, f"expected 3 stale rows, got {len(rows)}"
 
     def test_scan_decay_candidates_respects_scan_limit_cap(self, db: MemoryDatabase):
-        """AC-7: scan_limit caps result below match count."""
+        """AC-7 (scan_limit cap): scan_limit caps result below match count."""
         cutoff = "2026-04-20T00:00:00Z"
         for i in range(10):
             db.insert_test_entry_for_testing(

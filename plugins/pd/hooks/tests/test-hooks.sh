@@ -3073,6 +3073,14 @@ test_memory_decay_import_error_tolerated() {
     else
         log_fail "AC-22c subshell reported failure (exit $subshell_exit)"
     fi
+
+    # AC-4d invariant: production maintenance.py unchanged.
+    local git_status
+    git_status=$(cd "$(dirname "${HOOKS_DIR}")" && git status --porcelain "plugins/pd/hooks/lib/semantic_memory/maintenance.py" 2>/dev/null || true)
+    if [ -n "$git_status" ]; then
+        log_test "AC-4d invariant: production maintenance.py untouched (T7b)"
+        log_fail "production maintenance.py mutated: $git_status"
+    fi
 }
 
 # Feature 089 AC-21 (#00163 / FR-1.8): Python subprocess.run(..., timeout=10)
