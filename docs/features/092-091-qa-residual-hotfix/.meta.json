@@ -6,13 +6,15 @@
   "created": "2026-04-20T15:01:38.966360+00:00",
   "branch": "feature/092-091-qa-residual-hotfix",
   "brainstorm_source": "docs/brainstorms/20260420-225051-091-qa-residual-hotfix.prd.md",
-  "lastCompletedPhase": null,
+  "lastCompletedPhase": "specify",
   "phases": {
     "brainstorm": {
       "started": "2026-04-20T15:01:38.965838+00:00"
     },
     "specify": {
-      "started": "2026-04-20T15:01:52.178810+00:00"
+      "started": "2026-04-20T15:01:52.178810+00:00",
+      "completed": "2026-04-20T15:10:39.508306+00:00",
+      "iterations": 3
     }
   }
 }

@@ -126,14 +126,19 @@ _run_maintenance_fault_test() {
     fi
 
     (
-        set -eo pipefail  # NOT -u (bash 3.2 portability)
+        set +e  # Must NOT use set -e: the negative-control Python invocation
+                # below deliberately returns non-zero, and `set -e` would
+                # terminate the subshell before raw_exit=$? can capture it.
+                # Same rationale as pre-092 style (test-hooks.sh:2978, 3039).
         PKG_TMPDIR=$(mktemp -d) || { log_fail "mktemp -d failed"; exit 1; }
         [ -n "$PKG_TMPDIR" ] || { log_fail "mktemp -d returned empty"; exit 1; }
         [ -d "$PKG_TMPDIR" ] || { log_fail "mktemp -d target not a directory"; exit 1; }
         trap 'rm -rf -- "$PKG_TMPDIR"' EXIT
 
-        mkdir -p "$PKG_TMPDIR/semantic_memory"
-        cp -R -P "${HOOKS_DIR}/lib/semantic_memory/." "$PKG_TMPDIR/semantic_memory/"
+        mkdir -p "$PKG_TMPDIR/semantic_memory" \
+            || { echo "FAIL: mkdir -p failed"; exit 1; }
+        cp -R -P "${HOOKS_DIR}/lib/semantic_memory/." "$PKG_TMPDIR/semantic_memory/" \
+            || { echo "FAIL: cp -R -P failed"; exit 1; }
 
         [ -f "$PKG_TMPDIR/semantic_memory/__init__.py" ] \
             || { echo "FAIL: __init__.py missing"; exit 1; }
@@ -146,15 +151,18 @@ _run_maintenance_fault_test() {
         # Inject fault per mode:
         case "$inject_mode" in
             append)
-                printf '%s' "$inject_payload" >> "$PKG_TMPDIR/semantic_memory/maintenance.py"
+                printf '%s' "$inject_payload" >> "$PKG_TMPDIR/semantic_memory/maintenance.py" \
+                    || { echo "FAIL: append failed"; exit 1; }
                 ;;
             prepend)
                 {
                     echo "$inject_payload"
                     cat "$PKG_TMPDIR/semantic_memory/maintenance.py"
-                } > "$PKG_TMPDIR/semantic_memory/maintenance.py.new"
+                } > "$PKG_TMPDIR/semantic_memory/maintenance.py.new" \
+                    || { echo "FAIL: prepend failed"; exit 1; }
                 mv "$PKG_TMPDIR/semantic_memory/maintenance.py.new" \
-                   "$PKG_TMPDIR/semantic_memory/maintenance.py"
+                   "$PKG_TMPDIR/semantic_memory/maintenance.py" \
+                    || { echo "FAIL: mv failed"; exit 1; }
                 ;;
             *)
                 echo "FAIL: unknown inject_mode=$inject_mode"; exit 1
@@ -162,6 +170,7 @@ _run_maintenance_fault_test() {
         esac
 
         # Negative control: WITHOUT shell guard, raw invocation MUST fail.
+        # (set +e above lets us capture the non-zero exit into raw_exit.)
         PYTHONPATH="$PKG_TMPDIR" "$PLUGIN_VENV_PYTHON" \
             -m semantic_memory.maintenance --decay --project-root . >/dev/null 2>&1
         raw_exit=$?
@@ -202,7 +211,7 @@ test_memory_decay_import_error_tolerated() {
 }
 ```
 
-**Safety invariant:** helper uses `set -eo pipefail` (NOT `-u`, per bash 3.2 portability — see FR-2 and A4) and explicit variable guards to prevent silent-pass tautology. Two DIFFERENT test function call sites ensure helper bugs fail both tests loudly, not silently.
+**Safety invariant:** helper uses `set +e` (NOT `-e`, because the negative-control Python invocation deliberately returns non-zero and `set -e` would terminate the subshell before `raw_exit=$?` captures it — matches pre-092 pattern at `test-hooks.sh:2978, 3039`). Each setup step that could fail (mktemp, mkdir, cp, append/prepend, clean-import, `__init__.py` existence) has an explicit `|| { echo "FAIL: ..."; exit 1; }` override preserving diagnostic output. Two DIFFERENT test function call sites ensure helper bugs fail both tests loudly, not silently.
 
 ### FR-8: #00200 — `batch_demote` empty `now_iso` validation
 
@@ -280,7 +289,7 @@ Post-merge adversarial QA by 4 parallel reviewers (security, code-quality, test-
 ## Risks
 
 1. **R-1 [LOW]** FR-5 regex rejects `+00:00`-suffixed valid UTC strings. Intentional — matches `_iso_utc` Z-suffix contract. New test `test_scan_decay_candidates_matches_iso_utc_output` guards against format drift.
-2. **R-2 [LOW]** FR-7 helper extraction introduces one shared dependency. Mitigated by `set -eo pipefail` + explicit variable guards + two different test functions (helper bugs fail both loudly, not silently).
+2. **R-2 [LOW]** FR-7 helper extraction introduces one shared dependency. Mitigated by `set +e` + explicit `|| { echo FAIL; exit 1; }` guards on each setup step + two different test functions (helper bugs fail both loudly, not silently).
 3. **R-3 [LOW]** FR-9 explicit echo markers create an output-format contract. Acceptable — matches DoD intent.
 4. **R-4 [MED]** Structural exit gate (AC-12) requires 4-reviewer post-merge QA dispatch. Execution burden ~10 min. Deferring = pattern recurrence (091 → 24 post-release findings).
 
