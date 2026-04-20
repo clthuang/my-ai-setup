@@ -1025,7 +1025,7 @@ class MemoryDatabase:
             f"UPDATE entries "
             f"SET confidence = ?, updated_at = ? "
             f"WHERE id IN ({placeholders}) "
-            f"  AND (updated_at IS NULL OR updated_at < ?)"
+            f"  AND updated_at < ?"
         )
         cursor = self._conn.execute(
             sql, (new_confidence, now_iso, *ids, now_iso)
