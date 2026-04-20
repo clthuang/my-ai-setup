@@ -299,7 +299,7 @@ Entity registry consistency, orphaned worktrees.
 
 - **AC-9 (class-body scoped grep):** extract the `TestSelectCandidates` class body via awk and count `.isoformat()` calls — resilient to line-number drift from concurrent edits:
   ```bash
-  awk '/^class TestSelectCandidates/,/^class [A-Z]/' \
+  awk '/^class TestSelectCandidates:/{flag=1; next} /^class [A-Z]/{flag=0} flag' \
     plugins/pd/hooks/lib/semantic_memory/test_maintenance.py \
     | grep -cE '\.isoformat\(\)'
   ```
