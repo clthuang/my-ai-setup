@@ -57,10 +57,10 @@
 ## From Feature 082 QA (2026-04-18)
 
 - **#00075** No timeout cap when gtimeout/timeout absent in session-start.sh (pre-existing pattern shared by build_memory_context, run_reconciliation, run_doctor_autofix). Medium risk on minimal macOS without coreutils. (fixed in feature:089 — Python subprocess fallback with timeout=10)
-- **#00076** Equal decay thresholds + rapid sequential calls = double demotion across ticks. Spec-compliant but may surprise API callers. Consider semantic-coupling warning for `med == high` (currently only warns when `med < high`).
-- **#00077** AC-22 test covers file-missing only; not SyntaxError/ImportError in maintenance.py. Shell guard (`|| true + 2>/dev/null`) handles all uniformly. Low priority.
-- **#00078** `_select_candidates` accesses `db._conn` directly for read query. Add public `MemoryDatabase.scan_decay_candidates()` method if the encapsulation norm is elevated.
-- **#00079** `updated_at IS NULL` guard in `_execute_chunk` SQL is dead code — schema enforces NOT NULL on `updated_at`. Defensive; harmless. Remove if cleanliness preferred.
+- **#00076** Equal decay thresholds + rapid sequential calls = double demotion across ticks. Spec-compliant but may surprise API callers. Consider semantic-coupling warning for `med == high` (currently only warns when `med < high`). (fixed in feature:091-082-qa-residual-cleanup — `<=` predicate + updated warning text)
+- **#00077** AC-22 test covers file-missing only; not SyntaxError/ImportError in maintenance.py. Shell guard (`|| true + 2>/dev/null`) handles all uniformly. Low priority. (fixed in feature:091-082-qa-residual-cleanup — AC-22b/c blocks in test-hooks.sh via temp-PYTHONPATH subshell harness)
+- **#00078** `_select_candidates` accesses `db._conn` directly for read query. Add public `MemoryDatabase.scan_decay_candidates()` method if the encapsulation norm is elevated. (fixed in feature:091-082-qa-residual-cleanup — scan_decay_candidates public method + caller swap)
+- **#00079** `updated_at IS NULL` guard in `_execute_chunk` SQL is dead code — schema enforces NOT NULL on `updated_at`. Defensive; harmless. Remove if cleanliness preferred. (fixed in feature:091-082-qa-residual-cleanup — dead branch removed from database.py _execute_chunk)
 
 ## From Feature 084 QA (2026-04-18)
 
@@ -218,3 +218,7 @@
 - **#00189** [LOW/test-gap] AC-7 TOCTOU fd-fstat defense at `maintenance.py:~182-196` untested. Spec FR-1.7 required "(c) on EEXIST, re-stat by fd and verify st_uid == os.getuid() before writing". Mutation deleting branch would silently allow foreign-uid hijack. Fix: `test_influence_log_rejects_foreign_uid_owned_existing_file` monkeypatching os.fstat.
 - **#00190** [LOW/test-gap] AC-5 rejection test misses non-string `project_id` types — `123` (int), `[]` (list), `{}` (dict), `''` (empty). Current `project_id != '*'` comparison rejects via value-mismatch with cryptic message; future refactor adding `isinstance(project_id, str)` would change exception shape undetected. Fix: `test_query_phase_analytics_rejects_non_string_and_empty_project_id`.
 - **#00191** [LOW/test-gap] Fixture asymmetry: `test_refresh.py` autouse calls `refresh.reset_warning_state()` only; `test_maintenance.py` autouse calls BOTH. Under pytest-xdist parallel runs, maintenance decay-warning state could leak into refresh test assertions. Also Amendment B `_iso_utc` single-source-of-truth identity not pinned (`maintenance._iso_utc is refresh._iso_utc is _config_utils._iso_utc`). Fix: add symmetric reset + identity test.
+
+## From Feature 091 Investigation (2026-04-20)
+
+- **#00192** [LOW/observation] Feature 091 investigation discovered that `TestSelectCandidates.test_partitions_six_entries_across_all_buckets` (now fixed) used `.isoformat()` producing `+00:00` suffix while production `_iso_utc` uses `Z` suffix — SQLite lexical comparison differs (`+` (0x2B) < `Z` (0x5A)) so test boundaries silently diverged from production behavior. Consider a linter or pre-commit check that flags `\.isoformat\(\)` calls inside `test_*.py` files within `semantic_memory/` module. Low priority — tests are already aligned post-feature:091.
