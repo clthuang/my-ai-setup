@@ -247,8 +247,15 @@ Entity registry consistency, orphaned worktrees.
 
 - **AC-2:** `grep -cE "if med_days <= high_days" plugins/pd/hooks/lib/semantic_memory/maintenance.py` equals `1`.
 - **AC-2b:** `grep -cE "if med_days < high_days" plugins/pd/hooks/lib/semantic_memory/maintenance.py` equals `0` (old strict-less-than predicate removed).
-- **AC-3 (equal case):** new test `test_equal_threshold_emits_warning` in `test_maintenance.py` seeds config with `med_days = high_days = 30`, calls `decay_confidence`, asserts `re.search(r"\[memory-decay\].*medium_threshold.*high_threshold", capsys.readouterr().err)` is non-None. Relies on autouse `reset_decay_state` fixture at line 41 to reset `_decay_config_warned`.
-- **AC-3b (strict-less case regression):** parallel test `test_strictly_less_threshold_still_emits_warning` pins `med_days=10, high_days=30`, same assertion. Ensures `<=` predicate swap does not regress the prior `<` behavior.
+- **AC-3 (equal case):** new test `test_equal_threshold_emits_warning` in `test_maintenance.py` seeds config with `med_days = high_days = 30`, calls `decay_confidence`, asserts the warning. The regex pattern must match the FR-2 warning template literally — specifically both qualified config keys and the `<=` operator:
+  ```python
+  assert re.search(
+      r"\[memory-decay\].*memory_decay_medium_threshold_days.*<=.*memory_decay_high_threshold_days",
+      capsys.readouterr().err
+  )
+  ```
+  The regex is derived from FR-2's prescribed warning text (qualified key names in source at `maintenance.py:425-428`) — not a loose match. Relies on autouse `reset_decay_state` fixture at `test_maintenance.py:41` to reset `_decay_config_warned`.
+- **AC-3b (strict-less case regression):** parallel test `test_strictly_less_threshold_still_emits_warning` pins `med_days=10, high_days=30`. Same regex as AC-3 (the `<=` operator substring matches both equal and strict-less emissions because the FR-2 warning text contains `<=` either way after the swap). Ensures the predicate swap does not regress the prior `<` case.
 
 ### #00077 (FR-3)
 
@@ -265,13 +272,18 @@ Entity registry consistency, orphaned worktrees.
   python3 -c "
   import re
   src = open('plugins/pd/hooks/lib/semantic_memory/database.py').read()
-  # Remove inter-string whitespace used only for readable multi-line string literals
-  compact = re.sub(r'[\"\\n\\s]+', ' ', src).strip()
+  # Collapse whitespace runs (including newlines) to a single space.
+  # Do NOT strip quotes — the needle contains no quote characters, and
+  # stripping quotes could mangle adjacent code unrelated to the SQL.
+  compact = re.sub(r'\\s+', ' ', src).strip()
   needle = 'SELECT id, confidence, source, last_recalled_at, created_at FROM entries WHERE (last_recalled_at IS NOT NULL AND last_recalled_at < ?) OR (last_recalled_at IS NULL) LIMIT ?'
+  # The needle tolerates Python string-literal concatenation because the
+  # joined-literal boundary (e.g., \"...\" \"...\") becomes a single space
+  # after whitespace collapse — but the semantic content must match exactly.
   assert needle in compact, 'SQL pinning failed'
   "
   ```
-  This check is resilient to Python string-literal concatenation styles (single-line, triple-quoted, multi-line) but rejects semantic deviations.
+  This check is resilient to Python string-literal concatenation styles (single-line, triple-quoted, multi-line) but rejects semantic deviations. Caveat: the needle is 140+ characters — spurious substring collisions with unrelated code are implausible in practice.
 - **AC-6:** `grep -cE "db\._conn" plugins/pd/hooks/lib/semantic_memory/maintenance.py` equals `0` (was 1 at line 259).
 - **AC-7 (bounded LIMIT):** new test `test_scan_decay_candidates_respects_scan_limit` in `test_database.py` seeds 10 rows with distinct IDs, calls `list(db.scan_decay_candidates(not_null_cutoff=..., scan_limit=5))`, asserts length == 5.
 - **AC-7b (NULL branch):** new test `test_scan_decay_candidates_includes_null_last_recalled_at` seeds 1 row with `last_recalled_at=None` and 1 row with `last_recalled_at < cutoff`; asserts both returned.
@@ -285,7 +297,13 @@ Entity registry consistency, orphaned worktrees.
 
 ### New-082-inv-1 (FR-6)
 
-- **AC-9 (scoped grep):** `sed -n '397,495p' plugins/pd/hooks/lib/semantic_memory/test_maintenance.py | grep -cE '\.isoformat\(\)'` equals `0` (no `.isoformat()` calls inside `TestSelectCandidates` class body, which spans lines 397-495).
+- **AC-9 (class-body scoped grep):** extract the `TestSelectCandidates` class body via awk and count `.isoformat()` calls — resilient to line-number drift from concurrent edits:
+  ```bash
+  awk '/^class TestSelectCandidates/,/^class [A-Z]/' \
+    plugins/pd/hooks/lib/semantic_memory/test_maintenance.py \
+    | grep -cE '\.isoformat\(\)'
+  ```
+  Expected result: `0` (no `.isoformat()` calls inside `TestSelectCandidates` class body).
 - **AC-9b:** `TestSelectCandidates.test_partitions_six_entries_across_all_buckets` passes after the swap — verifies semantics unchanged.
 - **AC-9c (canonical format pin):** new assertion at top of test: `assert _iso(NOW) == NOW.strftime("%Y-%m-%dT%H:%M:%SZ")` — pins the canonical format the test expects.
 
