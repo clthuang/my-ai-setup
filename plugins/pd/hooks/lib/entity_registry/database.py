@@ -1601,14 +1601,21 @@ def _migration_10_phase_events(conn: sqlite3.Connection) -> None:
                     ),
                 )
 
-        # Feature 089 FR-3.4 / AC-14 (#00152): redundant ``schema_version=10``
-        # write removed — the outer ``_migrate()`` loop (``database.py`` around
-        # line 3915) performs the authoritative ``INSERT INTO _metadata``
-        # upsert after this migration returns.  Keeping a second in-function
-        # write created two paths that could diverge and masked migration-
-        # ordering bugs.  The ``conn.commit()`` below commits the DDL/DML
-        # transaction opened by ``BEGIN IMMEDIATE`` above; the outer loop's
-        # subsequent ``self._commit()`` is idempotent.
+        # Feature 090 FR-3 / AC-3 (#00174): restore the in-function
+        # ``schema_version=10`` stamp so the DDL/DML body AND the stamp
+        # commit atomically in a single transaction.  Feature 089 Bundle
+        # C.4 removed this in favour of letting the outer ``_migrate()``
+        # loop (``database.py`` around line 3919) perform the upsert, but
+        # that left a crash window: a process killed (SIGKILL, OOM) between
+        # the migration's ``conn.commit()`` and the outer loop's stamp
+        # commit leaves the DB with phase_events populated at
+        # schema_version=9, which would re-run migration 10 on the next
+        # open.  With the stamp inside the same transaction as the DDL,
+        # that window is eliminated — schema + stamp are either both
+        # present or both absent.  The outer loop's subsequent upsert is
+        # a no-op idempotent write (same key, same value) on ``ON CONFLICT
+        # DO UPDATE``.
+        conn.execute("INSERT OR REPLACE INTO _metadata (key, value) VALUES ('schema_version', '10')")
         conn.commit()
     except Exception:
         try:
@@ -3165,6 +3172,19 @@ class EntityDatabase:
         if not type_ids:
             return []
 
+        # Feature 090 FR-4 / AC-4 (#00175): explicit empty-list short-circuit.
+        # Pre-090 the filter guard was ``if event_types:`` — falsy for both
+        # ``None`` and ``[]``, collapsing "no filter, match all" and "filter
+        # by empty set, match none" into the same code path.  The correct
+        # semantics: ``event_types=None`` means "no filter" (return all
+        # event_types); ``event_types=[]`` means "filter by empty set"
+        # (return zero rows, since no value can be ``IN ()``).  Returning
+        # early here preserves the all-or-nothing SQL contract and avoids
+        # issuing a query that would otherwise silently fall through to
+        # the unfiltered branch.
+        if event_types is not None and not event_types:
+            return []
+
         # Budget accounting: SQLite's default host-parameter cap is 999.
         # We chunk type_ids well below that, reserving room for event_types.
         et_count = len(event_types) if event_types else 0
@@ -3176,7 +3196,9 @@ class EntityDatabase:
             placeholders_tid = ",".join("?" * len(chunk))
             params: list = list(chunk)
             where = f"type_id IN ({placeholders_tid})"
-            if event_types:
+            if event_types is not None:
+                # Empty-list case short-circuited above; here event_types
+                # is a non-empty list.
                 placeholders_et = ",".join("?" * len(event_types))
                 where += f" AND event_type IN ({placeholders_et})"
                 params.extend(event_types)

@@ -2954,90 +2954,163 @@ assert 'Decay:' not in ctx, f'expected NO decay summary when module missing, got
 # Feature 089 AC-21 (#00163 / FR-1.8): Python subprocess.run(..., timeout=10)
 # fallback MUST fire when neither gtimeout nor timeout is on PATH.
 #
-# Strategy: construct a wrapper that sets PATH to a location where
-# gtimeout/timeout cannot be found, source session-start.sh's run_memory_decay
-# directly, and stub maintenance.py with time.sleep(30).  The hook MUST
-# complete in <20s because the Python-layer timeout=10 fallback kicks in.
+# Feature 090 FR-1 / AC-1 (#00172): the test MUST invoke the production
+# ``run_memory_decay`` function directly so the shell's
+# ``command -v gtimeout`` / ``command -v timeout`` selector is actually
+# exercised.  The pre-090 version replayed the fallback ``python -c`` block
+# inline in a generated wrapper — it never touched the real selector code in
+# ``session-start.sh``, which meant a refactor that broke the selector (e.g.
+# reversing the if/elif order, typo'ing a binary name) would still pass.
 #
-# Why we stub PATH rather than rely on host absence: session-start.sh re-pins
-# PATH to include /usr/local/bin and /opt/homebrew/bin at the top of
-# run_memory_decay (FR-3.5).  We use a throwaway HOME and a test-only wrapper
-# that clones run_memory_decay's env-pin with PATH stripped to /var/empty,
-# keeping production session-start.sh unmodified.
+# Strategy:
+# 1. Copy ``session-start.sh`` into HOOKS_DIR as a sibling file with the
+#    trailing ``main`` invocation stripped, so sourcing it registers
+#    ``run_memory_decay`` without running the full session-start pipeline.
+#    The copy lives in HOOKS_DIR (not /tmp) because session-start.sh
+#    derives its ``SCRIPT_DIR`` from ``BASH_SOURCE[0]`` and then sources
+#    ``${SCRIPT_DIR}/lib/common.sh``.
+# 2. In a subshell, shadow the ``command`` builtin with a function that
+#    returns non-zero for ``command -v gtimeout`` and ``command -v timeout``
+#    lookups — this survives the in-function PATH re-pin (which otherwise
+#    makes PATH=/var/empty from the parent ineffective once
+#    ``run_memory_decay`` runs).  All other ``command -v`` lookups (python3,
+#    ls, etc.) fall through to the real builtin unchanged via ``builtin
+#    command "$@"``.
+# 3. Replace maintenance.py with a sleep-30s stub that also writes a marker
+#    file on entry (the stub's own stderr is captured by the fallback's
+#    ``capture_output=True``, then discarded on TimeoutExpired — the marker
+#    file is our only way to prove the stub was invoked at all).
+# 4. Source the stripped session-start.sh, then call ``run_memory_decay``.
+#    Assert (a) wall-time between 8s and 20s (the 10s subprocess timeout
+#    enforced the kill, excluding the sub-second hot path and the 30s stub
+#    runtime), AND (b) the stub's marker file exists (proves the selector
+#    routed maintenance through the ``python -c`` fallback wrapper — the
+#    shell gtimeout/timeout branches invoke maintenance with different
+#    argv shapes but the marker writes on any invocation, so the critical
+#    signal is the *wall-time window* which can only be produced by the
+#    Python-layer ``subprocess.run(..., timeout=10)``).
+#
+# Why shadow ``command`` rather than PATH: session-start.sh's
+# ``run_memory_decay`` re-pins PATH to ``/usr/local/bin:/opt/homebrew/bin:...``
+# the moment it's invoked (FR-3.5 / AC-15), so any parent-shell PATH trick
+# is overwritten before the selector runs.  Shadowing ``command`` with a
+# bash function survives the PATH re-pin because functions take precedence
+# over builtins in bash's lookup order.
+#
+# Why not assert stderr contains "[memory-decay] subprocess timeout (10s)":
+# production ``run_memory_decay`` intentionally ``2>/dev/null``-swallows the
+# fallback branch's stderr (session-start.sh ~line 735) so maintenance
+# errors cannot corrupt the hook's JSON stdout.  That suppression is load-
+# bearing FR-8 behaviour — any test that observes the diagnostic literally
+# would need to reach through the stderr redirect, which is neither portable
+# nor stable.  The wall-time window (8s <= wall < 20s) is only produceable
+# by the Python subprocess-timeout path (gtimeout/timeout branches kill at
+# 10s wall too, but they're disabled here; hot-path success is <1s; the
+# sleep-30 stub naturally runs 30s).  Wall-time window + marker file is a
+# stronger selector-exercise signal than the swallowed stderr string.
 test_decay_python_subprocess_timeout_fallback() {
     log_test "run_memory_decay falls back to Python subprocess timeout when no external timeout cmd (AC-21)"
 
-    # We bound the outer test via a background watchdog — gtimeout/timeout
-    # may not be available on macOS without coreutils (and the point of
-    # this test is to exercise the path where they ARE missing).
     local tmp_home
     tmp_home=$(mktemp -d)
     local maint_py="${HOOKS_DIR}/lib/semantic_memory/maintenance.py"
     local maint_bak="${maint_py}.bak-089-fallback"
-    local test_hook="${tmp_home}/session-start-fallback-test.sh"
+    local ss_src="${HOOKS_DIR}/session-start.sh"
+    # IMPORTANT: stripped copy MUST live inside HOOKS_DIR so
+    # ``SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"`` at the
+    # top of session-start.sh resolves to the real hooks directory (not the
+    # tmp dir), so ``source "${SCRIPT_DIR}/lib/common.sh"`` finds its deps.
+    local ss_stripped="${HOOKS_DIR}/session-start.fallback-test.sh"
+    local marker_file="${tmp_home}/stub-invoked.marker"
 
     # CRITICAL: install trap BEFORE destructive mv so restoration always runs.
-    trap 'mv "'"$maint_bak"'" "'"$maint_py"'" 2>/dev/null || true; rm -rf "'"$tmp_home"'"' RETURN
+    trap 'mv "'"$maint_bak"'" "'"$maint_py"'" 2>/dev/null || true; rm -f "'"$ss_stripped"'"; rm -rf "'"$tmp_home"'"' RETURN
 
-    # Replace maintenance.py with a sleep-30s stub (exceeds the 10s Python
-    # subprocess.run timeout by 20s).
+    # Replace maintenance.py with a sleep-30s stub that marks the filesystem
+    # on entry.  The marker proves the selector routed through to
+    # maintenance; wall-time < 20s proves the Python-layer timeout=10 cut
+    # the stub off before its natural 30s completion.
     mv "$maint_py" "$maint_bak" || { log_fail "Failed to rename maintenance.py"; return; }
-    cat > "$maint_py" << 'STUB'
-"""Feature 089 AC-21 Python-fallback stub — sleeps 30s then exits."""
-import time
+    cat > "$maint_py" << STUB
+"""Feature 090 FR-1 Python-fallback stub — marks + sleeps 30s then exits."""
+import os, time
+try:
+    with open("${marker_file}", "w") as _fh:
+        _fh.write("invoked\n")
+except Exception:
+    pass
 time.sleep(30)
 STUB
 
-    # Build a minimal test wrapper that exercises ONLY the Python-fallback
-    # branch of run_memory_decay: pin PATH to /var/empty so `command -v`
-    # probes for gtimeout/timeout both fail, then invoke the
-    # ``subprocess.run(..., timeout=10)`` code path directly.  This mirrors
-    # run_memory_decay's fallback verbatim (see session-start.sh:721-735).
-    cat > "$test_hook" << HOOK
-#!/usr/bin/env bash
-set -euo pipefail
-
-SCRIPT_DIR="${HOOKS_DIR}"
-PLUGIN_ROOT="${HOOKS_DIR}/.."
-PROJECT_ROOT="${tmp_home}"
-VENV_PYTHON="\${PLUGIN_ROOT}/.venv/bin/python"
-
-# Force the fallback branch: pin PATH to a location where gtimeout/timeout
-# cannot exist, matching the 'neither found' condition at session-start.sh:711.
-export PATH="/var/empty"
-
-# Guard: confirm pre-condition (the test is meaningless if either binary is
-# somehow resolvable here).
-if command -v gtimeout >/dev/null 2>&1 || command -v timeout >/dev/null 2>&1; then
-    echo "PRE_CONDITION_FAIL: gtimeout/timeout unexpectedly findable" >&2
-    exit 99
-fi
-
-# Fallback branch (verbatim from session-start.sh:721-735).
-PYTHONPATH="\${SCRIPT_DIR}/lib" "\$VENV_PYTHON" -c '
-import sys, subprocess
-try:
-    r = subprocess.run(
-        [sys.argv[1], "-m", "semantic_memory.maintenance",
-         "--decay", "--project-root", sys.argv[2]],
-        timeout=10, capture_output=True, text=True,
-    )
-    sys.stdout.write(r.stdout)
-    sys.stderr.write(r.stderr)
-except subprocess.TimeoutExpired:
-    sys.stderr.write("[memory-decay] subprocess timeout (10s)\n")
-' "\$VENV_PYTHON" "\$PROJECT_ROOT" 2>&1 || true
-HOOK
-    chmod +x "$test_hook"
+    # Copy session-start.sh with the trailing ``main`` call stripped.  The
+    # production file ends with a bare ``main`` on the last line; sourcing
+    # it verbatim would execute the full session-start pipeline.  We only
+    # want the function definitions (including run_memory_decay) registered
+    # in the current shell.
+    if ! awk 'NR==FNR{total=NR; next} FNR < total || $0 !~ /^main$/' \
+        "$ss_src" "$ss_src" > "$ss_stripped"; then
+        log_fail "Failed to build stripped session-start.sh copy"
+        return
+    fi
+    # Defensive sanity check: stripped file must still define run_memory_decay.
+    if ! grep -q '^run_memory_decay()' "$ss_stripped"; then
+        log_fail "Stripped session-start.sh missing run_memory_decay definition"
+        return
+    fi
+    # And the trailing bare `main` invocation must be gone.
+    if tail -5 "$ss_stripped" | grep -qE '^main$'; then
+        log_fail "Stripped session-start.sh still contains trailing 'main' call"
+        return
+    fi
 
     local t_start t_end wall
     t_start=$(date +%s)
-    local output exit_code=0
-
-    # Run the test wrapper in the background and kill it after 20s if it
-    # hangs (watchdog pattern — no gtimeout/timeout dependency).
     local out_file="${tmp_home}/fallback-out.txt"
-    (bash "$test_hook" > "$out_file" 2>&1) &
+
+    # Invoke run_memory_decay in a subshell that shadows ``command`` so the
+    # selector's ``command -v gtimeout`` / ``command -v timeout`` probes
+    # both return non-zero.  HOME/PROJECT_ROOT point to the tmp dir so
+    # detect_project_root inside session-start.sh lands on a harmless
+    # location.  We run under a background watchdog (20s) as a safety net
+    # because this test is specifically about the case where no external
+    # timeout command is available.
+    (
+        bash -c '
+            set +e  # do not propagate pipefail; we inspect stderr directly
+            # Shadow the command builtin to simulate absent gtimeout/timeout.
+            command() {
+                if [[ "$1" == "-v" ]] && \
+                   [[ "$2" == "gtimeout" || "$2" == "timeout" ]]; then
+                    return 1
+                fi
+                builtin command "$@"
+            }
+            # Confirm precondition: both lookups now miss.
+            if command -v gtimeout >/dev/null 2>&1 \
+               || command -v timeout >/dev/null 2>&1; then
+                echo "PRE_CONDITION_FAIL: command shadow ineffective" >&2
+                exit 99
+            fi
+            # Source the stripped session-start.sh to register run_memory_decay.
+            # It reads SCRIPT_DIR/PLUGIN_ROOT/PROJECT_ROOT from its own
+            # top-of-file init; we point HOME at the tmp dir so any writes
+            # are sandboxed.
+            export HOME="'"$tmp_home"'"
+            # shellcheck disable=SC1090
+            source "'"$ss_stripped"'" || {
+                echo "SOURCE_FAIL: could not source stripped session-start.sh" >&2
+                exit 98
+            }
+            # Sanity: run_memory_decay must now be defined as a function.
+            if ! declare -F run_memory_decay >/dev/null; then
+                echo "DEF_FAIL: run_memory_decay not registered" >&2
+                exit 97
+            fi
+            # Actually invoke it — this exercises the real command-selector
+            # branching inside session-start.sh.
+            run_memory_decay
+        ' > "$out_file" 2>&1
+    ) &
     local test_pid=$!
     local watchdog_fired=0
     (
@@ -3045,45 +3118,59 @@ HOOK
         kill -0 "$test_pid" 2>/dev/null && kill -TERM "$test_pid" 2>/dev/null
     ) &
     local watchdog_pid=$!
+    local exit_code=0
     wait "$test_pid" 2>/dev/null
     exit_code=$?
-    # Kill the watchdog if still running (test finished in time).
     if kill -0 "$watchdog_pid" 2>/dev/null; then
         kill "$watchdog_pid" 2>/dev/null || true
         wait "$watchdog_pid" 2>/dev/null || true
     else
-        # Watchdog fired.
         watchdog_fired=1
     fi
     t_end=$(date +%s)
     wall=$((t_end - t_start))
+    local output
     output=$(cat "$out_file" 2>/dev/null || echo "")
 
     if [[ $watchdog_fired -eq 1 ]]; then
-        log_fail "watchdog fired at 20s — Python subprocess.run(timeout=10) fallback did not kick (wall=${wall}s)"
+        log_fail "watchdog fired at 20s — Python subprocess.run(timeout=10) fallback did not kick (wall=${wall}s). Output: ${output:0:400}"
         return
     fi
 
     if [[ $exit_code -eq 99 ]]; then
-        log_fail "test precondition failed: gtimeout/timeout still findable on PATH=/var/empty"
+        log_fail "test precondition failed: 'command' shadow ineffective (gtimeout/timeout still resolvable)"
+        return
+    fi
+    if [[ $exit_code -eq 98 ]]; then
+        log_fail "failed to source stripped session-start.sh. Output: ${output:0:400}"
+        return
+    fi
+    if [[ $exit_code -eq 97 ]]; then
+        log_fail "run_memory_decay not registered after source"
         return
     fi
 
-    # The wrapper exits 0 after `|| true` in the production fallback path,
-    # even when TimeoutExpired fires (the `except` handler emits to stderr
-    # and exits 0).  Pass condition is wall<20 AND the timeout message in
-    # stderr.
+    # Pass condition: (a) wall between 8s and 20s (only the Python-layer
+    # subprocess.run(timeout=10) produces a kill in this window with a
+    # sleep-30 stub and the external timeout commands shadowed), AND (b)
+    # the stub's marker file exists (proves maintenance was actually
+    # invoked — distinguishes the selector-works case from a misrouted
+    # silent-skip path).
+    if [[ ! -f "$marker_file" ]]; then
+        log_fail "stub marker file not created — maintenance.py stub was never invoked (wall=${wall}s). Output: ${output:0:400}"
+        return
+    fi
+
     if [[ $wall -ge 20 ]]; then
-        log_fail "wall time ${wall}s >= 20s — Python subprocess timeout=10 did not enforce"
+        log_fail "wall time ${wall}s >= 20s — Python subprocess timeout=10 did not enforce (stub should have been killed at 10s)"
+        return
+    fi
+    if [[ $wall -lt 8 ]]; then
+        log_fail "wall time ${wall}s < 8s — stub exited too fast; Python subprocess.run(timeout=10) was not the kill path (gtimeout/timeout may have leaked through, or the selector short-circuited elsewhere). Output: ${output:0:400}"
         return
     fi
 
-    # stderr MUST carry the fallback-timeout diagnostic.
-    if echo "$output" | grep -q 'subprocess timeout (10s)'; then
-        log_pass
-    else
-        log_fail "expected '[memory-decay] subprocess timeout (10s)' in output (wall=${wall}s). Output: ${output:0:400}"
-    fi
+    log_pass
 }
 
 # Run all tests

@@ -12,19 +12,33 @@ from typing import Callable
 
 
 def _assert_testing_context() -> None:
-    """Refuse ``*_for_testing`` invocations outside a pytest/PD_TESTING context.
+    """Refuse ``*_for_testing`` invocations outside an active pytest test.
 
     Feature 089 FR-1.2 / AC-2 (#00140): the seed/introspection helpers below
-    bypass the encapsulation boundary and must never run in production. Gate
-    them behind an env flag OR the ``pytest`` module being imported (the
-    latter catches every test runner invocation in practice).
+    bypass the encapsulation boundary and must never run in production.
+
+    Feature 090 FR-2 / AC-2 (#00173): the prior guard accepted either
+    ``PD_TESTING=1`` in the environment OR ``'pytest' in sys.modules``. Both
+    signals leak into non-test contexts — ``PD_TESTING`` survives any child
+    process spawned from a shell that exported it, and a transitive import
+    of ``pytest`` (e.g. a library that imports it at top level for type
+    hints or optional dev tooling) trips the second branch. Require
+    ``PYTEST_CURRENT_TEST`` instead, which pytest sets ONLY while actively
+    running a test and unsets between tests — this is the narrowest signal
+    available. The legacy PD_TESTING / sys.modules checks are retained as
+    belt-and-suspenders noise filters so a pytest-flavoured environment
+    without an active test body still raises.
     """
-    if os.environ.get("PD_TESTING") or "pytest" in sys.modules:
-        return
-    raise RuntimeError(
-        "for-testing helper called outside pytest "
-        "(set PD_TESTING=1 or import pytest to use)"
-    )
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        raise RuntimeError(
+            "for-testing helper called outside an active pytest test "
+            "(PYTEST_CURRENT_TEST not set)"
+        )
+    if not (os.environ.get("PD_TESTING") or "pytest" in sys.modules):
+        raise RuntimeError(
+            "for-testing helper called outside pytest "
+            "(set PD_TESTING=1 or import pytest to use)"
+        )
 
 
 # FTS5 metacharacters to strip (everything except intra-word hyphens).

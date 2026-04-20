@@ -350,6 +350,62 @@ class TestQueryPhaseEvents:
 
 
 # ---------------------------------------------------------------------------
+# Feature 090 FR-4 — query_phase_events_bulk event_types contract
+# ---------------------------------------------------------------------------
+
+
+class TestFeature090BulkEventTypesContract:
+    """Feature 090 FR-4 / AC-4 (#00175): ``query_phase_events_bulk`` must
+    distinguish ``event_types=None`` ("no filter, return all") from
+    ``event_types=[]`` ("filter by empty set, return nothing"). Pre-090 both
+    collapsed to the same code path because the guard was ``if event_types:``.
+    """
+
+    @pytest.fixture(autouse=True)
+    def seed_events(self, db):
+        events = [
+            ("feature:bulk-001", "proj-A", "brainstorm", "started", "2026-04-01T00:00:00Z"),
+            ("feature:bulk-001", "proj-A", "brainstorm", "completed", "2026-04-01T01:00:00Z"),
+            ("feature:bulk-001", "proj-A", "specify", "started", "2026-04-01T02:00:00Z"),
+            ("feature:bulk-002", "proj-A", "design", "backward", "2026-04-02T00:00:00Z"),
+        ]
+        for type_id, proj, phase, evt, ts in events:
+            db.insert_phase_event(
+                type_id=type_id, project_id=proj, phase=phase,
+                event_type=evt, timestamp=ts,
+            )
+
+    def test_empty_event_types_returns_empty_list(self, db):
+        """AC-4: event_types=[] MUST return [] (filter by empty set)."""
+        results = db.query_phase_events_bulk(
+            type_ids=["feature:bulk-001"], event_types=[],
+        )
+        assert results == [], (
+            f"event_types=[] must short-circuit to []; got "
+            f"{len(results)} rows — pre-090 contract regressed"
+        )
+
+    def test_none_event_types_returns_all(self, db):
+        """AC-4: event_types=None MUST return all rows for the type_ids."""
+        results = db.query_phase_events_bulk(
+            type_ids=["feature:bulk-001"], event_types=None,
+        )
+        assert len(results) == 3, (
+            f"event_types=None must return all 3 rows for bulk-001, got "
+            f"{len(results)}"
+        )
+
+    def test_filter_by_event_types_list(self, db):
+        """AC-4: event_types=['started'] MUST filter correctly."""
+        results = db.query_phase_events_bulk(
+            type_ids=["feature:bulk-001", "feature:bulk-002"],
+            event_types=["started"],
+        )
+        assert len(results) == 2
+        assert all(r["event_type"] == "started" for r in results)
+
+
+# ---------------------------------------------------------------------------
 # Feature 088 Bundle D: migration 10 hardening tests
 # ---------------------------------------------------------------------------
 
@@ -756,6 +812,134 @@ class TestFeature088BundleH4PhaseEvents:
             f"second={second_count}"
         )
         database.close()
+
+
+# ---------------------------------------------------------------------------
+# Feature 090 FR-3 — Migration 10 atomic schema_version stamp
+# ---------------------------------------------------------------------------
+
+
+class TestFeature090Migration10Atomicity:
+    """Feature 090 FR-3 / AC-3 (#00174): the in-function
+    ``INSERT OR REPLACE INTO _metadata VALUES ('schema_version', '10')`` MUST
+    commit atomically with the DDL/DML body. Feature 089 Bundle C.4 removed
+    this and left a crash window between the migration's ``conn.commit()``
+    and the outer ``_migrate()`` loop's stamp commit — a SIGKILL in that
+    window desyncs the DB (phase_events populated at schema_version=9).
+    """
+
+    def test_migration_10_stamps_schema_version_before_outer_loop_commit(self):
+        """AC-3: after _migration_10_phase_events returns (BEFORE any outer
+        stamp), schema_version MUST already be '10' on the same connection.
+
+        Invoking the migration function directly bypasses the outer
+        ``_migrate()`` loop — if the stamp lives in the outer loop,
+        schema_version would still read '9' at this point. With the
+        in-function stamp restored, both DDL and stamp committed in the
+        SAME transaction, so schema_version MUST be '10' immediately.
+        """
+        from entity_registry.database import _migration_10_phase_events
+
+        database = EntityDatabase(":memory:")
+        try:
+            database.register_entity(
+                "feature", "090-atom-001", "Atomic Test",
+                project_id=TEST_PROJECT_ID,
+                metadata={
+                    "phase_timing": {
+                        "brainstorm": {
+                            "started": "2026-04-19T00:00:00Z",
+                            "completed": "2026-04-19T01:00:00Z",
+                        },
+                    },
+                },
+            )
+            _reset_phase_events_to_pre_migration(database)
+
+            # Direct invocation — no outer _migrate() loop to stamp after.
+            _migration_10_phase_events(database._conn)
+
+            # Both invariants must hold on the SAME connection:
+            # (1) phase_events populated (migration body ran),
+            # (2) schema_version already = '10' (stamp is in-function).
+            row_count = database._conn.execute(
+                "SELECT COUNT(*) FROM phase_events"
+            ).fetchone()[0]
+            assert row_count > 0, "migration body must have inserted backfill rows"
+
+            version_row = database._conn.execute(
+                "SELECT value FROM _metadata WHERE key = 'schema_version'"
+            ).fetchone()
+            assert version_row is not None
+            assert version_row[0] == "10", (
+                f"schema_version stamp must commit atomically with migration "
+                f"body (got {version_row[0]!r}) — crash window regressed"
+            )
+        finally:
+            database.close()
+
+    def test_migration_10_rollback_desyncs_neither_schema_nor_rows(self):
+        """AC-3: if the migration raises after the DDL/DML but before the
+        final commit, the ``try/except`` rollback path MUST leave the DB in
+        a clean pre-migration state — schema_version still '9', no
+        phase_events table. This guards the atomicity contract on the
+        error path (the outer _migrate() stamp never runs on exception).
+        """
+        from entity_registry.database import _migration_10_phase_events
+
+        database = EntityDatabase(":memory:")
+        try:
+            _reset_phase_events_to_pre_migration(database)
+
+            # Proxy connection that lets DDL through but raises on the
+            # schema_version stamp — models a mid-commit failure.
+            real_conn = database._conn
+
+            class _StampFailConn:
+                def __init__(self, inner):
+                    self._inner = inner
+
+                def execute(self, sql, *args, **kwargs):
+                    if (
+                        "INSERT OR REPLACE INTO _metadata" in sql
+                        and "schema_version" in sql
+                        and "'10'" in sql
+                    ):
+                        raise sqlite3.OperationalError(
+                            "simulated stamp-write failure"
+                        )
+                    return self._inner.execute(sql, *args, **kwargs)
+
+                def rollback(self):
+                    return self._inner.rollback()
+
+                def commit(self):
+                    return self._inner.commit()
+
+                def __getattr__(self, name):
+                    return getattr(self._inner, name)
+
+            proxy = _StampFailConn(real_conn)
+            with pytest.raises(sqlite3.OperationalError, match="stamp-write"):
+                _migration_10_phase_events(proxy)
+
+            # Post-rollback: schema_version remains 9, phase_events absent.
+            version_row = real_conn.execute(
+                "SELECT value FROM _metadata WHERE key = 'schema_version'"
+            ).fetchone()
+            assert version_row[0] == "9", (
+                f"expected rollback to leave schema_version=9, got "
+                f"{version_row[0]!r}"
+            )
+            tbl_row = real_conn.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name='phase_events'"
+            ).fetchone()
+            assert tbl_row is None, (
+                "phase_events table must not survive migration rollback"
+            )
+        finally:
+            database.close()
 
 
 # ---------------------------------------------------------------------------

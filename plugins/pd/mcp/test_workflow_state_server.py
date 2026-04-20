@@ -9558,16 +9558,29 @@ class TestFeature089BundleE:
 
     # ---- AC-22 (#00164): record_backward_event resolves project_id server-side ----
 
-    def test_record_backward_event_ignores_caller_project_id_mismatch(self):
-        """AC-22 (#00164).
+    def test_record_backward_event_uses_entity_project_id_not_server_global(self):
+        """AC-22 (#00164), retitled for Feature 090 FR-5 / AC-5 (#00176).
 
-        The current MCP signature for ``record_backward_event`` no longer
-        accepts a caller-supplied ``project_id`` (Feature 088 FR-2.3
-        removed it).  This test is a regression guard — it verifies the
-        resolved ``project_id`` comes from the *entity record* even when
-        the current-project global disagrees.  If someone re-adds a
-        ``project_id`` param later, the server MUST continue to resolve
-        from the entity so callers cannot spoof cross-project writes.
+        The current MCP signature for ``record_backward_event`` does NOT
+        accept a caller-supplied ``project_id`` parameter (Feature 088
+        FR-2.3 removed it) — so the pre-090 test name
+        ``test_record_backward_event_ignores_caller_project_id_mismatch``
+        was misleading: there is no caller parameter for the server to
+        "ignore".
+
+        What this test actually pins is the server-side resolution
+        contract: ``record_backward_event`` resolves ``project_id`` from
+        the *entity record*, NOT from the server-global
+        ``workflow_state_server._project_id``.  We seed the entity with
+        one project_id and intentionally set the server global to a
+        different value; the inserted ``phase_events`` row MUST carry
+        the entity's project_id.  This guards against two regressions:
+
+        - A future refactor that re-adds a ``project_id`` param to the
+          MCP signature (callers could then spoof cross-project writes).
+        - An internal change that substitutes ``_project_id`` for the
+          entity-record resolution (would desync phase_events rows from
+          the entity table in multi-project hosts).
         """
         import asyncio
         import workflow_state_server as wss
