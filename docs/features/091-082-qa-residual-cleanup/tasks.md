@@ -714,36 +714,44 @@ done
 echo "✓ All 27 IDs present"
 
 echo "AC-1: exact closure markers per spec FR-1 mapping table (all 23)"
-# Per-ID marker verification — loop over the exact FR-1 mapping.
-declare -A expected=(
-  [00075]="fixed in feature:089"
-  [00095]="fixed in feature:088"
-  [00096]="fixed in feature:088, feature:089"
-  [00097]="fixed in feature:089"
-  [00098]="fixed in feature:088"
-  [00099]="fixed in feature:089"
-  [00100]="fixed in feature:088"
-  [00101]="fixed in feature:088"
-  [00102]="fixed in feature:088"
-  [00103]="fixed in feature:088"
-  [00104]="fixed in feature:088"
-  [00105]="fixed in feature:088"
-  [00106]="fixed in feature:088"
-  [00107]="fixed in feature:088"
-  [00108]="fixed in feature:088"
-  [00109]="fixed in feature:088"
-  [00111]="fixed in feature:088"
-  [00112]="fixed in feature:089"
-  [00113]="fixed in feature:088"
-  [00114]="fixed in feature:089"
-  [00115]="fixed in feature:088"
-  [00116]="partially fixed in feature:088"
-)
-for id in "${!expected[@]}"; do
-  marker="${expected[$id]}"
-  grep -qE "#${id}.*${marker}" docs/backlog.md || { echo "MISSING marker on #${id}: expected '${marker}'"; exit 1; }
-done
-echo "✓ All 23 closure markers verified"
+# Per-ID marker verification — flat list, no associative arrays (portable to bash 3.2 on macOS).
+# Format: one "ID|marker" pair per line.
+pairs="
+00075|fixed in feature:089
+00095|fixed in feature:088
+00096|fixed in feature:088, feature:089
+00097|fixed in feature:089
+00098|fixed in feature:088
+00099|fixed in feature:089
+00100|fixed in feature:088
+00101|fixed in feature:088
+00102|fixed in feature:088
+00103|fixed in feature:088
+00104|fixed in feature:088
+00105|fixed in feature:088
+00106|fixed in feature:088
+00107|fixed in feature:088
+00108|fixed in feature:088
+00109|fixed in feature:088
+00111|fixed in feature:088
+00112|fixed in feature:089
+00113|fixed in feature:088
+00114|fixed in feature:089
+00115|fixed in feature:088
+00116|partially fixed in feature:088
+"
+# Process substitution keeps the while loop in the parent shell so `exit 1`
+# exits the outer script (not just the subshell). Supported on bash 3.2+.
+fail=0
+while IFS='|' read -r id marker; do
+  [ -z "$id" ] && continue
+  if ! grep -qE "#${id}.*${marker}" docs/backlog.md; then
+    echo "MISSING marker on #${id}: expected '${marker}'"
+    fail=1
+  fi
+done < <(printf '%s\n' "$pairs")
+[ "$fail" = "0" ] || exit 1
+echo "✓ All 22 closure markers + 1 partial verified"
 
 echo "AC-2 / AC-2b: <= predicate"
 [ "$(grep -cE 'if med_days <= high_days' plugins/pd/hooks/lib/semantic_memory/maintenance.py)" = "1" ]
