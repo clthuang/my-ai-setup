@@ -1,0 +1,14 @@
+{
+  "id": "090",
+  "slug": "089-qa-round-3-residual",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-04-20T05:54:00.689708+00:00",
+  "branch": "feature/090-089-qa-round-3-residual",
+  "lastCompletedPhase": null,
+  "phases": {
+    "brainstorm": {
+      "started": "2026-04-20T05:54:00.689285+00:00"
+    }
+  }
+}
