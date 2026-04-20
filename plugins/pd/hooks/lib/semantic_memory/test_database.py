@@ -2155,13 +2155,14 @@ class TestFeature089BundleA:
     def test_for_testing_helpers_refuse_outside_pytest(self, tmp_path, monkeypatch):
         """AC-2 (FR-1.2 / #00140).
 
-        With BOTH the ``pytest`` module removed from ``sys.modules`` AND the
-        ``PD_TESTING`` env var unset, calling ``execute_test_sql_for_testing``
-        MUST raise ``RuntimeError``.
+        With ``PYTEST_CURRENT_TEST`` unset AND the ``pytest`` module removed
+        from ``sys.modules`` AND the ``PD_TESTING`` env var unset, calling
+        ``execute_test_sql_for_testing`` MUST raise ``RuntimeError``.
 
-        The test re-imports ``semantic_memory.database`` AFTER the mutations
-        so the guard's ``'pytest' in sys.modules`` probe sees a pytest-free
-        namespace at call time.
+        Feature 090 FR-2 (#00173): after tightening, the guard short-circuits
+        on the missing ``PYTEST_CURRENT_TEST`` alone — the other two probes
+        are now belt-and-suspenders. We still strip them all to exercise the
+        full "production-like" negative path.
         """
         import sys as _sys
 
@@ -2170,8 +2171,9 @@ class TestFeature089BundleA:
         # Build DB inside the test (pytest still imported at this point).
         db = MemoryDatabase(db_path)
         try:
-            # Strip pytest + PD_TESTING so the guard trips.
+            # Strip pytest + PD_TESTING + PYTEST_CURRENT_TEST so the guard trips.
             monkeypatch.delenv("PD_TESTING", raising=False)
+            monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
             # Remove all pytest-prefixed modules so ``'pytest' in sys.modules``
             # returns False during the call.
             for mod_name in list(_sys.modules):
@@ -2179,9 +2181,61 @@ class TestFeature089BundleA:
                     monkeypatch.delitem(_sys.modules, mod_name, raising=False)
             assert "pytest" not in _sys.modules
             assert os.environ.get("PD_TESTING") is None
+            assert os.environ.get("PYTEST_CURRENT_TEST") is None
 
             with pytest.raises(RuntimeError, match="for-testing helper"):
                 db.execute_test_sql_for_testing("SELECT 1")
+        finally:
+            db.close()
+
+    def test_guard_rejects_pd_testing_without_pytest_current_test(
+        self, tmp_path, monkeypatch,
+    ):
+        """Feature 090 AC-2 (FR-2 / #00173).
+
+        With only ``PD_TESTING=1`` set and ``PYTEST_CURRENT_TEST`` unset, the
+        guard MUST raise. This closes the parent-shell PD_TESTING leak vector
+        where a developer exports PD_TESTING once and inadvertently leaves it
+        set for all child processes including production sessions.
+        """
+        db_path = str(tmp_path / "pd_testing_only.db")
+        db = MemoryDatabase(db_path)
+        try:
+            monkeypatch.setenv("PD_TESTING", "1")
+            monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+            assert os.environ.get("PD_TESTING") == "1"
+            assert os.environ.get("PYTEST_CURRENT_TEST") is None
+
+            with pytest.raises(
+                RuntimeError, match="PYTEST_CURRENT_TEST not set",
+            ):
+                db.execute_test_sql_for_testing("SELECT 1")
+        finally:
+            db.close()
+
+    def test_guard_passes_with_both_pd_testing_and_pytest_current_test(
+        self, tmp_path, monkeypatch,
+    ):
+        """Feature 090 AC-2 (FR-2 / #00173).
+
+        With BOTH ``PD_TESTING=1`` and ``PYTEST_CURRENT_TEST`` set, the guard
+        MUST pass — this is the canonical "active pytest test" configuration
+        that pytest's own runner establishes for every test body.
+        """
+        db_path = str(tmp_path / "both_set.db")
+        db = MemoryDatabase(db_path)
+        try:
+            monkeypatch.setenv("PD_TESTING", "1")
+            # pytest normally sets PYTEST_CURRENT_TEST itself; we set it
+            # explicitly so the assertion is self-contained.
+            monkeypatch.setenv(
+                "PYTEST_CURRENT_TEST",
+                "test_database.py::test_guard_passes (call)",
+            )
+            # Should NOT raise.
+            db.execute_test_sql_for_testing(
+                "CREATE TABLE IF NOT EXISTS _feat090_guard_probe (x INTEGER)"
+            )
         finally:
             db.close()
 

@@ -1,0 +1,24 @@
+{
+  "id": "090",
+  "slug": "089-qa-round-3-residual",
+  "mode": "standard",
+  "status": "active",
+  "created": "2026-04-20T05:54:00.689708+00:00",
+  "branch": "feature/090-089-qa-round-3-residual",
+  "lastCompletedPhase": "create-plan",
+  "phases": {
+    "brainstorm": {
+      "started": "2026-04-20T05:54:00.689285+00:00"
+    },
+    "specify": {
+      "started": "2026-04-20T05:54:49.576573+00:00",
+      "completed": "2026-04-20T05:54:53.056889+00:00"
+    },
+    "design": {
+      "completed": "2026-04-20T05:54:58.070108+00:00"
+    },
+    "create-plan": {
+      "completed": "2026-04-20T05:55:01.956181+00:00"
+    }
+  }
+}
