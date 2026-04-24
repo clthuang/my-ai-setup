@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.16.1] - 2026-04-24
+
 ### Fixed
 - **DoS vector in `MemoryDatabase.scan_decay_candidates`**: `scan_limit < 0` is now clamped to 0 before SQL binding. SQLite `LIMIT -1` = unlimited, which on populated knowledge banks could materialize the entire `entries` table — documented behavior said "yields zero rows" but was factually wrong for negatives (feature:092 FR-1, #00193).
 - **`MemoryDatabase.scan_decay_candidates` format validation**: Malformed `not_null_cutoff` (e.g., `+00:00` suffix, empty, non-ISO) now logs a stderr warning and returns an empty generator instead of silently executing SQL with wrong data. Production caller (via `_iso_utc`) never triggers the warning path (feature:092 FR-5, #00197).
