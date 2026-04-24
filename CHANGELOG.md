@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.16.2] - 2026-04-24
+
 ### Fixed
 - **Unicode-digit bypass in `_ISO8601_Z_PATTERN`**: pattern now uses `[0-9]` literal + `re.ASCII` flag instead of `\d`. Python 3's bare `\d` on `str` patterns accepts Unicode digit codepoints (Arabic-Indic `٠١٢`, Devanagari `०१२`, fullwidth `０１２`) — an attacker-crafted `not_null_cutoff` like `'２０２６-04-20T00:00:00Z'` passed validation but produced undefined SQLite lex ordering (feature:093 FR-1, #00219 HIGH).
 - **Trailing-newline bypass via `$` anchor**: call sites now use `re.fullmatch()` instead of `re.match()`. Python's `$` anchor (non-multiline) matches before a trailing `\n`, so `'2026-04-20T00:00:00Z\n'` passed validation — log-injection vector (feature:093 FR-2, #00220 MED).
