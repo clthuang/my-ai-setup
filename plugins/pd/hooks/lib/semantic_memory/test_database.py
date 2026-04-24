@@ -7,6 +7,7 @@ import os
 import struct
 import sqlite3
 from collections.abc import Iterator
+from datetime import datetime, timezone
 
 import numpy as np
 import pytest
@@ -2021,18 +2022,66 @@ class TestScanDecayCandidates:
         assert "format violation" in captured.err, \
             f"expected stderr to contain 'format violation'; got: {captured.err!r}"
 
-    def test_scan_decay_candidates_matches_iso_utc_output(
-        self, db: MemoryDatabase,
+    @pytest.mark.parametrize("test_dt_label,test_dt_factory", [
+        ("canonical",         lambda: datetime(2026, 4, 16, 12, 0, 0, tzinfo=timezone.utc)),
+        ("microsecond_max",   lambda: datetime(2026, 4, 16, 12, 0, 0, 999999, tzinfo=timezone.utc)),
+        ("year_9999_max",     lambda: datetime(9999, 12, 31, 23, 59, 59, tzinfo=timezone.utc)),
+        ("year_1_min",        lambda: datetime(1, 1, 1, 0, 0, 0, tzinfo=timezone.utc)),
+        ("leap_year_2024",    lambda: datetime(2024, 2, 29, 12, 0, 0, tzinfo=timezone.utc)),
+    ])
+    def test_iso_utc_output_always_passes_hardened_pattern(
+        self, db: MemoryDatabase, test_dt_label, test_dt_factory,
     ):
-        """Feature 092 AC-7 / FR-5: production _iso_utc output must pass the
-        regex (prevents silent production breaker if _iso_utc format drifts)."""
-        from datetime import datetime, timezone
+        """Feature 093 FR-4 format-drift pin: _iso_utc output MUST pass the
+        hardened _ISO8601_Z_PATTERN.fullmatch for ALL representative datetime
+        boundaries. Catches regression where _iso_utc changes format (e.g.,
+        adds microseconds) and would silently break BOTH scan_decay_candidates
+        (log-and-skip) AND batch_demote (raise)."""
         from semantic_memory._config_utils import _iso_utc
         from semantic_memory.database import _ISO8601_Z_PATTERN
-        now_iso = _iso_utc(datetime(2026, 4, 16, 12, 0, 0, tzinfo=timezone.utc))
-        assert _ISO8601_Z_PATTERN.match(now_iso), (
-            f"_iso_utc output {now_iso!r} does not match regex — format drift"
+        test_dt = test_dt_factory()
+        output = _iso_utc(test_dt)
+        assert _ISO8601_Z_PATTERN.fullmatch(output), (
+            f"[{test_dt_label}] _iso_utc({test_dt!r}) = {output!r} "
+            f"does not match hardened pattern — format drift"
         )
+
+    @pytest.mark.parametrize("unicode_cutoff", [
+        "２０２６-04-20T00:00:00Z",  # fullwidth digits ２０２６
+        "٢٠٢٦-04-20T00:00:00Z",  # Arabic-Indic digits ٢٠٢٦
+        "२०२६-04-20T00:00:00Z",  # Devanagari digits २०२६
+    ])
+    def test_pattern_rejects_unicode_digits(
+        self, unicode_cutoff, db: MemoryDatabase, capsys,
+    ):
+        """Feature 093 FR-1 (#00219): hardened pattern uses [0-9] + re.ASCII;
+        Unicode digit codepoints (fullwidth, Arabic-Indic, Devanagari) that
+        passed the 092 `\\d` pattern MUST now be rejected."""
+        rows = list(db.scan_decay_candidates(
+            not_null_cutoff=unicode_cutoff, scan_limit=100,
+        ))
+        assert rows == [], f"expected empty for {unicode_cutoff!r}; got {len(rows)} rows"
+        captured = capsys.readouterr()
+        assert "format violation" in captured.err, (
+            f"expected stderr 'format violation'; got: {captured.err!r}"
+        )
+
+    @pytest.mark.parametrize("trailing_cutoff", [
+        "2026-04-20T00:00:00Z\n",       # trailing newline (the #00220 case)
+        "2026-04-20T00:00:00Z ",        # trailing space
+        "2026-04-20T00:00:00Z\r\n",     # trailing CRLF
+    ])
+    def test_pattern_rejects_trailing_whitespace(
+        self, trailing_cutoff, db: MemoryDatabase, capsys,
+    ):
+        """Feature 093 FR-2 (#00220): fullmatch rejects trailing whitespace that
+        the 092 `$` anchor accepted (`$` matches before trailing `\\n`)."""
+        rows = list(db.scan_decay_candidates(
+            not_null_cutoff=trailing_cutoff, scan_limit=100,
+        ))
+        assert rows == [], f"expected empty for {trailing_cutoff!r}; got {len(rows)} rows"
+        captured = capsys.readouterr()
+        assert "format violation" in captured.err
 
 
 class TestBatchDemote:
@@ -2040,7 +2089,7 @@ class TestBatchDemote:
     `updated_at < ?` guard for intra-tick idempotency).
     """
 
-    NOW_ISO = "2026-04-16T12:00:00+00:00"
+    NOW_ISO = "2026-04-16T12:00:00Z"  # Feature 093 FR-3: Z suffix required by hardened pattern
 
     def test_empty_ids_returns_zero_no_sql(self):
         db = MemoryDatabase(":memory:")
@@ -2050,13 +2099,35 @@ class TestBatchDemote:
         finally:
             db.close()
 
-    def test_batch_demote_empty_now_iso_with_ids_raises(self):
-        """Feature 092 AC-10 / FR-8 (#00200): ids=['x'] + now_iso='' →
-        ValueError (prevents `updated_at=""` corruption)."""
+    @pytest.mark.parametrize("invalid_now_iso,case_name", [
+        ("", "empty"),
+        ("   ", "whitespace-only"),
+        ("\n", "newline-only"),
+        ("​", "zero-width-space"),
+        ("10000-01-01T00:00:00Z", "5-digit-year-breaks-sqlite-lex-collation"),
+        ("2026-04-20T00:00:00Z\n", "trailing-newline"),
+        ("２０２６-04-20T00:00:00Z", "unicode-digits"),
+        ("2026-04-20T00:00:00+00:00", "plus-offset-not-Z-suffix"),
+    ])
+    def test_batch_demote_rejects_invalid_now_iso(self, invalid_now_iso, case_name):
+        """Feature 093 FR-3 (#00221): batch_demote uses same _ISO8601_Z_PATTERN
+        as scan_decay_candidates (single source of truth). All inputs that would
+        silently corrupt `updated_at < ?` guard or pass 092's `not now_iso`
+        truthy check MUST raise ValueError."""
         db = MemoryDatabase(":memory:")
         try:
-            with pytest.raises(ValueError, match="now_iso must be non-empty"):
-                db.batch_demote(["x"], "medium", "")
+            with pytest.raises(ValueError, match="Z-suffix ISO-8601"):
+                db.batch_demote(["x"], "medium", invalid_now_iso)
+        finally:
+            db.close()
+
+    def test_batch_demote_empty_ids_short_circuits_before_now_iso_check(self):
+        """Feature 093 FR-3 regression guard (092 TD-3 preserved): empty-ids
+        short-circuit MUST execute before the new regex validation. Even with
+        garbage now_iso, empty ids returns 0."""
+        db = MemoryDatabase(":memory:")
+        try:
+            assert db.batch_demote([], "medium", "garbage-not-iso") == 0
         finally:
             db.close()
 
@@ -2138,7 +2209,7 @@ class TestExecuteChunkSeam:
     assert rollback of all prior chunks (no partial UPDATE visible).
     """
 
-    NOW_ISO = "2026-04-16T12:00:00+00:00"
+    NOW_ISO = "2026-04-16T12:00:00Z"  # Feature 093 FR-3: Z suffix required by hardened pattern
 
     def test_partial_failure_rolls_back_first_chunk(self, monkeypatch):
         db = MemoryDatabase(":memory:")
@@ -2184,7 +2255,7 @@ class TestConcurrentWriters:
     SQLite is required (WAL requires disk) so tests use `tmp_path`.
     """
 
-    NOW_ISO = "2026-04-16T12:00:00+00:00"
+    NOW_ISO = "2026-04-16T12:00:00Z"  # Feature 093 FR-3: Z suffix required by hardened pattern
 
     def test_ac_20b_1_concurrent_writer_success(self, tmp_path):
         import threading
