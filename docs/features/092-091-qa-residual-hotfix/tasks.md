@@ -111,7 +111,7 @@ grep -cE "now_iso must be non-empty ISO-8601 timestamp" plugins/pd/hooks/lib/sem
 
 **Files:** `plugins/pd/hooks/lib/semantic_memory/test_database.py`
 **Complexity:** Medium
-**Depends on:** T1, T2, T3
+**Depends on:** T12, T3
 
 **Action:** add 5 new test methods to `TestScanDecayCandidates` (AC-1 + AC-7×2) and `TestBatchDemote` (AC-10×2):
 
@@ -290,8 +290,8 @@ grep -cE 'cd "\$\(dirname' plugins/pd/hooks/tests/test-hooks.sh  # reduce by 2
 
 **DoD:**
 ```bash
-grep -cE 'cp -R -P "\$\{HOOKS_DIR\}' test-hooks.sh  # >= 2 (pre-T7) or >= 1 (post-T7)
-grep -cE 'cp -R "\$\{HOOKS_DIR\}/lib/semantic_memory' test-hooks.sh  # = 0
+grep -cE 'cp -R -P "\$\{HOOKS_DIR\}' plugins/pd/hooks/tests/test-hooks.sh  # >= 2
+grep -cE 'cp -R "\$\{HOOKS_DIR\}/lib/semantic_memory' plugins/pd/hooks/tests/test-hooks.sh  # = 0
 ```
 
 **Commit:** `pd(092): FR-4 cp -R -P (no-dereference symlinks, #00196)`
