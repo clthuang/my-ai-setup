@@ -11,10 +11,19 @@ from collections.abc import Iterator
 from datetime import datetime, timezone
 from typing import Callable
 
-# Feature 092 FR-5 (#00197): Z-suffix ISO-8601 format matching production
+# Feature 093 FR-1 (#00219, #00220): Z-suffix ISO-8601 format matching production
 # `_config_utils._iso_utc` output (strftime("%Y-%m-%dT%H:%M:%SZ")).
-# Used by `MemoryDatabase.scan_decay_candidates` to validate `not_null_cutoff`.
-_ISO8601_Z_PATTERN = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$')
+# Used symmetrically by `MemoryDatabase.scan_decay_candidates` (read path, log-and-skip)
+# and `MemoryDatabase.batch_demote` (write path, raise) to validate ISO-8601 Z-suffix
+# timestamps. Feature 092 shipped `\d` without `re.ASCII` which accepted Unicode digit
+# codepoints (Arabic-Indic ٠١٢, Devanagari ०१२, fullwidth ０１２); 093 hardens via:
+#   - `[0-9]` literal (ASCII-only, primary defense against Unicode homograph)
+#   - `re.ASCII` flag (defense-in-depth against future class expansion)
+#   - call sites use `.fullmatch()` instead of `.match()` to reject trailing `\n` (#00220)
+_ISO8601_Z_PATTERN = re.compile(
+    r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z',
+    re.ASCII,
+)
 
 
 def _assert_testing_context() -> None:
@@ -986,12 +995,13 @@ class MemoryDatabase:
             zero rows (negative values clamped to 0 before SQL binding to
             avoid SQLite LIMIT -1 = unlimited semantics).
         """
-        # Feature 092 FR-5 (#00197): validate Z-suffix format; log-and-skip on
-        # violation (no exception — matches FR-1 clamp philosophy).
-        if not _ISO8601_Z_PATTERN.match(not_null_cutoff):
+        # Feature 092 FR-5 (#00197) + 093 FR-2 (#00220): validate Z-suffix format
+        # via fullmatch (rejects trailing newlines and Unicode digits); log-and-skip
+        # on violation (no exception — matches FR-1 clamp philosophy).
+        if not _ISO8601_Z_PATTERN.fullmatch(not_null_cutoff):
             sys.stderr.write(
                 f"[scan_decay_candidates] not_null_cutoff format violation: "
-                f"expected YYYY-MM-DDTHH:MM:SSZ, got {not_null_cutoff!r}; "
+                f"expected YYYY-MM-DDTHH:MM:SSZ, got {not_null_cutoff!r:.80}; "
                 f"returning empty result\n"
             )
             return  # empty generator (no yield)
@@ -1049,11 +1059,17 @@ class MemoryDatabase:
         """
         if not ids:
             return 0
-        # Feature 092 FR-8 (#00200): reject empty now_iso after empty-ids short-circuit.
-        # Empty string would bind `updated_at=""` which silently corrupts the
-        # `updated_at < ?` guard used by intra-tick idempotency downstream.
-        if not now_iso:
-            raise ValueError("now_iso must be non-empty ISO-8601 timestamp")
+        # Feature 092 FR-8 (#00200) + 093 FR-3 (#00221): validate now_iso format
+        # symmetric with scan_decay_candidates (single source of truth:
+        # _ISO8601_Z_PATTERN). Empty-ids short-circuit (line above) preserved.
+        # Catches empty, whitespace-only, trailing-newline, 5-digit year, Unicode
+        # digits, non-Z offsets — all of which would silently corrupt the
+        # `updated_at < ?` idempotency guard if written to SQLite.
+        if not _ISO8601_Z_PATTERN.fullmatch(now_iso):
+            raise ValueError(
+                f"now_iso must be Z-suffix ISO-8601 (YYYY-MM-DDTHH:MM:SSZ), "
+                f"got {now_iso!r:.80}"
+            )
         if new_confidence not in ("medium", "low"):
             raise ValueError(f"invalid new_confidence: {new_confidence!r}")
 
