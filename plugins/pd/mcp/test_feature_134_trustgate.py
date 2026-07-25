@@ -94,3 +94,36 @@ def test_complete_tool_accepts_native_list_reviewer_notes(tool_env):
     ]
     assert len(rows) == 1, rows
     assert json.loads(rows[0]["reviewer_notes"]) == notes
+
+
+def test_entity_vanish_after_completion_rolls_back(tool_env, monkeypatch):
+    """qa-server H1 pin: if the post-completion entity read comes back None,
+    the whole completion ROLLS BACK (raise, not return — a return would exit
+    the transaction CM normally and COMMIT engine state with no event)."""
+    db = tool_env
+    real_get = db.get_entity
+    calls = {"n": 0}
+
+    def vanishing_get(type_id, *a, **k):
+        calls["n"] += 1
+        # Vanish on every read: the in-transaction post-completion timing
+        # read (the H1 site) then gets None and must raise/roll back.
+        if calls["n"] >= 1:
+            return None
+        return real_get(type_id, *a, **k)
+
+    monkeypatch.setattr(db, "get_entity", vanishing_get)
+    result = json.loads(asyncio.run(wss.complete_phase(
+        feature_type_id="feature:134-t", phase="brainstorm", iterations=1,
+    )))
+    monkeypatch.undo()
+
+    assert result.get("error"), result
+    # Rollback proof (true only on the raise path): no completed event,
+    # and last_completed_phase did not advance.
+    rows = db.query_phase_events(
+        type_id="feature:134-t", phase="brainstorm", event_type="completed",
+    )
+    assert rows == [], rows
+    wp = db.get_workflow_phase("feature:134-t")
+    assert wp.get("last_completed_phase") in (None, ""), wp

@@ -9773,11 +9773,14 @@ class TestFeature088BundleE:
     def test_complete_phase_rejects_oversized_reviewer_notes(
         self, fresh_setup,
     ):
-        """AC-7 (FR-2.4): reviewer_notes >10000 chars returns structured error."""
+        """AC-7 (FR-2.4) + qa-server M3: the guard measures the SERIALIZED
+        payload (what the DB layer re-checks), so a VALID-JSON oversized
+        payload gets oversized_reviewer_notes; raw garbage that big is
+        invalid JSON and correctly maps to invalid_reviewer_notes."""
         db, engine = fresh_setup
 
-        # 20000 chars — well above the 10000 cap.
-        oversized = "x" * 20000
+        # Valid JSON whose serialized form is well above the 10000 cap.
+        oversized = json.dumps(["x" * 20000])
         result = _process_complete_phase(
             engine, "feature:e-001", "brainstorm",
             db=db, reviewer_notes=oversized,
@@ -9785,6 +9788,14 @@ class TestFeature088BundleE:
         data = json.loads(result)
         assert data.get("error") is True
         assert data.get("error_type") == "oversized_reviewer_notes"
+
+        # Raw non-JSON garbage of any size is an invalid-payload error.
+        result2 = _process_complete_phase(
+            engine, "feature:e-001", "brainstorm",
+            db=db, reviewer_notes="x" * 20000,
+        )
+        data2 = json.loads(result2)
+        assert data2.get("error_type") == "invalid_reviewer_notes"
         assert "exceeds 10000" in data.get("message", "")
 
         # F12 (feature 109): register_entity emits an entity_created phase_event,

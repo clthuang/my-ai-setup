@@ -51,6 +51,7 @@ from entity_registry.frontmatter_sync import (
 )
 from entity_registry.metadata import parse_metadata
 from pd_config.config import read_config
+from transition_gate.constants import HARD_PREREQUISITES
 from transition_gate.models import TransitionResult
 from workflow_engine.engine import WorkflowStateEngine
 from workflow_engine.entity_engine import EntityWorkflowEngine
@@ -860,6 +861,19 @@ def _catch_value_error(func):
                     msg,
                     "Verify feature_type_id format: 'feature:{id}-{slug}'",
                 )
+            # qa-server M4: post-#055 the append runs inside the mutation, so
+            # its validation ValueErrors surface here — label them as payload
+            # errors, not phase-sequence errors.
+            payload_markers = (
+                "event_type", "reviewer_notes", "is required", "exceeds",
+                "discriminator", "metadata",
+            )
+            if any(mk in msg for mk in payload_markers):
+                return _make_error(
+                    "invalid_event_payload",
+                    msg,
+                    "Fix the event payload (see message); the mutation was rolled back",
+                )
             return _make_error(
                 "invalid_transition",
                 msg,
@@ -989,7 +1003,14 @@ def _process_transition_phase(
     # to the writers (dict items are metadata-only by long-standing shape).
     parsed_skipped: list | None = None
     if skipped_phases:
-        parsed_skipped = json.loads(skipped_phases)
+        try:
+            parsed_skipped = json.loads(skipped_phases)
+        except json.JSONDecodeError:
+            return _make_error(
+                "invalid_skipped_phases",
+                f"skipped_phases is not valid JSON: {skipped_phases[:80]!r}",
+                'Pass a JSON array of phase names, e.g. \'["design"]\', or a native list',
+            )
         if not isinstance(parsed_skipped, list):
             return _make_error(
                 "invalid_skipped_phases",
@@ -1001,12 +1022,20 @@ def _process_transition_phase(
     # Feature 134 FR-7: normalized phase NAMES for the engine's G-08 skip
     # exemption and the skipped events; metadata keeps the caller's shape
     # verbatim (legacy dict records included).
-    skipped_names: list[str] = [
-        s if isinstance(s, str) else s.get("phase", "")
-        for s in (parsed_skipped or [])
-        if isinstance(s, (str, dict))
-    ]
-    skipped_names = [s for s in skipped_names if s]
+    skipped_names: list[str] = []
+    for item in (parsed_skipped or []):
+        name = item if isinstance(item, str) else (
+            item.get("phase") if isinstance(item, dict) else None
+        )
+        # qa-server L7/M6: no silent drops, no unknown phases — a typo'd or
+        # malformed skip must fail loud, not no-op the exemption.
+        if not isinstance(name, str) or name not in HARD_PREREQUISITES:
+            return _make_error(
+                "invalid_skipped_phases",
+                f"skipped_phases entry not a known phase name: {item!r}",
+                f"Known phases: {', '.join(HARD_PREREQUISITES)}",
+            )
+        skipped_names.append(name)
 
     if db is not None:
         with db.transaction():
@@ -1076,8 +1105,10 @@ def _process_transition_phase(
 
                 # Feature 134 #055: events are the primary record — append
                 # INSIDE this transaction; an append failure aborts the whole
-                # transition (fail loud, no reconcile-later).
-                project_id = _resolve_project_id(entity)
+                # transition (fail loud, no reconcile-later). entity can be
+                # None on the cross-workspace unscoped-read edge (qa-server
+                # H2) — same guard as the F10 closure block.
+                project_id = _resolve_project_id(entity) if entity else "__unknown__"
                 db.append_phase_event(
                     type_id=feature_type_id,
                     project_id=project_id,
@@ -1110,10 +1141,19 @@ def _process_transition_phase(
 
     # Filesystem write AFTER transaction committed
     if transitioned and db is not None:
-        warning = _project_meta_json(db, engine, feature_type_id)
+        # qa-server M5: post-commit projection must not raise into
+        # @_with_retry (re-run would re-COMMIT and duplicate events).
+        try:
+            warning = _project_meta_json(db, engine, feature_type_id)
+        except sqlite3.OperationalError as exc:
+            warning = f"projection skipped (db busy): {exc}"
 
-        # Retrieve started_at from committed data
-        entity = db.get_entity(feature_type_id)
+        # Retrieve started_at from committed data (qa-server M5: a "locked"
+        # here must not re-run the committed transaction via @_with_retry)
+        try:
+            entity = db.get_entity(feature_type_id)
+        except sqlite3.OperationalError:
+            entity = None
         raw_metadata = entity.get("metadata") if entity else None
         if raw_metadata:
             metadata = json.loads(raw_metadata) if isinstance(raw_metadata, str) else raw_metadata
@@ -1199,13 +1239,10 @@ def _process_complete_phase(
     closes_list: list[str] = list(closes) if closes else []
     closes_applied: list[str] = []
 
-    # Feature 088 FR-2.4: entry-point reviewer_notes size guard.
-    if reviewer_notes and len(reviewer_notes) > 10000:
-        return _make_error(
-            "oversized_reviewer_notes",
-            f"reviewer_notes size {len(reviewer_notes)} exceeds 10000",
-            "Reduce reviewer_notes payload size",
-        )
+    # Feature 088 FR-2.4 + qa-server M3: guard the SERIALIZED size — the DB
+    # layer re-checks 10000 on json.dumps(parsed), which expands vs the raw
+    # string; measuring the raw form let payloads clear this guard and abort
+    # (fatally, post-#055) at the DB one. Serialized check happens post-parse.
     # Parse JSON exactly once (the original code parsed twice — once for
     # phase_timing metadata, again for phase_events insert).
     try:
@@ -1215,6 +1252,12 @@ def _process_complete_phase(
             "invalid_reviewer_notes",
             f"reviewer_notes is not valid JSON: {exc.msg}",
             "Pass a JSON-serializable payload",
+        )
+    if parsed_notes is not None and len(json.dumps(parsed_notes)) > 10000:
+        return _make_error(
+            "oversized_reviewer_notes",
+            f"reviewer_notes serialized size {len(json.dumps(parsed_notes))} exceeds 10000",
+            "Reduce reviewer_notes payload size",
         )
 
     # Feature 088 FR-5.1: capture entity and timestamp OUTSIDE transaction
@@ -1273,10 +1316,12 @@ def _process_complete_phase(
                     )
                     state = completion.state
                     if state is None:
-                        return _make_error(
-                            "completion_failed",
-                            f"Phase completion returned no state for {feature_type_id}",
-                            "Check entity type and phase validity",
+                        # qa-server H1: a return here exits the transaction CM
+                        # normally -> COMMIT of the engine's writes with no
+                        # event. Raise instead: CM rolls back, decorator maps
+                        # to an error envelope.
+                        raise ValueError(
+                            f"Phase completion returned no state for {feature_type_id}"
                         )
                 else:
                     # Entity not in registry — fall back to frozen engine
@@ -1293,10 +1338,11 @@ def _process_complete_phase(
             # Store timing metadata in entity (MCP-layer responsibility)
             entity = db.get_entity(feature_type_id)
             if entity is None:
-                return _make_error(
-                    "feature_not_found",
-                    f"Feature not found after completion: {feature_type_id}",
-                    "Verify feature_type_id format: 'feature:{id}-{slug}'",
+                # qa-server H1: raise so the CM rolls back the completion the
+                # engine already wrote — a return would COMMIT state without
+                # its event (the exact split-brain #055 closed).
+                raise ValueError(
+                    f"feature_not_found: Feature not found after completion: {feature_type_id}"
                 )
 
             raw_metadata = entity.get("metadata")
@@ -1360,10 +1406,9 @@ def _process_complete_phase(
             # Feature 111 F10 — closes=[...] atomic closure block. Sibling
             # (NOT nested) of the feature-kanban block above: closure fires for
             # ANY caller kind when closes_list is non-empty (not just features).
-            # Caller's `completed` phase_event dual-write at lines ~1217-1244
-            # STAYS OUTSIDE the transaction per feature 088 FR-5.1 ("MUST NOT
-            # roll back"). Mixed semantics: closure side atomic, caller side
-            # best-effort dual-write. Implementation per design IF-2 + plan §1.1.
+            # Feature 134 #055: the caller's `completed` event now lands INSIDE
+            # this same transaction (appended above) — completion, its event,
+            # and the closures commit or roll back together.
             if closes_list:
                 # FR-10.2 caller resolution was performed at the top of the
                 # transaction (above). from_uuid + caller_workspace_uuid are
@@ -1463,10 +1508,18 @@ def _process_complete_phase(
 
     # Filesystem write AFTER transaction committed
     if db is not None:
-        warning = _project_meta_json(db, engine, feature_type_id)
+        # qa-server M5: no raise into @_with_retry after COMMIT.
+        try:
+            warning = _project_meta_json(db, engine, feature_type_id)
+        except sqlite3.OperationalError as exc:
+            warning = f"projection skipped (db busy): {exc}"
 
-        # Read committed timing data
-        entity = db.get_entity(feature_type_id)
+        # Read committed timing data (qa-server M5: no raise into @_with_retry
+        # after COMMIT — a re-run would duplicate the completed event)
+        try:
+            entity = db.get_entity(feature_type_id)
+        except sqlite3.OperationalError:
+            entity = None
         if entity is not None:
             raw_metadata = entity.get("metadata")
             if raw_metadata:

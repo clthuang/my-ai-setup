@@ -16,6 +16,7 @@ import os
 import re
 import sqlite3
 import sys
+import time
 import uuid as uuid_mod
 import warnings
 from collections.abc import Callable
@@ -10412,7 +10413,19 @@ class EntityDatabase:
         # busy_timeout MUST be set first — journal_mode=WAL requires a write
         # that can be blocked by concurrent connections during init.
         self._conn.execute("PRAGMA busy_timeout = 15000")
-        self._conn.execute("PRAGMA journal_mode = WAL")
+        # #059: the WAL switch can return SQLITE_BUSY *without* consulting
+        # the busy handler (deadlock-avoidance path) when another connection
+        # is mid-init on the same file — two forked runners, or two MCP
+        # servers starting after a cutover restart. Short explicit retry;
+        # the last attempt re-raises.
+        for attempt in range(5):
+            try:
+                self._conn.execute("PRAGMA journal_mode = WAL")
+                break
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc).lower() or attempt == 4:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.execute("PRAGMA cache_size = -8000")
 
