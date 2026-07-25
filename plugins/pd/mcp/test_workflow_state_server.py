@@ -9216,6 +9216,12 @@ class TestPhaseEventsDualWrite:
         )
         assert len(events) == 1
         assert events[0]["phase"] == "brainstorm"
+        # Feature 134 QA blocker pin: the skipped append must NOT drag
+        # workflow_phase back — the TARGET phase is the resulting state.
+        # (Old Step 5 projected 'skipped' too: last-skipped-won and the
+        # transition silently failed to advance.)
+        row = db.get_workflow_phase("feature:dw-001")
+        assert row["workflow_phase"] == "specify", row
 
     def test_append_failure_aborts_transition_atomically(self, fresh_setup, monkeypatch):
         """Feature 134 #055 (inverts old AC-16): append_phase_event failure

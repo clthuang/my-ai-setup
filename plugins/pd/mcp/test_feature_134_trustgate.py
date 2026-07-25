@@ -68,6 +68,11 @@ def test_transition_tool_accepts_native_list_skipped_phases(tool_env):
     assert sorted(r["phase"] for r in rows) == [
         "create-plan", "design", "specify",
     ], rows
+    # Feature 134 QA blocker pin: the phase actually ADVANCES to the target —
+    # transitioned=true + skipped rows alone were vacuously green while
+    # last-skipped-wins projection left workflow_phase at 'create-plan'.
+    row = db.get_workflow_phase("feature:134-t")
+    assert row["workflow_phase"] == "implement", row
 
 
 def test_complete_tool_accepts_native_list_reviewer_notes(tool_env):

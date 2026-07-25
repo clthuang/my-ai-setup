@@ -16,16 +16,51 @@ from entity_registry.server_helpers import _process_register_entity
 
 
 def _make_v2_version1_file(path: str) -> None:
-    """Build the cutover-shaped fixture: v1-chain schema + v2 stamp at 1.
+    """Build the cutover-shaped fixture: 9-value CHECK + v2 stamp at 1.
 
-    Mirrors what rebuild_tool's staging produced at the live cutover:
-    the v1 chain's max SHAPE (9-value event_type CHECK) stamped
-    schema_generation='v2', schema_version=1.
+    Mirrors what rebuild_tool's staging produced at the live cutover.
+    EntityDatabase now runs v1 migration 20 (which widens the CHECK), so
+    the fixture rebuilds phase_events back to the pre-migration 9-value
+    shape explicitly — the pre-migration rejection test stays non-vacuous
+    no matter how either chain grows.
     """
     db = EntityDatabase(path)
-    _upsert_metadata(db._conn, "schema_generation", "v2")
-    _upsert_metadata(db._conn, "schema_version", "1")
-    db._conn.commit()
+    conn = db._conn
+    index_sql = [
+        r[0] for r in conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' "
+            "AND tbl_name='phase_events' AND sql IS NOT NULL"
+        )
+    ]
+    conn.execute("DROP TABLE phase_events")
+    conn.execute("""
+        CREATE TABLE "phase_events" (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            type_id         TEXT NOT NULL,
+            project_id      TEXT NOT NULL,
+            phase           TEXT,
+            event_type      TEXT NOT NULL CHECK(event_type IN (
+                'started', 'completed', 'skipped', 'backward',
+                'entity_created', 'entity_status_changed',
+                'entity_promoted', 'spawned_child', 'cascade_ready'
+            )),
+            timestamp       TEXT NOT NULL,
+            iterations      INTEGER,
+            reviewer_notes  TEXT,
+            backward_reason TEXT,
+            backward_target TEXT,
+            source          TEXT NOT NULL DEFAULT 'live' CHECK(
+                source IN ('live', 'backfill')
+            ),
+            created_at      TEXT NOT NULL,
+            metadata        TEXT
+        )
+    """)
+    for sql in index_sql:
+        conn.execute(sql)
+    _upsert_metadata(conn, "schema_generation", "v2")
+    _upsert_metadata(conn, "schema_version", "1")
+    conn.commit()
     db.close()
 
 

@@ -6168,6 +6168,14 @@ V2_MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_migration_2_mini_spec,
 }
 
+# Feature 134 QA follow-up: FRESH EntityDatabase files are v1-generation
+# (the v1 chain, no schema_generation stamp), so without a v1-chain entry a
+# NEW workspace's phase_events CHECK rejects 'mini_spec' and express mode
+# crashes on first use. The widening helper is replay-safe and
+# generation-agnostic — the same function serves both chains. Forward-only
+# (no MIGRATIONS_DOWN entry; downs stop at 17 by precedent).
+MIGRATIONS[20] = _v2_migration_2_mini_spec
+
 
 def _migrate_down(conn: sqlite3.Connection, target_version: int) -> None:
     """Reverse-migration dispatcher (test-only in this feature).
@@ -9249,10 +9257,16 @@ class EntityDatabase:
                         (new_status, timestamp, workspace_uuid, type_id),
                     )
 
-            # Step 5: project workflow_phases.workflow_phase for the 4
-            # workflow event types.
+            # Step 5: project workflow_phases.workflow_phase for the event
+            # types that MOVE the entity. 'skipped' deliberately excluded
+            # (feature 134 QA blocker): a skipped event records a phase
+            # passed over, not entered — projecting it made each skipped
+            # append overwrite the target phase (last-skipped-wins), so an
+            # express transition reported success while workflow_phase
+            # stayed behind. Latent since the dual-write era; unexposed
+            # because #056 made skipped_phases unusable until 134 fixed it.
             elif event_type in (
-                "started", "completed", "skipped", "backward"
+                "started", "completed", "backward"
             ):
                 self._conn.execute(
                     "UPDATE workflow_phases "
