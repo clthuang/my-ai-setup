@@ -15,12 +15,25 @@ cd "$(dirname "$0")/.."
 CMD=plugins/pd/commands
 SKL=plugins/pd/skills
 
+# Orchestration scope (PRD SC ≤5,000-word target denominator, pinned 2026-07-25).
+# Domain-knowledge packs are PRD Non-Goals ("knowledge, not orchestration") and are
+# excluded here; scope_words_total keeps counting everything for continuity.
+DOMAIN_SKILLS="game-design crypto-analysis data-science-analysis choosing-ds-modeling-approach spotting-ds-analysis-pitfalls structuring-ds-projects writing-ds-python implementing-with-tdd systematic-debugging root-cause-analysis structured-problem-solving promptimize writing-skills creating-specialist-teams"
+DOMAIN_COMMANDS="init-ds-project review-ds-analysis review-ds-code promptimize refresh-prompt-guidelines create-specialist-team"
+
 words() { cat $(find "$@" -name '*.md' | sort) | wc -w | tr -d ' '; }
 occurrences() { local pat=$1; shift; grep -rE --include='*.md' -o "$pat" "$@" 2>/dev/null | wc -l | tr -d ' '; }
+orch_words() {
+  local skl_prune=() cmd_prune=()
+  for d in $DOMAIN_SKILLS;   do skl_prune+=(-not -path "$SKL/$d/*"); done
+  for c in $DOMAIN_COMMANDS; do cmd_prune+=(-not -name "$c.md"); done
+  cat $(find "$CMD" -name '*.md' "${cmd_prune[@]}"; find "$SKL" -name '*.md' "${skl_prune[@]}") | wc -w | tr -d ' '
+}
 
 printf 'scope_words_commands\t%s\n'          "$(words "$CMD")"
 printf 'scope_words_skills\t%s\n'            "$(words "$SKL")"
 printf 'scope_words_total\t%s\n'             "$(words "$CMD" "$SKL")"
+printf 'scope_words_orchestration\t%s\n'     "$(orch_words)"
 printf 'resume_state\t%s\n'                  "$(occurrences 'resume_state' "$CMD" "$SKL")"
 printf 'delta_size_guards\t%s\n'             "$(occurrences 'delta_content|delta_stat|delta[- ]size' "$CMD" "$SKL")"
 printf 'compaction_detection\t%s\n'          "$(occurrences '[Cc]ompaction' "$CMD" "$SKL")"
