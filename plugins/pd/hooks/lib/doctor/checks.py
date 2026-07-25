@@ -143,6 +143,9 @@ def _check_schema_version(
 ) -> Issue | None:
     """Check schema_version on a separate read-only connection.
 
+    v2-generation files (FR132-1) carry their own version lineage and are
+    compared against V2_SCHEMA_VERSION instead of the caller's `expected`.
+
     Returns an Issue if version doesn't match, None otherwise.
     """
     conn = None
@@ -161,6 +164,14 @@ def _check_schema_version(
                 fix_hint="Run migrations to initialize the database",
             )
         actual = int(row[0])
+        gen_row = conn.execute(
+            "SELECT value FROM _metadata WHERE key = 'schema_generation'"
+        ).fetchone()
+        if gen_row is not None and gen_row[0] == "v2":
+            # FR132-1: post-cutover files start a fresh lineage; the v1
+            # MIGRATIONS chain's max no longer applies to them.
+            from entity_registry.schema_v2 import V2_SCHEMA_VERSION
+            expected = V2_SCHEMA_VERSION
         if actual != expected:
             return Issue(
                 check="db_readiness",

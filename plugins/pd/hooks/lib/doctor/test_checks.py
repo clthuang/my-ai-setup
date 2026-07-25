@@ -460,6 +460,52 @@ class TestCheck8WrongEntitySchemaVersion:
         assert schema_issues[0].severity == "error"
 
 
+class TestCheck8V2GenerationSchemaVersion:
+    """Check 8: v2-generation files compared against V2_SCHEMA_VERSION (FR132-1)."""
+
+    def _stamp_v2(self, entity_path, version):
+        conn = sqlite3.connect(entity_path)
+        conn.execute(
+            "INSERT OR REPLACE INTO _metadata(key, value) "
+            "VALUES('schema_generation', 'v2')"
+        )
+        conn.execute(
+            "UPDATE _metadata SET value = ? WHERE key = 'schema_version'",
+            (str(version),),
+        )
+        conn.commit()
+        conn.close()
+
+    def test_v2_generation_at_v2_version_passes(self, tmp_path):
+        from doctor.checks import check_db_readiness
+        from entity_registry.schema_v2 import V2_SCHEMA_VERSION
+
+        entity_path = _make_db(tmp_path, "entities.db")
+        self._stamp_v2(entity_path, V2_SCHEMA_VERSION)
+
+        result = check_db_readiness(
+            entities_db_path=entity_path,
+        )
+        assert result.passed is True
+        assert [i for i in result.issues if "schema_version" in i.message] == []
+
+    def test_v2_generation_wrong_version_expects_v2_not_v1(self, tmp_path):
+        from doctor.checks import check_db_readiness
+        from entity_registry.schema_v2 import V2_SCHEMA_VERSION
+
+        entity_path = _make_db(tmp_path, "entities.db")
+        self._stamp_v2(entity_path, 999)
+
+        result = check_db_readiness(
+            entities_db_path=entity_path,
+        )
+        schema_issues = [i for i in result.issues if "schema_version" in i.message]
+        assert len(schema_issues) == 1
+        # "expected 1" (V2_SCHEMA_VERSION), NOT "expected 19" (v1 chain max) —
+        # proves the v2 branch supplied the expectation.
+        assert f"expected {V2_SCHEMA_VERSION}" in schema_issues[0].message
+
+
 class TestCheck8NonWalMode:
     """Check 8: non-WAL mode reports warning."""
 

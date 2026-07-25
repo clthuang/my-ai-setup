@@ -74,10 +74,11 @@ staging promoted in its place; dated marker written to
 
 ## 5. Post-cutover window
 
-- Inspecting the freshly promoted file read-only: `mode=ro` fails with CANTOPEN(14)
-  until something creates the `-shm` sidecar (read-only connections can't build the
-  WAL index). Use `?immutable=1` for pre-restart spot checks; any writable open
-  (e.g. the first MCP server) fixes it permanently. Observed at live cutover 2026-07-25.
+- Inspecting a quiesced WAL file read-only: `mode=ro` fails with CANTOPEN(14)
+  whenever no `-shm` sidecar exists — read-only connections can't build the WAL
+  index, and every clean last-close deletes the sidecars again, so a writable
+  open only helps until the next close. Use `?immutable=1` for spot checks on a
+  quiesced file. Observed at live cutover 2026-07-25.
 - Start a fresh session; MCP servers reconnect against the v2 file.
 - `/pd:doctor` — the `check_v2_cutover_window` marker check goes live (fresh/expired
   states); watch it through the escape-hatch window (133 retro, Act 5).
