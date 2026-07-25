@@ -6026,6 +6026,9 @@ def _v2_migration_2_mini_spec(conn: sqlite3.Connection) -> None:
     try:
         # Racer-tolerant re-check: a concurrent peer may have completed this
         # migration between our probe and BEGIN IMMEDIATE acquisition.
+        # qa-mig3 LOW: a leftover phase_events_new from a crash of some
+        # FUTURE code path would fail every open permanently; cheap insurance.
+        conn.execute("DROP TABLE IF EXISTS phase_events_new")
         pe_sql_row_tx = conn.execute(
             "SELECT sql FROM sqlite_master "
             "WHERE type='table' AND name='phase_events'"
@@ -6165,9 +6168,55 @@ def _v2_migration_2_mini_spec(conn: sqlite3.Connection) -> None:
         raise
 
 
+def _v2_migration_3_state_only_axis_views(conn: sqlite3.Connection) -> None:
+    """v2 migration 3 — rebuild entity_axis_state/entity_state (qa-mig3 HIGH).
+
+    The original entity_axis_state derived state from MAX(uuid) over ALL
+    events, so a trailing `skipped` row moved the pipeline axis (the same
+    last-skipped-wins defect fixed on workflow_phases) and a NULL-to_value
+    audit row (mini_spec, spawned_child, cascade_ready) clobbered lifecycle
+    state with NULL. The rebuilt view filters to state-changing rows:
+    ``to_value IS NOT NULL AND event_type != 'skipped'``.
+
+    Replay-safe: probes sqlite_master for the filter clause and returns when
+    already present. Both views are dropped and recreated from views.py's
+    registered DDL (entity_state depends on entity_axis_state), inside the
+    caller-visible transaction discipline of the chain (view DDL is cheap;
+    no table data moves).
+    """
+    # v1-generation files carry no v2 events store (dark-ship never landed
+    # in database.py — the store arrives with cutover/rebuild files); with
+    # no events table there is nothing to rebuild and CREATE VIEW would
+    # fail. The v1-chain alias MIGRATIONS[21] is a deliberate no-op there.
+    has_events = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='events'"
+    ).fetchone() is not None
+    if not has_events:
+        return
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='view' AND name='entity_axis_state'"
+    ).fetchone()
+    if row is not None and "event_type != 'skipped'" in (row[0] or ""):
+        return
+    from entity_registry import views as _views
+    conn.execute("DROP VIEW IF EXISTS entity_state")
+    conn.execute("DROP VIEW IF EXISTS entity_axis_state")
+    conn.executescript(_views._VIEWS_DDL)
+
+
 V2_MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_migration_2_mini_spec,
+    3: _v2_migration_3_state_only_axis_views,
 }
+
+# qa-mig3 MEDIUM: the stamp sites write schema_v2.V2_SCHEMA_VERSION; a bump
+# without the matching chain entry strands stamped files unfixably
+# (_migrate_v2's range never reaches them). Fail at import, not in the field.
+from entity_registry.schema_v2 import V2_SCHEMA_VERSION as _V2_SCHEMA_VERSION  # noqa: E402
+
+assert max(V2_MIGRATIONS) == _V2_SCHEMA_VERSION, (
+    "V2_MIGRATIONS and schema_v2.V2_SCHEMA_VERSION moved apart"
+)
 
 # Feature 134 QA follow-up: FRESH EntityDatabase files are v1-generation
 # (the v1 chain, no schema_generation stamp), so without a v1-chain entry a
@@ -6176,6 +6225,7 @@ V2_MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
 # generation-agnostic — the same function serves both chains. Forward-only
 # (no MIGRATIONS_DOWN entry; downs stop at 17 by precedent).
 MIGRATIONS[20] = _v2_migration_2_mini_spec
+MIGRATIONS[21] = _v2_migration_3_state_only_axis_views
 
 
 def _migrate_down(conn: sqlite3.Connection, target_version: int) -> None:
@@ -9290,7 +9340,11 @@ class EntityDatabase:
             # the bare type_id, which create_workflow_phase's UNIQUE
             # constraint makes globally unique in workflow_phases -- the
             # same scoping the v1 write above already relies on.
-            if self._is_v2_generation:
+            if self._is_v2_generation and event_type != "mini_spec":
+                # mini_spec is audit-only (feature 134): its record lives in
+                # phase_events (get_mini_spec reads there); emitting it here
+                # would land on the lifecycle axis with to_value=NULL — the
+                # RESET semantic — silently clearing lifecycle state.
                 if workspace_uuid is not None:
                     entity_row = self._conn.execute(
                         "SELECT uuid, kind FROM entities "

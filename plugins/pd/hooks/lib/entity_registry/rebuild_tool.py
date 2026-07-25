@@ -851,6 +851,11 @@ def _emit_events_for_entity(
         (entity_created_ts, -1, "lifecycle", "entity_created", None, entity_payload)
     ]
     for row in phase_rows:
+        # Feature 134: mini_spec is audit-only — its record lives in the
+        # copied phase_events row; emitting it here would land lifecycle/
+        # NULL, the RESET semantic (mirrors append_phase_event Step 6).
+        if row["event_type"] == "mini_spec":
+            continue
         axis, to_value = _classify_phase_event(
             kind, row["event_type"], row["phase"], row["metadata"]
         )

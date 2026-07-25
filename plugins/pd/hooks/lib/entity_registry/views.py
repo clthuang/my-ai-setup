@@ -63,6 +63,15 @@ from entity_registry import schema_v2
 # entity_axis_state but not entity_state — the primitive is exhaustive
 # over events, the face is exhaustive over entities.
 #
+# Feature 134 (qa-mig3 HIGH): `skipped` rows are excluded from state —
+# they record a phase passed over, not entered, and the same
+# last-skipped-wins defect fixed on workflow_phases lived on here.
+# NULL-to_value rows stay visible: NULL is the DESIGNED reset semantic
+# (phase_reset pins it), so audit-only events must simply not enter this
+# stream — mini_spec is excluded at the write site (append_phase_event
+# Step 6 and the backfill emit) rather than filtered here.
+# Existing files get this view shape via v2 migration 3 / v1 migration 21.
+#
 # Scale expectation (measured, 120 QA probe — see backlog #067):
 # entity_state's six correlated subqueries recompute the GROUP BY over
 # events on every read (no materialization). idx_events_entity_axis
@@ -78,6 +87,7 @@ _VIEWS_DDL = """
 CREATE VIEW IF NOT EXISTS entity_axis_state AS
 SELECT entity_uuid, axis, to_value, MAX(uuid) AS event_uuid, timestamp
 FROM events
+WHERE event_type != 'skipped'
 GROUP BY entity_uuid, axis;
 
 CREATE VIEW IF NOT EXISTS entity_state AS

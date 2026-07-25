@@ -98,7 +98,6 @@ class TestV2Migration2MiniSpec:
                 "AND tbl_name='phase_events' AND sql IS NOT NULL"
             )
         )
-        assert version == "2"
         assert version == str(schema_v2.V2_SCHEMA_VERSION)
         assert "'mini_spec'" in sql
         assert idx == [
@@ -135,7 +134,7 @@ class TestV2Migration2MiniSpec:
             "SELECT value FROM _metadata WHERE key='schema_version'"
         ).fetchone()[0]
         n2 = db2._conn.execute("SELECT COUNT(*) FROM phase_events").fetchone()[0]
-        assert version == "2"
+        assert version == str(schema_v2.V2_SCHEMA_VERSION)
         assert n1 == n2
         db2.close()
 
@@ -181,3 +180,137 @@ class TestBacklogRegisterRegression060:
             "#060 regression: register_entity reported success but the row "
             "is invisible to a separate connection"
         )
+
+
+class TestV2Migration3StateOnlyViews:
+    def _staging_v2_file(self, path):
+        """Realistic v2 fixture via the production path: the rebuild tool's
+        staging build (chain replay + v2 seed + v2 chain + stamp).
+
+        Restores DDL_REGISTRY afterwards: the build registers the axes
+        vocab triggers globally, and leaking them makes later view tests'
+        bootstraps reject their free-vocab event types (cross-file
+        pollution seen 2026-07-25)."""
+        from entity_registry import rebuild_tool
+        saved = list(schema_v2.DDL_REGISTRY)
+        try:
+            rebuild_tool.build_staging_database(path)
+        finally:
+            schema_v2.DDL_REGISTRY[:] = saved
+
+    def test_skipped_and_null_rows_do_not_drive_axis_state(self, tmp_path):
+        """qa-mig3 HIGH pin: axis state ignores `skipped` rows
+        (last-skipped-wins cannot live on in the event-sourced surface), and
+        the audit-only mini_spec event never enters the state stream (write-
+        site exclusion — a lifecycle/NULL emit would be the RESET semantic)."""
+        p = str(tmp_path / "views.db")
+        self._staging_v2_file(p)
+        db = EntityDatabase(p)  # v2-generation: dual-write live
+        now = db._now_iso()
+        db._conn.execute(
+            "INSERT INTO workspaces (uuid, project_id_legacy, project_root, created_at, updated_at) "
+            "VALUES ('00000000-0000-4000-8000-000000000134', 'P-v', ?, ?, ?)",
+            (str(tmp_path), now, now),
+        )
+        db._conn.commit()
+        db.register_entity("feature", "300-v", "V", status="active", project_id="P-v")
+        db.create_workflow_phase(
+            "feature:300-v", workflow_phase="brainstorm",
+            last_completed_phase=None, mode="standard",
+        )
+        db.append_phase_event(type_id="feature:300-v", project_id="P-v",
+                              phase="implement", event_type="started", timestamp=now)
+        db.append_phase_event(type_id="feature:300-v", project_id="P-v",
+                              phase="create-plan", event_type="skipped", timestamp=now)
+        ent = db.get_entity("feature:300-v")
+        pre_mini_spec_rows = {r[0]: r[1] for r in db._conn.execute(
+            "SELECT axis, to_value FROM entity_axis_state WHERE entity_uuid = ?",
+            (ent["uuid"],),
+        )}
+        db.append_phase_event(type_id="feature:300-v", project_id="P-v",
+                              event_type="mini_spec", timestamp=now, metadata={"text": "t"})
+        rows = {r[0]: r[1] for r in db._conn.execute(
+            "SELECT axis, to_value FROM entity_axis_state WHERE entity_uuid = ?",
+            (ent["uuid"],),
+        )}
+        # Pipeline state = the entered phase, NOT the later skipped row.
+        assert rows.get("pipeline") == "implement", rows
+        # Audit-only guarantee: the mini_spec append changed NOTHING in the
+        # axis-state projection (write-site exclusion).
+        assert rows == pre_mini_spec_rows, (rows, pre_mini_spec_rows)
+        db.close()
+
+    def test_migration_3_rebuilds_old_view_shape(self, tmp_path):
+        """Reachability pin for real cutover files (stamped ≤2 with the old
+        unfiltered view): reopen runs migration 3 and rebuilds both views."""
+        p = str(tmp_path / "oldview.db")
+        self._staging_v2_file(p)
+        raw = sqlite3.connect(p)
+        raw.executescript(
+            "DROP VIEW IF EXISTS entity_state;"
+            "DROP VIEW IF EXISTS entity_axis_state;"
+            "CREATE VIEW entity_axis_state AS "
+            "SELECT entity_uuid, axis, to_value, MAX(uuid) AS event_uuid, timestamp "
+            "FROM events GROUP BY entity_uuid, axis;"
+        )
+        raw.execute("UPDATE _metadata SET value='2' WHERE key='schema_version'")
+        raw.commit(); raw.close()
+        db2 = EntityDatabase(p)
+        sql = db2._conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='view' AND name='entity_axis_state'"
+        ).fetchone()[0]
+        version = db2._conn.execute(
+            "SELECT value FROM _metadata WHERE key='schema_version'"
+        ).fetchone()[0]
+        assert "event_type != 'skipped'" in sql
+        assert version == str(schema_v2.V2_SCHEMA_VERSION)
+        assert db2._conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='view' AND name='entity_state'"
+        ).fetchone()[0] == 1
+        db2.close()
+
+    def test_migration_3_noop_without_events_store(self, tmp_path):
+        """v1-generation files (no v2 store) open cleanly through the
+        MIGRATIONS[21] alias — nothing to rebuild, no crash."""
+        p = str(tmp_path / "v1only.db")
+        db = EntityDatabase(p)
+        assert db._conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name='events'"
+        ).fetchone()[0] == 0
+        version = db._conn.execute(
+            "SELECT value FROM _metadata WHERE key='schema_version'"
+        ).fetchone()[0]
+        assert version == "21"
+        db.close()
+
+
+class TestApplyV2ChainNonVacuity:
+    def test_apply_v2_chain_lifts_staging_without_v1_aliases(self, tmp_path, monkeypatch):
+        """qa-mig3 LOW pin: step 2b does the lifting itself when the v1 chain
+        no longer carries the aliases (the future v2-only case) — today the
+        v1 replay masks it (MIGRATIONS[20]/[21] are the same functions)."""
+        from entity_registry import database as dbmod
+        from entity_registry import rebuild_tool
+        v1_only = {k: v for k, v in dbmod.MIGRATIONS.items() if k <= 19}
+        monkeypatch.setattr(dbmod, "MIGRATIONS", v1_only)
+        p = str(tmp_path / "stage.db")
+        saved = list(schema_v2.DDL_REGISTRY)
+        try:
+            rebuild_tool.build_staging_database(p)
+        finally:
+            schema_v2.DDL_REGISTRY[:] = saved
+        conn = sqlite3.connect(p)
+        post_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE name='phase_events'"
+        ).fetchone()[0]
+        view_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='view' AND name='entity_axis_state'"
+        ).fetchone()[0]
+        version = conn.execute(
+            "SELECT value FROM _metadata WHERE key='schema_version'"
+        ).fetchone()[0]
+        conn.close()
+        # The truncated v1 chain could NOT have done these — step 2b did.
+        assert "'mini_spec'" in post_sql
+        assert "event_type != 'skipped'" in view_sql
+        assert version == str(schema_v2.V2_SCHEMA_VERSION)

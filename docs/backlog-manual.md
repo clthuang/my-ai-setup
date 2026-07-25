@@ -236,3 +236,12 @@ Root cause: `_process_transition_phase` (workflow_state_server.py) parsed the MC
 ## #087 — check_missed_cascade silently swallows sqlite3.Error
 **Source:** feature 133 test-deepener (2026-07-16), surfaced while probing SC1 fault-control alternatives; echoed by the 133 implementation battery. **Type:** error-handling hygiene, LOW-MED.
 `check_missed_cascade` (doctor/checks.py, ~:453 region post-133) wraps its scan in a bare `except sqlite3.Error` that returns a clean/empty result — a DB with a corrupt or absent `entity_relations` table yields a FALSE ALL-CLEAR instead of a loud failure. Contradicts the repo standard ("do not silently swallow database exceptions", CLAUDE.md SQLite guidance) and the 128 fail-loud posture. Pre-existing (shipped at 124), NOT a 133 regression — 133 deliberately left retained checks byte-untouched. Candidate fix: convert the swallow to a failed CheckResult naming the exception (the runner's per-check isolation already contains crashes), one red-first test. Related: [[#080]] (same check's producer window).
+
+- **#086 — Fresh-file concurrent bootstrap races the v1 migration chain** *(source: feature 134 qa-mig3 probe, 2026-07-25)*
+  Two processes opening a NOT-YET-EXISTING entities.db simultaneously fail 7/8
+  (unguarded v1 chain replay: "no such column: entity_type", "foreign key
+  mismatch"). Verified pre-existing on develop (identical 7/8); MIGRATIONS[20]/[21]
+  widen the window slightly. Existing-file concurrent opens are fine (10/10 after
+  the _set_pragmas WAL retry). Fix direction: file-lock or BEGIN IMMEDIATE around
+  the fresh-bootstrap path — or consolidate fresh-file creation onto schema_v2
+  bootstrap (also closes the two-chain split noted in the 134 PRD Review History).

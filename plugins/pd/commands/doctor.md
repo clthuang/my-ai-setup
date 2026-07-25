@@ -23,8 +23,7 @@ PYTHONPATH="$PLUGIN_ROOT/hooks/lib" "$PLUGIN_ROOT/.venv/bin/python" -m doctor \
 
    No venv at either location → report `No pd venv found. Run: cd plugins/pd && uv sync` and stop.
 
-2. Parse the `diagnostic` key. One table row per reported check: name, PASS/FAIL, issue count. Under each failing check, list its issues errors-first with their `fix_hint`.
-3. `fixes` key present → report fixed / manual / failed counts, then each manual fix with its `fix_hint`. `post_fix` key present → show before/after error and warning counts.
-4. Close with `Workspace healthy` or `{N} issues ({E} errors, {W} warnings)`.
+2. Render `diagnostic`: one row per check (name, PASS/FAIL, issue count); failing checks list issues errors-first with `fix_hint`. Render `fixes`/`post_fix` counts when present.
+3. Close with `Workspace healthy` or `{N} issues ({E} errors, {W} warnings)`.
 
 **Constraints:** read-only unless `--fix` was asked for; doctor also runs at session start, so anything here survived auto-repair.

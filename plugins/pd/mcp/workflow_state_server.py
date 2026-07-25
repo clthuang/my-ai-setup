@@ -1868,7 +1868,10 @@ def _process_init_feature_state(
         # downstream defaults to project_id="__unknown__" → _UNKNOWN_WORKSPACE_UUID.
         workspace_uuid=_workspace_uuid or None,
     )
-    warning = _project_meta_json(db, engine, result["feature_type_id"], feature_dir)
+    try:
+        warning = _project_meta_json(db, engine, result["feature_type_id"], feature_dir)
+    except sqlite3.OperationalError as exc:
+        warning = f"projection skipped (db busy): {exc}"
     if warning:
         result["projection_warning"] = warning
     return json.dumps(result)
@@ -1919,7 +1922,10 @@ def _process_activate_feature(
         feature_type_id=feature_type_id,
         workspace_uuid=_workspace_uuid or None,
     )
-    warning = _project_meta_json(db, engine, result["feature_type_id"])
+    try:
+        warning = _project_meta_json(db, engine, result["feature_type_id"])
+    except sqlite3.OperationalError as exc:
+        warning = f"projection skipped (db busy): {exc}"
     if warning:
         result["projection_warning"] = warning
     return json.dumps(result)

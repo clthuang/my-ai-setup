@@ -19,9 +19,10 @@ from contextlib import contextmanager
 # ``database.V2_MIGRATIONS`` — version N's entry lifts a file from N-1 to N.
 #   1 — cutover baseline (feature 132, live 2026-07-25)
 #   2 — phase_events.event_type CHECK admits 'mini_spec' (feature 134 NFR-4)
+#   3 — entity_axis_state/entity_state rebuilt state-only (feature 134 qa-mig3)
 # Bumping this constant WITHOUT adding the matching V2_MIGRATIONS entry
 # strands every already-stamped file at the older shape; the two move together.
-V2_SCHEMA_VERSION = 2
+V2_SCHEMA_VERSION = 3
 
 # Per-connection, non-persistent (SQLite resets it on every new connection).
 # Matches the v17 EntityDatabase._set_pragmas() value (database.py) for
