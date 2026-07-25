@@ -49,7 +49,7 @@ Verified 2026-07-10 (verbosity census + dispatch-count analysis + the repo's own
 
 ## Success Criteria
 
-- [ ] Orchestration prose ≤ 5,000 words total across commands + skills (from ~74k; revision 1's ≤10,000 tightened under the verification-not-instructions premise) — verified by `scripts/verbosity-census.sh` (persisted pre-work, see Next Steps; pins the exact grep pattern per metric and whether test files count).
+- [ ] Orchestration prose ≤ 5,000 words total across commands + skills (pinned baseline: **111,225** words, 2026-07-25 census — supersedes the ~74k approximation, scope note in the guard-classification doc; revision 1's ≤10,000 tightened under the verification-not-instructions premise) — verified by `scripts/verbosity-census.sh` (pins the exact grep pattern per metric and the test-file scope).
 - [ ] Small feature, deep mode: ≤ 8 subagent dispatches; express mode: ≤ 3 (from 33–85) — measured by a census-script dispatch metric (pinned grep over Task/`subagent_type` dispatch sites per mode's command path), re-runnable like the word-count baseline.
 - [ ] LLM review moments per deep-mode feature ≤ 2 (one design review, one adversarial code review) — counted by the same dispatch metric (review dispatches are a labeled subset); every mechanizable phase-boundary check (existence probes, contract-restatement greps, count/consistency checks) runs as a script/hook at zero dispatch cost.
 - [ ] Review pattern per gate: one pass + at most one fix round, then user escalation — no iteration-to-cap loops; **zero circuit-breaker trips on happy paths**.
@@ -180,7 +180,7 @@ Verified 2026-07-10 (verbosity census + dispatch-count analysis + the repo's own
 
 1. ~~DB track proceeds first~~ **Done:** DB track shipped 2026-07-19 (P004, 16/16 features).
 2. **Trust-gate mini-campaign (NFR-4 — can start now):** run backlog #085's cleaning pre-pass + the real v1→v2 cutover; fix #055/#056/#060. Independent of this track's create-project; prerequisite only for its redundancy-deleting features.
-3. **Pre-work (before this track's create-project):** persist `scripts/verbosity-census.sh` — one pinned grep pattern per FR-9 metric + total-word count + schema-restatement pattern + the per-mode dispatch/review-moment counts, with test-file scope stated — plus the guard-classification table (keep/delete **+ an expiry/re-test condition per kept guard**) as a repo artifact. The prose, schema-restatement, and FR-9 regression baselines run off it.
+3. **Pre-work — done 2026-07-25:** `scripts/verbosity-census.sh` persisted (one pinned pattern per FR-9 metric + word counts + schema-restatement + dispatch/review-moment counts, test-file scope stated) and the guard-classification table with per-guard expiry/re-test conditions lives at `docs/workflow-rebuild-guard-classification.md` (baseline run recorded there).
 4. **`mini_spec` vocabulary decision:** small DB-side addition (#077-class; forward-only migration) — either the first P005 feature or a standalone pre-feature.
 5. `/pd:create-project` this PRD; pilot with the specify command per the Pre-Mortem recommendation (convert one command end-to-end, run a real feature through it, then mass-convert).
 
@@ -188,7 +188,7 @@ Verified 2026-07-10 (verbosity census + dispatch-count analysis + the repo's own
 
 - Verbosity/dispatch evidence: `plugins/pd/commands/{implement,secretary,create-plan,design,finish-feature,specify}.md`, `plugins/pd/skills/workflow-transitions/SKILL.md`
 - Repo's own indictments: `docs/pd-audit-findings.md:13-39`, `docs/knowledge-bank/heuristics.md:293,806`, `docs/knowledge-bank/anti-patterns.md:419,645`, `docs/brainstorms/20260406-120000-insights-driven-improvement.prd.md:15,136`
-- Guard classification + census numbers: session evidence report 2026-07-10 (summarized in Problem Statement)
+- Guard classification + census baseline: `docs/workflow-rebuild-guard-classification.md` + `scripts/verbosity-census.sh` (pinned 2026-07-25; supersedes the 2026-07-10 session-sweep summary in Problem Statement)
 - Revision-2 evidence: minimal-harness benchmarks (mini-swe-agent >74% SWE-bench Verified; 2026 same-model harness comparisons), self-correction limits (arXiv 2310.01798; Kamoi et al., TACL; Self-Correction Bench, arXiv 2507.02778), harness-decay engineering literature ("build for deletion"). Internal: `docs/features/133-doctor-check-retirement/retro.md`, `docs/backlog-manual.md` #055/#056/#057/#058/#060/#074/#077/#085.
 - validate.sh contracts touched by the rewrite: `validate.sh` (codex-routing exclusion list, hooks.json contract), `scripts/check-doc-drift.sh`
 - Companion track: `docs/brainstorms/20260710-153600-entity-db-redesign.prd.md`
