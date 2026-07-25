@@ -55,4 +55,8 @@ dispatch_sites_reviewer_commands	13
 Note: `scope_words_total` (111,225) exceeds the PRD's ~74,000 approximation because the
 pinned scope includes every `.md` under `plugins/pd/skills/` (references included) — the
 prose an orchestrating session can actually load. Per the PRD (FR-9), these pinned numbers
-supersede the 2026-07-10 approximations; the ≤5,000-word target applies to this scope.
+supersede the 2026-07-10 approximations. Scope resolution (2026-07-25, at implementation):
+the ≤5,000-word SC target binds `scope_words_orchestration` (baseline 60,082) — the full
+tree minus the domain-knowledge packs the PRD's Non-Goals forbid rewriting; the exclude
+lists are pinned in `scripts/verbosity-census.sh`. `scope_words_total` remains reported
+for continuity but carries no target.
