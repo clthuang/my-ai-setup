@@ -432,18 +432,10 @@ test_finish_feature_contract_present() {
 }
 
 test_finish_feature_under_600_lines() {
-    log_test "finish-feature.md kept under 600 lines (Step 5b detail extracted)"
+    log_test "finish-feature.md kept under 600 lines (contract command, not procedure)"
     local lines
     lines=$(wc -l < "${PROJECT_ROOT}/plugins/pd/commands/finish-feature.md")
     if [[ $lines -lt 600 ]]; then log_pass; else log_fail "finish-feature.md is $lines lines (>=600)"; fi
-}
-
-test_qa_gate_procedure_doc_exists() {
-    log_test "qa-gate-procedure.md exists and references key FRs"
-    local doc="${PROJECT_ROOT}/docs/dev_guides/qa-gate-procedure.md"
-    if [[ ! -f "$doc" ]]; then log_fail "missing $doc"; return; fi
-    grep -q 'FR-3\|FR-8\|FR-9' "$doc" || { log_fail "qa-gate-procedure.md missing key FR section markers"; return; }
-    log_pass
 }
 
 # Feature 113 FR-2: AC-12 evidence helper script must be executable and emit
@@ -1802,7 +1794,6 @@ main() {
     test_sync_cache_marketplace_json_target_derives
     test_finish_feature_contract_present
     test_finish_feature_under_600_lines
-    test_qa_gate_procedure_doc_exists
     test_bash_version_capture_script_emits_three_sections
 
     echo ""

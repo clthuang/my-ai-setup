@@ -4,50 +4,38 @@ Structured feature development workflow with skills, agents, and commands for me
 
 ```mermaid
 flowchart TD
-    SEC["/secretary<br/>Unified Entry Point"] -->|Explore| BS["/brainstorm<br/>Explore & Research"]
-    SEC -->|Build| CF["/create-feature<br/>Direct Start"]
-    SEC -->|Debug| RCA["/root-cause-analysis<br/>Debug & Investigate"]
+    SEC["/secretary<br/>Triage: deep · express · specialist"] -->|Explore| BS["/brainstorm<br/>Explore & Research"]
+    SEC -->|Deep| CF["/create-feature"]
+    SEC -->|Express| CFX["/create-feature --express<br/>inline mini-spec"]
+    SEC -->|Debug| RCA["/root-cause-analysis"]
     SEC -->|Specialist| AGENT["Agent / Skill<br/>Direct Dispatch"]
 
     BS -->|PRD| SPEC
     CF --> SPEC
     RCA -->|Fix| SPEC
 
-    subgraph SPEC["SPECIFY"]
-        SE[Executor] <-->|Fix| SR{{"Reviewer<br/>Clear?"}}
-    end
-    SPEC -->|Fix| SG{Spec Gate}
-    SG -->|Pass| DES
+    SPEC["/specify<br/>shape.md · ## Requirements"] --> G1{{"phase-gate.sh specify"}}
+    G1 --> DES["/design<br/>shape.md · ## Design"]
+    DES --> G2{{"phase-gate.sh design"}}
+    G2 --> DR["pd:design-reviewer<br/>review moment 1 of 2"]
+    DR --> PLN["/create-plan<br/>plan.md · ## Plan"]
+    PLN --> G3{{"phase-gate.sh create-plan"}}
+    G3 --> IMP
+    CFX -->|skips specify/design/create-plan| IMP
 
-    subgraph DES["DESIGN"]
-        DE[Executor] <-->|Fix| DR{{"Reviewer<br/>Robust?"}}
-    end
-    DES -->|Fix| DG{Design Gate}
-    DG -->|Pass| PLN
-
-    subgraph PLN["PLAN"]
-        PE[Executor] <-->|Fix| PR{{"Reviewer<br/>Practical?"}}
-    end
-    PLN -->|Fix| PG{Plan Gate}
-    PG -->|Pass| IMP
-
-    subgraph IMP["IMPLEMENT"]
-        IE["Spec to Interface TDD"] <-->|Fix| IR{{"Reviewer<br/>Complete?"}}
-    end
-    IMP -->|Fix| CG{Code Gate}
-    CG -->|All Pass| FIN
-
-    FIN["FINISH<br/>Docs / PR / Merge"] --> RET
-    RET["RETROSPECTIVE<br/>Capture Learnings"] --> DONE([Complete])
+    IMP["/implement<br/>tasks derived from plan.md"] --> QA["pd:qa-executor<br/>runs suites + flows"]
+    QA --> CQ["pd:code-quality-reviewer<br/>review moment 2 of 2"]
+    CQ --> FIN["/finish-feature<br/>QA battery · retro · merge"]
+    FIN --> DONE([Complete])
 ```
 
 ## Components
 
 | Type | Count |
 |------|-------|
-| Skills | 29 |
-| Agents | 29 |
-| Commands | 33 |
+| Skills | 27 |
+| Agents | 24 |
+| Commands | 31 |
 | MCP Servers | 2 |
 
 ## Commands
@@ -55,21 +43,19 @@ flowchart TD
 **Start:**
 | Command | Description |
 |---------|-------------|
-| `/pd:brainstorm [topic]` | 6-stage PRD creation with research subagents and domain enrichment |
-| `/pd:create-feature <desc>` | Start building (creates folder + branch) |
+| `/pd:brainstorm [topic]` | Explore an idea into an evidence-backed PRD |
+| `/pd:create-feature <desc>` | Start building (creates folder + branch); `--express` records an inline mini-spec and jumps to implement |
 
 **Build phases** (run in order):
 | Command | Output |
 |---------|--------|
-| `/pd:specify [--feature=ID]` | spec.md |
-| `/pd:design` | design.md (5-stage workflow) |
-| `/pd:create-plan` | plan.md |
-| `/pd:create-tasks` | _(deprecated — merged into create-plan)_ |
-| `/pd:taskify` | Break any existing plan into tasks (standalone regeneration) |
-| `/pd:implement` | Code changes |
+| `/pd:specify [--feature=ID]` | `shape.md` — `## Requirements` |
+| `/pd:design` | `shape.md` — `## Design` (+ design review moment) |
+| `/pd:create-plan` | `plan.md` — `## Plan` (ordered tasks; no separate tasks.md) |
+| `/pd:implement` | Code changes (QA execution + code-quality review) |
 | `/pd:abandon-feature` | Transition a feature to abandoned status |
-| `/pd:finish-feature` | Merge, retro, cleanup (pd features) |
-| `/pd:wrap-up` | Wrap up implementation - review, retro, merge or PR |
+| `/pd:finish-feature` | QA battery, docs sync, retro, merge |
+| `/pd:wrap-up` | End the session — commit WIP, report engine state and open items |
 
 **Anytime:**
 | Command | Purpose |
@@ -79,7 +65,9 @@ flowchart TD
 | `/pd:list-features` | See all active features |
 | `/pd:retrospect` | Capture learnings |
 | `/pd:add-to-backlog <idea>` | Capture ideas for later |
+| `/pd:cleanup-backlog` | Archive fully-closed backlog sections in the entity DB |
 | `/pd:cleanup-brainstorms` | Delete old scratch files |
+| `/pd:test-debt-report` | Aggregate deferred test debt across features and the backlog |
 | `/pd:doctor` | Run 10 diagnostic checks on pd workspace health (incl. security-review command, stale worktrees, status-parser regression, and severity vocabulary) |
 | `/pd:sync-cache` | Reload plugin after changes |
 | `/pd:secretary` | Intelligent task routing to commands, agents, and skills |
@@ -95,69 +83,29 @@ flowchart TD
 | `/pd:subagent-ras` | Research, analyze, and summarize any topic using parallel agents |
 | `/pd:yolo [on\|off]` | Toggle YOLO autonomous mode |
 
-## Review System
+## Quality Gates
 
-The pd workflow uses a two-tier review pattern for quality assurance:
+Quality is enforced in two tiers: **mechanical gates** on every phase boundary, and exactly **two LLM review moments** per deep feature.
 
-### Two-Tier Review Pattern
+### Tier 1 — Mechanical gates (zero dispatch)
 
-| Component | Role | Question |
-|-----------|------|----------|
-| **Phase Skeptic** | Challenges artifact quality | "Is this artifact robust?" |
-| **Phase Reviewer** | Validates handoff completeness | "Can the next phase proceed?" |
+`scripts/phase-gate.sh <phase> <feature-dir>` runs at each phase boundary and checks artifact existence, required sections, duplicate contract blocks (the restated-contract class), and uncommitted artifacts at implement entry. Failures print one line per problem; fix and re-run.
 
-### Specify Phase Workflow
+### Tier 2 — LLM review moments
 
-```
-spec-reviewer (Skeptic) → "Is spec testable and bounded?"
-    ↓
-phase-reviewer (Gatekeeper) → "Has what design needs?"
-```
+| Moment | Phase | Agent | Question |
+|--------|-------|-------|----------|
+| 1 of 2 | design | `pd:design-reviewer` | Is the design sound and grounded? |
+| 2 of 2 | implement | `pd:code-quality-reviewer` | Is the branch diff correct and maintainable? |
 
-### Design Phase Workflow
+Per moment: one reviewer pass → at most one fix round → still-open blockers escalate to the user. There is no iterate-to-a-cap loop. Reviewers run in fresh context, cite `file:line`, and own their return schema (defined only in the agent file).
 
-The `/pd:design` command uses a 5-stage workflow for robust design artifacts:
+Two dispatches sit outside the review tier:
 
-```
-Stage 0: PRIOR ART RESEARCH → Existing solutions, patterns, standards, evidence gathering
-    ↓
-Stage 1: ARCHITECTURE DESIGN → High-level structure, components, evidence-grounded decisions, risks
-    ↓
-Stage 2: INTERFACE DESIGN → Precise contracts between components
-    ↓
-Stage 3: DESIGN REVIEW LOOP → design-reviewer challenges assumptions using independent verification (1-3 iterations)
-    ↓
-Stage 4: HANDOFF REVIEW → phase-reviewer ensures plan phase readiness
-```
+- `pd:qa-executor` — execution-grounded QA during implement. Runs the test battery and drives affected flows end-to-end, returning commands plus output evidence. It fixes nothing; it reports.
+- `pd:security-reviewer` — dispatched from `/pd:finish-feature` when the branch touches a security surface (auth, secrets, input parsing, permissions, data deletion, dependency bumps). Always an Anthropic-model Task.
 
-### Create Plan Phase Workflow
-
-The `/pd:create-plan` command uses a 2-stage review workflow:
-
-```
-Stage 1: PLAN-REVIEWER (Skeptical Review)
-    │   • Failure modes - What could go wrong?
-    │   • Untested assumptions - What's assumed but not validated?
-    │   • Dependency accuracy - Are dependencies correct and complete?
-    │   • TDD order - Interface → Tests → Implementation sequence?
-    ↓
-Stage 2: PHASE-REVIEWER (Execution Readiness)
-    │   • Can an engineer break this into tasks?
-    │   • Are all design items covered?
-    ↓
-[User Prompt: Run /implement?]
-```
-
-### Implementation Review
-
-The `/pd:implement` command uses four reviewers in an iterative loop (up to 3 iterations). Only reviewers that failed re-run in intermediate iterations — passing reviewers are skipped. When all four have individually passed, a mandatory final validation round runs all four regardless to confirm end-to-end correctness.
-
-| Reviewer | Focus | Validation |
-|----------|-------|------------|
-| implementation-reviewer | Requirements compliance | 4-level: Tasks→Spec→Design→PRD |
-| relevance-verifier | Artifact chain coherence | Coverage, completeness, testability, coherence |
-| code-quality-reviewer | Maintainability | SOLID, readability, testing |
-| security-reviewer | Vulnerabilities | OWASP Top 10, injection, auth |
+**Express mode** (`/pd:create-feature --express`) records an inline mini-spec as a `mini_spec` phase event, skips specify/design/create-plan, and collapses QA and review into a single combined pass during implement.
 
 ## Agents
 
@@ -165,7 +113,6 @@ The `/pd:implement` command uses four reviewers in an iterative loop (up to 3 it
 |-------|---------|
 | advisor | Applies strategic/domain advisory lens to brainstorm problems |
 | ds-analysis-reviewer | Reviews data analysis for statistical pitfalls and methodology |
-| brainstorm-reviewer | Reviews brainstorm artifacts for completeness before promotion |
 | code-quality-reviewer | Reviews implementation quality by severity |
 | codebase-explorer | Analyzes codebase for patterns and constraints |
 | design-reviewer | Challenges design assumptions and finds gaps (skeptic) |
@@ -173,24 +120,20 @@ The `/pd:implement` command uses four reviewers in an iterative loop (up to 3 it
 | documentation-writer | Writes and updates documentation |
 | ds-code-reviewer | Reviews DS Python code for anti-patterns and best practices |
 | generic-worker | General-purpose implementation agent |
-| implementation-reviewer | Validates implementation against full requirements chain (4-level) |
 | implementer | Task implementation with TDD and self-review |
 | internet-researcher | Searches web for best practices and standards |
 | investigation-agent | Read-only research before implementation |
-| phase-reviewer | Validates artifacts have what next phase needs (gatekeeper) |
 | plan-reviewer | Skeptical plan reviewer for failure modes and TDD compliance |
 | prd-reviewer | Critical review of PRD drafts |
 | project-decomposer | Decomposes project PRD into ordered features with dependencies |
 | project-decomposition-reviewer | Validates project decomposition quality |
+| qa-executor | Execution-grounded QA — runs suites and drives affected flows, returning evidence |
 | ras-synthesizer | Synthesizes multi-source research findings into thematic analysis with confidence calibration |
 | rca-investigator | Finds all root causes through 6-phase systematic investigation |
-| relevance-verifier | Verifies full artifact chain coherence (spec→design→plan→tasks) |
+| relevance-verifier | Verifies artifact chain coherence (shape.md → plan.md → code) |
 | retro-facilitator | Runs data-driven AORTA retrospective with full intermediate context |
-| secretary-reviewer | Validates secretary routing recommendations |
 | security-reviewer | Reviews implementation for security vulnerabilities |
 | skill-searcher | Finds relevant existing skills |
-| spec-reviewer | Skeptically reviews spec.md for testability and assumptions |
-| task-reviewer | Validates task breakdown quality and executability |
 | test-deepener | Systematically deepens test coverage with spec-driven adversarial testing |
 
 ## MCP Tools
@@ -249,7 +192,7 @@ The workflow engine server (`mcp/workflow_state_server.py`) exposes 22 tools for
 | `init_entity_workflow` | Initialize entity workflow tracking |
 | `transition_entity_phase` | Transition an entity to a new workflow phase |
 | `get_notifications` | Drain pending notifications for the current project |
-| `promote_task` | Promote a task from tasks.md to a tracked task entity |
+| `promote_task` | Promote a task from plan.md to a tracked task entity |
 | `query_ready_tasks` | List task entities ready for execution |
 | `get_progress_view` | Get cross-level progress view for an entity's ancestor chain |
 | `record_backward_event` | Record a backward phase transition event for analytics |

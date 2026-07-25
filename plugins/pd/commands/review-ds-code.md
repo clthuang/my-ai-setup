@@ -59,44 +59,11 @@ Task tool call:
     3. Code standards — type hints, NumPy-style docstrings, import ordering, logging instead of print, random seeds
 
     Return your findings as JSON matching this schema:
-    ```json
-    {
-      "type": "object",
-      "properties": {
-        "axis_results": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "axis": {"type": "string", "description": "Name of the review axis evaluated"},
-              "approved": {"type": "boolean", "description": "True if no blockers found for this axis"},
-              "issues": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "severity": {"type": "string", "enum": ["blocker", "warning", "suggestion"]},
-                    "description": {"type": "string", "description": "What the issue is"},
-                    "location": {"type": "string", "description": "file:line or section reference"},
-                    "suggestion": {"type": "string", "description": "How to fix it"}
-                  },
-                  "required": ["severity", "description", "location", "suggestion"]
-                }
-              }
-            },
-            "required": ["axis", "approved", "issues"]
-          }
-        }
-      },
-      "required": ["axis_results"]
-    }
-    ```
+    (Return schema: single-sourced in the pd:ds-code-reviewer agent file.)
 ```
 
 **Chain 1 output handling:** Extract the JSON object from the Task response. If the response does not contain valid JSON with an `axis_results` array, treat this as a chain failure — do NOT proceed to Chain 2. Return immediately:
-```json
-{"approved": false, "issues": [{"severity": "blocker", "description": "Chain 1 failed: invalid or missing JSON in response"}], "summary": "Review incomplete due to chain failure"}
-```
+(Return schema and example: single-sourced in the pd:ds-code-reviewer agent file.)
 
 Store the extracted JSON as `{chain_1_result}`.
 
@@ -125,44 +92,11 @@ Task tool call:
     2. API correctness — verify at least 1 pandas/numpy/sklearn API usage via Context7. Check for deprecated APIs, correct parameters, expected return types.
 
     Return your findings as JSON matching this schema:
-    ```json
-    {
-      "type": "object",
-      "properties": {
-        "axis_results": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "axis": {"type": "string", "description": "Name of the review axis evaluated"},
-              "approved": {"type": "boolean", "description": "True if no blockers found for this axis"},
-              "issues": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "severity": {"type": "string", "enum": ["blocker", "warning", "suggestion"]},
-                    "description": {"type": "string", "description": "What the issue is"},
-                    "location": {"type": "string", "description": "file:line or section reference"},
-                    "suggestion": {"type": "string", "description": "How to fix it"}
-                  },
-                  "required": ["severity", "description", "location", "suggestion"]
-                }
-              }
-            },
-            "required": ["axis", "approved", "issues"]
-          }
-        }
-      },
-      "required": ["axis_results"]
-    }
-    ```
+    (Return schema: single-sourced in the pd:ds-code-reviewer agent file.)
 ```
 
 **Chain 2 output handling:** Extract the JSON object from the Task response. If the response does not contain valid JSON with an `axis_results` array, treat this as a chain failure — do NOT proceed to Chain 3. Return immediately:
-```json
-{"approved": false, "issues": [{"severity": "blocker", "description": "Chain 2 failed: invalid or missing JSON in response"}], "summary": "Review incomplete due to chain failure"}
-```
+(Return schema and example: single-sourced in the pd:ds-code-reviewer agent file.)
 
 Store the extracted JSON as `{chain_2_result}`.
 
@@ -201,48 +135,11 @@ Task tool call:
     - Write a 2-3 sentence summary covering all axes
 
     Return your synthesis as JSON matching this schema:
-    ```json
-    {
-      "type": "object",
-      "properties": {
-        "approved": {"type": "boolean", "description": "True if no blockers across all axes"},
-        "strengths": {
-          "type": "array",
-          "items": {"type": "string", "description": "Positive observation"}
-        },
-        "issues": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "severity": {"type": "string", "enum": ["blocker", "warning", "suggestion"]},
-              "axis": {"type": "string", "description": "Which review axis flagged this"},
-              "description": {"type": "string", "description": "What the issue is"},
-              "location": {"type": "string", "description": "file:line or section reference"},
-              "suggestion": {"type": "string", "description": "How to fix it"}
-            },
-            "required": ["severity", "axis", "description", "location", "suggestion"]
-          }
-        },
-        "verification": {
-          "type": "object",
-          "properties": {
-            "api_checked": {"type": "boolean", "description": "Whether at least 1 API usage was verified"},
-            "api_details": {"type": "string", "description": "What was checked and result"}
-          },
-          "required": ["api_checked", "api_details"]
-        },
-        "summary": {"type": "string", "description": "2-3 sentence overall assessment"}
-      },
-      "required": ["approved", "strengths", "issues", "verification", "summary"]
-    }
-    ```
+    (Return schema: single-sourced in the pd:ds-code-reviewer agent file.)
 ```
 
 **Chain 3 output handling:** Extract the JSON object from the Task response. If Chain 3 fails (invalid JSON or Task error), return a degraded response by concatenating Chain 1 and Chain 2 results with a warning header:
-```json
-{"approved": false, "strengths": [], "issues": [], "verification": {"api_checked": false, "api_details": "Synthesis chain failed"}, "summary": "Chain 3 synthesis failed. Raw chain results returned as degraded output. Review Chain 1 and Chain 2 results below.", "degraded": true, "chain_1": {chain_1_result}, "chain_2": {chain_2_result}}
-```
+(Return schema and example: single-sourced in the pd:ds-code-reviewer agent file.)
 
 ---
 

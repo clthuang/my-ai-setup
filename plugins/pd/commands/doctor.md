@@ -1,98 +1,30 @@
 ---
-description: Run diagnostic checks on pd workspace health
+description: Run pd workspace health checks, optionally applying safe fixes
+argument-hint: "[--fix] [--dry-run]"
 ---
 
-# /pd:doctor Command
+# /pd:doctor
 
-Run 10 data consistency checks across entity DB, workflow state, and filesystem artifacts. Optionally apply safe auto-fixes.
+Runs the `doctor` module and renders its report. The check roster lives in the module (`CHECK_ORDER`); this command never restates the checks or their count.
 
-## Config Variables
-Use these values from session context (injected at session start):
-- `{pd_artifacts_root}` -- root directory for feature artifacts (default: `docs`)
+**Modes:** no flag → diagnose only. `--fix` → apply safe fixes, then re-run to verify. `--fix --dry-run` → show what would be fixed, write nothing.
 
-## Modes
-
-- **Diagnostic only** (default): Run checks, report issues with fix_hints
-- **Auto-fix** (when user asks to fix): Add `--fix` flag -- applies safe fixes, re-runs diagnostics to verify
-- **Dry-run**: Add `--fix --dry-run` -- shows what would be fixed without applying
-
-## Step 1: Run Diagnostics
-
-Run the doctor module via Bash. Use the plugin portability pattern.
-
-If the user asks to **fix** issues, add `--fix` to the command. If the user asks for a **dry run**, add `--fix --dry-run`.
+**Steps:**
+1. Run the module, appending the requested flags:
 
 ```bash
-# Primary: cached plugin
 PLUGIN_ROOT=$(ls -d ~/.claude/plugins/cache/*/pd*/*/hooks 2>/dev/null | head -1 | xargs dirname)
-if [[ -n "$PLUGIN_ROOT" ]] && [[ -x "$PLUGIN_ROOT/.venv/bin/python" ]]; then
-  PYTHONPATH="$PLUGIN_ROOT/hooks/lib" "$PLUGIN_ROOT/.venv/bin/python" -m doctor \
-    --entities-db ~/.claude/pd/entities/entities.db \
-    --artifacts-root {pd_artifacts_root} \
-    --project-root . \
-    2>/dev/null
-else
-  # Fallback: dev workspace
-  if [[ -x "plugins/pd/.venv/bin/python" ]]; then
-    PYTHONPATH=plugins/pd/hooks/lib plugins/pd/.venv/bin/python -m doctor \ # Fallback (dev workspace)
-      --entities-db ~/.claude/pd/entities/entities.db \
-      --artifacts-root {pd_artifacts_root} \
-      --project-root . \
-      2>/dev/null
-  else
-    echo '{"diagnostic":{"healthy":false,"checks":[],"total_issues":1,"error_count":1,"warning_count":0,"elapsed_ms":0,"_error":"No pd venv found. Run: cd plugins/pd && uv sync"}}'
-  fi
-fi
+if [ -z "$PLUGIN_ROOT" ]; then PLUGIN_ROOT="plugins/pd"; fi  # Fallback (dev workspace)
+PYTHONPATH="$PLUGIN_ROOT/hooks/lib" "$PLUGIN_ROOT/.venv/bin/python" -m doctor \
+  --entities-db ~/.claude/pd/entities/entities.db \
+  --artifacts-root {pd_artifacts_root} \
+  --project-root . 2>/dev/null
 ```
 
-## Step 2: Parse and Format Output
+   No venv at either location → report `No pd venv found. Run: cd plugins/pd && uv sync` and stop.
 
-The JSON output is wrapped: `{"diagnostic": {...}}` for default mode.
+2. Parse the `diagnostic` key. One table row per reported check: name, PASS/FAIL, issue count. Under each failing check, list its issues errors-first with their `fix_hint`.
+3. `fixes` key present → report fixed / manual / failed counts, then each manual fix with its `fix_hint`. `post_fix` key present → show before/after error and warning counts.
+4. Close with `Workspace healthy` or `{N} issues ({E} errors, {W} warnings)`.
 
-With `--fix`: `{"diagnostic": {...}, "fixes": {...}, "post_fix": {...}}`.
-
-Parse the `diagnostic` key. Format as a summary table:
-
-| Check | Status | Issues |
-|-------|--------|--------|
-| db_readiness | PASS/FAIL | N issues |
-| feature_status | PASS/FAIL | N issues |
-| workflow_phase | PASS/FAIL | N issues |
-| brainstorm_status | PASS/FAIL | N issues |
-| backlog_status | PASS/FAIL | N issues |
-| branch_consistency | PASS/FAIL | N issues |
-| entity_orphans | PASS/FAIL | N issues |
-| referential_integrity | PASS/FAIL | N issues |
-| config_validity | PASS/FAIL | N issues |
-| security_review_command | PASS/FAIL | N issues |
-| stale_worktrees | PASS/FAIL | N issues |
-
-For each check that failed (passed=false), show the issues grouped by severity:
-- Errors first (with fix_hint if available)
-- Warnings second
-- Info last
-
-## Step 3: Fix Results (--fix mode only)
-
-If `fixes` key is present in the output:
-
-1. Show fix summary: "Fixed N, skipped M (manual), failed F"
-2. List each applied fix with its action
-3. List failed fixes with error details
-4. List manual fixes that need human attention with their fix_hints
-
-If `post_fix` key is present, show before/after comparison:
-- "Before: E errors, W warnings"
-- "After: E errors, W warnings"
-
-## Step 4: Summary
-
-Report the overall health status:
-- "Workspace healthy" if all checks passed
-- "N issues found (E errors, W warnings)" otherwise
-
-If fixes were applied, note: "Re-run `/pd:doctor` to verify current state."
-
-For manual fixes, list each with its fix_hint so the user can take action.
-
-Footer: "Doctor runs automatically at session start. Issues here indicate problems that survived auto-repair."
+**Constraints:** read-only unless `--fix` was asked for; doctor also runs at session start, so anything here survived auto-repair.

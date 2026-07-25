@@ -1,6 +1,6 @@
 ---
 name: workflow-transitions
-description: Shared phase-transition contract — engine-validated state, global YOLO rule, review gate, commit convention. Used by every phase command.
+description: Shared phase-transition contract — engine-validated state, global YOLO rule, review gate, commit convention. Use when entering or exiting any workflow phase.
 ---
 
 # Workflow Transitions

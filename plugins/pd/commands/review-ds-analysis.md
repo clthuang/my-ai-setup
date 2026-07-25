@@ -65,44 +65,11 @@ Task tool call:
 
     Return your findings as JSON matching this schema:
 
-    ```json
-    {
-      "type": "object",
-      "properties": {
-        "axis_results": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "axis": { "type": "string", "description": "Name of the review axis evaluated" },
-              "approved": { "type": "boolean", "description": "True if no blockers found for this axis" },
-              "issues": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "severity": { "type": "string", "enum": ["blocker", "warning", "suggestion"] },
-                    "description": { "type": "string", "description": "What the issue is" },
-                    "location": { "type": "string", "description": "file:line or section reference" },
-                    "suggestion": { "type": "string", "description": "How to fix it" }
-                  },
-                  "required": ["severity", "description", "location", "suggestion"]
-                }
-              }
-            },
-            "required": ["axis", "approved", "issues"]
-          }
-        }
-      },
-      "required": ["axis_results"]
-    }
-    ```
+    (Return schema: single-sourced in the pd:ds-analysis-reviewer agent file.)
 ```
 
 **Chain 1 error handling:** If Chain 1 fails (Task returns error or invalid JSON), do NOT proceed to Chain 2 or Chain 3. Return immediately:
-```json
-{"approved": false, "issues": [{"severity": "blocker", "description": "Chain 1 failed: {error}"}], "summary": "Review incomplete due to chain failure — halt before remaining chains"}
-```
+(Return schema and example: single-sourced in the pd:ds-analysis-reviewer agent file.)
 
 Capture Chain 1's JSON output for use in Chain 3.
 
@@ -132,44 +99,11 @@ Task tool call:
 
     Return your findings as JSON matching this schema:
 
-    ```json
-    {
-      "type": "object",
-      "properties": {
-        "axis_results": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "axis": { "type": "string", "description": "Name of the review axis evaluated" },
-              "approved": { "type": "boolean", "description": "True if no blockers found for this axis" },
-              "issues": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "severity": { "type": "string", "enum": ["blocker", "warning", "suggestion"] },
-                    "description": { "type": "string", "description": "What the issue is" },
-                    "location": { "type": "string", "description": "file:line or section reference" },
-                    "suggestion": { "type": "string", "description": "How to fix it" }
-                  },
-                  "required": ["severity", "description", "location", "suggestion"]
-                }
-              }
-            },
-            "required": ["axis", "approved", "issues"]
-          }
-        }
-      },
-      "required": ["axis_results"]
-    }
-    ```
+    (Return schema: single-sourced in the pd:ds-analysis-reviewer agent file.)
 ```
 
 **Chain 2 error handling:** If Chain 2 fails (Task returns error or invalid JSON), do NOT proceed to Chain 3. Return immediately:
-```json
-{"approved": false, "issues": [{"severity": "blocker", "description": "Chain 2 failed: {error}"}], "summary": "Review incomplete due to chain failure — halt before synthesis"}
-```
+(Return schema and example: single-sourced in the pd:ds-analysis-reviewer agent file.)
 
 Capture Chain 2's JSON output for use in Chain 3.
 
@@ -207,53 +141,7 @@ Task tool call:
 
     Return your synthesis as JSON matching this schema:
 
-    ```json
-    {
-      "type": "object",
-      "properties": {
-        "approved": { "type": "boolean", "description": "True if no blockers across all axes" },
-        "pitfalls_detected": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "name": { "type": "string", "description": "Pitfall category name" },
-              "severity": { "type": "string", "enum": ["blocker", "warning", "suggestion"] },
-              "description": { "type": "string", "description": "What the pitfall is" },
-              "evidence": { "type": "string", "description": "How it was detected" }
-            }
-          }
-        },
-        "code_issues": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "severity": { "type": "string", "enum": ["blocker", "warning", "suggestion"] },
-              "description": { "type": "string", "description": "Code-level issue" },
-              "location": { "type": "string", "description": "file:line reference" }
-            }
-          }
-        },
-        "methodology_concerns": {
-          "type": "array",
-          "items": { "type": "string", "description": "Methodology observation" }
-        },
-        "verification": {
-          "type": "object",
-          "properties": {
-            "claim_checked": { "type": "boolean", "description": "Whether at least 1 statistical claim was verified" },
-            "claim_details": { "type": "string", "description": "What was checked and result" }
-          }
-        },
-        "recommendations": {
-          "type": "array",
-          "items": { "type": "string", "description": "Actionable recommendation" }
-        },
-        "summary": { "type": "string", "description": "2-3 sentence overall assessment" }
-      }
-    }
-    ```
+    (Return schema: single-sourced in the pd:ds-analysis-reviewer agent file.)
 ```
 
 **Chain 3 error handling:** If Chain 3 fails, return the raw Chain 1 and Chain 2 results concatenated as a degraded response:

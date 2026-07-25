@@ -117,21 +117,17 @@ To install the released version:
 
 ## Architecture
 
-Commands invoke Skills; Skills spawn Agents; Hooks fire at lifecycle points. The secretary command adds an intelligent routing layer — a 7-step pipeline (DISCOVER → CLARIFY → TRIAGE → MATCH → REVIEW → RECOMMEND → DELEGATE) that discovers available agents and skills, interprets the request, and delegates to the best match.
+Commands invoke Skills; Skills spawn Agents; Hooks fire at lifecycle points. The secretary command is a triage layer, not a pipeline: it picks a mode (deep, express, or specialist fast-path), states the rationale, routes, and hands off. Triage never mutates state — the routed command owns all entity work.
 
 ```mermaid
 flowchart TD
     U([User]) -->|"/command"| CMD[Command]
     U -->|"/secretary request"| SEC
 
-    subgraph SEC["Secretary Routing Pipeline"]
+    subgraph SEC["Secretary Triage"]
         direction TB
-        S1["1. DISCOVER<br/>agents & skills"] --> S2["2. CLARIFY<br/>structured 4-dimension analysis"]
-        S2 --> S3["3. TRIAGE<br/>maturity assessment"]
-        S3 --> S4["4. MATCH<br/>fast-path + semantic"]
-        S4 --> S5["5. REVIEW<br/>secretary-reviewer"]
-        S5 --> S6["6. RECOMMEND<br/>user confirmation"]
-        S6 --> S7["7. DELEGATE"]
+        S1["1. ASSESS<br/>mode signals"] --> S2["2. PICK MODE<br/>deep · express · specialist"]
+        S2 --> S7["3. ROUTE + HAND OFF"]
     end
 
     CMD --> SK[Skill]
@@ -149,19 +145,19 @@ flowchart TD
     SK --> WORKFLOW
     SK --> AG
 
-    subgraph AG["Agents · 29 subagents"]
+    subgraph AG["Agents · 24 subagents"]
         direction TB
-        A1["Reviewers (14)<br/>spec, design, plan, impl,<br/>security, code-quality, ..."]
-        A2["Workers (6)<br/>implementer, documentation-writer,<br/>ras-synthesizer, test-deepener, ..."]
+        A1["Reviewers (8)<br/>design, code-quality, plan, prd,<br/>security, ds-*, decomposition"]
+        A2["Workers (8)<br/>implementer, qa-executor,<br/>documentation-writer, test-deepener, ..."]
         A3["Researchers (5)<br/>codebase-explorer,<br/>investigation-agent, ..."]
-        A4["Advisory (1) · Orchestration (3)"]
+        A4["Advisory (1) · Orchestration (2)"]
     end
 
     WORKFLOW -->|"produces"| ART
 
     subgraph ART["File Artifacts"]
-        F1[spec.md] ~~~ F2[design.md] ~~~ F3[plan.md]
-        F4[tasks.md] ~~~ F5[impl-log.md] ~~~ F6[.meta.json]
+        F1["shape.md<br/>Requirements + Design"] ~~~ F2["plan.md<br/>ordered tasks"]
+        F3[retro.md] ~~~ F4[.meta.json]
     end
 
     subgraph HOOKS["Hooks · scripts"]
@@ -174,7 +170,7 @@ flowchart TD
     HOOKS -.->|"lifecycle events"| SK
     HOOKS -.->|"lifecycle events"| AG
 
-    subgraph ENT["Entity Registry · 19 MCP tools"]
+    subgraph ENT["Entity Registry · 20 MCP tools"]
         direction TB
         ET1[register_entity] ~~~ ET2[set_parent] ~~~ ET3[get_entity]
         ET4[get_lineage] ~~~ ET5[update_entity] ~~~ ET6[export_lineage_markdown]
@@ -205,18 +201,16 @@ Skills are instructions Claude follows for specific development practices. Locat
 | `designing` | Creates design.md with architecture and contracts |
 | `decomposing` | Orchestrates project decomposition pipeline (AI decomposition, review, feature creation) |
 | `planning` | Produces plan.md with dependencies and ordering |
-| `breaking-down-tasks` | Breaks plans into small, actionable tasks with dependency tracking |
-| `implementing` | Dispatches per-task implementer agents with selective context loading; produces implementation-log.md |
+| `implementing` | Execution mechanics for the implement phase — inline vs worktree-isolated task dispatch, merge-back |
 | `finishing-branch` | Guides branch completion with PR or merge options |
 
 ### Quality & Review
 | Skill | Purpose |
 |-------|---------|
 | `promptimize` | Reviews plugin prompts against best practices guidelines and returns scored assessment with improved version |
-| `reviewing-artifacts` | Comprehensive quality criteria for PRD, spec, design, plan, and tasks |
 | `implementing-with-tdd` | Enforces RED-GREEN-REFACTOR cycle with rationalization prevention |
 | `workflow-state` | Defines phase sequence and validates transitions |
-| `workflow-transitions` | Shared workflow boilerplate for phase commands (validation, branch check, commit, state update) |
+| `workflow-transitions` | Shared phase-transition contract (engine entry/exit, global YOLO rule, review gate, dispatch hygiene) |
 
 ### Investigation
 | Skill | Purpose |
@@ -248,7 +242,7 @@ Skills are instructions Claude follows for specific development practices. Locat
 ### Maintenance
 | Skill | Purpose |
 |-------|---------|
-| `retrospecting` | Runs data-driven AORTA retrospective using retro-facilitator agent; reads implementation-log.md; writes plain-markdown retro.md |
+| `retrospecting` | Runs data-driven AORTA retrospective using retro-facilitator agent; writes plain-markdown retro.md |
 | `updating-docs` | Automatically updates documentation using agents |
 | `writing-skills` | Applies TDD approach to skill documentation |
 | `detecting-kanban` | Detects Vibe-Kanban and provides TodoWrite fallback |
@@ -292,28 +286,24 @@ doctor_schedule: "0 */4 * * *"   # Every 4 hours
 
 Agents are isolated subprocesses spawned by the workflow. Located in `plugins/pd/agents/{name}.md`.
 
-**Reviewers (14):**
-- `brainstorm-reviewer` — Reviews brainstorm artifacts with universal + type-specific criteria before promotion
-- `code-quality-reviewer` — Reviews implementation quality after spec compliance is confirmed
-- `design-reviewer` — Challenges design assumptions and finds gaps
-- `implementation-reviewer` — Validates implementation against full requirements chain (Tasks → Spec → Design → PRD); uses WebSearch + Context7 for external claim verification
-- `phase-reviewer` — Validates artifact completeness for next phase transition; receives Domain Reviewer Outcome from upstream reviewer
-- `plan-reviewer` — Skeptically reviews plans for failure modes and feasibility
+**Reviewers (8):** — only `design-reviewer` and `code-quality-reviewer` sit on the feature workflow's two review moments; the rest are on-demand or non-feature paths.
+- `design-reviewer` — Challenges design assumptions and finds gaps (review moment 1 of 2, `/pd:design`)
+- `code-quality-reviewer` — Adversarially reviews the branch diff for correctness and maintainability (review moment 2 of 2, `/pd:implement`)
+- `security-reviewer` — Reviews implementation for security vulnerabilities; dispatched from `/pd:finish-feature` on security-surface changes. Always an Anthropic-model Task, never routed to Codex
+- `plan-reviewer` — Skeptically reviews plans for failure modes and feasibility (Claude Code plan mode, pasted plans)
 - `prd-reviewer` — Critically reviews PRD drafts for quality and completeness
 - `project-decomposition-reviewer` — Validates project decomposition quality (coverage, sizing, dependencies)
-- `spec-reviewer` — Reviews spec.md for testability, assumptions, and scope discipline
-- `security-reviewer` — Reviews implementation for security vulnerabilities; uses WebSearch + Context7 for external claim verification
-- `task-reviewer` — Validates task breakdown quality for immediate executability
-- `relevance-verifier` — Verifies full artifact chain coherence (spec → design → plan → tasks) before implementation and during 360 QA
 - `ds-analysis-reviewer` — Reviews data analysis for statistical pitfalls, methodology issues, and conclusion validity; uses WebSearch + Context7
 - `ds-code-reviewer` — Reviews DS Python code for anti-patterns, pipeline quality, and best practices; uses Context7 for API verification
 
-**Workers (6):**
+**Workers (8):**
 - `implementer` — Implements tasks with TDD and self-review discipline
+- `qa-executor` — Execution-grounded QA: runs the test battery and drives affected flows, returning commands plus output as evidence. Fixes nothing
 - `project-decomposer` — Decomposes project PRD into ordered features with dependencies and milestones
 - `generic-worker` — General-purpose implementation agent for mixed-domain tasks
 - `documentation-writer` — Writes and updates documentation based on research findings
 - `ras-synthesizer` — Synthesizes multi-source research findings into thematic analysis with confidence calibration
+- `relevance-verifier` — Verifies artifact chain coherence (`shape.md` → `plan.md` → code)
 - `test-deepener` — Systematically deepens test coverage after TDD scaffolding with spec-driven adversarial testing
 
 **Advisory (1):**
@@ -326,8 +316,7 @@ Agents are isolated subprocesses spawned by the workflow. Located in `plugins/pd
 - `investigation-agent` — Read-only research agent for context gathering
 - `skill-searcher` — Finds relevant existing skills for a given topic
 
-**Orchestration (3):**
-- `secretary-reviewer` — Validates secretary routing recommendations before presenting to user
+**Orchestration (2):**
 - `rca-investigator` — Finds all root causes through 6-phase systematic investigation
 - `retro-facilitator` — Runs data-driven AORTA retrospective with full intermediate context
 
@@ -371,63 +360,37 @@ Defined in `plugins/pd/hooks/hooks.json`.
 
 The `pre-commit-guard` hook warns when committing to protected branches (main/master) and reminds about running tests.
 
-## Workflow Details
+## Workflow Mechanics
 
-### Create-Plan Workflow
+Each phase command in `plugins/pd/commands/` is a short **contract** — purpose, inputs, output, steps, constraints — and is the source of truth for its own phase. Read the command file before this section; what follows is only the shared machinery.
 
-The `/create-plan` command produces `plan.md` AND `tasks.md` in a single phase (task breakdown was merged into create-plan in feature 073; `/pd:create-tasks` survives only as a deprecated redirect). It runs a combined review loop (max 5 iterations; all three reviewers must pass):
+**Engine-validated transitions.** The workflow engine (MCP workflow-state tools) is the only state-holder. A phase command opens with `transition_phase(...)` and closes with `complete_phase(...)`; a rejection envelope is the stop signal and is surfaced verbatim, never re-derived. `.meta.json` is a read-only projection. The shared contract lives in the `workflow-transitions` skill; commands never restate phase sequences or status vocabularies.
 
-1. **Produce artifacts**: `planning` skill creates/revises `plan.md`; `breaking-down-tasks` skill creates/revises `tasks.md` from the plan:
-   - Mermaid dependency graph
-   - Parallel execution groups
-   - Detailed task specifications (files, steps, tests, done criteria)
+**Artifact inventory.** Two artifacts carry a feature, plus the retro:
 
-2. **Plan Review**: `plan-reviewer` challenges failure modes, untested assumptions, dependency accuracy, and TDD order
+| Artifact | Written by | Contains |
+|----------|-----------|----------|
+| `shape.md` | `/pd:specify`, then `/pd:design` | `## Requirements` (mechanically checkable success criteria, scope, edge cases), then `## Design` |
+| `plan.md` | `/pd:create-plan` | `## Plan` — ordered tasks, each with files touched and the command that proves it done; parallel-safe tasks flagged |
+| `retro.md` | `/pd:finish-feature` | AORTA retrospective, written before branch cleanup |
 
-3. **Task Review**: `task-reviewer` validates:
-   - Plan fidelity (every plan item has tasks)
-   - Task executability (any engineer can start immediately)
-   - Task size (5-15 min each)
-   - Dependency accuracy (parallel groups correct)
-   - Testability (binary done criteria)
+There is no `spec.md`, no `tasks.md`, and no implementation log. Tasks are derived from `plan.md` at dispatch time by the `implementing` skill, which runs parallel-safe tasks as `implementer` agents in `.pd-worktrees/task-{N}` worktrees and merges them back in plan order.
 
-4. **Phase Review**: `phase-reviewer` validates readiness for the implement phase
+**Mechanical gates (tier 1).** `scripts/phase-gate.sh <phase> <feature-dir>` runs at every phase boundary with zero dispatch: artifact existence, required sections, duplicate fenced contract blocks across the artifact set, and uncommitted artifacts at implement entry. Each failure prints one line; exit 0 means pass.
 
-5. **Relevance Gate**: `relevance-verifier` checks full artifact chain coherence (PRD → spec → design → plan → tasks) before auto-chaining
+**Review moments (tier 2).** Exactly two LLM reviews per deep feature — `pd:design-reviewer` after the design gate, and `pd:code-quality-reviewer` on the full branch diff during implement. Each is one pass plus at most one fix round; still-open blockers escalate to the user rather than looping to a cap. Alongside them, `pd:qa-executor` supplies execution-grounded evidence during implement (runs the suites, drives affected flows, reports without fixing), and `pd:security-reviewer` runs from `/pd:finish-feature` when the branch touches a security surface. Implement carries one circuit breaker for the whole phase: 3 fix cycles total.
 
-6. **Completion**: Prompts user to start `/implement` (auto-chains in YOLO mode)
-
-### Implement Workflow
-
-The `/implement` command uses a per-task dispatch architecture.
-
-Hard prerequisites: spec.md AND tasks.md must pass 4-level validation before implementation begins.
-
-1. **Per-task dispatch loop**: Each task in `tasks.md` gets its own `implementer` agent call with selectively scoped context:
-   - Parses `Why/Source` traceability fields to extract only referenced `design.md`/`plan.md` sections
-   - Falls back to full artifact loading when traceability fields are absent or unparseable
-   - Includes project context block (~200-500 tokens) for project-linked features
-   - Produces `implementation-log.md` with per-task decisions, deviations, and concerns
-2. **Test Deepening**: `test-deepener` generates spec-driven test outlines (Phase A) then writes executable tests (Phase B), reporting spec divergences
-3. **Review** (iterative, up to 3 iterations total including the final validation round): `implementation-reviewer` -> `relevance-verifier` -> `code-quality-reviewer` -> `security-reviewer`. Only failed reviewers re-run in intermediate iterations. When all four have individually passed, a mandatory final validation round runs all four reviewers regardless.
-4. **Completion**: Prompts user to run `/finish-feature`
-
-The `implementation-log.md` artifact is read by the retro skill during `/finish-feature` and then deleted alongside `.review-history.md`.
+**Express mode.** `/pd:create-feature --express` records an inline mini-spec as a `mini_spec` phase event, passes `skipped_phases=["brainstorm","specify","design","create-plan"]` to the engine, and hands straight to `/pd:implement`, where QA and review collapse into one combined pass. `/pd:secretary` picks the lane: any of security surface, schema/data migration, multi-file blast radius, novel domain, or non-mechanical success criteria forces deep mode.
 
 ## YOLO Mode (Autonomous Workflow)
 
-The secretary command supports a `[YOLO_MODE]` flag that enables fully autonomous feature development.
+A `[YOLO_MODE]` flag in context enables fully autonomous feature development. The rule is defined once, in the `workflow-transitions` skill; no command restates it.
 
 ### How It Works
 
-1. User sets mode: `/secretary mode yolo`
-2. User invokes: `/secretary build X`
-3. Secretary command reads `.claude/pd.local.md`, detects `activation_mode: yolo`
-4. Command performs routing inline (discover agents and skills, match patterns, select best route)
-5. YOLO overrides skip clarification, reviewer gate, and user confirmation
-6. Workflow patterns redirect to orchestrate subcommand which chains phases via Skill
-7. Each command auto-selects through AskUserQuestion prompts and chains to the next command
-8. The `[YOLO_MODE]` flag propagates through args at every phase transition
+1. User enables it: `/pd:yolo on`, or `activation_mode: yolo` in `.claude/pd.local.md`
+2. Every command that sees `[YOLO_MODE]` auto-selects each prompt's recommended option and keeps going through recoverable errors
+3. The flag propagates into every dispatched command, skill, and agent prompt
 
 ### Flag Propagation
 
@@ -435,49 +398,21 @@ Each phase command includes `[YOLO_MODE]` in the args when invoking the next com
 
 ### What Gets Bypassed
 
-- User confirmation at phase transitions
-- Interactive Q&A in brainstorm Stage 1
-- Manual spec review loop (auto-selects "Looks good" on first draft)
-- Research findings review in design Stage 0
-- Mode selection prompts (auto-selects "Standard")
-- Self-generation confirmation (auto-creates when no specialist matches)
+Only user prompts. Every `AskUserQuestion` auto-selects its recommended option, and phase transitions chain without confirmation.
 
 ### What Still Runs
 
-- All reviewer subagents (spec-reviewer, design-reviewer, plan-reviewer, etc.)
-- All phase-reviewer handoff gates
-- Implementation 3-reviewer validation (implementation, quality, security)
-- Pre-merge validation checks
-- Research stages in brainstorm (internet-researcher, codebase-explorer, skill-searcher)
+Every gate: engine prerequisite validation, `scripts/phase-gate.sh` on each boundary, both review moments, `qa-executor`, `security-reviewer` when the surface warrants it, and the finish-phase QA battery.
 
 ### Hard Stop Points
 
-YOLO mode stops and reports to user (does not force through):
-1. Implementation circuit breaker — 3 review iterations without approval
+YOLO stops and reports rather than forcing through (enforced by `yolo-guard.sh`):
+
+1. Engine transition rejection — surfaced verbatim
 2. Git merge conflict — cannot auto-resolve
-3. Pre-merge validation failure — 3 fix attempts exhausted
-4. Hard prerequisite failures — design.md (for create-plan), spec.md or tasks.md (for implement) missing/invalid
-5. Git push failure — network or auth issues
-
-### Files Modified for YOLO Support
-
-| File | Change |
-|------|--------|
-| `skills/workflow-transitions/SKILL.md` | YOLO overrides for shared validateAndSetup |
-| `skills/brainstorming/SKILL.md` | Skip Q&A, auto-select promote/mode |
-| `skills/specifying/SKILL.md` | Auto-select "Looks good", infer requirements |
-| `skills/workflow-state/SKILL.md` | Planned→Active auto-selection |
-| `commands/create-feature.md` | Auto-select conflict resolution and mode |
-| `commands/specify.md` | Auto-select feature, auto-chain to design |
-| `commands/design.md` | Auto-proceed research, auto-chain to create-plan |
-| `commands/create-plan.md` | Auto-chain to implement |
-| `commands/implement.md` | Circuit breaker STOP, auto-chain to finish-feature |
-| `commands/abandon-feature.md` | Skip confirmation prompt |
-| `commands/finish-feature.md` | Auto-continue, auto-merge, STOP on conflict |
-| `agents/secretary-reviewer.md` | Validates routing before user sees recommendation |
-| `commands/secretary.md` | Full routing logic (agent and skill discovery, matching with skill fast-paths, recommendation) + orchestrate subcommand + [YOLO_MODE] prefix |
-| `commands/create-specialist-team.md` | Ephemeral specialist teams via template injection |
-| `hooks/inject-secretary-context.sh` | Yolo mode session context |
+3. A review gate still failing after its one fix round
+4. Implement circuit breaker — 3 fix cycles for the phase
+5. Safety keywords — force-push, data deletion, secrets
 
 ## Knowledge Bank
 
@@ -502,8 +437,9 @@ The entity registry tracks the lineage of pd artifacts (backlog items, brainstor
 
 **MCP Server:** `plugins/pd/mcp/entity_server.py` (bootstrapped via `plugins/pd/mcp/run-entity-server.sh`)
 
-**MCP Tools (19):**
+**MCP Tools (20):**
 - `register_entity` -- Register a new entity (backlog, brainstorm, project, or feature) with optional parent link and metadata
+- `allocate_entity_id` -- Atomically allocate the next `{seq:03d}-{slug}` id for an entity type, before any filesystem or DB write
 - `issue_spawn` -- Spawn a new issue entity (kind='bug' or 'task') linked to a parent
 - `set_parent` -- Set or change the parent of an entity (with circular reference detection)
 - `get_entity` -- Retrieve a single entity by type_id or ref
@@ -537,11 +473,12 @@ The workflow engine manages feature lifecycle state, phase transitions, and drif
 
 **MCP Server:** `plugins/pd/mcp/workflow_state_server.py` (bootstrapped via `plugins/pd/mcp/run-workflow-server.sh`)
 
-**MCP Tools (21):**
+**MCP Tools (22):**
 - `get_phase` -- Get current workflow phase for a feature
 - `transition_phase` -- Transition a feature to the next workflow phase (dual-writes to `phase_events`)
 - `complete_phase` -- Mark the current phase as complete (dual-writes to `phase_events`)
 - `validate_prerequisites` -- Check if prerequisites are met for a target phase
+- `reproject_meta_json` -- Re-render a feature's `.meta.json` from DB state (direct writes to it are denied)
 - `list_features_by_phase` -- List all features currently in a given phase
 - `list_features_by_status` -- List all features with a given status
 - `reconcile_check` -- Check for drift between state file and artifacts
@@ -554,7 +491,7 @@ The workflow engine manages feature lifecycle state, phase transitions, and drif
 - `init_entity_workflow` -- Initialize entity workflow tracking
 - `transition_entity_phase` -- Transition an entity to a new workflow phase
 - `get_notifications` -- Drain pending notifications for the current project
-- `promote_task` -- Promote a task from tasks.md to a tracked task entity
+- `promote_task` -- Promote a task from plan.md to a tracked task entity
 - `query_ready_tasks` -- List task entities ready for execution
 - `get_progress_view` -- Get cross-level progress view for an entity's ancestor chain
 - `record_backward_event` -- Record a backward phase transition event for analytics

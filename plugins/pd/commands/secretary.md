@@ -29,3 +29,5 @@ Triage that selects a mode — not a pipeline. Assess the request, state mode + 
 **Overrides:** `--deep` / `--express` force the mode both directions. Mid-express escalation: stop implement, record the escalation (`transition_phase` backward with reason), feed the mini-spec text into `/pd:brainstorm` as input — no restart penalty.
 
 **Output shape:** `Mode: {deep|express|specialist} — {one-line rationale}. Routing to {command}.` Then invoke it, propagating `[YOLO_MODE]` per the global rule (workflow-transitions).
+
+**Component discovery:** installed plugin first — `~/.claude/plugins/cache/*/pd*/*/` glob; fallback `plugins/pd/` (dev workspace).

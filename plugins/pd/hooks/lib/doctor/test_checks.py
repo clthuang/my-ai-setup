@@ -501,7 +501,7 @@ class TestCheck8V2GenerationSchemaVersion:
         )
         schema_issues = [i for i in result.issues if "schema_version" in i.message]
         assert len(schema_issues) == 1
-        # "expected 1" (V2_SCHEMA_VERSION), NOT "expected 19" (v1 chain max) —
+        # "expected {V2_SCHEMA_VERSION}", NOT "expected 19" (v1 chain max) —
         # proves the v2 branch supplied the expectation.
         assert f"expected {V2_SCHEMA_VERSION}" in schema_issues[0].message
 

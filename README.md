@@ -4,7 +4,7 @@
 
 ## What It Does
 
-pd guides features from idea to merge through proven phases. Every phase has AI reviewers that catch issues before they compound. Retrospectives capture learnings as plain-markdown retros at feature completion. It can run fully autonomously (YOLO mode) or step-by-step with user confirmation at each gate. Domain knowledge modules cover game design, crypto/DeFi, and data science.
+pd guides features from idea to merge through proven phases. Every phase boundary has a mechanical gate, and two LLM review moments (design review, adversarial code review) catch issues before they compound. Retrospectives capture learnings as plain-markdown retros at feature completion. It can run fully autonomously (YOLO mode) or step-by-step with user confirmation at each gate. Small changes take an express lane that skips straight to implement. Domain knowledge modules cover game design, crypto/DeFi, and data science.
 
 ## Installation
 
@@ -64,7 +64,7 @@ Then follow the phases:
 /pd:secretary continue               # Resume from last completed phase
 ```
 
-All quality gates (reviewers, phase validators) still run — YOLO mode only bypasses user confirmation at phase transitions. Safety boundaries stop execution on review failures, merge conflicts, or missing prerequisites.
+All quality gates (mechanical phase gates, review moments, QA execution) still run — YOLO mode only bypasses user confirmation at phase transitions. Safety boundaries stop execution on engine transition rejections, merge conflicts, or a review gate still failing after its one fix round.
 
 **Modes:** `manual` (default) | `aware` (session hints) | `yolo` (fully autonomous)
 
@@ -94,15 +94,15 @@ Configure via `.claude/pd.local.md`:
 | Command | Purpose |
 |---------|---------|
 | `/pd:brainstorm [topic]` | Explore ideas, produce evidence-backed PRD |
-| `/pd:create-feature <desc>` | Skip brainstorming, create feature directly |
+| `/pd:create-feature <desc>` | Skip brainstorming, create feature directly; `--express` takes the fast lane |
 | `/pd:create-project <prd>` | Create project from PRD with AI-driven decomposition into features |
-| `/pd:specify` | Write requirements (spec.md) |
-| `/pd:design` | Define architecture (design.md) |
-| `/pd:create-plan` | Plan implementation and tasks (plan.md + tasks.md) |
-| `/pd:implement` | Write code with TDD and review |
+| `/pd:specify` | Write requirements (`shape.md` — `## Requirements`) |
+| `/pd:design` | Define architecture (`shape.md` — `## Design`) |
+| `/pd:create-plan` | Derive the ordered task plan (`plan.md` — `## Plan`) |
+| `/pd:implement` | Write code with TDD, execution QA, and code review |
 | `/pd:abandon-feature` | Transition a feature to abandoned status |
-| `/pd:finish-feature` | Merge, run retro, cleanup branch (pd features) |
-| `/pd:wrap-up` | Wrap up implementation - review, retro, merge or PR |
+| `/pd:finish-feature` | QA battery, docs sync, retro, merge (pd features) |
+| `/pd:wrap-up` | End the session — commit WIP, report engine state and open items |
 
 ### Utilities
 
@@ -113,7 +113,9 @@ Configure via `.claude/pd.local.md`:
 | `/pd:list-features` | List active features and branches |
 | `/pd:retrospect` | Run retrospective on a feature |
 | `/pd:add-to-backlog` | Capture ad-hoc ideas and todos |
+| `/pd:cleanup-backlog` | Archive fully-closed backlog sections in the entity DB |
 | `/pd:cleanup-brainstorms` | Delete old brainstorm scratch files |
+| `/pd:test-debt-report` | Aggregate deferred test debt across features and the backlog |
 | `/pd:doctor` | Run 10 diagnostic checks on pd workspace health (incl. security-review command, stale worktrees, status-parser regression, and severity vocabulary) |
 | `/pd:secretary` | Intelligent task routing to agents and skills (supports YOLO mode with orchestrate subcommand) |
 | `/pd:create-specialist-team` | Create ephemeral specialist teams for complex tasks |
@@ -123,7 +125,6 @@ Configure via `.claude/pd.local.md`:
 | `/pd:review-ds-analysis <file>` | Review data analysis for statistical pitfalls |
 | `/pd:review-ds-code <file>` | Review DS Python code for anti-patterns |
 | `/pd:init-ds-project <name>` | Scaffold a new data science project |
-| `/pd:taskify` | Break any existing plan into tasks (standalone; use when tasks.md needs regeneration) |
 | `/pd:generate-docs` | Generate three-tier documentation scaffold or update existing docs |
 | `/pd:subagent-ras` | Research, analyze, and summarize any topic using parallel agents |
 | `/pd:sync-cache` | Sync plugin source files to cache |
@@ -135,46 +136,34 @@ Configure via `.claude/pd.local.md`:
 
 ```mermaid
 flowchart TD
-    SEC["/secretary<br/>Unified Entry Point"] -->|Explore| BS["/brainstorm<br/>Explore & Research"]
-    SEC -->|Build| CF["/create-feature<br/>Direct Start"]
-    SEC -->|Debug| RCA["/root-cause-analysis<br/>Debug & Investigate"]
+    SEC["/secretary<br/>Triage: deep · express · specialist"] -->|Explore| BS["/brainstorm<br/>Explore & Research"]
+    SEC -->|Deep| CF["/create-feature"]
+    SEC -->|Express| CFX["/create-feature --express<br/>inline mini-spec"]
+    SEC -->|Debug| RCA["/root-cause-analysis"]
     SEC -->|Specialist| AGENT["Agent / Skill<br/>Direct Dispatch"]
 
     BS -->|PRD| SPEC
     CF --> SPEC
     RCA -->|Fix| SPEC
 
-    subgraph SPEC["SPECIFY"]
-        SE[Executor] <-->|Fix| SR{{"Reviewer<br/>Clear?"}}
-    end
-    SPEC -->|Fix| SG{Spec Gate}
-    SG -->|Pass| DES
+    SPEC["/specify<br/>shape.md · ## Requirements"] --> G1{{"phase-gate.sh specify"}}
+    G1 --> DES["/design<br/>shape.md · ## Design"]
+    DES --> G2{{"phase-gate.sh design"}}
+    G2 --> DR["pd:design-reviewer<br/>review moment 1 of 2"]
+    DR --> PLN["/create-plan<br/>plan.md · ## Plan"]
+    PLN --> G3{{"phase-gate.sh create-plan"}}
+    G3 --> IMP
+    CFX -->|skips specify/design/create-plan| IMP
 
-    subgraph DES["DESIGN"]
-        DE[Executor] <-->|Fix| DR{{"Reviewer<br/>Robust?"}}
-    end
-    DES -->|Fix| DG{Design Gate}
-    DG -->|Pass| PLN
-
-    subgraph PLN["PLAN"]
-        PE[Executor] <-->|Fix| PR{{"Reviewer<br/>Practical?"}}
-    end
-    PLN -->|Fix| PG{Plan Gate}
-    PG -->|Pass| IMP
-
-    subgraph IMP["IMPLEMENT"]
-        IE["Spec to Interface TDD"] <-->|Fix| IR{{"Reviewer<br/>Complete?"}}
-    end
-    IMP -->|Fix| CG{Code Gate}
-    CG -->|All Pass| FIN
-
-    FIN["FINISH<br/>Docs / PR / Merge"] --> RET
-    RET["RETROSPECTIVE<br/>Capture Learnings"] --> DONE([Complete])
+    IMP["/implement<br/>tasks derived from plan.md"] --> QA["pd:qa-executor<br/>runs suites + flows"]
+    QA --> CQ["pd:code-quality-reviewer<br/>review moment 2 of 2"]
+    CQ --> FIN["/finish-feature<br/>QA battery · docs · retro · merge"]
+    FIN --> DONE([Complete])
 ```
 
-### Review System
+### Quality Gates
 
-Every phase has a skeptic reviewer that challenges assumptions and a gatekeeper that validates completeness. Quality gates prevent issues from compounding across phases.
+Every phase boundary runs a mechanical gate (`scripts/phase-gate.sh`) that checks artifacts, required sections, and duplicate contract blocks — no agent dispatch, no judgement. On top of that sit exactly two LLM review moments per deep feature: `design-reviewer` after the design phase gate, and `code-quality-reviewer` on the branch diff during implement. Each is one pass plus at most one fix round; anything still open escalates to you. `qa-executor` runs the suites and drives affected flows during implement, and `security-reviewer` runs at finish when the branch touches a security surface.
 
 ### File Structure
 
@@ -182,7 +171,9 @@ Every phase has a skeptic reviewer that challenges assumptions and a gatekeeper 
 docs/
 ├── brainstorms/           # From /pd:brainstorm
 ├── features/{id}-{name}/  # From /pd:create-feature
-│   ├── spec.md, design.md, plan.md, tasks.md
+│   ├── shape.md           # ## Requirements (specify) + ## Design (design)
+│   ├── plan.md            # ## Plan — ordered tasks; no separate tasks.md
+│   ├── retro.md           # From the finish phase
 │   └── .meta.json         # Phase tracking (gitignored projection — use MCP tools to mutate)
 ├── projects/{id}-{name}/  # From /pd:create-project
 │   ├── prd.md             # Project PRD
@@ -191,22 +182,17 @@ docs/
 └── retrospectives/        # From /pd:retrospect
 ```
 
-### Task Output Format
+### Task Format
 
-Tasks are organized for parallel execution:
+Tasks live in `plan.md` under `## Plan` and are derived into dispatches at implement time. Each task names:
 
-- **Dependency Graph**: Mermaid diagram showing task relationships
-- **Execution Strategy**: Groups tasks by parallel executability
-- **Task Details**: Each task includes:
-  - Dependencies and blocking relationships
-  - Exact file paths and step-by-step instructions
-  - Test commands or verification steps
-  - Binary "done when" criteria
-  - Time estimates (5-15 min each)
+- What it changes and which files it touches
+- The command that proves it done (test invocation, script, or grep)
+- Whether it is parallel-safe — non-intersecting file sets run as `implementer` agents in `.pd-worktrees/task-{N}` isolation and merge back in plan order
 
 ## Reference
 
-pd includes 29 skills and 29 agents that run automatically during the workflow. You don't invoke them directly.
+pd includes 27 skills and 24 agents that run automatically during the workflow. You don't invoke them directly.
 
 ### Skills
 
@@ -220,8 +206,7 @@ pd includes 29 skills and 29 agents that run automatically during the workflow. 
 | designing | Creates design.md with architecture and contracts |
 | decomposing | Orchestrates project decomposition pipeline (AI decomposition, review, feature creation) |
 | planning | Produces plan.md with dependencies and ordering |
-| breaking-down-tasks | Breaks plans into small, actionable tasks with dependency tracking |
-| implementing | Guides phased TDD implementation (Interface → RED-GREEN → REFACTOR) |
+| implementing | Execution mechanics for the implement phase — inline vs worktree-isolated task dispatch, merge-back |
 | finishing-branch | Guides branch completion with PR or merge options |
 
 #### Quality & Review
@@ -229,10 +214,9 @@ pd includes 29 skills and 29 agents that run automatically during the workflow. 
 | Skill | Purpose |
 |-------|---------|
 | promptimize | Reviews prompts against best practices guidelines and returns scored assessment with improved version |
-| reviewing-artifacts | Comprehensive quality criteria for PRD, spec, design, plan, and tasks |
 | implementing-with-tdd | Enforces RED-GREEN-REFACTOR cycle with rationalization prevention |
 | workflow-state | Defines phase sequence and validates transitions |
-| workflow-transitions | Shared workflow boilerplate for phase commands (validation, branch check, commit, state update, phase summary display) |
+| workflow-transitions | Shared phase-transition contract for every phase command (engine entry/exit, global YOLO rule, review gate, dispatch hygiene) |
 
 #### Investigation
 
@@ -280,17 +264,12 @@ pd includes 29 skills and 29 agents that run automatically during the workflow. 
 
 | Agent | Purpose |
 |-------|---------|
-| brainstorm-reviewer | Reviews brainstorm artifacts with universal + type-specific criteria before promotion |
-| code-quality-reviewer | Reviews implementation quality after spec compliance is confirmed |
-| design-reviewer | Challenges design assumptions and finds gaps |
-| implementation-reviewer | Validates implementation against full requirements chain |
-| phase-reviewer | Validates artifact completeness for next phase transition |
+| design-reviewer | Challenges design assumptions and finds gaps (review moment 1 of 2) |
+| code-quality-reviewer | Adversarially reviews the branch diff for correctness and maintainability (review moment 2 of 2) |
 | plan-reviewer | Skeptically reviews plans for failure modes and feasibility |
 | prd-reviewer | Critically reviews PRD drafts for quality and completeness |
 | project-decomposition-reviewer | Validates project decomposition quality (coverage, sizing, dependencies) |
-| spec-reviewer | Reviews spec.md for testability, assumptions, and scope discipline |
 | security-reviewer | Reviews implementation for security vulnerabilities |
-| task-reviewer | Validates task breakdown quality for immediate executability |
 | ds-analysis-reviewer | Reviews data analysis for statistical pitfalls, methodology issues, and conclusion validity |
 | ds-code-reviewer | Reviews DS Python code for anti-patterns, pipeline quality, and best practices |
 
@@ -299,11 +278,12 @@ pd includes 29 skills and 29 agents that run automatically during the workflow. 
 | Agent | Purpose |
 |-------|---------|
 | implementer | Implements tasks with TDD and self-review discipline |
+| qa-executor | Execution-grounded QA — runs the test battery and drives affected flows, returning command output as evidence |
 | project-decomposer | Decomposes project PRD into ordered features with dependencies and milestones |
 | generic-worker | General-purpose implementation agent for mixed-domain tasks |
 | documentation-writer | Writes and updates documentation based on research findings |
 | ras-synthesizer | Synthesizes multi-source research findings into thematic analysis with confidence calibration |
-| relevance-verifier | Verifies coherence across the full artifact chain (spec→design→plan→tasks) before implementation |
+| relevance-verifier | Verifies coherence across the artifact chain (shape.md → plan.md → code) |
 | test-deepener | Systematically deepens test coverage after TDD scaffolding with spec-driven adversarial testing |
 
 #### Advisory
@@ -326,7 +306,6 @@ pd includes 29 skills and 29 agents that run automatically during the workflow. 
 
 | Agent | Purpose |
 |-------|---------|
-| secretary-reviewer | Validates secretary routing recommendations before presenting to user |
 | rca-investigator | Finds all root causes through 6-phase systematic investigation |
 | retro-facilitator | Runs data-driven AORTA retrospective with full intermediate context |
 

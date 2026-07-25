@@ -1332,13 +1332,25 @@ def _process_complete_phase(
 
             # Feature 134 #055: completed event INSIDE the transaction —
             # events are the primary record; append failure aborts completion.
+            #
+            # ``iterations`` is defaulted here because it is REQUIRED for
+            # event_type='completed' (database._REQUIRED_PARAMS) while the MCP
+            # tool argument is optional. That mismatch IS backlog #055's root
+            # cause: pre-134 the resulting ValueError was raised after the
+            # transaction committed, got swallowed, and surfaced only as
+            # ``phase_events_write_failed: true`` — the "projections correct,
+            # phase_events rows lost" symptom. With the append now inside the
+            # transaction, a bare None would instead abort EVERY completion
+            # that omits iterations. 0 is the honest value for "no review
+            # iterations recorded"; phase_timing above still records nothing,
+            # so a real count is never fabricated in the projection.
             db.append_phase_event(
                 type_id=feature_type_id,
                 project_id=_resolve_project_id(entity),
                 phase=phase,
                 event_type="completed",
                 timestamp=ts,
-                iterations=iterations,
+                iterations=iterations if iterations is not None else 0,
                 reviewer_notes=(
                     json.dumps(parsed_notes) if parsed_notes is not None else None
                 ),

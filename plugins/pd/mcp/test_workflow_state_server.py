@@ -405,7 +405,7 @@ class TestProcessTransitionPhase:
         # Create spec.md so G-08 hard prereq passes for design
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
 
         result = _process_transition_phase(
@@ -440,7 +440,7 @@ class TestProcessTransitionPhase:
         # Create spec.md so G-08 passes
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
 
         # Without YOLO
@@ -513,7 +513,7 @@ class TestTransitionPhaseEntityMetadata:
     def test_meta_json_projected_after_successful_transition(self, seeded_engine, db, tmp_path):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         result = _process_transition_phase(seeded_engine, "feature:009-test", "design", False, db=db)
@@ -529,7 +529,7 @@ class TestTransitionPhaseEntityMetadata:
     def test_phase_timing_started_stored_in_entity_metadata(self, seeded_engine, db, tmp_path):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         result = _process_transition_phase(seeded_engine, "feature:009-test", "design", False, db=db)
@@ -545,7 +545,7 @@ class TestTransitionPhaseEntityMetadata:
     def test_skipped_phases_stored_when_provided(self, seeded_engine, db, tmp_path):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         skipped = json.dumps([{"phase": "brainstorm", "reason": "already done"}])
@@ -561,7 +561,7 @@ class TestTransitionPhaseEntityMetadata:
     def test_skipped_phases_not_stored_when_none(self, seeded_engine, db, tmp_path):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         result = _process_transition_phase(seeded_engine, "feature:009-test", "design", False, db=db, skipped_phases=None)
@@ -583,7 +583,7 @@ class TestTransitionPhaseEntityMetadata:
         ZERO writes: no transition, no metadata, no phase_events rows."""
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         double_encoded = json.dumps(json.dumps(["brainstorm"]))
@@ -603,7 +603,7 @@ class TestTransitionPhaseEntityMetadata:
     def test_started_at_included_in_response(self, seeded_engine, db, tmp_path):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         result = _process_transition_phase(seeded_engine, "feature:009-test", "design", False, db=db)
@@ -615,7 +615,7 @@ class TestTransitionPhaseEntityMetadata:
     def test_projection_warning_included_when_projection_fails(self, seeded_engine, db, tmp_path, monkeypatch):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         import workflow_state_server
@@ -971,7 +971,7 @@ class TestProcessValidatePrerequisites:
         # Create spec.md so G-08 passes for design
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
 
         result = _process_validate_prerequisites(
@@ -1020,7 +1020,7 @@ class TestProcessValidatePrerequisites:
         # Create spec.md
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
 
         state_before = _process_get_phase(seeded_engine, "feature:009-test")
@@ -2511,7 +2511,7 @@ class TestProcessReconcileFrontmatter:
         entity = db.get_entity("feature:011-fm")
         entity_uuid = entity["uuid"]
 
-        spec_path = os.path.join(feat_dir, "spec.md")
+        spec_path = os.path.join(feat_dir, "shape.md")
         with open(spec_path, "w") as f:
             f.write(f"---\nentity_uuid: {entity_uuid}\n"
                     f"entity_type_id: feature:011-fm\n---\n# Spec\n")
@@ -2532,7 +2532,7 @@ class TestProcessReconcileFrontmatter:
 
         feat_dir = os.path.join(str(tmp_path), "features", "011-nofm")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\nNo frontmatter here.\n")
 
         result = _process_reconcile_frontmatter(db, str(tmp_path), "feature:011-nofm")
@@ -2555,7 +2555,7 @@ class TestProcessReconcileFrontmatter:
         os.makedirs(feat_dir, exist_ok=True)
 
         # Write spec.md with matching frontmatter
-        spec_path = os.path.join(feat_dir, "spec.md")
+        spec_path = os.path.join(feat_dir, "shape.md")
         with open(spec_path, "w") as f:
             f.write(f"---\nentity_uuid: {entity['uuid']}\n"
                     f"entity_type_id: feature:011-bulk\n---\n# Spec\n")
@@ -2893,7 +2893,7 @@ class TestReconciliationEndToEnd:
         os.makedirs(feat_dir, exist_ok=True)
 
         # Create spec.md with matching frontmatter
-        spec_path = os.path.join(feat_dir, "spec.md")
+        spec_path = os.path.join(feat_dir, "shape.md")
         with open(spec_path, "w") as f:
             f.write(
                 f"---\nentity_uuid: {entity_uuid}\n"
@@ -4658,7 +4658,7 @@ class TestProjectMetaJson:
             "phase": "specify",
             "timestamp": "2026-04-02T08:00:00Z",
             "outcome": "Specification complete (3 iterations).",
-            "artifacts_produced": ["spec.md"],
+            "artifacts_produced": ["shape.md"],
             "key_decisions": "Chose update_entity over new complete_phase param.",
             "reviewer_feedback_summary": "LGTM after AC-3 gap fix.",
             "rework_trigger": None,
@@ -4685,7 +4685,7 @@ class TestProjectMetaJson:
         assert projected["phase"] == "specify"
         assert projected["timestamp"] == "2026-04-02T08:00:00Z"
         assert projected["outcome"] == "Specification complete (3 iterations)."
-        assert projected["artifacts_produced"] == ["spec.md"]
+        assert projected["artifacts_produced"] == ["shape.md"]
         assert projected["key_decisions"] == "Chose update_entity over new complete_phase param."
         assert projected["reviewer_feedback_summary"] == "LGTM after AC-3 gap fix."
         assert projected["rework_trigger"] is None
@@ -7055,7 +7055,7 @@ class TestKanbanColumnLifecycle:
 
         # Create spec.md artifact required by hard-prerequisite gate for design
         feat_dir = os.path.join(str(tmp_path), "features", "200-kanban-trans")
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity(
             type_id, artifact_path=feat_dir,
@@ -7266,7 +7266,7 @@ class TestKanbanColumnLifecycleDeepened:
             db, tmp_path, 305, "mut-trans", "specify", kanban="backlog",
         )
         feat_dir = os.path.join(str(tmp_path), "features", "305-mut-trans")
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity(
             type_id, artifact_path=feat_dir,
@@ -7951,7 +7951,7 @@ class TestWorkspaceUuidEmptyStringNormalization:
             feature_dir = os.path.join(str(tmp_path), "features", "201-empty-ws-tx")
             os.makedirs(feature_dir, exist_ok=True)
             # Pre-create spec.md so G-08 hard prereq passes for design transition
-            with open(os.path.join(feature_dir, "spec.md"), "w") as f:
+            with open(os.path.join(feature_dir, "shape.md"), "w") as f:
                 f.write("# Spec\n")
 
             init_result = _process_init_feature_state(
@@ -8220,7 +8220,7 @@ class TestReconcileFrontmatterBulkBoundaryDeepened:
             entity = db.get_entity(f"feature:{slug}")
             feat_dir = os.path.join(str(tmp_path), "features", slug)
             os.makedirs(feat_dir, exist_ok=True)
-            with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+            with open(os.path.join(feat_dir, "shape.md"), "w") as f:
                 f.write(
                     f"---\nentity_uuid: {entity['uuid']}\n"
                     f"entity_type_id: feature:{slug}\n---\n# Spec\n"
@@ -8249,7 +8249,7 @@ class TestReconcileFrontmatterBulkBoundaryDeepened:
             entity = db.get_entity(f"feature:{slug}")
             feat_dir = os.path.join(str(tmp_path), "features", slug)
             os.makedirs(feat_dir, exist_ok=True)
-            with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+            with open(os.path.join(feat_dir, "shape.md"), "w") as f:
                 f.write("# Spec\nNo frontmatter here.\n")
             db.update_entity(entity["uuid"], artifact_path=feat_dir)
 
@@ -8297,7 +8297,7 @@ class TestReconcileStatusHealthyWithFrontmatterDriftDeepened:
                 "phases": {"brainstorm": {"status": "completed"}},
             }, f)
         # spec.md has NO frontmatter -> triggers frontmatter drift
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\nNo frontmatter here.\n")
         db.update_entity(entity["uuid"], artifact_path=feat_dir)
 
@@ -8346,7 +8346,7 @@ class TestCheckArtifactCompleteness:
         feat_dir = os.path.join(str(tmp_path), "features", "201-noretro")
         os.makedirs(feat_dir, exist_ok=True)
         # Create all except retro.md
-        for name in ["spec.md", "tasks.md"]:
+        for name in ["shape.md", "plan.md"]:
             with open(os.path.join(feat_dir, name), "w") as f:
                 f.write("content")
 
@@ -8364,13 +8364,12 @@ class TestCheckArtifactCompleteness:
         assert len(warnings) == 1
         assert "retro.md" in warnings[0]
 
-    def test_full_mode_missing_design_and_plan_warns(self, db, tmp_path):
-        """Full mode missing design.md and plan.md produces two warnings."""
+    def test_full_mode_missing_plan_and_retro_warns(self, db, tmp_path):
+        """Full mode (134 inventory: shape/plan/retro) warns per missing file."""
         feat_dir = os.path.join(str(tmp_path), "features", "202-partial")
         os.makedirs(feat_dir, exist_ok=True)
-        for name in ["spec.md", "tasks.md", "retro.md"]:
-            with open(os.path.join(feat_dir, name), "w") as f:
-                f.write("content")
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
+            f.write("content")
 
         db.register_entity(
             "feature", "202-partial", "partial",
@@ -8384,8 +8383,8 @@ class TestCheckArtifactCompleteness:
 
         warnings = _check_artifact_completeness(db, "feature:202-partial")
         assert len(warnings) == 2
-        assert any("design.md" in w for w in warnings)
         assert any("plan.md" in w for w in warnings)
+        assert any("retro.md" in w for w in warnings)
 
     def test_full_mode_all_present_no_warnings(self, db, tmp_path):
         """Full mode with all expected artifacts produces no warnings."""
@@ -8413,7 +8412,7 @@ class TestCheckArtifactCompleteness:
         feat_dir = os.path.join(str(tmp_path), "features", "204-norow")
         os.makedirs(feat_dir, exist_ok=True)
         # Only spec.md present — standard expects spec.md, tasks.md, retro.md
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("content")
 
         db.register_entity(
@@ -8426,7 +8425,7 @@ class TestCheckArtifactCompleteness:
 
         warnings = _check_artifact_completeness(db, "feature:204-norow")
         assert len(warnings) == 2
-        assert any("tasks.md" in w for w in warnings)
+        assert any("plan.md" in w for w in warnings)
         assert any("retro.md" in w for w in warnings)
 
     def test_nonexistent_entity_returns_empty(self, db):
@@ -8468,7 +8467,7 @@ class TestCheckArtifactCompleteness:
         """Light mode with spec.md present -> no warnings (AC-15, Task 1b.10)."""
         feat_dir = os.path.join(str(tmp_path), "features", "207-light-ok")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("content")
 
         db.register_entity(
@@ -8502,11 +8501,11 @@ class TestCheckArtifactCompleteness:
 
         warnings = _check_artifact_completeness(db, "feature:208-light-nospec")
         assert len(warnings) == 1
-        assert "spec.md" in warnings[0]
+        assert "shape.md" in warnings[0]
 
     def test_light_mode_expected_artifacts_entry(self):
         """Light mode is registered in _EXPECTED_ARTIFACTS with only spec.md."""
-        assert _EXPECTED_ARTIFACTS.get("light") == ["spec.md"]
+        assert _EXPECTED_ARTIFACTS.get("light") == ["shape.md"]
 
 
 class TestCompletePhaseArtifactWarnings:
@@ -8520,7 +8519,7 @@ class TestCompletePhaseArtifactWarnings:
         with open(os.path.join(feat_dir, ".meta.json"), "w") as f:
             f.write('{"id": "210", "slug": "warn", "status": "active", "mode": "standard"}')
         # Create spec.md and tasks.md but NOT retro.md
-        for name in ["spec.md", "tasks.md"]:
+        for name in ["shape.md", "plan.md"]:
             with open(os.path.join(feat_dir, name), "w") as f:
                 f.write("content")
 
@@ -8663,7 +8662,7 @@ class TestTransitionPhaseAtomicRollback:
         db.update_entity succeeds; assert entity metadata is NOT persisted."""
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity(
             "feature:009-test",
@@ -8811,7 +8810,7 @@ class TestProjectMetaJsonCalledAfterTransaction:
     ):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity(
             "feature:009-test",
@@ -10438,7 +10437,7 @@ class TestFeature089BundleE:
             )
         # Pre-create spec.md so Transition 2 (specify → design) passes
         # the G-08 hard-prerequisite guard.
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         engine = WorkflowStateEngine(db, str(tmp_path))
 
@@ -10481,7 +10480,10 @@ class TestFeature089BundleE:
         # F12 (feature 109): register_entity also emits entity_created,
         # so filter to 'started' before counting.
         all_rows = db.query_phase_events(type_id="feature:089-e-23")
-        rows = [r for r in all_rows if r["event_type"] == "started"]
+        rows = sorted(
+            (r for r in all_rows if r["event_type"] == "started"),
+            key=lambda r: r["id"],
+        )
         assert [r["phase"] for r in rows] == ["specify", "design"], (
             f"expected started rows for specify+design with no gap; got: {rows!r}"
         )

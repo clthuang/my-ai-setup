@@ -14,15 +14,16 @@ pd is a Claude Code plugin that turns ideas into shipped features through struct
 pd imposes a proven workflow on top of Claude Code:
 
 - Each feature moves through phases in order: brainstorm → specify → design → create-plan → implement → finish
-- Every phase has an AI reviewer that challenges the output before progression
-- Quality gates catch issues early, before they compound into later phases
+- Every phase boundary runs a mechanical gate that checks the artifacts before progression
+- Two AI review moments — design review, then adversarial code review — catch issues early, before they compound into later phases
+- Small changes take an express lane that skips straight to implement
 - A local Kanban board gives a live view of all active work
 
 ## Key Features
 
 ### Structured Phase Workflow
 
-Features advance through named phases. Each phase produces a specific artifact (spec.md, design.md, plan.md, tasks.md) that feeds the next. Reviewers at each gate must approve before the phase closes.
+Features advance through named phases. Two artifacts carry a feature: `shape.md` (requirements from specify, design from design) and `plan.md` (the ordered task list). Each phase boundary runs `scripts/phase-gate.sh`, which must pass before the phase closes.
 
 ### Phase Context on Rework
 
@@ -35,7 +36,7 @@ This prevents blind rework: the re-entered phase has full knowledge of what was 
 
 ### Autonomous Operation (YOLO Mode)
 
-YOLO mode lets pd run the full workflow without pausing for confirmation at each phase gate. Quality reviewers still run — only the user confirmation step is bypassed. Three levels are available:
+YOLO mode lets pd run the full workflow without pausing for confirmation at each phase gate. Every gate — mechanical gates, both review moments, QA execution — still runs; only the user confirmation step is bypassed. Three levels are available:
 
 - `manual` — default, confirms at every transition
 - `aware` — provides hints about autonomous operation
@@ -45,9 +46,11 @@ YOLO mode lets pd run the full workflow without pausing for confirmation at each
 
 A local web UI starts automatically at `http://localhost:8718/` each session. It shows all features, brainstorms, backlog items, and projects with their current phase — no setup required.
 
-### Pre-Release Adversarial QA Gate
+### Execution-Grounded QA
 
-When `/pd:finish-feature` runs, before the merge it dispatches 4 reviewers in parallel against the branch diff: `security-reviewer`, `code-quality-reviewer`, `implementation-reviewer`, and `test-deepener` (Step A mode). Findings are bucketed by severity (HIGH/MED/LOW) using a defined rubric. HIGH findings block merge unless a `qa-override.md` rationale (≥50 chars) is provided; MED findings auto-file to backlog; LOW findings fold into the retro. The gate is idempotent (cached by HEAD SHA) and non-blocking when YOLO mode is active for MED/LOW. See [`docs/dev_guides/qa-gate-procedure.md`](../dev_guides/qa-gate-procedure.md) for full procedure.
+During `/pd:implement`, the `qa-executor` agent verifies by running, not by reading: it executes the project's test battery, drives every flow the change touches end-to-end, and flags tests that cannot fail. It returns commands and their output as evidence, and fixes nothing. The adversarial `code-quality-reviewer` pass on the branch diff follows it.
+
+At `/pd:finish-feature`, the same battery is re-run on the branch before merge, and `security-reviewer` is dispatched when the change touches a security surface (auth, secrets, input parsing, permissions, data deletion, dependency bumps). Security findings block the merge until fixed or waived in writing.
 
 ### Domain Knowledge
 
@@ -64,5 +67,7 @@ brainstorm → specify → design → create-plan → implement → finish
                ↑___________backward rework (with context)___|
 ```
 
-When a phase reviewer finds issues, the feature travels backward to the appropriate phase. The phase context system ensures prior decisions are visible, keeping rework focused and efficient.
+When a gate or review moment finds issues that belong to an earlier phase, the feature travels backward to that phase. The phase context system ensures prior decisions are visible, keeping rework focused and efficient.
+
+Express features skip specify, design, and create-plan entirely: `/pd:create-feature --express` records an inline mini-spec and hands straight to `/pd:implement`, where QA and review collapse into a single combined pass.
 <!-- AUTO-GENERATED: END -->
