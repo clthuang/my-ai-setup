@@ -1,8 +1,10 @@
 """Canonical Python implementation + assertions for FR-1 bucketing.
 
-This file IS the executable source-of-truth for AC-1, AC-2, AC-E1.
-qa-gate-procedure.md §4 markdown is documentation that mirrors this implementation.
-T05's DoD includes a grep-based byte-match sync check between the two.
+This file IS the executable source-of-truth for AC-1, AC-2, AC-E1. The markdown
+procedure that used to mirror it was retired with the per-phase reviewer
+battery, so nothing else restates these rules — except
+`plugins/pd/scripts/test_debt_report.py`, which keeps a deliberately pinned
+copy of `normalize_location` (design TD-6).
 """
 import re
 
@@ -24,7 +26,7 @@ def is_test_only_refactor(diff_paths: list[str]) -> bool:
 
 
 def bucket(finding, all_findings, *, is_test_only_refactor: bool = False) -> str:
-    """Severity bucket per qa-gate-procedure.md §4 + FR-1 extension."""
+    """Severity bucket per FR-1 (canonical — defined here, restated nowhere)."""
     sev = finding.get("severity")
     sec_sev = finding.get("securitySeverity")
     high = sev == "blocker" or sec_sev in {"critical", "high"}

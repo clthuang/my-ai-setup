@@ -117,15 +117,25 @@ class WorkflowStateEngine:
         yolo_active: bool = False,
         *,
         workspace_uuid: str | None = None,
+        skipped_phases: list[str] | None = None,
     ) -> TransitionResponse:
-        """Validate and enter a target phase."""
+        """Validate and enter a target phase.
+
+        ``skipped_phases`` (feature 134 FR-7): phase names being skipped in
+        THIS transition; their produced artifacts are exempt from the G-08
+        hard-prerequisite check so express mode reaches implement without
+        shape.md/plan.md. Deep-mode calls omit it — full check unchanged.
+        """
         state = self.get_state(feature_type_id)
         if state is None:
             raise ValueError(f"Feature not found: {feature_type_id}")
 
         slug = self._extract_slug(feature_type_id)
         existing_artifacts = self._get_existing_artifacts(slug)
-        results = self._evaluate_gates(state, target_phase, existing_artifacts, yolo_active)
+        results = self._evaluate_gates(
+            state, target_phase, existing_artifacts, yolo_active,
+            skipped_phases=skipped_phases,
+        )
 
         # Primary defense: health probe already failed during get_state
         if state.source == "meta_json_fallback":
@@ -603,6 +613,7 @@ class WorkflowStateEngine:
         target_phase: str,
         existing_artifacts: list[str],
         yolo_active: bool,
+        skipped_phases: list[str] | None = None,
     ) -> list[TransitionResult]:
         """Run ordered gate evaluation with skip conditions and YOLO overrides."""
         results: list[TransitionResult] = []
@@ -615,12 +626,22 @@ class WorkflowStateEngine:
                 yolo_active=yolo_active,
             ))
 
-        # Gate 2: check_hard_prerequisites (never skipped)
-        results.append(self._run_gate(
-            "G-08", check_hard_prerequisites,
-            target_phase, existing_artifacts,
-            yolo_active=yolo_active,
-        ))
+        # Gate 2: check_hard_prerequisites (never skipped). Feature 134 FR-7:
+        # phases skipped in THIS transition exempt their artifacts via the
+        # existing active_phases filter — express mode's whole point.
+        if skipped_phases:
+            active = [p for p in HARD_PREREQUISITES if p not in skipped_phases]
+            results.append(self._run_gate(
+                "G-08", check_hard_prerequisites,
+                target_phase, existing_artifacts, active,
+                yolo_active=yolo_active,
+            ))
+        else:
+            results.append(self._run_gate(
+                "G-08", check_hard_prerequisites,
+                target_phase, existing_artifacts,
+                yolo_active=yolo_active,
+            ))
 
         # Gate 3: check_soft_prerequisites (never skipped)
         results.append(self._run_gate(

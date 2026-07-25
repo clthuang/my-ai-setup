@@ -1,5 +1,5 @@
 ---
-description: Scout latest prompt engineering best practices and update the guidelines document
+description: Scout latest prompt engineering practices and update the guidelines doc
 argument-hint: ""
 ---
 

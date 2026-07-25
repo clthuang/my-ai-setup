@@ -336,13 +336,16 @@ class TestPrerequisiteAndArtifactMaps:
         assert HARD_PREREQUISITES["specify"] == []
 
     def test_hard_prerequisites_design(self) -> None:
-        assert HARD_PREREQUISITES["design"] == ["spec.md"]
+        """Feature 134 FR-11: specify+design share ONE shape.md."""
+        assert HARD_PREREQUISITES["design"] == ["shape.md"]
 
     def test_hard_prerequisites_create_plan(self) -> None:
-        assert HARD_PREREQUISITES["create-plan"] == ["spec.md", "design.md"]
+        """Feature 134 FR-11: design extends shape.md, so it is the only prereq."""
+        assert HARD_PREREQUISITES["create-plan"] == ["shape.md"]
 
     def test_hard_prerequisites_implement(self) -> None:
-        assert HARD_PREREQUISITES["implement"] == ["spec.md", "tasks.md"]
+        """Feature 134 FR-11: tasks.md retired — plan.md is the create-plan output."""
+        assert HARD_PREREQUISITES["implement"] == ["shape.md", "plan.md"]
 
     def test_hard_prerequisites_finish_empty(self) -> None:
         assert HARD_PREREQUISITES["finish"] == []
@@ -354,16 +357,19 @@ class TestPrerequisiteAndArtifactMaps:
         assert ARTIFACT_PHASE_MAP["brainstorm"] == ["prd.md"]
 
     def test_artifact_phase_map_specify(self) -> None:
-        assert ARTIFACT_PHASE_MAP["specify"] == ["spec.md"]
+        """Feature 134 FR-11: specify produces shape.md (was spec.md)."""
+        assert ARTIFACT_PHASE_MAP["specify"] == ["shape.md"]
 
     def test_artifact_guard_map_two_entries(self) -> None:
         assert len(ARTIFACT_GUARD_MAP) == 2
 
-    def test_artifact_guard_map_implement_spec(self) -> None:
-        assert ARTIFACT_GUARD_MAP[("implement", "spec.md")] == "G-05"
+    def test_artifact_guard_map_implement_shape(self) -> None:
+        """Feature 134 FR-11: implement's G-05 artifact is shape.md (was spec.md)."""
+        assert ARTIFACT_GUARD_MAP[("implement", "shape.md")] == "G-05"
 
-    def test_artifact_guard_map_implement_tasks(self) -> None:
-        assert ARTIFACT_GUARD_MAP[("implement", "tasks.md")] == "G-06"
+    def test_artifact_guard_map_implement_plan(self) -> None:
+        """Feature 134 FR-11: implement's G-06 artifact is plan.md (was tasks.md)."""
+        assert ARTIFACT_GUARD_MAP[("implement", "plan.md")] == "G-06"
 
 
 # ---------------------------------------------------------------------------
@@ -842,13 +848,15 @@ class TestArtifactValidation:
         assert result.allowed is True
         assert result.guard_id == "G-05"
 
-    # G-06: Level 4 — implement + tasks.md uses G-06
+    # G-06: Level 4 — implement + plan.md uses G-06
+    # Feature 134 FR-11 retired tasks.md; plan.md is the create-plan output
+    # that ARTIFACT_GUARD_MAP now routes to G-06.
 
-    def test_G06_validate_artifact_fail_tasks_no_sections(self) -> None:
-        """G-06: tasks.md missing sections for implement -> blocked with G-06."""
+    def test_G06_validate_artifact_fail_plan_no_sections(self) -> None:
+        """G-06: plan.md missing sections for implement -> blocked with G-06."""
         result = validate_artifact(
             phase="implement",
-            artifact_name="tasks.md",
+            artifact_name="plan.md",
             artifact_path_exists=True,
             artifact_size=200,
             has_headers=True,
@@ -858,11 +866,11 @@ class TestArtifactValidation:
         assert result.guard_id == "G-06"
         assert result.severity == Severity.block
 
-    def test_G06_validate_artifact_pass_tasks_complete(self) -> None:
-        """G-06: tasks.md complete for implement -> allowed with G-06."""
+    def test_G06_validate_artifact_pass_plan_complete(self) -> None:
+        """G-06: plan.md complete for implement -> allowed with G-06."""
         result = validate_artifact(
             phase="implement",
-            artifact_name="tasks.md",
+            artifact_name="plan.md",
             artifact_path_exists=True,
             artifact_size=200,
             has_headers=True,
@@ -893,23 +901,30 @@ class TestPrerequisites:
     # G-08: Hard prerequisites
 
     def test_G08_check_hard_prerequisites_pass_all_present(self) -> None:
-        """G-08: All prerequisites present -> allowed."""
+        """G-08: All prerequisites present -> allowed.
+
+        Feature 134 FR-11: implement is now the multi-prerequisite phase
+        (shape.md + plan.md); create-plan collapsed to shape.md alone.
+        """
         result = check_hard_prerequisites(
-            phase="create-plan",
-            existing_artifacts=["spec.md", "design.md"],
+            phase="implement",
+            existing_artifacts=["shape.md", "plan.md"],
         )
         assert result.allowed is True
         assert result.guard_id == "G-08"
 
     def test_G08_check_hard_prerequisites_fail_missing(self) -> None:
-        """G-08: Missing prerequisites -> blocked with missing list."""
+        """G-08: Missing prerequisites -> blocked with missing list.
+
+        Feature 134 FR-11: shape.md present but plan.md absent blocks implement.
+        """
         result = check_hard_prerequisites(
-            phase="create-plan",
-            existing_artifacts=["spec.md"],
+            phase="implement",
+            existing_artifacts=["shape.md"],
         )
         assert result.allowed is False
         assert result.guard_id == "G-08"
-        assert "design.md" in result.reason
+        assert "plan.md" in result.reason
 
     def test_G08_check_hard_prerequisites_empty_prereqs(self) -> None:
         """G-08: Phase with no prerequisites -> always passes."""
@@ -1821,9 +1836,15 @@ class TestPublicApiImports:
 def test_canonical_sequence_matches_skill_md() -> None:
     """SC-5: PHASE_SEQUENCE matches the arrow-delimited sequence in SKILL.md.
 
-    Reads SKILL.md, finds the arrow-delimited phase sequence under the
-    "Phase Sequence" heading, parses phase names, and compares against
-    PHASE_SEQUENCE from constants.py.
+    Reads SKILL.md, finds the canonical arrow-delimited phase sequence, parses
+    phase names, and compares against PHASE_SEQUENCE from constants.py.
+
+    Feature 134 rewrote workflow-state/SKILL.md: the sequence moved out of a
+    "## Phase Sequence" section into a backticked span on a "Phase sequence:"
+    prose line, and the same line now carries a SECOND arrow sequence for
+    express mode (`mini-spec -> implement -> finish`). The locator therefore
+    anchors on the "Phase sequence" marker (heading or prose) and takes the
+    FIRST backticked arrow span, which is the canonical deep-mode sequence.
     """
     # Navigate from hooks/lib/transition_gate/ up to plugin root, then
     # into skills/workflow-state/SKILL.md
@@ -1840,37 +1861,38 @@ def test_canonical_sequence_matches_skill_md() -> None:
     content = skill_path.read_text()
     lines = content.splitlines()
 
-    # Search for arrow-delimited sequence under "Phase Sequence" heading
     arrow_char = "\u2192"  # Unicode right arrow
-    found_heading = False
-    sequence_line: str | None = None
+    marker_seen = False
+    sequence_span: str | None = None
 
     for line in lines:
-        # Look for the heading (## Phase Sequence)
-        stripped = line.strip()
-        if stripped.startswith("#") and "Phase Sequence" in stripped:
-            found_heading = True
+        if "phase sequence" in line.lower():
+            marker_seen = True
+        if not marker_seen:
             continue
 
-        # After finding heading, look for the arrow-delimited line
-        if found_heading and arrow_char in line:
-            sequence_line = line.strip()
+        # First backticked span containing arrows wins \u2014 on the prose line
+        # the canonical sequence precedes the express-mode one.
+        spans = [s for s in re.findall(r"`([^`]+)`", line) if arrow_char in s]
+        if spans:
+            sequence_span = spans[0]
             break
 
-        # If we hit a new heading after finding ours, stop searching
-        if found_heading and stripped.startswith("#") and "Phase Sequence" not in stripped:
+        # Bare arrow line (legacy "## Phase Sequence" section form).
+        if arrow_char in line:
+            sequence_span = line.strip()
             break
 
-    if sequence_line is None:
+    if sequence_span is None:
         pytest.fail(
-            "Arrow-delimited sequence not found under any expected heading "
-            "in SKILL.md"
+            "Arrow-delimited phase sequence not found after a 'Phase sequence' "
+            "marker in SKILL.md"
         )
 
-    # Parse phase names from the arrow-delimited line
+    # Parse phase names from the arrow-delimited span
     skill_phases = [
         phase.strip()
-        for phase in sequence_line.split(arrow_char)
+        for phase in sequence_span.split(arrow_char)
         if phase.strip()
     ]
 
@@ -3211,35 +3233,38 @@ class TestHardPrerequisitesMutation:
         """
         result = check_hard_prerequisites(
             phase="design",
-            existing_artifacts=["spec.md", "design.md", "extra.md"],
+            existing_artifacts=["shape.md", "prd.md", "extra.md"],
         )
         assert result.allowed is True
         assert result.guard_id == "G-08"
 
     def test_G08_check_hard_prerequisites_implement_lists_all_missing(self) -> None:
-        """G-08: implement with no artifacts -> lists both spec.md and tasks.md.
+        """G-08: implement with no artifacts -> lists both shape.md and plan.md.
 
         Anticipate: Missing list construction could skip items.
+        Feature 134 FR-11 renamed the pair (was spec.md + tasks.md).
         """
         result = check_hard_prerequisites(
             phase="implement",
             existing_artifacts=[],
         )
         assert result.allowed is False
-        assert "spec.md" in result.reason
-        assert "tasks.md" in result.reason
+        assert "shape.md" in result.reason
+        assert "plan.md" in result.reason
 
     def test_G08_check_hard_prerequisites_partial_match(self) -> None:
         """G-08: Having one of two required artifacts -> still blocked.
 
         Anticipate: 'all()' vs 'any()' logic error would pass with partial.
+        Feature 134 FR-11: implement is the two-artifact phase; create-plan
+        collapsed to shape.md alone.
         """
         result = check_hard_prerequisites(
-            phase="create-plan",
-            existing_artifacts=["spec.md"],  # missing design.md
+            phase="implement",
+            existing_artifacts=["shape.md"],  # missing plan.md
         )
         assert result.allowed is False
-        assert "design.md" in result.reason
+        assert "plan.md" in result.reason
 
 
 # ---------------------------------------------------------------------------
@@ -3254,22 +3279,29 @@ class TestHardPrerequisitesActivePhases:
     include artifacts produced by phases in the active_phases list.
     """
 
-    def test_G08_active_phases_light_implement_only_spec_required(self) -> None:
-        """AC-15: Light template [specify, implement] + target implement -> only spec.md required.
+    def test_G08_active_phases_light_implement_only_shape_required(self) -> None:
+        """AC-15: Light template [specify, implement] + target implement -> only shape.md required.
 
-        tasks.md is produced by create-tasks, which is NOT in active_phases,
-        so it is excluded from prerequisites.
+        plan.md is produced by create-plan, which is NOT in active_phases,
+        so it is excluded from prerequisites. Feature 134 FR-11 renamed the
+        pair (was spec.md required / tasks.md filtered).
         """
         result = check_hard_prerequisites(
             phase="implement",
-            existing_artifacts=["spec.md"],
+            existing_artifacts=["shape.md"],
             active_phases=["specify", "implement"],
         )
         assert result.allowed is True
         assert result.guard_id == "G-08"
 
-    def test_G08_active_phases_light_implement_missing_spec_blocked(self) -> None:
-        """Light template missing spec.md -> still blocked."""
+    def test_G08_active_phases_light_implement_missing_shape_blocked(self) -> None:
+        """Light template missing shape.md -> still blocked.
+
+        Non-vacuity guard for the dual-producer reverse map: shape.md is
+        produced by BOTH specify and design (FR-11). A last-writer-wins map
+        would attribute it to design alone, silently drop it here, and let
+        implement start with no shape.md at all.
+        """
         result = check_hard_prerequisites(
             phase="implement",
             existing_artifacts=[],
@@ -3277,26 +3309,26 @@ class TestHardPrerequisitesActivePhases:
         )
         assert result.allowed is False
         assert result.guard_id == "G-08"
-        assert "spec.md" in result.reason
+        assert "shape.md" in result.reason
 
     def test_G08_active_phases_none_unchanged_behavior(self) -> None:
         """active_phases=None -> full prerequisite check (backward-compatible).
 
-        implement requires both spec.md and tasks.md.
+        implement requires both shape.md and plan.md.
         """
         result = check_hard_prerequisites(
             phase="implement",
-            existing_artifacts=["spec.md"],
+            existing_artifacts=["shape.md"],
             active_phases=None,
         )
         assert result.allowed is False
-        assert "tasks.md" in result.reason
+        assert "plan.md" in result.reason
 
     def test_G08_active_phases_none_all_present_passes(self) -> None:
         """active_phases=None with all artifacts -> passes (unchanged)."""
         result = check_hard_prerequisites(
             phase="implement",
-            existing_artifacts=["spec.md", "tasks.md"],
+            existing_artifacts=["shape.md", "plan.md"],
             active_phases=None,
         )
         assert result.allowed is True
@@ -3305,19 +3337,22 @@ class TestHardPrerequisitesActivePhases:
         """Full template includes all phases -> same as None (all prereqs checked)."""
         result = check_hard_prerequisites(
             phase="implement",
-            existing_artifacts=["spec.md"],
+            existing_artifacts=["shape.md"],
             active_phases=[
                 "brainstorm", "specify", "design",
-                "create-plan", "create-tasks", "implement", "finish",
+                "create-plan", "implement", "finish",
             ],
         )
         assert result.allowed is False
-        assert "tasks.md" in result.reason
+        assert "plan.md" in result.reason
 
     def test_G08_active_phases_design_without_specify_empty_prereqs(self) -> None:
-        """active_phases=[design] + target design -> spec.md filtered out.
+        """active_phases=[design] + target design -> shape.md filtered out.
 
-        spec.md is produced by specify, which is NOT in active_phases.
+        shape.md's only OTHER producer is specify, which is NOT in
+        active_phases; design is the target phase and a phase never gates on
+        the artifact it is about to write (FR-11 made design a shape.md
+        producer as well as a consumer).
         """
         result = check_hard_prerequisites(
             phase="design",

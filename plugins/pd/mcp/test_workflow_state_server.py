@@ -405,7 +405,7 @@ class TestProcessTransitionPhase:
         # Create spec.md so G-08 hard prereq passes for design
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
 
         result = _process_transition_phase(
@@ -440,7 +440,7 @@ class TestProcessTransitionPhase:
         # Create spec.md so G-08 passes
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
 
         # Without YOLO
@@ -513,7 +513,7 @@ class TestTransitionPhaseEntityMetadata:
     def test_meta_json_projected_after_successful_transition(self, seeded_engine, db, tmp_path):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         result = _process_transition_phase(seeded_engine, "feature:009-test", "design", False, db=db)
@@ -529,7 +529,7 @@ class TestTransitionPhaseEntityMetadata:
     def test_phase_timing_started_stored_in_entity_metadata(self, seeded_engine, db, tmp_path):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         result = _process_transition_phase(seeded_engine, "feature:009-test", "design", False, db=db)
@@ -545,7 +545,7 @@ class TestTransitionPhaseEntityMetadata:
     def test_skipped_phases_stored_when_provided(self, seeded_engine, db, tmp_path):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         skipped = json.dumps([{"phase": "brainstorm", "reason": "already done"}])
@@ -561,7 +561,7 @@ class TestTransitionPhaseEntityMetadata:
     def test_skipped_phases_not_stored_when_none(self, seeded_engine, db, tmp_path):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         result = _process_transition_phase(seeded_engine, "feature:009-test", "design", False, db=db, skipped_phases=None)
@@ -583,7 +583,7 @@ class TestTransitionPhaseEntityMetadata:
         ZERO writes: no transition, no metadata, no phase_events rows."""
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         double_encoded = json.dumps(json.dumps(["brainstorm"]))
@@ -603,7 +603,7 @@ class TestTransitionPhaseEntityMetadata:
     def test_started_at_included_in_response(self, seeded_engine, db, tmp_path):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         result = _process_transition_phase(seeded_engine, "feature:009-test", "design", False, db=db)
@@ -615,7 +615,7 @@ class TestTransitionPhaseEntityMetadata:
     def test_projection_warning_included_when_projection_fails(self, seeded_engine, db, tmp_path, monkeypatch):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         import workflow_state_server
@@ -971,7 +971,7 @@ class TestProcessValidatePrerequisites:
         # Create spec.md so G-08 passes for design
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
 
         result = _process_validate_prerequisites(
@@ -1020,7 +1020,7 @@ class TestProcessValidatePrerequisites:
         # Create spec.md
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
 
         state_before = _process_get_phase(seeded_engine, "feature:009-test")
@@ -2511,7 +2511,7 @@ class TestProcessReconcileFrontmatter:
         entity = db.get_entity("feature:011-fm")
         entity_uuid = entity["uuid"]
 
-        spec_path = os.path.join(feat_dir, "spec.md")
+        spec_path = os.path.join(feat_dir, "shape.md")
         with open(spec_path, "w") as f:
             f.write(f"---\nentity_uuid: {entity_uuid}\n"
                     f"entity_type_id: feature:011-fm\n---\n# Spec\n")
@@ -2532,7 +2532,7 @@ class TestProcessReconcileFrontmatter:
 
         feat_dir = os.path.join(str(tmp_path), "features", "011-nofm")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\nNo frontmatter here.\n")
 
         result = _process_reconcile_frontmatter(db, str(tmp_path), "feature:011-nofm")
@@ -2555,7 +2555,7 @@ class TestProcessReconcileFrontmatter:
         os.makedirs(feat_dir, exist_ok=True)
 
         # Write spec.md with matching frontmatter
-        spec_path = os.path.join(feat_dir, "spec.md")
+        spec_path = os.path.join(feat_dir, "shape.md")
         with open(spec_path, "w") as f:
             f.write(f"---\nentity_uuid: {entity['uuid']}\n"
                     f"entity_type_id: feature:011-bulk\n---\n# Spec\n")
@@ -2893,7 +2893,7 @@ class TestReconciliationEndToEnd:
         os.makedirs(feat_dir, exist_ok=True)
 
         # Create spec.md with matching frontmatter
-        spec_path = os.path.join(feat_dir, "spec.md")
+        spec_path = os.path.join(feat_dir, "shape.md")
         with open(spec_path, "w") as f:
             f.write(
                 f"---\nentity_uuid: {entity_uuid}\n"
@@ -4658,7 +4658,7 @@ class TestProjectMetaJson:
             "phase": "specify",
             "timestamp": "2026-04-02T08:00:00Z",
             "outcome": "Specification complete (3 iterations).",
-            "artifacts_produced": ["spec.md"],
+            "artifacts_produced": ["shape.md"],
             "key_decisions": "Chose update_entity over new complete_phase param.",
             "reviewer_feedback_summary": "LGTM after AC-3 gap fix.",
             "rework_trigger": None,
@@ -4685,7 +4685,7 @@ class TestProjectMetaJson:
         assert projected["phase"] == "specify"
         assert projected["timestamp"] == "2026-04-02T08:00:00Z"
         assert projected["outcome"] == "Specification complete (3 iterations)."
-        assert projected["artifacts_produced"] == ["spec.md"]
+        assert projected["artifacts_produced"] == ["shape.md"]
         assert projected["key_decisions"] == "Chose update_entity over new complete_phase param."
         assert projected["reviewer_feedback_summary"] == "LGTM after AC-3 gap fix."
         assert projected["rework_trigger"] is None
@@ -7055,7 +7055,7 @@ class TestKanbanColumnLifecycle:
 
         # Create spec.md artifact required by hard-prerequisite gate for design
         feat_dir = os.path.join(str(tmp_path), "features", "200-kanban-trans")
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity(
             type_id, artifact_path=feat_dir,
@@ -7266,7 +7266,7 @@ class TestKanbanColumnLifecycleDeepened:
             db, tmp_path, 305, "mut-trans", "specify", kanban="backlog",
         )
         feat_dir = os.path.join(str(tmp_path), "features", "305-mut-trans")
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity(
             type_id, artifact_path=feat_dir,
@@ -7951,7 +7951,7 @@ class TestWorkspaceUuidEmptyStringNormalization:
             feature_dir = os.path.join(str(tmp_path), "features", "201-empty-ws-tx")
             os.makedirs(feature_dir, exist_ok=True)
             # Pre-create spec.md so G-08 hard prereq passes for design transition
-            with open(os.path.join(feature_dir, "spec.md"), "w") as f:
+            with open(os.path.join(feature_dir, "shape.md"), "w") as f:
                 f.write("# Spec\n")
 
             init_result = _process_init_feature_state(
@@ -8220,7 +8220,7 @@ class TestReconcileFrontmatterBulkBoundaryDeepened:
             entity = db.get_entity(f"feature:{slug}")
             feat_dir = os.path.join(str(tmp_path), "features", slug)
             os.makedirs(feat_dir, exist_ok=True)
-            with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+            with open(os.path.join(feat_dir, "shape.md"), "w") as f:
                 f.write(
                     f"---\nentity_uuid: {entity['uuid']}\n"
                     f"entity_type_id: feature:{slug}\n---\n# Spec\n"
@@ -8249,7 +8249,7 @@ class TestReconcileFrontmatterBulkBoundaryDeepened:
             entity = db.get_entity(f"feature:{slug}")
             feat_dir = os.path.join(str(tmp_path), "features", slug)
             os.makedirs(feat_dir, exist_ok=True)
-            with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+            with open(os.path.join(feat_dir, "shape.md"), "w") as f:
                 f.write("# Spec\nNo frontmatter here.\n")
             db.update_entity(entity["uuid"], artifact_path=feat_dir)
 
@@ -8297,7 +8297,7 @@ class TestReconcileStatusHealthyWithFrontmatterDriftDeepened:
                 "phases": {"brainstorm": {"status": "completed"}},
             }, f)
         # spec.md has NO frontmatter -> triggers frontmatter drift
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\nNo frontmatter here.\n")
         db.update_entity(entity["uuid"], artifact_path=feat_dir)
 
@@ -8346,7 +8346,7 @@ class TestCheckArtifactCompleteness:
         feat_dir = os.path.join(str(tmp_path), "features", "201-noretro")
         os.makedirs(feat_dir, exist_ok=True)
         # Create all except retro.md
-        for name in ["spec.md", "tasks.md"]:
+        for name in ["shape.md", "plan.md"]:
             with open(os.path.join(feat_dir, name), "w") as f:
                 f.write("content")
 
@@ -8364,13 +8364,12 @@ class TestCheckArtifactCompleteness:
         assert len(warnings) == 1
         assert "retro.md" in warnings[0]
 
-    def test_full_mode_missing_design_and_plan_warns(self, db, tmp_path):
-        """Full mode missing design.md and plan.md produces two warnings."""
+    def test_full_mode_missing_plan_and_retro_warns(self, db, tmp_path):
+        """Full mode (134 inventory: shape/plan/retro) warns per missing file."""
         feat_dir = os.path.join(str(tmp_path), "features", "202-partial")
         os.makedirs(feat_dir, exist_ok=True)
-        for name in ["spec.md", "tasks.md", "retro.md"]:
-            with open(os.path.join(feat_dir, name), "w") as f:
-                f.write("content")
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
+            f.write("content")
 
         db.register_entity(
             "feature", "202-partial", "partial",
@@ -8384,8 +8383,8 @@ class TestCheckArtifactCompleteness:
 
         warnings = _check_artifact_completeness(db, "feature:202-partial")
         assert len(warnings) == 2
-        assert any("design.md" in w for w in warnings)
         assert any("plan.md" in w for w in warnings)
+        assert any("retro.md" in w for w in warnings)
 
     def test_full_mode_all_present_no_warnings(self, db, tmp_path):
         """Full mode with all expected artifacts produces no warnings."""
@@ -8413,7 +8412,7 @@ class TestCheckArtifactCompleteness:
         feat_dir = os.path.join(str(tmp_path), "features", "204-norow")
         os.makedirs(feat_dir, exist_ok=True)
         # Only spec.md present — standard expects spec.md, tasks.md, retro.md
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("content")
 
         db.register_entity(
@@ -8426,7 +8425,7 @@ class TestCheckArtifactCompleteness:
 
         warnings = _check_artifact_completeness(db, "feature:204-norow")
         assert len(warnings) == 2
-        assert any("tasks.md" in w for w in warnings)
+        assert any("plan.md" in w for w in warnings)
         assert any("retro.md" in w for w in warnings)
 
     def test_nonexistent_entity_returns_empty(self, db):
@@ -8468,7 +8467,7 @@ class TestCheckArtifactCompleteness:
         """Light mode with spec.md present -> no warnings (AC-15, Task 1b.10)."""
         feat_dir = os.path.join(str(tmp_path), "features", "207-light-ok")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("content")
 
         db.register_entity(
@@ -8502,11 +8501,11 @@ class TestCheckArtifactCompleteness:
 
         warnings = _check_artifact_completeness(db, "feature:208-light-nospec")
         assert len(warnings) == 1
-        assert "spec.md" in warnings[0]
+        assert "shape.md" in warnings[0]
 
     def test_light_mode_expected_artifacts_entry(self):
         """Light mode is registered in _EXPECTED_ARTIFACTS with only spec.md."""
-        assert _EXPECTED_ARTIFACTS.get("light") == ["spec.md"]
+        assert _EXPECTED_ARTIFACTS.get("light") == ["shape.md"]
 
 
 class TestCompletePhaseArtifactWarnings:
@@ -8520,7 +8519,7 @@ class TestCompletePhaseArtifactWarnings:
         with open(os.path.join(feat_dir, ".meta.json"), "w") as f:
             f.write('{"id": "210", "slug": "warn", "status": "active", "mode": "standard"}')
         # Create spec.md and tasks.md but NOT retro.md
-        for name in ["spec.md", "tasks.md"]:
+        for name in ["shape.md", "plan.md"]:
             with open(os.path.join(feat_dir, name), "w") as f:
                 f.write("content")
 
@@ -8663,7 +8662,7 @@ class TestTransitionPhaseAtomicRollback:
         db.update_entity succeeds; assert entity metadata is NOT persisted."""
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity(
             "feature:009-test",
@@ -8811,7 +8810,7 @@ class TestProjectMetaJsonCalledAfterTransaction:
     ):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity(
             "feature:009-test",
@@ -9217,9 +9216,17 @@ class TestPhaseEventsDualWrite:
         )
         assert len(events) == 1
         assert events[0]["phase"] == "brainstorm"
+        # Feature 134 QA blocker pin: the skipped append must NOT drag
+        # workflow_phase back — the TARGET phase is the resulting state.
+        # (Old Step 5 projected 'skipped' too: last-skipped-won and the
+        # transition silently failed to advance.)
+        row = db.get_workflow_phase("feature:dw-001")
+        assert row["workflow_phase"] == "specify", row
 
-    def test_ac16_insert_failure_does_not_break_transition(self, fresh_setup, monkeypatch, capsys):
-        """AC-16: insert_phase_event failure doesn't break transition."""
+    def test_append_failure_aborts_transition_atomically(self, fresh_setup, monkeypatch):
+        """Feature 134 #055 (inverts old AC-16): append_phase_event failure
+        ABORTS the whole transition — events are the primary record, so the
+        phase must NOT advance and metadata must NOT gain phase_timing."""
         db, engine = fresh_setup
 
         def raise_on_insert(**kwargs):
@@ -9232,18 +9239,16 @@ class TestPhaseEventsDualWrite:
             db=db,
         )
         data = json.loads(result)
-        assert data.get("transitioned") is True
+        # Fail-loud: no successful-transition envelope.
+        assert data.get("transitioned") is not True
 
-        # Metadata should still be updated
+        # Atomicity anchor (true only on the post-#055 path): the rolled-back
+        # transaction left NO phase_timing for the target phase.
         entity = db.get_entity("feature:dw-001")
-        metadata = json.loads(entity["metadata"])
-        assert "specify" in metadata.get("phase_timing", {})
-
-        # stderr should have warning (format updated per feature 088 FR-5.1).
-        captured = capsys.readouterr()
-        assert "phase_events dual-write failed for" in captured.err
-        # Response should also flag the partial failure (feature 088 FR-5.1).
-        assert data.get("phase_events_write_failed") is True
+        metadata = json.loads(entity["metadata"]) if entity.get("metadata") else {}
+        assert "specify" not in metadata.get("phase_timing", {})
+        # And the retired partial-failure flag is gone from the contract.
+        assert "phase_events_write_failed" not in data
 
     def test_ac19_metadata_still_has_phase_timing(self, fresh_setup, tmp_path):
         """AC-19 + AC-41 (FR-10.8): metadata retains phase_timing AFTER
@@ -9735,17 +9740,16 @@ class TestFeature088BundleE:
             )
         return db, engine
 
-    def test_dual_write_failure_commits_main_transaction(
-        self, fresh_setup, monkeypatch, capsys,
+    def test_append_failure_rolls_back_main_transaction(
+        self, fresh_setup, monkeypatch,
     ):
-        """AC-15 (FR-5.1): phase_events failure must NOT roll back entity update.
+        """Feature 134 #055 (inverts old AC-15): phase_events failure rolls
+        back the WHOLE transition transaction — no metadata write survives.
 
-        Monkeypatches ``append_phase_event`` to raise ``sqlite3.IntegrityError``,
-        calls ``transition_phase``, and asserts:
-        - entity metadata update persisted (query back)
-        - response has ``phase_events_write_failed: true``
-        - stderr matches the spec-mandated ``[workflow-state] phase_events
-          dual-write failed for`` format
+        Monkeypatches ``append_phase_event`` to raise ``sqlite3.IntegrityError``
+        and asserts the entity's metadata gained NO phase_timing for the
+        target phase (atomic abort), with no partial-failure flag in the
+        response contract.
         """
         db, engine = fresh_setup
 
@@ -9759,32 +9763,24 @@ class TestFeature088BundleE:
         )
         data = json.loads(result)
 
-        # Main transaction MUST have committed: transitioned + metadata landed.
-        assert data.get("transitioned") is True
-        assert data.get("phase_events_write_failed") is True
+        assert data.get("transitioned") is not True
+        assert "phase_events_write_failed" not in data
 
         entity = db.get_entity("feature:e-001")
-        metadata = json.loads(entity["metadata"])
-        assert "phase_timing" in metadata
-        assert "specify" in metadata["phase_timing"]
-        assert "started" in metadata["phase_timing"]["specify"]
-
-        # stderr warning matches spec format.
-        import re
-        captured = capsys.readouterr()
-        assert re.search(
-            r"\[workflow-state\] phase_events dual-write failed for",
-            captured.err,
-        ), f"stderr did not match expected pattern: {captured.err!r}"
+        metadata = json.loads(entity["metadata"]) if entity.get("metadata") else {}
+        assert "specify" not in metadata.get("phase_timing", {})
 
     def test_complete_phase_rejects_oversized_reviewer_notes(
         self, fresh_setup,
     ):
-        """AC-7 (FR-2.4): reviewer_notes >10000 chars returns structured error."""
+        """AC-7 (FR-2.4) + qa-server M3: the guard measures the SERIALIZED
+        payload (what the DB layer re-checks), so a VALID-JSON oversized
+        payload gets oversized_reviewer_notes; raw garbage that big is
+        invalid JSON and correctly maps to invalid_reviewer_notes."""
         db, engine = fresh_setup
 
-        # 20000 chars — well above the 10000 cap.
-        oversized = "x" * 20000
+        # Valid JSON whose serialized form is well above the 10000 cap.
+        oversized = json.dumps(["x" * 20000])
         result = _process_complete_phase(
             engine, "feature:e-001", "brainstorm",
             db=db, reviewer_notes=oversized,
@@ -9792,6 +9788,14 @@ class TestFeature088BundleE:
         data = json.loads(result)
         assert data.get("error") is True
         assert data.get("error_type") == "oversized_reviewer_notes"
+
+        # Raw non-JSON garbage of any size is an invalid-payload error.
+        result2 = _process_complete_phase(
+            engine, "feature:e-001", "brainstorm",
+            db=db, reviewer_notes="x" * 20000,
+        )
+        data2 = json.loads(result2)
+        assert data2.get("error_type") == "invalid_reviewer_notes"
         assert "exceeds 10000" in data.get("message", "")
 
         # F12 (feature 109): register_entity emits an entity_created phase_event,
@@ -10240,19 +10244,15 @@ class TestFeature088BundleH4:
     def test_dual_write_metadata_and_phase_events_consistency_on_partial_failure(
         self, h4_setup, monkeypatch,
     ):
-        """AC-43 / AC-15 strengthening: when phase_events dual-write fails,
-        the main transaction's metadata update MUST persist AND the response
-        MUST include ``phase_events_write_failed=True``.
-
-        Complements ``test_dual_write_failure_commits_main_transaction`` by
-        exercising ``_process_complete_phase`` (the complete-phase path)
-        rather than the transition path, and asserts consistency from both
-        sides (metadata present, phase_events absent).
+        """Feature 134 #055 (inverts old AC-43/AC-15): a phase_events failure
+        aborts the complete-phase transaction — NEITHER metadata NOR events
+        may land (atomicity from both sides), and the retired
+        ``phase_events_write_failed`` flag never appears.
         """
         db, engine = h4_setup
 
         def raise_on_insert(**kwargs):
-            raise sqlite3.OperationalError("simulated lock")
+            raise sqlite3.IntegrityError("simulated CHECK violation")
 
         monkeypatch.setattr(db, "append_phase_event", raise_on_insert)
 
@@ -10262,27 +10262,22 @@ class TestFeature088BundleH4:
         )
         data = json.loads(result)
 
-        # The complete_phase operation itself succeeded (metadata committed).
-        assert "error" not in data, f"unexpected error in response: {data!r}"
-        assert data.get("phase_events_write_failed") is True, (
-            f"expected phase_events_write_failed flag, got: {data!r}"
-        )
+        # Fail-loud contract: error envelope, no partial-failure flag.
+        assert "phase_events_write_failed" not in data
+        assert data.get("error"), f"expected error envelope, got: {data!r}"
 
-        # Metadata side: phase_timing landed despite the phase_events failure.
+        # Metadata side: the rolled-back transaction left NO completion stamp.
         entity = db.get_entity("feature:h4-001")
-        metadata = json.loads(entity["metadata"])
-        assert "phase_timing" in metadata
-        assert "completed" in metadata["phase_timing"]["brainstorm"]
+        metadata = json.loads(entity["metadata"]) if entity.get("metadata") else {}
+        assert "completed" not in metadata.get("phase_timing", {}).get("brainstorm", {})
 
-        # Phase-events side: no row was written (monkeypatch replaced the
-        # method with a raiser; the outer transaction does not fall back).
+        # Phase-events side: no row either (both sides of the old split-brain
+        # are empty — the fact true only on the atomic path).
         events = db.query_phase_events(
             type_id="feature:h4-001", phase="brainstorm",
             event_type="completed",
         )
-        assert events == [], (
-            f"phase_events row unexpectedly present after lock: {events!r}"
-        )
+        assert events == []
 
 
 # ---------------------------------------------------------------------------
@@ -10428,18 +10423,17 @@ class TestFeature089BundleE:
         )
         db.close()
 
-    # ---- AC-23 (#00165): dual-write failure row stays missing across runs ----
+    # ---- Feature 134 #055: append failure aborts; retry recovers with no gap ----
 
-    def test_dual_write_failure_row_remains_missing_after_subsequent_transition(
+    def test_append_failure_then_retry_leaves_no_event_gap(
         self, tmp_path, monkeypatch,
     ):
-        """AC-23 (#00165).
+        """Feature 134 #055 (inverts old AC-23/#00165).
 
-        When the first transition's phase_events dual-write fails
-        (simulated ``sqlite3.IntegrityError``), the main transaction
-        still commits the metadata update (FR-5.1).  A later successful
-        transition MUST NOT retroactively backfill the missing row — the
-        gap is permanent and surfaces via ``reconcile_check``.
+        When the first transition's phase_events append fails, the WHOLE
+        transition aborts (engine phase unchanged). Retrying the same
+        transition succeeds and writes its started row — the old
+        "permanent gap" cannot exist on the atomic path.
         """
         db = EntityDatabase(":memory:")
         _bootstrap_test_workspace(db, "P-e23")
@@ -10460,7 +10454,7 @@ class TestFeature089BundleE:
             )
         # Pre-create spec.md so Transition 2 (specify → design) passes
         # the G-08 hard-prerequisite guard.
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         engine = WorkflowStateEngine(db, str(tmp_path))
 
@@ -10476,45 +10470,39 @@ class TestFeature089BundleE:
 
         monkeypatch.setattr(db, "append_phase_event", failing_then_succeeding)
 
-        # Transition 1: brainstorm → specify.  First insert fails.
+        # Attempt 1: brainstorm → specify. First insert fails → atomic abort.
         result1 = _process_transition_phase(
             engine, "feature:089-e-23", "specify", False, db=db,
         )
         data1 = json.loads(result1)
-        assert data1.get("transitioned") is True, data1
-        assert data1.get("phase_events_write_failed") is True, (
-            f"expected phase_events_write_failed flag, got: {data1!r}"
-        )
+        assert data1.get("transitioned") is not True, data1
+        assert "phase_events_write_failed" not in data1
 
-        # Transition 2: specify → design.  Second insert succeeds.
+        # Retry: brainstorm → specify again — the engine phase rolled back,
+        # so the same transition is still valid; second insert call succeeds.
+        result1b = _process_transition_phase(
+            engine, "feature:089-e-23", "specify", False, db=db,
+        )
+        data1b = json.loads(result1b)
+        assert data1b.get("transitioned") is True, data1b
+
+        # Transition 2: specify → design.
         result2 = _process_transition_phase(
             engine, "feature:089-e-23", "design", False, db=db,
         )
         data2 = json.loads(result2)
         assert data2.get("transitioned") is True, data2
-        assert data2.get("phase_events_write_failed") is not True, (
-            f"second transition should not have flagged a failure: {data2!r}"
-        )
 
-        # Phase_events table MUST have EXACTLY ONE 'started' row for this
-        # feature — the design transition.  The specify transition's started
-        # row is permanently missing (not retroactively backfilled).
-        # F12 (feature 109): register_entity also emits an entity_created
-        # event, so filter to 'started' before counting.
+        # BOTH started rows exist — the atomic path leaves no gap.
+        # F12 (feature 109): register_entity also emits entity_created,
+        # so filter to 'started' before counting.
         all_rows = db.query_phase_events(type_id="feature:089-e-23")
-        rows = [r for r in all_rows if r["event_type"] == "started"]
-        assert len(rows) == 1, (
-            f"expected exactly 1 started phase_events row (design only); got "
-            f"{len(rows)}: {rows!r}"
+        rows = sorted(
+            (r for r in all_rows if r["event_type"] == "started"),
+            key=lambda r: r["id"],
         )
-        assert rows[0]["phase"] == "design"
-        assert rows[0]["event_type"] == "started"
-        # Specifically confirm the specify row is NOT present.
-        specify_rows = db.query_phase_events(
-            type_id="feature:089-e-23", phase="specify",
-        )
-        assert specify_rows == [], (
-            f"specify row must stay permanently missing, got: {specify_rows!r}"
+        assert [r["phase"] for r in rows] == ["specify", "design"], (
+            f"expected started rows for specify+design with no gap; got: {rows!r}"
         )
         db.close()
 
@@ -10768,16 +10756,15 @@ class TestFeature089BundleE:
     def test_reconcile_detects_drift_from_real_transition_failure(
         self, tmp_path, monkeypatch,
     ):
-        """AC-29 (#00171).
+        """AC-29 (#00171), re-sourced by feature 134 #055.
 
-        End-to-end integration:
-        1. Call ``transition_phase`` with ``append_phase_event``
-           monkeypatched to raise ``sqlite3.IntegrityError``.
-        2. Main transaction commits → ``metadata.phase_timing.specify.started``
-           persists, but phase_events has NO ``started`` row.
-        3. ``reconcile_check`` reports a
-           ``phase_events_missing_started`` drift entry for this
-           (type_id, 'specify').
+        The atomic events write means a live transition can no longer
+        produce metadata-without-events drift — but HISTORICAL gaps from
+        the pre-134 dual-write era exist in real databases, and
+        ``reconcile_check`` must still detect them. Produce the gap
+        surgically (raw SQL delete of the started row after a successful
+        transition) and assert the ``phase_events_missing_started`` drift
+        entry appears.
         """
         db = EntityDatabase(":memory:")
         _bootstrap_test_workspace(db, "P-e29")
@@ -10798,18 +10785,20 @@ class TestFeature089BundleE:
             )
         engine = WorkflowStateEngine(db, str(tmp_path))
 
-        # Step 1+2: transition with phase_events write failure.
-        def _raise_integrity(**kwargs):
-            raise sqlite3.IntegrityError("simulated failure")
-
-        monkeypatch.setattr(db, "append_phase_event", _raise_integrity)
-
+        # Step 1: a NORMAL successful transition (atomic path writes the row).
         transition_result = _process_transition_phase(
             engine, "feature:089-e-29", "specify", False, db=db,
         )
         t_data = json.loads(transition_result)
         assert t_data.get("transitioned") is True
-        assert t_data.get("phase_events_write_failed") is True
+
+        # Step 2: surgically remove the started row — simulating a
+        # pre-134 historical gap the dual-write era left behind.
+        db._conn.execute(
+            "DELETE FROM phase_events WHERE type_id='feature:089-e-29' "
+            "AND phase='specify' AND event_type='started'"
+        )
+        db._conn.commit()
 
         # Confirm the metadata was persisted (phase_timing.specify.started).
         entity = db.get_entity("feature:089-e-29")

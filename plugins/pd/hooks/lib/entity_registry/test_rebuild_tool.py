@@ -596,7 +596,10 @@ class TestMigrateGenerationGuardNonVacuity:
         # When a phantom migration 20 is registered AFTER the stamp
         # lands, and the file is opened again
         calls = []
-        monkeypatch.setitem(database.MIGRATIONS, 20, lambda conn: calls.append(20))
+        phantom = max(database.MIGRATIONS) + 1
+        monkeypatch.setitem(
+            database.MIGRATIONS, phantom, lambda conn: calls.append(phantom)
+        )
         db = database.EntityDatabase(staging_path)
         db.close()
 
@@ -618,12 +621,15 @@ class TestMigrateGenerationGuardNonVacuity:
 
         # When a phantom migration 20 is registered and the file reopened
         calls = []
-        monkeypatch.setitem(database.MIGRATIONS, 20, lambda conn: calls.append(20))
+        phantom = max(database.MIGRATIONS) + 1
+        monkeypatch.setitem(
+            database.MIGRATIONS, phantom, lambda conn: calls.append(phantom)
+        )
         db = database.EntityDatabase(v1_path)
         db.close()
 
         # Then it DOES run
-        assert calls == [20]
+        assert calls == [phantom]
 
 
 # ---------------------------------------------------------------------------

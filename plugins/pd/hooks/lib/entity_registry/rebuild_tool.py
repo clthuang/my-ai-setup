@@ -2,7 +2,7 @@
 
 Owns the NEW committed rebuild tool the spec names (not the pre-existing
 v1 ``entity_registry/backfill.py`` — a different artifact). Builds the
-new database file via three ordered steps design D1 pins, so the union
+new database file via the ordered steps design D1 pins, so the union
 DDL is derived BY CONSTRUCTION rather than hand-copied:
 
 1. **Chain replay** (:func:`_replay_v1_chain`) — construct an
@@ -23,6 +23,10 @@ DDL is derived BY CONSTRUCTION rather than hand-copied:
    silently skip chain-shaped tables). D7b's ``events_no_replace`` guard
    trigger ships inside the ``events`` owner's own DDL (events.py) — no
    standalone register call exists for it.
+2b. **v2 chain** (:func:`_apply_v2_chain`, feature 134 NFR-4) — same
+   connection, applies ``database.V2_MIGRATIONS`` so the file actually
+   satisfies the version step 3 is about to stamp. Steps 1+2 produce v2
+   version 1's shape; anything the v2 lineage added since then lands here.
 3. **Generation stamp** (:func:`_stamp_v2_generation`) — same
    connection, upserts ``schema_generation='v2'`` + ``schema_version``
    via the shared ``database._upsert_metadata`` helper (#062: ON
@@ -111,6 +115,25 @@ def _seed_v2_schema(conn: sqlite3.Connection) -> None:
         raise
 
 
+def _apply_v2_chain(conn: sqlite3.Connection) -> None:
+    """D1 step 2b (feature 134 NFR-4): run ``database.V2_MIGRATIONS``.
+
+    Step 1's chain replay leaves the staging file at the v1 chain's max
+    SHAPE, which is v2 version 1's shape. Step 3 then stamps
+    ``schema_v2.V2_SCHEMA_VERSION`` — so once that constant moves past 1,
+    the stamp would otherwise claim a version the file does not actually
+    satisfy, and ``EntityDatabase._migrate_v2`` would never close the gap
+    (its loop starts at ``stamped + 1``). Applying the chain HERE keeps
+    "stamped version" and "actual shape" the same fact.
+
+    Every ``V2_MIGRATIONS`` entry is replay-safe, so running the whole
+    chain against a freshly-replayed file (rather than tracking a
+    from-version) is a no-op for anything already satisfied.
+    """
+    for version in sorted(database.V2_MIGRATIONS):
+        database.V2_MIGRATIONS[version](conn)
+
+
 def _stamp_v2_generation(conn: sqlite3.Connection) -> None:
     """D1 step 3: stamp the generation marker + version (#062 upsert)."""
     database._upsert_metadata(conn, "schema_generation", "v2")
@@ -120,7 +143,7 @@ def _stamp_v2_generation(conn: sqlite3.Connection) -> None:
 
 
 def build_staging_database(staging_path: str) -> None:
-    """Run D1's three build steps against *staging_path*.
+    """Run D1's build steps against *staging_path*.
 
     *staging_path* should not already exist — :func:`main`'s
     ``--staging-only`` path enforces that; this function does not
@@ -139,6 +162,7 @@ def build_staging_database(staging_path: str) -> None:
         conn.execute(f"PRAGMA busy_timeout = {schema_v2._BUSY_TIMEOUT_MS}")
         conn.execute("PRAGMA foreign_keys = ON")
         _seed_v2_schema(conn)
+        _apply_v2_chain(conn)
         _stamp_v2_generation(conn)
     finally:
         conn.close()
@@ -764,8 +788,8 @@ def _classify_phase_event(
     than silently misroute).
 
     Every other event_type (entity_created, entity_status_changed,
-    entity_promoted, spawned_child, cascade_ready — row 4, "phase
-    typically NULL") goes to lifecycle (vocab-free — 122's triggers only
+    entity_promoted, spawned_child, cascade_ready, mini_spec — row 4,
+    "phase typically NULL") goes to lifecycle (vocab-free — 122's triggers only
     police pipeline/execution) with ``to_value`` set to
     ``metadata['new_status']`` when present (the SAME key
     ``append_phase_event``'s own entities.status projection reads,
@@ -827,6 +851,11 @@ def _emit_events_for_entity(
         (entity_created_ts, -1, "lifecycle", "entity_created", None, entity_payload)
     ]
     for row in phase_rows:
+        # Feature 134: mini_spec is audit-only — its record lives in the
+        # copied phase_events row; emitting it here would land lifecycle/
+        # NULL, the RESET semantic (mirrors append_phase_event Step 6).
+        if row["event_type"] == "mini_spec":
+            continue
         axis, to_value = _classify_phase_event(
             kind, row["event_type"], row["phase"], row["metadata"]
         )

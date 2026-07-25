@@ -113,7 +113,7 @@ For each selected template:
       phase from `last_completed_phase` using the canonical sequence in workflow-state SKILL.md.
       If MCP unavailable, fall back to `lastCompletedPhase` from `.meta.json` (already extracted).
       Apply the same edge cases: null+null → route to specify, last=finish → complete, no active feature → brainstorm.
-     Check which artifacts exist (prd.md, spec.md, design.md, plan.md, tasks.md)
+     Check which artifacts exist (prd.md, shape.md, plan.md)
    - Format as:
      ```
      Active feature: {id}-{slug} ({mode} mode)

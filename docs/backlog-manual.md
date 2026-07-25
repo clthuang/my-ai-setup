@@ -20,7 +20,8 @@ reliable DB path; entries then migrate into the DB and this file retires.
   121's D-5 lean: the live `allocate_entity_id` MCP tool rejects `entity_type="project"`
   until this lands — remove that guard in the same change.
 
-- **#055 — MCP workflow-state phase-events write path broken (silent data loss)** *(source: feature 118 QA)*
+- **#055 — RESOLVED 2026-07-25 (feature 134)** — appends moved INSIDE the transition/complete transactions (atomic, fail-loud); `phase_events_write_failed` flag deleted; retry now recovers with no gap (test_append_failure_then_retry_leaves_no_event_gap). Original entry:
+  **MCP workflow-state phase-events write path broken (silent data loss)** *(source: feature 118 QA)*
   Every `complete_phase`/`transition_phase` intermittently reports
   `phase_events_write_failed: true` — projections (.meta.json) are correct but the
   `phase_events` rows are lost. **Consequence measured at feature 119's retro:** under
@@ -30,7 +31,8 @@ reliable DB path; entries then migrate into the DB and this file retires.
   is the events-write path, not skill edits. The P004 track (119/120/132) replaces this
   machinery wholesale; fix-forward there rather than patching v1.
 
-- **#056 — complete_phase reviewer_notes ergonomics** *(source: feature 118 QA)*
+- **#056 — RESOLVED 2026-07-25 (feature 134)** — `reviewer_notes` and `skipped_phases` accept native lists at the tool boundary (transport re-parse class closed). Original entry:
+  **complete_phase reviewer_notes ergonomics** *(source: feature 118 QA)*
   `reviewer_notes` requires a doubly-JSON-encoded string (`"[\"...\"]"`) because the
   harness re-parses JSON-shaped args; a plain list is rejected by pydantic. Accept a
   native list (or document the contract in the tool description).
@@ -67,7 +69,8 @@ reliable DB path; entries then migrate into the DB and this file retires.
   Watch post-merge CI red rate. (Feature 119's new 30-trial bootstrap harness is a
   DIFFERENT, lock-serialized path — passes 30/30 deterministically.)
 
-- **#060 — Entity-registry register_entity silently loses backlog registrations** *(source: feature 119 finish phase, 2026-07-11)*
+- **#060 — NOT REPRODUCIBLE on current path, regression-pinned 2026-07-25 (feature 134)** — separate-connection durability test (test_v2_migrations.py::TestBacklogRegisterRegression060) pins the loss scenario; the 121/132 rewrites of the register path are the likely fix. This file may return to normal-backlog duty. Original entry:
+  **Entity-registry register_entity silently loses backlog registrations** *(source: feature 119 finish phase, 2026-07-11)*
   `register_entity(entity_type="backlog", ...)` returned success
   ("Registered: backlog:057-reviewer-severity-rubric" etc. for 057/058/059; same for
   054/055/056 in the prior session) but NO row persisted — invisible to `get_entity`,
@@ -233,3 +236,12 @@ Root cause: `_process_transition_phase` (workflow_state_server.py) parsed the MC
 ## #087 — check_missed_cascade silently swallows sqlite3.Error
 **Source:** feature 133 test-deepener (2026-07-16), surfaced while probing SC1 fault-control alternatives; echoed by the 133 implementation battery. **Type:** error-handling hygiene, LOW-MED.
 `check_missed_cascade` (doctor/checks.py, ~:453 region post-133) wraps its scan in a bare `except sqlite3.Error` that returns a clean/empty result — a DB with a corrupt or absent `entity_relations` table yields a FALSE ALL-CLEAR instead of a loud failure. Contradicts the repo standard ("do not silently swallow database exceptions", CLAUDE.md SQLite guidance) and the 128 fail-loud posture. Pre-existing (shipped at 124), NOT a 133 regression — 133 deliberately left retained checks byte-untouched. Candidate fix: convert the swallow to a failed CheckResult naming the exception (the runner's per-check isolation already contains crashes), one red-first test. Related: [[#080]] (same check's producer window).
+
+- **#086 — Fresh-file concurrent bootstrap races the v1 migration chain** *(source: feature 134 qa-mig3 probe, 2026-07-25)*
+  Two processes opening a NOT-YET-EXISTING entities.db simultaneously fail 7/8
+  (unguarded v1 chain replay: "no such column: entity_type", "foreign key
+  mismatch"). Verified pre-existing on develop (identical 7/8); MIGRATIONS[20]/[21]
+  widen the window slightly. Existing-file concurrent opens are fine (10/10 after
+  the _set_pragmas WAL retry). Fix direction: file-lock or BEGIN IMMEDIATE around
+  the fresh-bootstrap path — or consolidate fresh-file creation onto schema_v2
+  bootstrap (also closes the two-chain split noted in the 134 PRD Review History).

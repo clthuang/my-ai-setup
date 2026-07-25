@@ -17,7 +17,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Inlined per design TD-6 — pinned copy of qa-gate-procedure.md §4 helper.
+# Inlined per design TD-6 — pinned copy of the canonical helper in
+# plugins/pd/scripts/tests/test_qa_gate_bucket.py.
 # Widened regex per design fix: [a-zA-Z0-9]+ to handle .PY, .tsx, .JSON etc.
 _NORMALIZE_LOC_RE = re.compile(r'([^/\s]+\.[a-zA-Z0-9]+:\d+)')
 
@@ -33,7 +34,7 @@ REVIEWER_CATEGORY_MAP = {
 
 
 def normalize_location(loc: str) -> str:
-    """Inlined per spec FR-8 + TD-6. Pinned copy of qa-gate-procedure.md §4 helper."""
+    """Inlined per spec FR-8 + TD-6. Pinned copy of the canonical bucket helper."""
     m = _NORMALIZE_LOC_RE.search(loc)
     if m:
         return m.group(1)

@@ -884,13 +884,13 @@ class TestCLIHelpers:
     """Tests for frontmatter_inject helper functions and constants (Task 5.2.1)."""
 
     def test_artifact_basename_map_contains_all_basenames(self):
-        """ARTIFACT_BASENAME_MAP contains all 6 supported basenames."""
-        expected = {"spec.md", "design.md", "plan.md", "tasks.md", "retro.md", "prd.md"}
+        """ARTIFACT_BASENAME_MAP contains all 7 supported basenames."""
+        expected = {"shape.md", "spec.md", "design.md", "plan.md", "tasks.md", "retro.md", "prd.md"}
         assert set(ARTIFACT_BASENAME_MAP.keys()) == expected
 
     def test_artifact_phase_map_contains_all_types(self):
-        """ARTIFACT_PHASE_MAP contains all 6 artifact types."""
-        expected = {"spec", "design", "plan", "tasks", "retro", "prd"}
+        """ARTIFACT_PHASE_MAP contains all 7 artifact types."""
+        expected = {"shape", "spec", "design", "plan", "tasks", "retro", "prd"}
         assert set(ARTIFACT_PHASE_MAP.keys()) == expected
 
     def test_parse_feature_type_id_with_slug(self):

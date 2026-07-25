@@ -156,15 +156,24 @@ def check_hard_prerequisites(
         return _invalid_input(f"Unknown phase '{phase}'")
 
     if active_phases is not None:
-        # Build reverse map: artifact_name -> producing_phase
-        # ARTIFACT_PHASE_MAP is dict[str, list[str]], flatten to artifact->phase
-        artifact_to_phase = {
-            a: k for k, artifacts in ARTIFACT_PHASE_MAP.items() for a in artifacts
-        }
-        # Keep only prerequisites whose producing phase is in active_phases
+        # Build reverse map: artifact_name -> {producing phases}.
+        # Feature 134 FR-11 made shape.md a DUAL-producer artifact (specify
+        # writes ## Requirements, design appends ## Design), so a
+        # last-writer-wins scalar map would silently attribute shape.md to
+        # design alone and drop it from create-plan/implement prerequisites
+        # whenever design is skipped.
+        artifact_to_phases: dict[str, set[str]] = {}
+        for producing_phase, artifacts in ARTIFACT_PHASE_MAP.items():
+            for artifact in artifacts:
+                artifact_to_phases.setdefault(artifact, set()).add(producing_phase)
+        # Keep a prerequisite when ANY still-active phase produces it. The
+        # target phase itself is excluded: a phase never gates on the
+        # artifact it is about to write (design must not require shape.md
+        # when specify was skipped).
+        active_set = set(active_phases)
         required = [
             a for a in required
-            if artifact_to_phase.get(a) in active_phases
+            if (artifact_to_phases.get(a, set()) - {phase}) & active_set
         ]
 
     missing = [a for a in required if a not in existing_artifacts]

@@ -227,7 +227,10 @@ cleanup_stale_mcp_servers() {
         local db_files=""
         [[ -f "$HOME/.claude/pd/entities/entities.db" ]] && db_files="$HOME/.claude/pd/entities/entities.db"
         if [[ -n "$db_files" ]]; then
-            lsof $db_files 2>/dev/null | awk 'NR>1{print $2}' | sort -u | while read -r lpid; do
+            # lsof exits 1 when NO process holds the file — a normal state
+            # (post-cutover, servers down); don't let pipefail+ERR turn it
+            # into a fail-open {} emission.
+            { lsof $db_files 2>/dev/null || true; } | awk 'NR>1{print $2}' | sort -u | while read -r lpid; do
                 local lppid
                 lppid=$(ps -o ppid= -p "$lpid" 2>/dev/null | tr -d ' ')
                 [[ "$lppid" == "1" ]] || continue
