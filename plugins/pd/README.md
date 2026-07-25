@@ -171,13 +171,15 @@ The server is bootstrapped by `mcp/run-entity-server.sh` and declared in `plugin
 
 ### Workflow Engine Server
 
-The workflow engine server (`mcp/workflow_state_server.py`) exposes 22 tools for workflow state management:
+The workflow engine server (`mcp/workflow_state_server.py`) exposes 24 tools for workflow state management:
 
 | Tool | Purpose |
 |------|---------|
 | `get_phase` | Get current workflow phase for a feature |
 | `transition_phase` | Transition a feature to the next workflow phase |
 | `complete_phase` | Mark the current phase as complete; optional `closes=[uuid...]` atomically transitions each referenced issue to its terminal status and writes `entity_relations(kind='fixes')` rows |
+| `record_mini_spec` | Record the express-lane mini-spec as a `mini_spec` event (FR-7) |
+| `get_mini_spec` | Read the latest recorded mini-spec text for a feature |
 | `validate_prerequisites` | Check if prerequisites are met for a target phase |
 | `reproject_meta_json` | Re-render a feature's `.meta.json` from DB state (e.g. after a status change via `update_entity`, since direct writes to it are denied) |
 | `list_features_by_phase` | List all features currently in a given phase |

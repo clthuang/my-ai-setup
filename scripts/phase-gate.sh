@@ -3,13 +3,19 @@
 # Zero-dispatch checks: artifact existence, required sections, duplicate
 # contract blocks (#074 restatement class). LLM review moments are NOT here.
 #
-# Usage: phase-gate.sh <phase> <feature-dir>
+# Usage: phase-gate.sh <phase> <feature-dir> [--express]
 #   phase ∈ specify|design|create-plan|implement|finish
+#   --express (feature 134 FR-7): express features carry a mini_spec event
+#   instead of shape.md/plan.md — implement's artifact checks are skipped;
+#   the dirty-tree check still runs. The caller (implement.md) passes the
+#   flag when get_mini_spec resolves.
 # Exit 0 = gate passes; nonzero prints each failure on its own line.
 set -uo pipefail
 
 PHASE="${1:-}"
 DIR="${2:-}"
+EXPRESS=0
+[ "${3:-}" = "--express" ] && EXPRESS=1
 FAIL=0
 say() { echo "GATE FAIL [$PHASE]: $1"; FAIL=1; }
 
@@ -52,8 +58,10 @@ case "$PHASE" in
     [ -n "$(dupe_contract_blocks)" ] && say "duplicate contract block in artifact set (pin each contract once)"
     ;;
   implement)
-    need_file shape.md
-    need_file plan.md
+    if [ "$EXPRESS" -eq 0 ]; then
+      need_file shape.md
+      need_file plan.md
+    fi
     # Uncommitted artifact edits at implement-entry mean the prior phase exit skipped its commit.
     if command -v git >/dev/null && git -C "$DIR" rev-parse --git-dir >/dev/null 2>&1; then
       DIRTY=$(git -C "$DIR" status --porcelain -- . 2>/dev/null | grep -c '\.md$' || true)

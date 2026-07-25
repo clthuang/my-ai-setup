@@ -127,3 +127,39 @@ def test_entity_vanish_after_completion_rolls_back(tool_env, monkeypatch):
     assert rows == [], rows
     wp = db.get_workflow_phase("feature:134-t")
     assert wp.get("last_completed_phase") in (None, ""), wp
+
+
+def test_mini_spec_record_and_get_round_trip(tool_env):
+    """qa-prose B2: the express audit minimum is reachable over MCP."""
+    db = tool_env
+    rec = json.loads(asyncio.run(wss.record_mini_spec(
+        feature_type_id="feature:134-t", text="fix the thing; verify with pytest -k thing",
+    )))
+    assert rec.get("recorded") is True, rec
+    got = json.loads(asyncio.run(wss.get_mini_spec(feature_type_id="feature:134-t")))
+    assert got.get("text") == "fix the thing; verify with pytest -k thing", got
+
+
+def test_get_mini_spec_not_found(tool_env):
+    got = json.loads(asyncio.run(wss.get_mini_spec(feature_type_id="feature:134-t")))
+    assert got.get("error_type") == "mini_spec_not_found", got
+
+
+def test_record_mini_spec_rejects_blank(tool_env):
+    rec = json.loads(asyncio.run(wss.record_mini_spec(
+        feature_type_id="feature:134-t", text="   ",
+    )))
+    assert rec.get("error_type") == "invalid_input", rec
+
+
+def test_express_completeness_expects_only_retro(tool_env, tmp_path):
+    """qa-prose B5: a recorded mini_spec means shape/plan are not expected —
+    only retro.md — so express finish is not drowned in artifact warnings."""
+    db = tool_env
+    feat_dir = tmp_path / "features" / "134-t"
+    feat_dir.mkdir(parents=True)
+    db.update_entity("feature:134-t", artifact_path=str(feat_dir))
+    asyncio.run(wss.record_mini_spec(feature_type_id="feature:134-t", text="t"))
+    warnings = wss._check_artifact_completeness(db, "feature:134-t")
+    assert warnings and all("retro.md" in w for w in warnings), warnings
+    assert not any("shape.md" in w or "plan.md" in w for w in warnings), warnings

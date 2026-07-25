@@ -7,7 +7,9 @@ description: Workflow engine tool catalog and activation contract. Use when chec
 
 Phase sequence: `brainstorm → specify → design → create-plan → implement → finish`. Express mode runs `mini-spec → implement → finish`; the skipped phases are recorded as `skipped` events and the mini-spec as a `mini_spec` event.
 
-State lives in the entity DB (v2 events). Read it through MCP tools (`get_phase`, `show_status`, `list_features`, `validate_prerequisites`, `reconcile_check`); `.meta.json` files are generated projections — read for display, never write, never trust over the DB.
+State lives in the entity DB (v2 events). Read it through MCP tools (`get_phase`, `list_features_by_status`, `list_features_by_phase`, `validate_prerequisites`, `reconcile_check`, `get_mini_spec`); `.meta.json` files are generated projections — read for display, never write, never trust over the DB.
+
+Statuses (owned here; commands point, never restate): `planned`, `active`, `completed`, `abandoned`.
 
 ## Activating a planned feature
 Planned features are targeted explicitly: `--feature=<id>-<slug>`.

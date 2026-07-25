@@ -1201,7 +1201,17 @@ def _check_artifact_completeness(
     wf = db.get_workflow_phase(feature_type_id)
     mode = (wf.get("mode") if wf else None) or "standard"
 
-    expected = _EXPECTED_ARTIFACTS.get(mode)
+    # Feature 134 FR-7 (qa-prose B5): express-ness is the skip overlay, not a
+    # stored mode — a recorded mini_spec event means no shape/plan artifacts
+    # exist by design; only the retro is expected at finish.
+    has_mini_spec = any(
+        r["event_type"] == "mini_spec"
+        for r in db.query_phase_events(type_id=feature_type_id)
+    )
+    if has_mini_spec:
+        expected = ["retro.md"]
+    else:
+        expected = _EXPECTED_ARTIFACTS.get(mode)
     if expected is None:
         return []
 
@@ -2147,6 +2157,84 @@ async def complete_phase(
         entity_engine=_entity_engine,
         closes=closes,
     )
+
+
+@mcp.tool()
+async def record_mini_spec(
+    feature_type_id: str | None = None,
+    text: str = "",
+    ref: str | None = None,
+) -> str:
+    """Record an express-mode mini-spec as a ``mini_spec`` phase event.
+
+    Feature 134 FR-7: the mini-spec text is the express lane's audit
+    minimum (PRD OQ-1) — it rides in the event's metadata; no artifact
+    file exists. Read it back with ``get_mini_spec``.
+    """
+    err = _check_db_available()
+    if err:
+        return err
+    if _db is None:
+        return _NOT_INITIALIZED
+    if not text or not text.strip():
+        return _make_error(
+            "invalid_input",
+            "mini-spec text is required (non-blank)",
+            "Pass the inline mini-spec text",
+        )
+    try:
+        resolved = _resolve_ref_to_feature_type_id(_db, feature_type_id, ref)
+    except ValueError as exc:
+        return _make_error("invalid_ref", str(exc), "Provide a valid feature_type_id or ref")
+    entity = _db.get_entity(resolved)
+    project_id = _resolve_project_id(entity) if entity else "__unknown__"
+    _db.append_phase_event(
+        type_id=resolved,
+        project_id=project_id,
+        event_type="mini_spec",
+        timestamp=_iso_now(),
+        metadata={"text": text},
+        workspace_uuid=_workspace_uuid or None,
+    )
+    return json.dumps({"recorded": True, "feature_type_id": resolved})
+
+
+@mcp.tool()
+async def get_mini_spec(
+    feature_type_id: str | None = None,
+    ref: str | None = None,
+) -> str:
+    """Return the latest recorded mini-spec text for a feature.
+
+    Feature 134 FR-7: implement's express branch reads this instead of
+    ``plan.md``. Errors with ``mini_spec_not_found`` when none exists.
+    """
+    err = _check_db_available()
+    if err:
+        return err
+    if _db is None:
+        return _NOT_INITIALIZED
+    try:
+        resolved = _resolve_ref_to_feature_type_id(_db, feature_type_id, ref)
+    except ValueError as exc:
+        return _make_error("invalid_ref", str(exc), "Provide a valid feature_type_id or ref")
+    rows = [
+        r for r in _db.query_phase_events(type_id=resolved)
+        if r["event_type"] == "mini_spec"
+    ]
+    if not rows:
+        return _make_error(
+            "mini_spec_not_found",
+            f"No mini_spec event recorded for {resolved}",
+            "Express features record one via record_mini_spec at creation",
+        )
+    latest = max(rows, key=lambda r: r["id"])
+    meta = json.loads(latest["metadata"]) if latest.get("metadata") else {}
+    return json.dumps({
+        "feature_type_id": resolved,
+        "text": meta.get("text", ""),
+        "recorded_at": latest["timestamp"],
+    })
 
 
 @mcp.tool()

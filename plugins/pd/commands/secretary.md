@@ -26,7 +26,7 @@ Triage that selects a mode — not a pipeline. Assess the request, state mode + 
 | deepen tests | `pd:test-deepener` agent |
 | docs / backlog / doctor / status | `/pd:generate-docs` `/pd:add-to-backlog` `/pd:doctor` `/pd:show-status` |
 
-**Overrides:** `--deep` / `--express` force the mode both directions. Mid-express escalation: stop implement, record the escalation (`transition_phase` backward with reason), feed the mini-spec text into `/pd:brainstorm` as input — no restart penalty.
+**Overrides:** `--deep` / `--express` force the mode both directions. Mid-express escalation: stop implement, `record_backward_event(feature_type_id, source_phase="implement", target_phase="specify", reason=<why>)`, then run `/pd:specify` — it reads the `mini_spec` event as its input; no restart penalty.
 
 **Output shape:** `Mode: {deep|express|specialist} — {one-line rationale}. Routing to {command}.` Then invoke it, propagating `[YOLO_MODE]` per the global rule (workflow-transitions).
 
