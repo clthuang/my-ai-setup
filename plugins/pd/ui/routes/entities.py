@@ -7,16 +7,25 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from ui.mermaid import build_mermaid_dag
-from ui.routes.helpers import DB_ERROR_USER_MESSAGE, missing_db_response
+from ui.routes.helpers import (
+    DB_ERROR_USER_MESSAGE,
+    effective_workspace_uuid,
+    missing_db_response,
+    resolve_execution_status,
+    switcher_context,
+)
 
 router = APIRouter(prefix="/entities")
 
 ENTITY_TYPES = ["backlog", "brainstorm", "project", "feature"]
 
 
-def _build_workflow_lookup(db) -> dict:
+def _build_workflow_lookup(db, workspace_uuid=None) -> dict:
     """Return {type_id: workflow_phase_row} from db.list_workflow_phases()."""
-    return {wp["type_id"]: wp for wp in db.list_workflow_phases()}
+    return {
+        wp["type_id"]: wp
+        for wp in db.list_workflow_phases(workspace_uuid=workspace_uuid)
+    }
 
 
 def _strip_self_from_lineage(lineage: list[dict], type_id: str) -> list[dict]:
@@ -59,19 +68,29 @@ def entity_list(
         return missing_db_response(templates, request, db_path)
 
     # Path 2: DB query error (wraps all DB calls)
+    switcher = None
     try:
         search_available = True
         type_filter = type if type in ENTITY_TYPES else None
 
+        workspace_uuid = effective_workspace_uuid(request)
+
         # Path 3: Search with FTS fallback
         if q:
             try:
-                entities = db.search_entities(q, entity_type=type_filter, limit=100)
+                entities = db.search_entities(
+                    q, entity_type=type_filter, limit=100,
+                    workspace_uuid=workspace_uuid,
+                )
             except ValueError:
                 search_available = False
-                entities = db.list_entities(entity_type=type_filter)
+                entities = db.list_entities(
+                    entity_type=type_filter, workspace_uuid=workspace_uuid,
+                )
         else:
-            entities = db.list_entities(entity_type=type_filter)
+            entities = db.list_entities(
+                entity_type=type_filter, workspace_uuid=workspace_uuid,
+            )
 
         # Apply status filter in-memory (DB doesn't support combined filtering)
         if status:
@@ -80,10 +99,15 @@ def entity_list(
         # Sort by updated_at DESC (most recently updated first)
         entities = sorted(entities, key=lambda e: e.get("updated_at", ""), reverse=True)
 
-        # Annotate entities with kanban_column from workflow phase data
-        workflow_lookup = _build_workflow_lookup(db)
+        # Annotate entities with execution_status from workflow phase data
+        workflow_lookup = _build_workflow_lookup(db, workspace_uuid=workspace_uuid)
         for e in entities:
-            e["kanban_column"] = workflow_lookup.get(e["type_id"], {}).get("kanban_column")
+            e["execution_status"] = resolve_execution_status(
+                workflow_lookup.get(e["type_id"], {}).get("execution_status")
+            )
+
+        if not request.headers.get("HX-Request"):
+            switcher = switcher_context(request, db)
 
     except Exception as exc:
         print(f"DB query error: {exc}", file=sys.stderr)
@@ -119,7 +143,7 @@ def entity_list(
     return templates.TemplateResponse(
         request=request,
         name="entities.html",
-        context=context,
+        context={**context, "switcher": switcher},
     )
 
 
@@ -164,7 +188,12 @@ def entity_detail(request: Request, identifier: str) -> HTMLResponse:
         children = _strip_self_from_lineage(child_lineage, type_id)
 
         mermaid_dag = build_mermaid_dag(entity, ancestors, children)
-        workflow = db.get_workflow_phase(type_id)
+        # list (not get_workflow_phase) for its v2 aliases; unscoped preserves
+        # the prior non-scoped semantics. O(N) scan — fine at pd scale.
+        rows = db.list_workflow_phases()
+        workflow = next((r for r in rows if r.get("type_id") == type_id), None)
+        if workflow is not None:
+            workflow["execution_status"] = resolve_execution_status(workflow.get("execution_status"))
         metadata_formatted = _format_metadata(entity.get("metadata"))
 
         return templates.TemplateResponse(

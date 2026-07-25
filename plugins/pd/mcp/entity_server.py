@@ -22,13 +22,12 @@ if _hooks_lib not in (os.path.normpath(p) for p in sys.path):
 
 from entity_registry.backfill import run_backfill
 from entity_registry.database import (
-    CrossWorkspaceError,
     EntityDatabase,
     EntityExistsError,
     EntityNotFoundError,
     PromotionConflictError,
 )
-from entity_registry.id_generator import generate_entity_id
+from entity_registry.id_generator import _slugify, generate_entity_id
 from entity_registry.project_identity import (
     GitProjectInfo,
     _compute_legacy_project_id,
@@ -519,7 +518,6 @@ async def register_entity(
     parent_uuid: str | None = None,
     metadata: str | dict | None = None,
     workspace_uuid: str | None = None,
-    project_id: str | None = None,
     auto_id: bool = False,
 ) -> str:
     """Register a new entity in the lineage registry.
@@ -532,7 +530,10 @@ async def register_entity(
         Unique identifier within the entity_type namespace
         (e.g. '029-entity-lineage-tracking'). Required unless auto_id=True.
     name:
-        Human-readable name (e.g. 'Entity Lineage Tracking').
+        Human-readable name (e.g. 'Entity Lineage Tracking'). Must be
+        non-blank — a blank/whitespace-only name returns an
+        ``invalid_input`` error envelope (feature 121 FR-5) instead of
+        registering.
     artifact_path:
         Optional filesystem path to the entity's artifact.
     status:
@@ -547,11 +548,6 @@ async def register_entity(
         Workspace identity (feature 108). When ``None``, the MCP server
         resolves it via the lazy ``_workspace_uuid`` global populated at
         server startup from ``.claude/pd/workspace.json``.
-    project_id:
-        Legacy project scope (pre-Migration-11). Retained for the duration
-        of the Migration 11 transition: when ``UNIQUE(workspace_uuid,
-        type_id)`` semantics are fully wired through database.py the kwarg
-        is dropped.
     auto_id:
         If True, auto-generate entity_id from name. Cannot be used
         together with an explicit entity_id.
@@ -564,22 +560,42 @@ async def register_entity(
     if _db is None:
         return "Error: database not initialized (server not started)"
 
+    # Feature 121 D2: blank/whitespace name corrupts the registry (FR-5) —
+    # pre-check BEFORE any sequence consumption (the auto_id branch below
+    # calls generate_entity_id, which burns a counter value). Fires for
+    # BOTH auto_id and explicit-id calls: register_entity always persists
+    # `name`, so both call shapes need the same guard. Replaces the old
+    # auto_id-only truthy guard, which let a blank explicit-id name reach
+    # the DB-layer raise unguarded (bare crash, no structured error).
+    if not name or not name.strip():
+        return json.dumps({
+            "error": True,
+            "error_type": "invalid_input",
+            # Single-sourced from the DB layer's constant — a hand-typed
+            # copy here would silently drift (author-restated-literal class).
+            "message": EntityDatabase._BLANK_NAME_ERROR,
+            "recovery_hint": "pass a non-blank name",
+        })
+
     # Feature 108 FR-13: resolve workspace_uuid via lazy global if caller
     # did not supply it. Default to the empty string when no workspace
     # context is set (legacy fixture path).
     # NOTE: Feature 114 FR-D.2 originally proposed defaulting to
     # _UNKNOWN_WORKSPACE_UUID here, but that broke test fixtures that pass
     # project_id="__unknown__" without seeding the workspaces table.
-    # _resolve_workspace_uuid_kwargs downstream maps "__unknown__" project_id
-    # to _UNKNOWN_WORKSPACE_UUID correctly when workspace_uuid is "".
+    # database.py's shared workspace-identity resolution (feature 132
+    # D6.4) maps "__unknown__" project_id to _UNKNOWN_WORKSPACE_UUID
+    # correctly when workspace_uuid is "".
     resolved_workspace_uuid = workspace_uuid or _workspace_uuid or ""
-    resolved_project_id = project_id or _project_id or "__unknown__"
+    # Feature 132 D6.4: the caller-facing project_id kwarg (Migration 11
+    # transition alias) is retired from this tool's surface -- resolution
+    # now falls back only to the server's own legacy-project-id global,
+    # which database.py's register_entity(project_id=...) still accepts.
+    resolved_project_id = _project_id or "__unknown__"
 
     if auto_id and entity_id:
         return "Error: cannot specify both auto_id=True and entity_id"
     if auto_id:
-        if not name:
-            return "Error: name is required when auto_id=True"
         entity_id = generate_entity_id(_db, entity_type, name, resolved_project_id)
     elif not entity_id:
         return "Error: entity_id is required (or use auto_id=True)"
@@ -606,6 +622,77 @@ async def register_entity(
 
 
 # ---------------------------------------------------------------------------
+# Feature 121 D1 — allocate_entity_id MCP tool
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def allocate_entity_id(entity_type: str = "", name: str = "") -> str:   # async: matches every sibling @mcp.tool def
+    """Atomically allocate the next {seq:03d}-{slug} entity id for a type.
+
+    Direct plumbing over ``next_sequence_value`` + ``_slugify`` (design
+    D1) — the same atomic ``BEGIN IMMEDIATE`` counter every registration
+    path uses, exposed standalone so callers (create-feature, decomposing)
+    can mint an id BEFORE any filesystem/DB write (feature 121 SC1). No
+    sequence value is consumed when an error envelope is returned.
+
+    Parameters
+    ----------
+    entity_type:
+        The entity type to allocate a sequence value for (e.g. 'feature').
+        Required. ``'project'`` is accepted like any other kind (feature
+        132 D6.9 cutover — the backfill seeds the `sequences` table from
+        the live census max, so callers building ``P{NNN}`` ids use the
+        returned ``seq`` directly and discard the ``entity_id`` field,
+        which is shaped ``{seq:03d}-{slug}`` for every kind including
+        ``project``).
+    name:
+        Human-readable name; slugified into the id's suffix. Must slugify
+        to a non-empty string.
+
+    Returns
+    -------
+    str
+        JSON ``{"seq": <int>, "entity_id": "<seq:03d>-<slug>"}`` on
+        success, or a structured error envelope (``workspace_unresolved``,
+        ``invalid_input``) on failure.
+    """
+    err = _check_db_available()
+    if err:
+        return json.dumps(err)
+    if _db is None:
+        return "Error: database not initialized (server not started)"
+
+    if not _workspace_uuid:
+        return json.dumps({
+            "error": True,
+            "error_type": "workspace_unresolved",
+            "message": (
+                "workspace identity not resolved (degraded startup) — "
+                "allocation refused"
+            ),
+            "recovery_hint": "restart the MCP server from the project root / run doctor",
+        })
+    if not entity_type:
+        return json.dumps({
+            "error": True,
+            "error_type": "invalid_input",
+            "message": "entity_type is required",
+            "recovery_hint": "pass entity_type, e.g. 'feature'",
+        })
+    slug = _slugify(name or "")
+    if not slug:
+        return json.dumps({
+            "error": True,
+            "error_type": "invalid_input",
+            "message": "name must be non-empty and slugify to a non-empty slug",
+            "recovery_hint": "supply a descriptive name containing letters/digits",
+        })
+    seq = _db.next_sequence_value(entity_type=entity_type, workspace_uuid=_workspace_uuid)
+    return json.dumps({"seq": seq, "entity_id": f"{seq:03d}-{slug}"})
+
+
+# ---------------------------------------------------------------------------
 # Feature 111 F9 — issue_spawn MCP tool
 # ---------------------------------------------------------------------------
 
@@ -620,8 +707,8 @@ def _catch_issue_spawn_errors(func):
 
     Per spec FR-EX.3 / design IF-9: ``issue_spawn`` raises ``ValueError`` (and
     the ``EntityNotFoundError`` ValueError subclass) for ``invalid_kind``,
-    ``parent_not_found``, ``invalid_parent_kind``, and ``cross-workspace
-    parent forbidden``. The envelope shape matches the F10 ``complete_phase``
+    ``parent_not_found``, and ``invalid_parent_kind``. The envelope shape
+    matches the F10 ``complete_phase``
     pattern at ``workflow_state_server.py:_catch_close_errors`` so MCP
     consumers see a uniform contract:
 
@@ -694,10 +781,9 @@ async def issue_spawn(
     Raises
     ------
     ValueError
-        On ``invalid_kind`` (FR-9.5), ``parent_not_found`` (FR-9.6),
-        ``invalid_parent_kind`` (FR-9.6), or ``cross-workspace parent
-        forbidden`` (FR-9.6 design IF-1 step 5b). All four conditions are
-        caught at the MCP boundary by ``_catch_issue_spawn_errors`` and
+        On ``invalid_kind`` (FR-9.5), ``parent_not_found`` (FR-9.6), or
+        ``invalid_parent_kind`` (FR-9.6). All three conditions are caught
+        at the MCP boundary by ``_catch_issue_spawn_errors`` and
         translated to a JSON error envelope (FR-EX.3).
     """
     err = _check_db_available()
@@ -731,25 +817,6 @@ async def issue_spawn(
         raise ValueError(
             f"invalid_parent_kind: {parent_kind!r}; "
             f"expected feature|backlog|project"
-        )
-
-    # FR-9.6 cross-workspace gate (design IF-1 step 5b, security-reviewer iter
-    # 2 BLOCKER 1): parent_uuid MUST resolve to a row in the SAME workspace as
-    # the caller. Resolve the caller's effective workspace_uuid via the same
-    # path register_entity uses (database.py:5635 _resolve_workspace_uuid_kwargs)
-    # so the comparison is canonical (e.g., project_id='__unknown__' resolves
-    # to _UNKNOWN_WORKSPACE_UUID). Run this BEFORE any state-mutating call so
-    # no partial state can be created.
-    resolved_caller_ws = _db._resolve_workspace_uuid_kwargs(
-        resolved_workspace_uuid or None,
-        resolved_project_id if not resolved_workspace_uuid else None,
-        _caller="issue_spawn",
-    )
-    parent_ws = parent_row.get("workspace_uuid")
-    if parent_ws != resolved_caller_ws:
-        raise ValueError(
-            f"cross-workspace parent forbidden: "
-            f"parent in {parent_ws!r}, caller in {resolved_caller_ws!r}"
         )
 
     # Normalize caller metadata to a dict; drop reserved keys that live in
@@ -1191,19 +1258,6 @@ async def add_dependency(
         )
     except CycleError as exc:
         return json.dumps({"error": f"Cycle detected: {exc}"})
-    except CrossWorkspaceError as exc:
-        # Feature 115 FR-E.3: structured envelope for cross-workspace rejection.
-        return json.dumps({
-            "error": True,
-            "error_type": "cross_workspace_forbidden",
-            "message": str(exc),
-            "recovery_hint": (
-                "Re-attribute one endpoint or grandfather via "
-                "cross_workspace_allowlist"
-            ),
-            "op_name": exc.op_name,
-            "pairs": exc.pairs,
-        })
     except ValueError as exc:
         return json.dumps({"error": str(exc)})
     except Exception as exc:
@@ -1324,19 +1378,6 @@ async def add_okr_alignment(entity_ref: str, kr_ref: str) -> str:
         entity_uuid = _db.resolve_ref(entity_ref, project_id=_effective_project_id())
         kr_uuid = _db.resolve_ref(kr_ref, project_id=_effective_project_id())
         return _process_add_okr_alignment(_db, entity_uuid, kr_uuid, entity_ref, kr_ref)
-    except CrossWorkspaceError as exc:
-        # Feature 115 FR-E.3: structured envelope for cross-workspace rejection.
-        return json.dumps({
-            "error": True,
-            "error_type": "cross_workspace_forbidden",
-            "message": str(exc),
-            "recovery_hint": (
-                "Re-attribute one endpoint or grandfather via "
-                "cross_workspace_allowlist"
-            ),
-            "op_name": exc.op_name,
-            "pairs": exc.pairs,
-        })
     except Exception as exc:
         return json.dumps({"error": str(exc)})
 

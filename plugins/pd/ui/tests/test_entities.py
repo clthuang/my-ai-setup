@@ -12,7 +12,7 @@ class _StubDB:
     def __init__(self, phases: list[dict]):
         self._phases = phases
 
-    def list_workflow_phases(self) -> list[dict]:
+    def list_workflow_phases(self, *, workspace_uuid=None) -> list[dict]:
         return self._phases
 
 
@@ -141,7 +141,11 @@ def test_format_metadata_invalid_json():
 import sqlite3
 import unittest.mock
 from starlette.testclient import TestClient
-from entity_registry.database import EntityDatabase
+from entity_registry.database import (
+    EntityDatabase,
+    _UNKNOWN_WORKSPACE_UUID,
+    _derive_type_and_lifecycle,
+)
 
 
 def _seed_entity(db_file, type_id, entity_type="feature", name=None,
@@ -150,13 +154,15 @@ def _seed_entity(db_file, type_id, entity_type="feature", name=None,
     conn = sqlite3.connect(db_file)
     conn.execute("PRAGMA foreign_keys = OFF")
     now = "2026-03-08T00:00:00Z"
+    kind_type, lifecycle_class = _derive_type_and_lifecycle(entity_type)
     conn.execute(
         "INSERT OR IGNORE INTO entities "
-        "(type_id, uuid, entity_type, entity_id, name, status, "
-        "artifact_path, metadata, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (type_id, f"uuid-{type_id}", entity_type, entity_id or type_id,
-         name or type_id, status, None, None, now, now),
+        "(type_id, uuid, workspace_uuid, kind, entity_id, name, status, "
+        "artifact_path, metadata, created_at, updated_at, type, lifecycle_class) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (type_id, f"uuid-{type_id}", _UNKNOWN_WORKSPACE_UUID, entity_type,
+         entity_id or type_id, name or type_id, status, None, None, now, now,
+         kind_type, lifecycle_class),
     )
     conn.commit()
     conn.close()
@@ -421,10 +427,10 @@ def integration_client(tmp_path):
     db = EntityDatabase(str(tmp_path / "test.db"))
 
     # Seed entities via the DB API
-    db.register_entity("feature", "feat-alpha", "Alpha Feature", status="active", project_id="__unknown__")
-    db.register_entity("feature", "feat-beta", "Beta Feature", status="completed", project_id="__unknown__")
-    db.register_entity("brainstorm", "bs-one", "Brainstorm One", status="active", project_id="__unknown__")
-    db.register_entity("project", "proj-one", "Project One", status="active", project_id="__unknown__")
+    db._register_entity_no_display("feature", "feat-alpha", "Alpha Feature", status="active", project_id="__unknown__")
+    db._register_entity_no_display("feature", "feat-beta", "Beta Feature", status="completed", project_id="__unknown__")
+    db._register_entity_no_display("brainstorm", "bs-one", "Brainstorm One", status="active", project_id="__unknown__")
+    db._register_entity_no_display("project", "proj-one", "Project One", status="active", project_id="__unknown__")
 
     # Set parent relationship: feat-alpha -> proj-one
     db.set_parent("feature:feat-alpha", "project:proj-one")
@@ -510,11 +516,125 @@ def test_integration_entity_detail_with_workflow(integration_client):
     assert "Alpha Feature" in response.text
     assert "feature:feat-alpha" in response.text
     assert "active" in response.text
-    # Workflow fields from the template (kanban_column, workflow_phase)
+    # Workflow fields from the template (execution_status, workflow_phase)
     assert "wip" in response.text
     assert "implement" in response.text
     # Workflow State section should be rendered
     assert "Workflow State" in response.text
+
+
+# ---------------------------------------------------------------------------
+# derived_from: dimension:mutation (design:D4's next() row-selection filter)
+# ---------------------------------------------------------------------------
+def test_entity_detail_selects_correct_row_by_type_id_when_multiple_rows_exist(tmp_path):
+    """When the unscoped workflow_phases list has rows for several
+    entities, each entity's detail page shows only ITS OWN
+    execution_status -- proving the route's next() lookup actually filters
+    by type_id rather than e.g. always returning the first row in the
+    unscoped list.
+
+    Anticipate: if the filter predicate were dropped (`rows[0] if rows
+    else None` instead of the type_id-matching next()), both pages below
+    would show the SAME value.
+    """
+    # Given two entities with DIFFERING vocabulary execution_status values
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    db._register_entity_no_display(
+        "feature", "multi-blocked", "Multi Blocked",
+        status="active", project_id="__unknown__",
+    )
+    db.create_workflow_phase("feature:multi-blocked", kanban_column="blocked")
+    db._register_entity_no_display(
+        "feature", "multi-documenting", "Multi Documenting",
+        status="active", project_id="__unknown__",
+    )
+    db.create_workflow_phase("feature:multi-documenting", kanban_column="documenting")
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+
+    # When each entity's own detail page is requested
+    blocked_response = client.get("/entities/feature:multi-blocked")
+    documenting_response = client.get("/entities/feature:multi-documenting")
+
+    # Then each shows only its own value, never the other's
+    assert blocked_response.status_code == 200
+    assert documenting_response.status_code == 200
+    assert "blocked" in blocked_response.text
+    assert "documenting" not in blocked_response.text
+    assert "documenting" in documenting_response.text
+    assert "blocked" not in documenting_response.text
+
+
+# ---------------------------------------------------------------------------
+# derived_from: spec:FR125-1, FR125-2 (detail route is the third read
+# surface; feature 132 deleted the legacy-value remap dict -- the backfill
+# now normalizes stored values at source, so this surface's contract
+# flips to "renders whatever comes back", exercised with a second,
+# unrelated row also present)
+# ---------------------------------------------------------------------------
+def test_entity_detail_renders_legacy_agent_review_verbatim_with_other_rows_present(tmp_path):
+    """The detail page for an entity stored with the legacy agent_review
+    value shows the raw string verbatim (no remap), with a second,
+    unrelated workflow_phases row also present in the (unscoped) table."""
+    # Given an agent_review entity AND a second, unrelated vocabulary row
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    db._register_entity_no_display(
+        "brainstorm", "legacy-agent-detail", "Legacy Agent Detail",
+        status="active", project_id="__unknown__",
+    )
+    db.create_workflow_phase("brainstorm:legacy-agent-detail", kanban_column="agent_review")
+    db._register_entity_no_display(
+        "feature", "other-row-present", "Other Row Present",
+        status="active", project_id="__unknown__",
+    )
+    db.create_workflow_phase("feature:other-row-present", kanban_column="blocked")
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+
+    # When the legacy entity's detail page is requested
+    response = client.get("/entities/brainstorm:legacy-agent-detail")
+
+    # Then it shows the raw legacy value verbatim -- no remap to 'wip'
+    assert response.status_code == 200
+    assert "agent_review" in response.text
+
+
+# ---------------------------------------------------------------------------
+# derived_from: spec:FR125-1 (human_review was agent_review's defensive
+# sibling -- feature 132 retires the remap for both alike, exercised here
+# on the detail surface)
+# ---------------------------------------------------------------------------
+def test_entity_detail_renders_legacy_human_review_verbatim(tmp_path):
+    """The detail page for an entity stored with the defensive
+    human_review legacy value shows the raw string verbatim (no remap)."""
+    # Given an entity seeded with the legacy human_review value
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    db._register_entity_no_display(
+        "feature", "legacy-human-detail", "Legacy Human Detail",
+        status="active", project_id="__unknown__",
+    )
+    db.create_workflow_phase("feature:legacy-human-detail", kanban_column="human_review")
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+
+    # When the detail page is requested
+    response = client.get("/entities/feature:legacy-human-detail")
+
+    # Then it shows the raw legacy value verbatim -- no remap to 'wip'
+    assert response.status_code == 200
+    assert "human_review" in response.text
 
 
 # ---------------------------------------------------------------------------
@@ -567,7 +687,7 @@ def test_integration_search_fts_fallback(tmp_path):
     """When search_entities raises ValueError, fallback returns all entities
     with search input disabled."""
     db = EntityDatabase(str(tmp_path / "test.db"))
-    db.register_entity("feature", "fb-test", "Fallback Test", status="active", project_id="__unknown__")
+    db._register_entity_no_display("feature", "fb-test", "Fallback Test", status="active", project_id="__unknown__")
 
     from ui import create_app
 
@@ -642,8 +762,8 @@ def test_entity_list_sorted_by_updated_at_descending(tmp_path):
     # Given entities with different updated_at timestamps
     db_file = str(tmp_path / "test.db")
     db = EntityDatabase(db_file)
-    db.register_entity("feature", "older", "Older Feature", status="active", project_id="__unknown__")
-    db.register_entity("feature", "newer", "Newer Feature", status="active", project_id="__unknown__")
+    db._register_entity_no_display("feature", "older", "Older Feature", status="active", project_id="__unknown__")
+    db._register_entity_no_display("feature", "newer", "Newer Feature", status="active", project_id="__unknown__")
 
     # Manually set different updated_at values via raw SQL
     conn = sqlite3.connect(db_file)
@@ -908,7 +1028,7 @@ def test_entity_list_single_entity(tmp_path):
     """
     db_file = str(tmp_path / "test.db")
     db = EntityDatabase(db_file)
-    db.register_entity("feature", "solo", "Solo Feature", status="active", project_id="__unknown__")
+    db._register_entity_no_display("feature", "solo", "Solo Feature", status="active", project_id="__unknown__")
 
     from ui import create_app
 
@@ -932,7 +1052,7 @@ def test_entity_detail_with_null_fields(tmp_path):
     """
     db_file = str(tmp_path / "test.db")
     db = EntityDatabase(db_file)
-    db.register_entity("brainstorm", "minimal", "Minimal Entity", status="active", project_id="__unknown__")
+    db._register_entity_no_display("brainstorm", "minimal", "Minimal Entity", status="active", project_id="__unknown__")
 
     from ui import create_app
 
@@ -1038,7 +1158,7 @@ def test_entity_list_xss_in_entity_name(tmp_path):
     """
     db_file = str(tmp_path / "test.db")
     db = EntityDatabase(db_file)
-    db.register_entity(
+    db._register_entity_no_display(
         "feature", "xss-test",
         '<script>alert("xss")</script>',
         status="active",
@@ -1090,7 +1210,7 @@ def test_entity_detail_lineage_error_shows_error_page(tmp_path):
     """
     db_file = str(tmp_path / "test.db")
     db = EntityDatabase(db_file)
-    db.register_entity("feature", "lin-err", "Lineage Error Test", status="active", project_id="__unknown__")
+    db._register_entity_no_display("feature", "lin-err", "Lineage Error Test", status="active", project_id="__unknown__")
 
     from ui import create_app
 
@@ -1108,20 +1228,22 @@ def test_entity_detail_lineage_error_shows_error_page(tmp_path):
 
 # derived_from: dimension:error_propagation (workflow_phase query failure)
 def test_entity_detail_workflow_error_shows_error_page(tmp_path):
-    """Given a valid entity but get_workflow_phase raises an exception, when
-    viewing the detail page, then the error page is shown.
+    """Given a valid entity but list_workflow_phases raises an exception,
+    when viewing the detail page, then the error page is shown.
 
     Anticipate: If workflow errors aren't caught, the page crashes with 500.
     """
     db_file = str(tmp_path / "test.db")
     db = EntityDatabase(db_file)
-    db.register_entity("feature", "wf-err", "Workflow Error Test", status="active", project_id="__unknown__")
+    db._register_entity_no_display("feature", "wf-err", "Workflow Error Test", status="active", project_id="__unknown__")
 
     from ui import create_app
 
     app = create_app(db_path=db_file)
-    # get_lineage needs to work, but get_workflow_phase fails
-    app.state.db.get_workflow_phase = unittest.mock.MagicMock(
+    # get_lineage needs to work, but list_workflow_phases fails -- the
+    # detail route's workflow read (feature 125 D4: the zero-occurrence
+    # aliased-list-filter path; get_workflow_phase is no longer called here)
+    app.state.db.list_workflow_phases = unittest.mock.MagicMock(
         side_effect=Exception("workflow query failed")
     )
     client = TestClient(app)
@@ -1141,7 +1263,7 @@ def test_entity_list_workflow_lookup_error_shows_error_page(tmp_path):
     """
     db_file = str(tmp_path / "test.db")
     db = EntityDatabase(db_file)
-    db.register_entity("feature", "wl-err", "Workflow Lookup Error", status="active", project_id="__unknown__")
+    db._register_entity_no_display("feature", "wl-err", "Workflow Lookup Error", status="active", project_id="__unknown__")
 
     from ui import create_app
 
@@ -1209,25 +1331,150 @@ def test_entity_list_status_filter_exact_match(integration_client):
     assert "No entities found" in response.text
 
 
-# derived_from: dimension:mutation (kanban_column annotation correctness)
-def test_entity_list_kanban_column_annotation(integration_client):
-    """Mutation check: verify that kanban_column from workflow_phases is
+# derived_from: dimension:mutation (execution_status annotation correctness)
+def test_entity_list_execution_status_annotation(integration_client):
+    """Mutation check: verify that execution_status from workflow_phases is
     correctly annotated on entity rows.
 
     If the workflow lookup dict is keyed wrong or annotation is skipped,
-    kanban_column would be blank for all entities.
+    execution_status would be blank for all entities.
     """
     response = integration_client.get("/entities")
 
     assert response.status_code == 200
-    # feat-alpha has workflow phase with kanban_column='wip'
+    # feat-alpha has workflow phase with execution_status='wip'
     assert "wip" in response.text
+
+
+# ---------------------------------------------------------------------------
+# derived_from: spec:FR125-1, FR125-2 (the shared helper covers ALL THREE
+# read surfaces -- board, entities-list annotation, entity-detail; feature
+# 132 deleted the legacy-value remap dict, so this surface's contract
+# flips to "renders whatever comes back" like its detail-page sibling)
+# ---------------------------------------------------------------------------
+def test_entity_list_renders_legacy_values_verbatim_not_remapped(tmp_path):
+    """Entities whose stored kanban_column is a legacy value (agent_review,
+    human_review) show the raw value verbatim in the entities-list table --
+    no remap to 'wip' (feature 132 retired the remap; the backfill
+    normalizes stored values at source instead).
+
+    Anticipate: if a remap mechanism were reintroduced at this display
+    layer, these cells would show 'wip' instead of the raw legacy value.
+    """
+    # Given two entities seeded with the two legacy kanban_column values
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    db._register_entity_no_display(
+        "feature", "legacy-agent-list", "Legacy Agent List",
+        status="active", project_id="__unknown__",
+    )
+    db.create_workflow_phase("feature:legacy-agent-list", kanban_column="agent_review")
+    db._register_entity_no_display(
+        "feature", "legacy-human-list", "Legacy Human List",
+        status="active", project_id="__unknown__",
+    )
+    db.create_workflow_phase("feature:legacy-human-list", kanban_column="human_review")
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+
+    # When the entities list renders
+    response = client.get("/entities")
+
+    # Then both rows show their raw legacy value verbatim -- no remap
+    assert response.status_code == 200
+    assert "Legacy Agent List" in response.text
+    assert "Legacy Human List" in response.text
+    assert "<td>agent_review</td>" in response.text
+    assert "<td>human_review</td>" in response.text
+    assert response.text.count("<td>wip</td>") == 0
+
+
+# ---------------------------------------------------------------------------
+# derived_from: design:D1 (helpers.py docstring: "the entities
+# annotation/detail render whatever comes back" -- the deliberate flip
+# side of board's loud fallback, which this test's mixed-batch sibling in
+# test_app.py pins from the board side)
+# ---------------------------------------------------------------------------
+def test_entity_list_renders_raw_unknown_execution_status_verbatim_no_warning(tmp_path, capsys):
+    """Unlike board grouping, the entities-list annotation renders an
+    unknown execution_status value VERBATIM with no stderr warning --
+    resolve_execution_status only remaps known legacy keys and otherwise
+    passes the value through unchanged, and entities.py never defaults or
+    warns on it (that's board.py's job alone).
+
+    An unknown value can't be DB-seeded (the CHECK constraint on
+    kanban_column excludes it), so it's injected via a mocked
+    list_workflow_phases -- the same technique the existing
+    error-path tests in this file already use.
+    """
+    # Given an entity whose workflow lookup returns an unknown value
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    db._register_entity_no_display(
+        "feature", "raw-unknown-list", "Raw Unknown List",
+        status="active", project_id="__unknown__",
+    )
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    app.state.db.list_workflow_phases = unittest.mock.MagicMock(
+        return_value=[
+            {"type_id": "feature:raw-unknown-list", "execution_status": "totally-not-real"}
+        ]
+    )
+    client = TestClient(app)
+
+    # When the entities list renders
+    response = client.get("/entities")
+
+    # Then the raw value renders verbatim, with no stderr warning at all
+    assert response.status_code == 200
+    assert "<td>totally-not-real</td>" in response.text
+    captured = capsys.readouterr()
+    assert captured.err == ""
+
+
+# ---------------------------------------------------------------------------
+# derived_from: dimension:mutation (the `is not none` template guard on the
+# execution_status cell)
+# ---------------------------------------------------------------------------
+def test_entity_list_execution_status_blank_not_literal_none_for_entity_without_workflow_row(tmp_path):
+    """An entity with no workflow_phases row at all renders an EMPTY
+    execution_status cell, never the literal text 'None' -- pins the
+    `is not none` Jinja guard against a deletion mutation that would
+    stringify Python's None straight into the table (Jinja renders a bare
+    None as the text 'None').
+    """
+    # Given an entity with no workflow_phases row
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    db._register_entity_no_display(
+        "brainstorm", "no-workflow-row", "No Workflow Row",
+        status="active", project_id="__unknown__",
+    )
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+
+    # When the entities list renders
+    response = client.get("/entities")
+
+    # Then the row renders with an empty cell, never the literal word 'None'
+    assert response.status_code == 200
+    assert "No Workflow Row" in response.text
+    assert "<td>None</td>" not in response.text
 
 
 # derived_from: dimension:mutation (entity list table columns match spec)
 def test_entity_list_table_has_required_columns():
     """Mutation check: verify _entities_content.html table has all required
-    columns from spec FR-1: Name, Type ID, Type, Status, Kanban Column, Updated.
+    columns from spec FR-1: Name, Type ID, Type, Status, Execution Status, Updated.
 
     If a column header is deleted, data would be misaligned or missing.
     """
@@ -1238,7 +1485,7 @@ def test_entity_list_table_has_required_columns():
     )
     content = template_path.read_text()
 
-    required_columns = ["Name", "Type ID", "Type", "Status", "Kanban Column", "Updated"]
+    required_columns = ["Name", "Type ID", "Type", "Status", "Execution Status", "Updated"]
     for col in required_columns:
         assert col in content, f"Missing required column header: {col}"
 
@@ -1285,7 +1532,7 @@ def test_entity_list_search_passes_limit_100(tmp_path):
     """
     db_file = str(tmp_path / "test.db")
     db = EntityDatabase(db_file)
-    db.register_entity("feature", "lim", "Limit Test", status="active", project_id="__unknown__")
+    db._register_entity_no_display("feature", "lim", "Limit Test", status="active", project_id="__unknown__")
 
     from ui import create_app
 
@@ -1326,7 +1573,7 @@ def test_entity_detail_lineage_directions(tmp_path):
     """
     db_file = str(tmp_path / "test.db")
     db = EntityDatabase(db_file)
-    db.register_entity("feature", "dir-test", "Direction Test", status="active", project_id="__unknown__")
+    db._register_entity_no_display("feature", "dir-test", "Direction Test", status="active", project_id="__unknown__")
 
     from ui import create_app
 
@@ -1382,13 +1629,15 @@ def _seed_entity_with_parent(db_file, type_id, name, entity_type,
             parent_uuid = row[0]
 
     now = "2026-03-08T12:00:00Z"
+    kind_type, lifecycle_class = _derive_type_and_lifecycle(entity_type)
     conn.execute(
         "INSERT OR IGNORE INTO entities "
-        "(uuid, type_id, entity_type, entity_id, name, status, "
-        "parent_type_id, parent_uuid, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (entity_uuid, type_id, entity_type, type_id, name, "active",
-         parent_type_id, parent_uuid, now, now),
+        "(uuid, workspace_uuid, type_id, entity_id, name, status, "
+        "parent_uuid, created_at, updated_at, type, kind, lifecycle_class) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (entity_uuid, _UNKNOWN_WORKSPACE_UUID, type_id, type_id, name,
+         "active", parent_uuid, now, now, kind_type, entity_type,
+         lifecycle_class),
     )
     conn.commit()
     conn.close()
@@ -1528,3 +1777,429 @@ def test_entity_list_no_mermaid_script(tmp_path):
 
     assert response.status_code == 200
     assert "cdn.jsdelivr.net/npm/mermaid" not in response.text
+
+
+# ===========================================================================
+# Feature 129 Task 5: workspace-scoped entity list (design D6)
+# ===========================================================================
+
+
+def _bootstrap_workspace(db_file, project_root=None):
+    """Insert a fresh workspaces row directly (FKs disabled); returns its uuid."""
+    import uuid as uuid_mod
+    ws_uuid = str(uuid_mod.uuid4())
+    conn = sqlite3.connect(db_file)
+    conn.execute("PRAGMA foreign_keys = OFF")
+    now = "2026-03-08T00:00:00Z"
+    conn.execute(
+        "INSERT INTO workspaces "
+        "(uuid, project_id_legacy, project_root, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (ws_uuid, None, project_root, now, now),
+    )
+    conn.commit()
+    conn.close()
+    return ws_uuid
+
+
+def test_build_workflow_lookup_scoped_to_workspace_on_type_id_collision(tmp_path):
+    """#6b: on a REAL two-workspace DB where the same type_id exists in both
+    workspaces (joined to one shared workflow_phases row), scoping to W
+    returns exactly W's joined row -- not a last-wins pick across the
+    fanned-out join, which could surface the OTHER workspace's entity.
+    """
+    from ui.routes.entities import _build_workflow_lookup
+
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    ws_a = _bootstrap_workspace(db_file)
+    ws_b = _bootstrap_workspace(db_file)
+    db.register_entity("feature", "1-collide", "Feature In A", workspace_uuid=ws_a)
+    db.register_entity("feature", "1-collide", "Feature In B", workspace_uuid=ws_b)
+    db.create_workflow_phase("feature:1-collide", kanban_column="wip")
+
+    result = _build_workflow_lookup(db, workspace_uuid=ws_a)
+
+    assert len(result) == 1
+    assert result["feature:1-collide"]["entity_name"] == "Feature In A"
+    assert result["feature:1-collide"]["execution_status"] == "wip"
+
+
+def test_entity_list_workspace_scoping(tmp_path):
+    """GIVEN two workspaces with entities
+    WHEN app.state.workspace_uuid is set to one workspace
+    THEN /entities shows only that workspace's entities; with None it
+    shows both (unchanged unscoped behavior)."""
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    ws_a = _bootstrap_workspace(db_file)
+    ws_b = _bootstrap_workspace(db_file)
+    db.register_entity(
+        "feature", "1-alpha", "Alpha Entity", status="active", workspace_uuid=ws_a
+    )
+    db.register_entity(
+        "feature", "2-beta", "Beta Entity", status="active", workspace_uuid=ws_b
+    )
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+
+    app.state.workspace_uuid = ws_a
+    scoped = client.get("/entities")
+    assert scoped.status_code == 200
+    assert "Alpha Entity" in scoped.text
+    assert "Beta Entity" not in scoped.text
+
+    app.state.workspace_uuid = None
+    unscoped = client.get("/entities")
+    assert unscoped.status_code == 200
+    assert "Alpha Entity" in unscoped.text
+    assert "Beta Entity" in unscoped.text
+
+
+def test_entity_list_search_workspace_scoping(tmp_path):
+    """GIVEN two workspaces with entities matching a search query
+    WHEN app.state.workspace_uuid is set to one workspace
+    THEN the search results (search_entities) only include that
+    workspace's match; with None both matches are returned."""
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    ws_a = _bootstrap_workspace(db_file)
+    ws_b = _bootstrap_workspace(db_file)
+    db.register_entity(
+        "feature", "1-alpha", "Findme Alpha", status="active", workspace_uuid=ws_a
+    )
+    db.register_entity(
+        "feature", "2-beta", "Findme Beta", status="active", workspace_uuid=ws_b
+    )
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+
+    app.state.workspace_uuid = ws_a
+    scoped = client.get("/entities?q=Findme")
+    assert scoped.status_code == 200
+    assert "Findme Alpha" in scoped.text
+    assert "Findme Beta" not in scoped.text
+
+    app.state.workspace_uuid = None
+    unscoped = client.get("/entities?q=Findme")
+    assert unscoped.status_code == 200
+    assert "Findme Alpha" in unscoped.text
+    assert "Findme Beta" in unscoped.text
+
+
+# ===========================================================================
+# Feature 130 Task 2: Workspace switcher UI — dropdown states (entity list)
+# ===========================================================================
+
+from ui.routes.helpers import COOKIE_NAME
+
+
+def _option_element(html: str, value: str) -> str:
+    """Return the full <option value="{value}" ...>...</option> element
+    (attributes AND inner text), so assertions can check `selected` and
+    rendered label text without false-positiving on unrelated 'selected'
+    occurrences elsewhere in the page."""
+    start = html.index(f'<option value="{value}"')
+    end = html.index("</option>", start)
+    return html[start:end + len("</option>")]
+
+
+def test_entity_list_full_page_switcher_selection_states(tmp_path):
+    """Full-page entity list <select name="uuid"> pre-selects the right
+    option across three normal states plus the fourth-state 'unknown
+    cookie' path, all against one two-workspace fixture + shared client:
+      1. cookie names a listed workspace -> that option selected.
+      2. cookie='*' -> 'All workspaces' selected.
+      3. no cookie, startup default matches a listed workspace -> that
+         option selected AND its label gains ' (current dir)'.
+      4a. cookie names an unknown (unlisted, but shaped) workspace -> the
+          transient disabled 'unknown workspace' option is selected, and
+          no listed option (nor 'All workspaces') is."""
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    ws_a = _bootstrap_workspace(db_file, project_root=str(tmp_path / "proj-a"))
+    ws_b = _bootstrap_workspace(db_file, project_root=str(tmp_path / "proj-b"))
+    db.register_entity(
+        "feature", "1-alpha", "Alpha Entity", status="active", workspace_uuid=ws_a
+    )
+    db.register_entity(
+        "feature", "2-beta", "Beta Entity", status="active", workspace_uuid=ws_b
+    )
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+
+    # State 1: cookie names a listed workspace (ws_b).
+    client.cookies.set(COOKIE_NAME, ws_b)
+    r1 = client.get("/entities")
+    assert r1.status_code == 200
+    assert '<select name="uuid"' in r1.text
+    assert "selected" in _option_element(r1.text, ws_b)
+    assert "selected" not in _option_element(r1.text, ws_a)
+    assert "selected" not in _option_element(r1.text, "*")
+    client.cookies.clear()
+
+    # State 2: cookie='*' -> All workspaces.
+    client.cookies.set(COOKIE_NAME, "*")
+    r2 = client.get("/entities")
+    assert "selected" in _option_element(r2.text, "*")
+    assert "selected" not in _option_element(r2.text, ws_a)
+    assert "selected" not in _option_element(r2.text, ws_b)
+    client.cookies.clear()
+
+    # State 3: no cookie, startup default matches ws_a -> "(current dir)".
+    app.state.workspace_uuid = ws_a
+    r3 = client.get("/entities")
+    element_a = _option_element(r3.text, ws_a)
+    assert "selected" in element_a
+    assert "(current dir)" in element_a
+    assert "selected" not in _option_element(r3.text, "*")
+
+    # State 4a: cookie names an unknown (shaped, unlisted) workspace.
+    unknown_uuid = str(uuid_mod.uuid4())
+    client.cookies.set(COOKIE_NAME, unknown_uuid)
+    r4a = client.get("/entities")
+    unmatched_element = _option_element(r4a.text, unknown_uuid)
+    assert "selected" in unmatched_element
+    assert "disabled" in unmatched_element
+    assert f"unknown workspace · {unknown_uuid[:8]}" in unmatched_element
+    assert "selected" not in _option_element(r4a.text, ws_a)
+    assert "selected" not in _option_element(r4a.text, ws_b)
+    assert "selected" not in _option_element(r4a.text, "*")
+    client.cookies.clear()
+
+
+def test_entity_list_full_page_switcher_unpopulated_default_shows_unmatched_option(
+    tmp_path,
+):
+    """Fourth state, path B: no cookie, but the startup default names a
+    workspace with zero entities (absent from the populated listing) ->
+    the transient disabled 'unknown workspace' option is selected, and
+    neither the populated workspace's option nor 'All workspaces' is."""
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    ws_populated = _bootstrap_workspace(
+        db_file, project_root=str(tmp_path / "proj-populated")
+    )
+    db.register_entity(
+        "feature", "1-only", "Only Entity", status="active",
+        workspace_uuid=ws_populated,
+    )
+    ws_empty = _bootstrap_workspace(
+        db_file, project_root=str(tmp_path / "proj-empty")
+    )
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    app.state.workspace_uuid = ws_empty
+    client = TestClient(app)
+
+    response = client.get("/entities")
+
+    assert response.status_code == 200
+    unmatched_element = _option_element(response.text, ws_empty)
+    assert "selected" in unmatched_element
+    assert "disabled" in unmatched_element
+    assert f"unknown workspace · {ws_empty[:8]}" in unmatched_element
+    assert "selected" not in _option_element(response.text, ws_populated)
+    assert "selected" not in _option_element(response.text, "*")
+
+
+def test_entity_list_htmx_partial_has_no_switcher_select(tmp_path):
+    """HX-Request entity-list partial never renders the switcher <select>
+    — the builder is confined to the full-page branch (hot-path cost)."""
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    ws_a = _bootstrap_workspace(db_file, project_root=str(tmp_path / "proj-a"))
+    db.register_entity(
+        "feature", "1-alpha", "Alpha Entity", status="active", workspace_uuid=ws_a
+    )
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+
+    response = client.get("/entities", headers={"HX-Request": "true"})
+
+    assert response.status_code == 200
+    assert '<select name="uuid"' not in response.text
+
+
+def test_entity_list_missing_db_page_has_no_switcher_select():
+    """The entity list's missing-DB error.html never renders the switcher
+    (no context is passed at all on that path)."""
+    from ui import create_app
+
+    app = create_app(db_path="/nonexistent/path.db")
+    client = TestClient(app)
+
+    response = client.get("/entities")
+
+    assert response.status_code == 200
+    assert '<select name="uuid"' not in response.text
+
+
+def test_entity_list_error_page_has_no_switcher_select(tmp_path):
+    """The entity list's DB-query-error error.html never renders the
+    switcher."""
+    db_file = str(tmp_path / "test.db")
+    EntityDatabase(db_file)
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    app.state.db.list_entities = unittest.mock.MagicMock(
+        side_effect=Exception("entity query failed")
+    )
+    client = TestClient(app)
+
+    response = client.get("/entities")
+
+    assert response.status_code == 200
+    assert '<select name="uuid"' not in response.text
+
+
+def test_entity_detail_has_no_switcher_select(tmp_path):
+    """The entity detail page never renders the switcher — the detail
+    route passes no `switcher` context at all (structurally unscoped,
+    spec SC4)."""
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    db._register_entity_no_display(
+        "feature", "detail-no-switcher", "Detail No Switcher",
+        status="active", project_id="__unknown__",
+    )
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+
+    response = client.get("/entities/feature:detail-no-switcher")
+
+    assert response.status_code == 200
+    assert '<select name="uuid"' not in response.text
+
+
+# ===========================================================================
+# Feature 130 Task 2, test group #5: entity detail is unscoped by cookie
+# ===========================================================================
+
+
+def test_entity_detail_unscoped_by_cookie(tmp_path):
+    """GET /entities/{W1 entity} renders 200 even when the client cookie
+    names a DIFFERENT workspace (W2) -- detail is a by-uuid lookup with no
+    workspace_uuid parameter at all, so the cookie never narrows it."""
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    ws_a = _bootstrap_workspace(db_file)
+    ws_b = _bootstrap_workspace(db_file)
+    db.register_entity(
+        "feature", "1-alpha", "Alpha Entity", status="active", workspace_uuid=ws_a
+    )
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+    client.cookies.set(COOKIE_NAME, ws_b)
+
+    response = client.get("/entities/feature:1-alpha")
+
+    assert response.status_code == 200
+    assert "Alpha Entity" in response.text
+
+
+# ===========================================================================
+# Feature 130 Task 2, test group #6: switcher label collision
+# ===========================================================================
+
+
+def test_switcher_label_collision_gets_uuid_suffix(tmp_path):
+    """Two populated workspaces sharing a basename both get the
+    ` · {uuid[:8]}` disambiguation suffix; a NULL-project_root workspace is
+    labeled by its uuid prefix alone; no label leaks a fixture entity
+    name (labels are structurally basenames/uuid-prefixes/counts only)."""
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    ws_collide_1 = _bootstrap_workspace(
+        db_file, project_root=str(tmp_path / "one" / "shared-name")
+    )
+    ws_collide_2 = _bootstrap_workspace(
+        db_file, project_root=str(tmp_path / "two" / "shared-name")
+    )
+    ws_null_root = _bootstrap_workspace(db_file, project_root=None)
+    db.register_entity(
+        "feature", "1-a", "Entity In Collide One",
+        status="active", workspace_uuid=ws_collide_1,
+    )
+    db.register_entity(
+        "feature", "1-b", "Entity In Collide Two",
+        status="active", workspace_uuid=ws_collide_2,
+    )
+    db.register_entity(
+        "feature", "1-c", "Entity In Null Root",
+        status="active", workspace_uuid=ws_null_root,
+    )
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    client = TestClient(app)
+
+    response = client.get("/entities")
+
+    assert response.status_code == 200
+    element_1 = _option_element(response.text, ws_collide_1)
+    element_2 = _option_element(response.text, ws_collide_2)
+    assert f"shared-name · {ws_collide_1[:8]}" in element_1
+    assert f"shared-name · {ws_collide_2[:8]}" in element_2
+    element_null = _option_element(response.text, ws_null_root)
+    assert ws_null_root[:8] in element_null
+
+    select_start = response.text.index('<select name="uuid"')
+    select_end = response.text.index("</select>", select_start)
+    select_html = response.text[select_start:select_end]
+    for entity_name in (
+        "Entity In Collide One", "Entity In Collide Two", "Entity In Null Root",
+    ):
+        assert entity_name not in select_html
+
+
+def test_entity_list_full_page_switcher_none_default_no_cookie_selects_all(
+    tmp_path,
+):
+    """No cookie AND app.state.workspace_uuid is None (129's WARN path):
+    'All workspaces' is the selected option on the entity-list page and no
+    transient 'unknown workspace' option renders (implementation review:
+    the template's `selected is none and default_uuid is none` clause was
+    previously reached by no test on either page)."""
+    db_file = str(tmp_path / "test.db")
+    db = EntityDatabase(db_file)
+    ws_a = _bootstrap_workspace(db_file, project_root=str(tmp_path / "proj-a"))
+    db.register_entity(
+        "feature", "1-alpha", "Alpha Entity", status="active", workspace_uuid=ws_a
+    )
+
+    from ui import create_app
+
+    app = create_app(db_path=db_file)
+    app.state.workspace_uuid = None
+    client = TestClient(app)
+
+    response = client.get("/entities")
+
+    assert response.status_code == 200
+    assert "selected" in _option_element(response.text, "*")
+    assert "selected" not in _option_element(response.text, ws_a)
+    assert "unknown workspace" not in response.text

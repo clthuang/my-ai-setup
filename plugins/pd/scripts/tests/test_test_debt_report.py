@@ -105,7 +105,7 @@ def test_ace8_empty_inputs(tmp_path, empty_backlog):
 
 
 def test_normalize_location_parity():
-    """Inlined normalize_location matches qa-gate-procedure.md §4 contract."""
+    """Inlined normalize_location matches the canonical bucket-helper contract."""
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).parent.parent))  # add scripts/ to path
     from test_debt_report import normalize_location  # lazy import inside test

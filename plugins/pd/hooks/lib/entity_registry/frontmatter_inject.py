@@ -40,6 +40,7 @@ logger.setLevel(logging.WARNING)
 
 # TD-6: basename -> artifact_type mapping
 ARTIFACT_BASENAME_MAP: dict[str, str] = {
+    "shape.md": "shape",
     "spec.md": "spec",
     "design.md": "design",
     "plan.md": "plan",
@@ -50,6 +51,7 @@ ARTIFACT_BASENAME_MAP: dict[str, str] = {
 
 # I5 step 7: artifact_type -> workflow phase
 ARTIFACT_PHASE_MAP: dict[str, str] = {
+    "shape": "specify",
     "spec": "specify",
     "design": "design",
     "plan": "create-plan",

@@ -1,16 +1,12 @@
 ---
-description: Run retrospective for current or completed feature
-argument-hint: [feature-id]
+description: Run a retrospective for the current or a named feature
+argument-hint: "[feature-id]"
 ---
 
-Invoke the retrospecting skill for the specified or current feature.
+# /pd:retrospect
 
-## Config Variables
-Use these values from session context (injected at session start):
-- `{pd_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+Entry point to the retrospecting skill. Resolve the feature from the argument, else the single active feature; zero or several active without an argument → stop and ask. Then follow that skill.
 
-Read {pd_artifacts_root}/features/ to find feature, then follow retrospecting skill instructions.
+**Inputs:** the feature's artifacts under `{pd_artifacts_root}/features/{id}-{slug}/`, the reviewer notes on its completed events, and engine phase state (`get_phase`).
 
-Note: Best results when run after implementation phase completes
-(when .review-history.md and full .meta.json are available).
-Can also run on partially completed features with reduced data.
+**Constraints:** every figure the retro quotes — iteration counts, blocker counts, commit counts — is re-derived from those primary sources at write time, never copied from a briefing or a prior retro. Data is richest once implement closes; earlier runs work with less and say so.

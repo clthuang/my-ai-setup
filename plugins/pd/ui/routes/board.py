@@ -5,34 +5,41 @@ import sys
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
-from ui.routes.helpers import DB_ERROR_USER_MESSAGE, missing_db_response
+from entity_registry.axes import EXECUTION_STATUSES
+
+from ui.routes.helpers import (
+    DB_ERROR_USER_MESSAGE,
+    effective_workspace_uuid,
+    missing_db_response,
+    resolve_execution_status,
+    switcher_context,
+)
 
 router = APIRouter()
 
-COLUMN_ORDER = [
-    "backlog",
-    "prioritised",
-    "wip",
-    "agent_review",
-    "human_review",
-    "blocked",
-    "documenting",
-    "completed",
-]
+COLUMN_ORDER = list(EXECUTION_STATUSES)
 
 
 def _group_by_column(rows: list[dict]) -> dict[str, list[dict]]:
-    """Group workflow_phases rows by kanban_column.
+    """Group rows by execution_status (v2 vocabulary).
 
-    Returns dict with all 8 columns as keys (empty list if no rows).
-    Rows with kanban_column=None default to 'backlog'.
-    Rows with unknown kanban_column values are silently dropped.
+    Returns dict with every EXECUTION_STATUSES column as a key (empty list
+    if no rows). None defaults to 'backlog'; unknown values (including the
+    pre-feature-132 agent_review/human_review legacy values, now unmapped
+    since the backfill translates stored values at source) land in
+    'backlog' WITH one stderr warning (never silently dropped).
     """
     columns: dict[str, list[dict]] = {col: [] for col in COLUMN_ORDER}
     for row in rows:
-        col = row.get("kanban_column") or "backlog"
-        if col in columns:
-            columns[col].append(row)
+        status = resolve_execution_status(row.get("execution_status")) or "backlog"
+        if status not in columns:
+            print(
+                f"[board] unknown execution_status {status!r} on "
+                f"{row.get('type_id')!r} — bucketed to backlog",
+                file=sys.stderr,
+            )
+            status = "backlog"
+        columns[status].append(row)
     return columns
 
 
@@ -55,8 +62,13 @@ def board(request: Request) -> HTMLResponse:
         return missing_db_response(templates, request, db_path)
 
     # Path 2: DB query error
+    switcher = None
     try:
-        rows = db.list_workflow_phases()
+        rows = db.list_workflow_phases(
+            workspace_uuid=effective_workspace_uuid(request)
+        )
+        if not request.headers.get("HX-Request"):
+            switcher = switcher_context(request, db)
     except Exception as exc:
         print(f"DB query error: {exc}", file=sys.stderr)
         return templates.TemplateResponse(
@@ -91,5 +103,6 @@ def board(request: Request) -> HTMLResponse:
             "columns": columns,
             "column_order": COLUMN_ORDER,
             "active_page": "board",
+            "switcher": switcher,
         },
     )

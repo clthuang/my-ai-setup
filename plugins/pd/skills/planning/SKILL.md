@@ -1,135 +1,18 @@
 ---
 name: planning
-description: Produces plan.md with dependencies and ordering. Use when the user says 'create a plan', 'plan the implementation', 'sequence the work', or 'determine build order'.
+description: Shape of a feature's Plan section — ordered tasks, files touched, per-task verification. Use when writing or reviewing `## Plan` in plan.md.
 ---
 
-# Planning Phase
+# Planning
 
-## Config Variables
-Use these values from session context (injected at session start):
-- `{pd_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+`plan.md` carries one `## Plan` section: tasks derived from `## Design` at the moment they are dispatched, regenerated whenever the design moves. It is not a fourth artifact kept in sync by hand.
 
-Create an ordered implementation plan.
+Each task states:
 
-## Prerequisites
+- **Deliverable** — the concrete output. Never a line count, never a time estimate.
+- **Files** — the paths it creates or modifies.
+- **Verification** — the exact command that proves it done, with the expected result. A task no command can prove is under-specified: split it or sharpen it.
+- **Source** — the design decision or requirement it implements.
+- **`[parallel-safe]`** — set only when the task's file set is disjoint from every other marked task. Unmarked tasks run in plan order.
 
-- Read `design.md` for architecture (guaranteed present — hard prerequisite at command level)
-
-## Read Feature Context
-
-1. Find active feature folder in `{pd_artifacts_root}/features/`
-2. Read `.meta.json` for mode and context
-3. Adjust behavior based on mode:
-   - Standard: Full process with optional verification
-   - Full: Full process with required verification
-
-## Process
-
-### 1. Identify Work Items
-
-From design, list everything that needs building:
-- Components
-- Interfaces
-- Tests
-- Documentation
-
-### 2. Map Dependencies
-
-For each item:
-- What must exist before this can start?
-- What depends on this?
-
-### 3. Determine Order
-
-Build dependency graph, then sequence:
-1. Independent items (can start immediately)
-2. Items with resolved dependencies
-3. Items waiting on others
-
-### 4. Estimate Complexity
-
-Not time estimates. Complexity indicators:
-- Simple: Straightforward implementation
-- Medium: Some decisions needed
-- Complex: Significant work or risk
-
-## Estimation Approach
-
-**Use deliverables, not LOC or time:**
-- GOOD: "Create UserService with login method"
-- GOOD: "Add validation to signup form"
-- BAD: "~50 lines of code"
-- BAD: "~2 hours"
-
-**Complexity = decisions, not size:**
-- Simple: Follow established pattern, no new decisions
-- Medium: Some decisions needed, pattern exists
-- Complex: Significant decisions, may need research
-
-## Output: plan.md
-
-Write to `{pd_artifacts_root}/features/{id}-{slug}/plan.md`:
-
-```markdown
-# Plan: {Feature Name}
-
-## Implementation Order
-
-### Stage 1: Foundation
-Items with no dependencies.
-
-1. **{Item}** — {brief description}
-   - **Why this item:** {rationale referencing design/requirement}
-   - **Why this order:** {rationale referencing dependencies}
-   - **Deliverable:** {concrete output, NOT LOC}
-   - **Complexity:** Simple/Medium/Complex
-   - **Files:** {files to create/modify}
-   - **Verification:** {how to confirm complete}
-
-2. **{Item}** — {brief description}
-   ...
-
-### Stage 2: Core Implementation
-Items depending on Stage 1.
-
-1. **{Item}** — {brief description}
-   - **Why this item:** {rationale referencing design/requirement}
-   - **Why this order:** {rationale - depends on Stage 1 items}
-   - **Deliverable:** {concrete output, NOT LOC}
-   - **Complexity:** Simple/Medium/Complex
-   - **Files:** {files to create/modify}
-   - **Verification:** {how to confirm complete}
-
-### Stage 3: Integration
-Items depending on Stage 2.
-
-...
-
-## Dependency Graph
-
-```
-{Item A} ──→ {Item B} ──→ {Item D}
-                    ↘
-{Item C} ──────────→ {Item E}
-```
-
-## Risk Areas
-
-- {Complex item}: {why it's risky}
-
-## Testing Strategy
-
-- Unit tests for: {components}
-- Integration tests for: {interactions}
-
-## Definition of Done
-
-- [ ] All items implemented
-- [ ] Tests passing
-- [ ] Code reviewed
-```
-
-## Completion
-
-"Plan complete. Saved to plan.md."
-"Run /pd:show-status to check, or /pd:implement to begin implementation."
+Order by dependency: a task appears after every task producing an input it reads.

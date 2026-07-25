@@ -14,7 +14,7 @@ from entity_registry.database import (
     EntityDatabase,
     EntityExistsError,
     MIGRATIONS,
-    _UUID_V4_RE,
+    _UUID_RE,
     _add_project_scoping,
     _create_initial_schema,
     _expand_workflow_phase_check,
@@ -27,6 +27,41 @@ from entity_registry.database import (
 
 from entity_registry.database import EXPORT_SCHEMA_VERSION
 from entity_registry.test_helpers import TEST_PROJECT_ID
+from entity_registry import schema_v2
+# Feature 132 Task 3: imported at MODULE (collection) time, not lazily
+# inside the v2_db fixture below -- this is load-bearing, not stylistic.
+# rebuild_tool.py's own top-level imports (events/views/axes) register
+# "events"/"views"/"axes" into schema_v2.DDL_REGISTRY as a ONE-TIME,
+# process-wide side effect of the FIRST import (Python's module cache
+# means a later `import` is a no-op re-registration-wise). Collection
+# happens before any autouse fixture ever runs, so importing here --
+# mirroring test_rebuild_tool.py's own top-level `from entity_registry
+# import axes` -- guarantees _reset_ddl_registry_for_v2_fixtures' FIRST
+# snapshot already includes those three owners. Without this, the first
+# test to use v2_db would trigger the registration LAZILY mid-test
+# (AFTER that test's snapshot was already taken), and that same test's
+# OWN teardown would then wipe "events"/"views"/"axes" back out --
+# breaking every v2_db use after the first with a "no such table:
+# events" error (the module cache prevents re-registration on retry).
+from entity_registry import rebuild_tool
+
+
+@pytest.fixture(autouse=True)
+def _reset_ddl_registry_for_v2_fixtures():
+    """Snapshot/restore ``schema_v2.DDL_REGISTRY`` around every test in
+    this file (mirrors test_rebuild_tool.py/test_axes.py's established
+    idiom). Feature 132 Task 3's ``v2_db`` fixture below calls
+    ``rebuild_tool.build_staging_database``, which calls
+    ``axes.register_vocab_ddl()`` as PRODUCTION behavior (D1 step 2) —
+    without this, "axes_vocab_triggers" would leak into whatever test
+    runs next in this process (H4/H6 discipline: this suite's OWN
+    fixtures must not become a NEW dark-suite-reconciliation hazard for
+    test_views.py/test_meta_projection.py/test_events.py, which
+    deliberately write out-of-vocabulary axis values in their own,
+    unrelated tests)."""
+    original_registry = list(schema_v2.DDL_REGISTRY)
+    yield
+    schema_v2.DDL_REGISTRY[:] = original_registry
 
 
 def _latest_entity_version() -> int:
@@ -175,7 +210,7 @@ class TestMigration2:
     def test_migration_populated_db_preserves_data(self):
         """Migrating a v1 DB with data should preserve all rows and add UUIDs."""
         import sqlite3
-        from entity_registry.database import _UUID_V4_RE
+        from entity_registry.database import _UUID_RE
 
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
@@ -217,9 +252,9 @@ class TestMigration2:
         assert "feature:f1" in type_ids
         assert "project:p1" in type_ids
 
-        # Each row has valid UUID v4
+        # Each row has valid UUID
         for row in rows:
-            assert _UUID_V4_RE.match(row["uuid"]), (
+            assert _UUID_RE.match(row["uuid"]), (
                 f"Row {row['type_id']} has invalid uuid: {row['uuid']}"
             )
 
@@ -234,7 +269,7 @@ class TestMigration2:
     def test_migration_populates_parent_uuid(self):
         """Migration should populate parent_uuid from parent_type_id."""
         import sqlite3
-        from entity_registry.database import _UUID_V4_RE
+        from entity_registry.database import _UUID_RE
 
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
@@ -266,7 +301,7 @@ class TestMigration2:
         ).fetchone()
 
         assert child["parent_uuid"] == parent["uuid"]
-        assert _UUID_V4_RE.match(parent["uuid"])
+        assert _UUID_RE.match(parent["uuid"])
 
         conn.close()
 
@@ -587,9 +622,10 @@ class TestIndexes:
         # idx_wp_workspace_uuid added.
         # Feature 109 Migration 12 Group 7: idx_entity_type and
         # idx_workspace_entity_type dropped (entity_type column removed).
+        # Feature 124 Migration 18: idx_ed_entity_uuid / idx_ed_blocked_by_uuid
+        # dropped along with the pre-124 dependency table (unified into
+        # entity_relations).
         expected = [
-            "idx_ed_blocked_by_uuid",
-            "idx_ed_entity_uuid",
             # Feature 109 (AC-1.6): composite polymorphic-query index
             # added to migration 12.
             "idx_entities_type_kind",
@@ -668,7 +704,7 @@ class TestRegisterEntity:
     def test_happy_path(self, db: EntityDatabase):
         """Register a feature entity and retrieve it."""
         result = db.register_entity("feature", "feat-001", "My Feature", project_id="__unknown__")
-        assert _UUID_V4_RE.match(result), f"Expected UUID v4, got {result!r}"
+        assert _UUID_RE.match(result), f"Expected a valid UUID, got {result!r}"
         cur = db._conn.execute(
             "SELECT * FROM entities WHERE type_id = 'feature:feat-001'"
         )
@@ -682,7 +718,7 @@ class TestRegisterEntity:
     def test_type_id_auto_constructed(self, db: EntityDatabase):
         """type_id should be f'{entity_type}:{entity_id}'."""
         result = db.register_entity("backlog", "item-42", "Backlog Item", project_id="__unknown__")
-        assert _UUID_V4_RE.match(result), f"Expected UUID v4, got {result!r}"
+        assert _UUID_RE.match(result), f"Expected a valid UUID, got {result!r}"
         # Verify the type_id was constructed correctly in the DB
         row = db._conn.execute(
             "SELECT type_id FROM entities WHERE uuid = ?", (result,)
@@ -699,7 +735,7 @@ class TestRegisterEntity:
         """
         uuid1 = db.upsert_entity("project", "proj-1", "Project One", project_id="__unknown__")
         uuid2 = db.upsert_entity("project", "proj-1", "Project One Updated", project_id="__unknown__")
-        assert _UUID_V4_RE.match(uuid1)
+        assert _UUID_RE.match(uuid1)
         assert uuid1 == uuid2
         cur = db._conn.execute("SELECT COUNT(*) FROM entities")
         assert cur.fetchone()[0] == 1
@@ -718,14 +754,14 @@ class TestRegisterEntity:
         """All eight valid types should succeed."""
         for etype in EntityDatabase.VALID_ENTITY_TYPES:
             result = db.register_entity(etype, f"id-{etype}", f"Name {etype}", project_id="__unknown__")
-            assert _UUID_V4_RE.match(result), f"Expected UUID v4 for {etype}"
+            assert _UUID_RE.match(result), f"Expected a valid UUID for {etype}"
 
     def test_new_entity_types_register_successfully(self, db: EntityDatabase):
         """New entity types (initiative, objective, key_result, task) register."""
         new_types = ("initiative", "objective", "key_result", "task")
         for etype in new_types:
             uuid_str = db.register_entity(etype, f"001-test-{etype}", f"Test {etype}", project_id="__unknown__")
-            assert _UUID_V4_RE.match(uuid_str), f"{etype} should return valid UUID"
+            assert _UUID_RE.match(uuid_str), f"{etype} should return valid UUID"
             # Verify entity is queryable
             # F11 (feature 109): entity_type column dropped; kind replaces it.
             row = db._conn.execute(
@@ -797,10 +833,10 @@ class TestRegisterEntity:
         assert row["updated_at"] is not None
 
     def test_returns_uuid_string(self, db: EntityDatabase):
-        """register_entity should return a UUID v4 string."""
+        """register_entity should return a valid UUID string."""
         result = db.register_entity("feature", "f99", "Feature 99", project_id="__unknown__")
         assert isinstance(result, str)
-        assert _UUID_V4_RE.match(result), f"Expected UUID v4, got {result!r}"
+        assert _UUID_RE.match(result), f"Expected a valid UUID, got {result!r}"
 
     def test_metadata_stored_as_json(self, db: EntityDatabase):
         """metadata dict should be stored as JSON string in the database."""
@@ -816,6 +852,63 @@ class TestRegisterEntity:
         assert isinstance(raw, str)
         parsed = json.loads(raw)
         assert parsed == {"key": "value", "count": 42}
+
+
+# ---------------------------------------------------------------------------
+# Feature 121 Task 1 (D2): blank/whitespace name validation tests
+# ---------------------------------------------------------------------------
+
+
+class TestEntityNameValidation:
+    """register_entity/upsert_entity/update_entity reject blank or
+    whitespace-only names before any write (feature 121 FR-5 / design D2).
+    All three sites raise the identical message."""
+
+    _BLANK_NAME_MESSAGE = (
+        "entity name must be non-empty "
+        "(feature 121 FR-5: blank display fields corrupt the registry)"
+    )
+
+    def test_register_entity_empty_name_raises(self, db: EntityDatabase):
+        with pytest.raises(ValueError, match=re.escape(self._BLANK_NAME_MESSAGE)):
+            db.register_entity("feature", "f1", "", project_id="__unknown__")
+
+    def test_register_entity_whitespace_name_raises(self, db: EntityDatabase):
+        with pytest.raises(ValueError, match=re.escape(self._BLANK_NAME_MESSAGE)):
+            db.register_entity("feature", "f1", "   ", project_id="__unknown__")
+
+    def test_upsert_entity_empty_name_raises(self, db: EntityDatabase):
+        with pytest.raises(ValueError, match=re.escape(self._BLANK_NAME_MESSAGE)):
+            db.upsert_entity("feature", "f1", "", project_id="__unknown__")
+
+    def test_upsert_entity_whitespace_name_raises(self, db: EntityDatabase):
+        with pytest.raises(ValueError, match=re.escape(self._BLANK_NAME_MESSAGE)):
+            db.upsert_entity("feature", "f1", "   ", project_id="__unknown__")
+
+    def test_update_entity_empty_name_raises(self, db: EntityDatabase):
+        db.register_entity("feature", "f1", "Original", project_id="__unknown__")
+        with pytest.raises(ValueError, match=re.escape(self._BLANK_NAME_MESSAGE)):
+            db.update_entity("feature:f1", name="")
+
+    def test_update_entity_whitespace_name_raises(self, db: EntityDatabase):
+        db.register_entity("feature", "f1", "Original", project_id="__unknown__")
+        with pytest.raises(ValueError, match=re.escape(self._BLANK_NAME_MESSAGE)):
+            db.update_entity("feature:f1", name="   ")
+
+    def test_update_entity_name_none_stays_legal(self, db: EntityDatabase):
+        """Absent name (None) is not blank: update_entity(name=None) must
+        not raise (name update is simply skipped)."""
+        db.register_entity("feature", "f1", "Original", project_id="__unknown__")
+        db.update_entity("feature:f1", name=None)
+        result = db.get_entity("feature:f1")
+        assert result["name"] == "Original"
+
+    def test_register_entity_real_name_canary(self, db: EntityDatabase):
+        """Regression guard: a real non-blank name still registers fine."""
+        result = db.register_entity(
+            "feature", "f-canary", "A Real Name", project_id="__unknown__"
+        )
+        assert _UUID_RE.match(result), f"Expected a valid UUID, got {result!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -1703,7 +1796,7 @@ class TestBoundaryEntityIdEmpty:
         # When registering with entity_id=""
         entity_uuid = db.register_entity("feature", "", "Empty ID Feature", project_id="__unknown__")
         # Then the return is a UUID
-        assert _UUID_V4_RE.match(entity_uuid)
+        assert _UUID_RE.match(entity_uuid)
         # And the type_id is "feature:" (colon-separated format), retrievable
         entity = db.get_entity("feature:")
         assert entity is not None
@@ -1770,7 +1863,7 @@ class TestTypeIdFormat:
         # Given a feature entity with entity_id "my-feature"
         entity_uuid = db.register_entity("feature", "my-feature", "My Feature", project_id="__unknown__")
         # Then the return is a UUID
-        assert _UUID_V4_RE.match(entity_uuid)
+        assert _UUID_RE.match(entity_uuid)
         # And the type_id in the DB uses a colon separator
         entity = db.get_entity(entity_uuid)
         type_id = entity["type_id"]
@@ -1847,7 +1940,7 @@ class TestBacklogIdWithLeadingZeros:
         # Given a backlog entity with leading zeros in ID
         entity_uuid = db.register_entity("backlog", "00019", "Item with zeros", project_id="__unknown__")
         # Then the return is a UUID
-        assert _UUID_V4_RE.match(entity_uuid)
+        assert _UUID_RE.match(entity_uuid)
         # And the type_id preserves leading zeros
         entity = db.get_entity("backlog:00019")
         assert entity is not None
@@ -1904,10 +1997,10 @@ class TestResolveIdentifier:
 
 # T2.2.1: register_entity UUID return tests
 class TestRegisterEntityUUID:
-    def test_register_returns_uuid_v4_format(self, db: EntityDatabase):
-        """register_entity should return a valid UUID v4 string."""
+    def test_register_returns_valid_uuid_format(self, db: EntityDatabase):
+        """register_entity should return a valid UUID string."""
         result = db.register_entity("feature", "test", "Test", project_id="__unknown__")
-        assert _UUID_V4_RE.match(result), f"Expected UUID v4, got {result!r}"
+        assert _UUID_RE.match(result), f"Expected a valid UUID, got {result!r}"
 
     def test_register_duplicate_returns_existing_uuid(self, db: EntityDatabase):
         """Upserting same entity twice returns the same UUID (F12 idempotent path)."""
@@ -2071,46 +2164,68 @@ class TestResolveIdentifierBoundary:
         # Then it resolves correctly (case-insensitive)
         assert result == (entity_uuid, "feature:case-test")
 
-    def test_uuid_v1_format_not_matched_as_uuid(self, db: EntityDatabase):
-        """UUID v1 format should NOT match v4 regex (version nibble = 1).
-        Anticipate: If regex is too loose (e.g., accepts any hex), a v1
-        UUID would be treated as a UUID lookup instead of type_id.
+    def test_uuid_v1_format_matched_as_uuid(self, db: EntityDatabase):
+        """UUID v1 format matches the version-agnostic UUID regex.
+        Versions 1-7 are accepted; uuid-vs-type_id routing is now
+        version-agnostic (position 13 accepts any digit in [1-7]).
         derived_from: spec:R23, dimension:mutation_mindset
         """
-        # Given a UUID v1 string (version nibble is 1, not 4)
+        # Given a UUID v1 string (version nibble is 1)
         v1_like = "550e8400-e29b-11d4-a716-446655440000"
         # When checking against the regex
-        # Then it should NOT match (position 13 must be '4')
-        assert not _UUID_V4_RE.match(v1_like.lower())
+        # Then it SHOULD match (version nibble 1 is within [1-7])
+        assert _UUID_RE.match(v1_like.lower())
 
-    def test_uuid_v5_format_not_matched_as_uuid(self, db: EntityDatabase):
-        """UUID v5 format should NOT match v4 regex (version nibble = 5).
-        Anticipate: Weak regex accepting any version would incorrectly
-        route this to UUID lookup path.
+    def test_uuid_v5_format_matched_as_uuid(self, db: EntityDatabase):
+        """UUID v5 format matches the version-agnostic UUID regex.
+        Versions 1-7 are accepted; uuid-vs-type_id routing is now
+        version-agnostic.
         derived_from: spec:R23, dimension:boundary_values
         """
         # Given a UUID v5 string (version nibble is 5)
         v5_like = "550e8400-e29b-51d4-a716-446655440000"
-        assert not _UUID_V4_RE.match(v5_like.lower())
+        assert _UUID_RE.match(v5_like.lower())
 
-    def test_uuid_v3_format_not_matched_as_uuid(self, db: EntityDatabase):
-        """UUID v3 format should NOT match v4 regex (version nibble = 3).
+    def test_uuid_v3_format_matched_as_uuid(self, db: EntityDatabase):
+        """UUID v3 format matches the version-agnostic UUID regex.
+        Versions 1-7 are accepted; uuid-vs-type_id routing is now
+        version-agnostic.
         derived_from: spec:R23, dimension:boundary_values
         """
         v3_like = "550e8400-e29b-31d4-a716-446655440000"
-        assert not _UUID_V4_RE.match(v3_like.lower())
+        assert _UUID_RE.match(v3_like.lower())
 
     def test_uuid_with_invalid_variant_nibble_not_matched(
         self, db: EntityDatabase,
     ):
-        """UUID with variant nibble outside [89ab] should not match v4 regex.
+        """UUID with variant nibble outside [89ab] should not match the UUID regex.
         Anticipate: If regex variant check is missing, UUIDs with variant 0
         would be mismatched.
         derived_from: spec:R23, dimension:mutation_mindset
         """
         # Position 19 (variant nibble) must be [89ab]; 'c' is outside
         invalid_variant = "550e8400-e29b-41d4-c716-446655440000"
-        assert not _UUID_V4_RE.match(invalid_variant.lower())
+        assert not _UUID_RE.match(invalid_variant.lower())
+
+    def test_uuid_v8_format_not_matched_as_uuid(self, db: EntityDatabase):
+        """UUID-shaped string with version nibble 8 is REJECTED — the
+        widened regex accepts [1-7], not [1-8]. Pins the upper bound the
+        v1/v3/v5-accepted tests above only probe from below.
+        Anticipate: the widening from a literal '4' to a range could
+        plausibly overshoot (e.g. a careless '[1-8]' or '[0-9a-f]' typo
+        instead of '[1-7]') since nothing else in the version position
+        distinguishes "real" version nibbles from arbitrary hex digits.
+        Verify (mutation): swapping '[1-7]' to '[1-8]' in the regex makes
+        this assertion fail while every other test in this class still
+        passes — this is the only test pinning the upper edge.
+        derived_from: spec:R23, dimension:boundary_values, dimension:mutation_mindset
+        """
+        # Given a UUID-shaped string with version nibble 8 (one past the
+        # accepted [1-7] range)
+        v8_like = "550e8400-e29b-81d4-a716-446655440000"
+        # When checking against the regex
+        # Then it must NOT match
+        assert not _UUID_RE.match(v8_like.lower())
 
 
 class TestMigrationEmptyDb:
@@ -2176,9 +2291,9 @@ class TestMigrationLargeDataset:
         # And all UUIDs are unique
         uuids = [r["uuid"] for r in rows]
         assert len(set(uuids)) == 100
-        # And all UUIDs are valid v4
+        # And all UUIDs are valid
         for u in uuids:
-            assert _UUID_V4_RE.match(u)
+            assert _UUID_RE.match(u)
         conn.close()
 
 
@@ -2705,7 +2820,7 @@ class TestGetEntityDictContainsBothIdentifiers:
         # Then both fields are present and valid
         assert "uuid" in entity
         assert "type_id" in entity
-        assert _UUID_V4_RE.match(entity["uuid"])
+        assert _UUID_RE.match(entity["uuid"])
         assert entity["type_id"] == "feature:both-ids"
 
     def test_lineage_dicts_have_both_identifiers(self, db: EntityDatabase):
@@ -2724,7 +2839,7 @@ class TestGetEntityDictContainsBothIdentifiers:
         for entry in lineage:
             assert "uuid" in entry
             assert "type_id" in entry
-            assert _UUID_V4_RE.match(entry["uuid"])
+            assert _UUID_RE.match(entry["uuid"])
 
 
 # ---------------------------------------------------------------------------
@@ -3596,6 +3711,243 @@ class TestWorkflowPhaseCRUD:
 
 
 # ---------------------------------------------------------------------------
+# Feature 129 / D2 -- list_workflow_phases workspace_uuid scoping
+# ---------------------------------------------------------------------------
+
+
+class TestListWorkflowPhasesWorkspaceScoping:
+    """Feature 129 Task 4 / design D2: ``workspace_uuid`` scope on
+    ``list_workflow_phases``.
+
+    Design Testing Strategy #4: unscoped returns all rows unchanged;
+    scoped returns the target workspace's rows PLUS orphan rows (retained
+    for anomaly visibility); scoped excludes other-workspace rows; a
+    type_id-collision fixture pins the WHERE-clause (not ON-clause)
+    placement of the scoping predicate.
+    """
+
+    def test_unscoped_returns_all_rows_unchanged(self, db: EntityDatabase):
+        """workspace_uuid=None (default) preserves the unscoped return."""
+        ws_a = _bootstrap_test_workspace(db, "ws-scope-a")
+        ws_b = _bootstrap_test_workspace(db, "ws-scope-b")
+        db.register_entity("feature", "scope-a1", "A1", workspace_uuid=ws_a)
+        db.register_entity("feature", "scope-b1", "B1", workspace_uuid=ws_b)
+        db.create_workflow_phase("feature:scope-a1", kanban_column="wip")
+        db.create_workflow_phase("feature:scope-b1", kanban_column="backlog")
+
+        result = db.list_workflow_phases()
+        assert len(result) == 2
+
+    def test_scoped_returns_only_target_workspace_rows(
+        self, db: EntityDatabase
+    ):
+        """scoped-to-W excludes rows belonging to other workspaces."""
+        ws_a = _bootstrap_test_workspace(db, "ws-scope-excl-a")
+        ws_b = _bootstrap_test_workspace(db, "ws-scope-excl-b")
+        db.register_entity("feature", "excl-a1", "A1", workspace_uuid=ws_a)
+        db.register_entity("feature", "excl-b1", "B1", workspace_uuid=ws_b)
+        db.create_workflow_phase("feature:excl-a1", kanban_column="wip")
+        db.create_workflow_phase("feature:excl-b1", kanban_column="backlog")
+
+        result = db.list_workflow_phases(workspace_uuid=ws_a)
+        assert len(result) == 1
+        assert result[0]["type_id"] == "feature:excl-a1"
+
+    def test_scoped_retains_orphan_rows(self, db: EntityDatabase):
+        """Orphan workflow_phases rows (no matching entity) are RETAINED
+        under scope -- the ``OR e.uuid IS NULL`` non-vacuity pin (D2)."""
+        ws_a = _bootstrap_test_workspace(db, "ws-scope-orphan")
+        db.register_entity(
+            "feature", "orphan-owner", "Owner", workspace_uuid=ws_a
+        )
+        db.create_workflow_phase("feature:orphan-owner", kanban_column="wip")
+
+        # Manually insert an orphaned workflow_phases row (no matching
+        # entity). Pass workspace_uuid explicitly to bypass the
+        # wp_reject_orphaned_insert trigger.
+        from entity_registry.database import _UNKNOWN_WORKSPACE_UUID
+        db._conn.execute("PRAGMA foreign_keys = OFF")
+        db._conn.execute(
+            "INSERT INTO workflow_phases "
+            "(type_id, kanban_column, updated_at, workspace_uuid) "
+            "VALUES (?, ?, ?, ?)",
+            ("feature:scope-orphan", "backlog", "2026-01-01T00:00:00Z",
+             _UNKNOWN_WORKSPACE_UUID),
+        )
+        db._conn.commit()
+        db._conn.execute("PRAGMA foreign_keys = ON")
+
+        result = db.list_workflow_phases(workspace_uuid=ws_a)
+        type_ids = {r["type_id"] for r in result}
+        assert type_ids == {"feature:orphan-owner", "feature:scope-orphan"}
+
+    def test_scoped_type_id_collision_dedupes_to_target_workspace(
+        self, db: EntityDatabase
+    ):
+        """Two entities sharing one type_id across workspaces, joined to a
+        single workflow_phases row: scoped-to-W yields exactly the
+        W-entity row -- no phantom/duplicate from the colliding
+        workspace (pins WHERE-not-ON placement, D2)."""
+        ws_a = _bootstrap_test_workspace(db, "ws-collide-a")
+        ws_b = _bootstrap_test_workspace(db, "ws-collide-b")
+        db.register_entity(
+            "feature", "collide", "Feature In A", workspace_uuid=ws_a
+        )
+        db.register_entity(
+            "feature", "collide", "Feature In B", workspace_uuid=ws_b
+        )
+        db.create_workflow_phase("feature:collide", kanban_column="wip")
+
+        result = db.list_workflow_phases(workspace_uuid=ws_a)
+        assert len(result) == 1
+        assert result[0]["entity_name"] == "Feature In A"
+
+    def test_scoped_empty_string_workspace_uuid_matches_no_entities_but_retains_orphans(
+        self, db: EntityDatabase
+    ):
+        """Anticipate: a truthy-check (`if workspace_uuid:`) instead of the
+        actual `is not None` guard would treat "" as "no scope" and
+        silently return ALL rows instead of filtering to (nothing) +
+        orphans. "" is a valid, non-None str, so it must still bind into
+        the WHERE clause -- kills the truthy-vs-is-not-None boundary
+        mutation (D2).
+        derived_from: design:D2, dimension:boundary_values
+        """
+        ws_a = _bootstrap_test_workspace(db, "ws-scope-empty-a")
+        db.register_entity("feature", "empty-a1", "A1", workspace_uuid=ws_a)
+        db.create_workflow_phase("feature:empty-a1", kanban_column="wip")
+
+        # Orphan row so "unscoped" (would return both) is distinguishable
+        # from "scoped to a value matching nothing" (orphan only).
+        from entity_registry.database import _UNKNOWN_WORKSPACE_UUID
+        db._conn.execute("PRAGMA foreign_keys = OFF")
+        db._conn.execute(
+            "INSERT INTO workflow_phases "
+            "(type_id, kanban_column, updated_at, workspace_uuid) "
+            "VALUES (?, ?, ?, ?)",
+            ("feature:empty-orphan", "backlog", "2026-01-01T00:00:00Z",
+             _UNKNOWN_WORKSPACE_UUID),
+        )
+        db._conn.commit()
+        db._conn.execute("PRAGMA foreign_keys = ON")
+
+        result = db.list_workflow_phases(workspace_uuid="")
+        type_ids = {r["type_id"] for r in result}
+        assert type_ids == {"feature:empty-orphan"}, (
+            f"workspace_uuid='' must filter out the real entity (matches "
+            f"no workspace) while retaining the orphan row, got {type_ids}"
+        )
+
+    def test_scoped_star_sentinel_treated_as_literal_uuid_at_db_layer(
+        self, db: EntityDatabase
+    ):
+        """The '*' cross-workspace opt-out is an MCP-boundary concept --
+        _resolve_list_handler_workspace_filter resolves '*' -> None
+        BEFORE calling this method (design D4/D5). This method itself
+        must treat '*' as an ordinary non-matching literal if a caller
+        bypasses the MCP layer -- kills a mutation that special-cases
+        '*' inside list_workflow_phases itself (a layering violation).
+        derived_from: spec:SC3 ('*' sentinel never reaches the lib
+                      layer), dimension:boundary_values
+        """
+        ws_a = _bootstrap_test_workspace(db, "ws-scope-star-a")
+        db.register_entity("feature", "star-a1", "A1", workspace_uuid=ws_a)
+        db.create_workflow_phase("feature:star-a1", kanban_column="wip")
+
+        result = db.list_workflow_phases(workspace_uuid="*")
+        assert result == [], (
+            f"'*' passed directly to the DB layer must match no real "
+            f"workspace (only the MCP boundary resolves '*' to None), "
+            f"got {result!r}"
+        )
+
+    def test_scoped_workspace_with_zero_entities_returns_empty_list(
+        self, db: EntityDatabase
+    ):
+        """A syntactically valid, registered workspace that owns zero
+        entities/phases must return [] gracefully -- not None, not a
+        crash. Kills a mutation that returns None on an empty result set
+        or otherwise assumes at least one matching row exists.
+        derived_from: dimension:boundary_values, design:Testing Strategy #4
+        """
+        ws_a = _bootstrap_test_workspace(db, "ws-scope-populated")
+        ws_empty = _bootstrap_test_workspace(db, "ws-scope-empty-owner")
+        db.register_entity("feature", "pop-a1", "A1", workspace_uuid=ws_a)
+        db.create_workflow_phase("feature:pop-a1", kanban_column="wip")
+
+        result = db.list_workflow_phases(workspace_uuid=ws_empty)
+        assert result == []
+
+    def test_scoped_filter_independent_of_workspaces_registry_population(
+        self, db: EntityDatabase
+    ):
+        """list_workflow_phases's scoping predicate reads only
+        entities.workspace_uuid -- it never JOINs or validates against
+        the `workspaces` registry table (rejected alternative in D2).
+        Wiping the registry entirely (simulating a cleaned-up/deregistered
+        workspace whose entities still carry the old workspace_uuid)
+        must not change scoped results. Kills a mutation that adds a
+        `JOIN workspaces` / registry-membership check to the predicate.
+        derived_from: design:D2 (rejected _resolve_optional_workspace_filter
+                      routing), dimension:error_propagation
+        """
+        ws_a = _bootstrap_test_workspace(db, "ws-e2-a")
+        db.register_entity("feature", "e2-a1", "A1", workspace_uuid=ws_a)
+        db.create_workflow_phase("feature:e2-a1", kanban_column="wip")
+
+        # Wipe the ENTIRE workspaces registry (including the `db` fixture's
+        # own pre-bootstrapped rows) -- entities/workflow_phases rows still
+        # carry workspace_uuid=ws_a, but no `workspaces` row for it exists.
+        db._conn.execute("PRAGMA foreign_keys = OFF")
+        db._conn.execute("DELETE FROM workspaces")
+        db._conn.commit()
+        db._conn.execute("PRAGMA foreign_keys = ON")
+        assert db._conn.execute(
+            "SELECT COUNT(*) FROM workspaces"
+        ).fetchone()[0] == 0
+
+        result = db.list_workflow_phases(workspace_uuid=ws_a)
+        assert len(result) == 1
+        assert result[0]["type_id"] == "feature:e2-a1"
+
+    def test_scoped_combines_with_kanban_column_filter_via_and(
+        self, db: EntityDatabase
+    ):
+        """workspace_uuid scoping must combine with kanban_column via
+        AND, not override or OR it. Kills a mutation to the
+        clause-joining logic (" AND ".join(clauses)) that would let a
+        same-workspace-wrong-column row leak through, or a
+        right-column-other-workspace row leak through.
+        derived_from: design:D2 (WHERE clauses list, AND-joined),
+                      dimension:mutation_mindset
+        """
+        ws_a = _bootstrap_test_workspace(db, "ws-scope-and-a")
+        ws_b = _bootstrap_test_workspace(db, "ws-scope-and-b")
+        db.register_entity(
+            "feature", "and-a-wip", "A wip", workspace_uuid=ws_a
+        )
+        db.create_workflow_phase("feature:and-a-wip", kanban_column="wip")
+        db.register_entity(
+            "feature", "and-a-backlog", "A backlog", workspace_uuid=ws_a
+        )
+        db.create_workflow_phase(
+            "feature:and-a-backlog", kanban_column="backlog"
+        )
+        db.register_entity(
+            "feature", "and-b-wip", "B wip", workspace_uuid=ws_b
+        )
+        db.create_workflow_phase("feature:and-b-wip", kanban_column="wip")
+
+        result = db.list_workflow_phases(
+            kanban_column="wip", workspace_uuid=ws_a
+        )
+        type_ids = {r["type_id"] for r in result}
+        assert type_ids == {"feature:and-a-wip"}, (
+            f"Expected only the ws_a+wip row (AND semantics), got {type_ids}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Phase B Deepened Tests: Workflow Phase CRUD & Migration edge cases
 # ---------------------------------------------------------------------------
 
@@ -4087,7 +4439,7 @@ class TestExportEntitiesJson:
     # -- Lineage, Metadata, Ordering, Performance (Task 1.1.1b) ------------
 
     def test_uuid_in_entity(self, mem_db: EntityDatabase):
-        """Each entity dict has a uuid field matching UUID v4 pattern."""
+        """Each entity dict has a uuid field matching the UUID pattern."""
         mem_db.register_entity("feature", "f1", "Feature One", project_id="__unknown__")
 
         result = mem_db.export_entities_json()
@@ -4095,8 +4447,8 @@ class TestExportEntitiesJson:
         for entity in result["entities"]:
             assert "uuid" in entity
             assert re.match(
-                _UUID_V4_RE, entity["uuid"],
-            ), f"uuid '{entity['uuid']}' does not match UUID v4 pattern"
+                _UUID_RE, entity["uuid"],
+            ), f"uuid '{entity['uuid']}' does not match UUID pattern"
 
     def test_include_lineage_true(self, mem_db: EntityDatabase):
         """include_lineage=True includes parent_type_id in entity dicts."""
@@ -4507,6 +4859,71 @@ class TestExportEntitiesJsonDeepened:
         assert result["schema_version"] != "1"
         assert result["schema_version"] != 0
         assert result["schema_version"] != 2
+
+
+class TestExportEntitiesJsonWorkspaceFilterDeepened:
+    """Feature 133 FR133-2.i / SC4 deepening: workspace_uuid combined with
+    project_id, and workspace_uuid against a workspace with zero entities.
+
+    Supplements test_workspace_scoped_query_export_entities_json (proves
+    workspace_uuid ALONE excludes) and
+    test_project_scoped_query_export_entities_json (proves project_id
+    ALONE excludes) -- neither combines the two filters or exercises a
+    zero-match scope.
+    """
+
+    def test_workspace_uuid_and_project_id_are_anded_not_ored(
+        self, mem_db: EntityDatabase
+    ):
+        """Both filters present must be ANDed (production builds two
+        independent ``conditions.append(...)`` clauses joined by
+        ``' AND '.join(conditions)``) -- a workspace_uuid match paired
+        with a MISMATCHED project_id must exclude the entity, proving
+        neither filter is silently ignored once the other is supplied.
+        """
+        ws_a = _bootstrap_test_workspace(mem_db, "combo-proj-a")
+        mem_db.register_entity(
+            "feature", "combo1", "Combo1", workspace_uuid=ws_a,
+        )
+
+        # Matching pair: both filters describe the SAME workspace -> included.
+        matching = mem_db.export_entities_json(
+            workspace_uuid=ws_a, project_id="combo-proj-a"
+        )
+        assert matching["entity_count"] == 1
+        assert matching["entities"][0]["entity_id"] == "combo1"
+
+        # Mismatched pair: workspace_uuid is right, project_id names a
+        # DIFFERENT project -- AND semantics must exclude, not silently
+        # honor only one of the two filters.
+        mismatched = mem_db.export_entities_json(
+            workspace_uuid=ws_a, project_id="some-other-project"
+        )
+        assert mismatched["entity_count"] == 0
+        assert mismatched["entities"] == []
+
+    def test_workspace_with_zero_entities_exports_empty_but_valid(
+        self, mem_db: EntityDatabase
+    ):
+        """A workspace_uuid that resolves to a real workspace with no
+        entities registered under it must export an empty-but-well-formed
+        envelope -- not raise, not omit envelope keys, not accidentally
+        fall back to the unscoped (all-workspaces) result."""
+        ws_empty = _bootstrap_test_workspace(mem_db, "combo-empty-ws")
+        # A DIFFERENT workspace with a live entity, so the empty result
+        # proves a real per-workspace filter, not just an empty table.
+        ws_other = _bootstrap_test_workspace(mem_db, "combo-other-ws")
+        mem_db.register_entity(
+            "feature", "combo2", "Combo2", workspace_uuid=ws_other,
+        )
+
+        result = mem_db.export_entities_json(workspace_uuid=ws_empty)
+
+        assert result["entity_count"] == 0
+        assert result["entities"] == []
+        assert result["schema_version"] == 1
+        assert "filters_applied" in result
+        assert "exported_at" in result
 
 
 # ---------------------------------------------------------------------------
@@ -5183,14 +5600,6 @@ class TestDependencyMethods:
         a, b = self._make_two_entities(db)
         db.remove_dependency(a, b)  # Should not raise
 
-    def test_remove_dependencies_by_blocker(self, db):
-        a, b = self._make_two_entities(db)
-        c = db.register_entity("feature", "dep-c", "Feature C", project_id="__unknown__")
-        db.add_dependency(a, b)
-        db.add_dependency(c, b)
-        db.remove_dependencies_by_blocker(b)
-        assert len(db.query_dependencies(blocked_by_uuid=b)) == 0
-
     def test_query_dependencies_by_blocker(self, db):
         a, b = self._make_two_entities(db)
         c = db.register_entity("feature", "dep-c", "Feature C", project_id="__unknown__")
@@ -5328,7 +5737,7 @@ class TestBatchRegistration:
         uuids = db.register_entities_batch(entities, project_id="__unknown__")
         assert len(uuids) == 3
         for uid in uuids:
-            assert _UUID_V4_RE.match(uid)
+            assert _UUID_RE.match(uid)
 
     def test_batch_single_commit(self, db):
         """100 entities should succeed in batch."""
@@ -5982,8 +6391,9 @@ class TestMigration8Data:
             db2 = EntityDatabase(db_path)
             v2 = db2.get_schema_version()
             db2.close()
-            # Feature 111 Migration 14 bumps the version to 14.
-            assert v1 == v2 == 17
+            # Dynamic head version (F117 FR-B.2a sweep site) — was 14 post-
+            # Feature 111, 17 post-115, 18 post-124.
+            assert v1 == v2 == _latest_entity_version()
 
     def test_migration_8_schema_version_set_to_8(self):
         """Schema version is 8 after migration."""
@@ -6263,6 +6673,21 @@ class TestProjectScopedQueryListEntities:
         all_result = mem_db.export_entities_json()
         assert all_result["entity_count"] == 2
 
+    def test_workspace_scoped_query_export_entities_json(self, mem_db):
+        """FR133-2.i / SC4: workspace_uuid filter excludes other-workspace
+        entities from the export (content-asserted, not just no-exception)."""
+        ws_a = _bootstrap_test_workspace(mem_db)
+        ws_b = _bootstrap_test_workspace(mem_db, "__other__")
+        mem_db.register_entity("feature", "ews1", "EWS1", workspace_uuid=ws_a)
+        mem_db.register_entity("feature", "ews2", "EWS2", workspace_uuid=ws_b)
+
+        result = mem_db.export_entities_json(workspace_uuid=ws_a)
+        assert result["entity_count"] == 1
+        assert result["entities"][0]["entity_id"] == "ews1"
+
+        all_result = mem_db.export_entities_json()
+        assert all_result["entity_count"] == 2
+
     def test_project_scoped_query_export_lineage_markdown(self, mem_db):
         _bootstrap_test_workspace(mem_db)
         _bootstrap_test_workspace(mem_db, "__other__")
@@ -6316,7 +6741,8 @@ class TestDeleteCascade:
     """T3.7: delete_entity with project_id and extended cascade (TD-6)."""
 
     def test_delete_cascade_tags_deps_okr(self, mem_db):
-        """Delete cleans up entity_tags, entity_dependencies, entity_okr_alignment."""
+        """Delete cleans up entity_tags, dependency edges (entity_relations
+        kind='blocks'), entity_okr_alignment."""
         uid = mem_db.register_entity(
             "feature", "del1", "Deletable", project_id=TEST_PROJECT_ID
         )
@@ -6361,6 +6787,101 @@ class TestDeleteCascade:
         assert mem_db.get_entity_by_uuid(uid_test) is None
         # Other entity still exists
         assert mem_db.get_entity_by_uuid(uid_other) is not None
+
+
+class TestDeleteCascadeUnblock:
+    """SC3-d: deleting a blocker (not completing it) unblocks its
+    dependents via entity_relations' FK ON DELETE CASCADE + the D5.3
+    unblock-on-delete hook in delete_entity."""
+
+    def test_delete_only_blocker_flips_dependent_empty_set(self, mem_db):
+        """A is B's ONLY blocker. Deleting A: the edge is gone (FK cascade),
+        and B flips to 'ready' because its REMAINING blocker set is empty
+        -- vacuously resolved (`all([]) is True`, feature 124 design D5.3's
+        load-bearing empty-set case)."""
+        a = mem_db.register_entity(
+            "feature", "d01-a", "Blocker A", status="active",
+            project_id=TEST_PROJECT_ID,
+        )
+        b = mem_db.register_entity(
+            "feature", "d02-b", "Blocked B", status="blocked",
+            project_id=TEST_PROJECT_ID,
+        )
+        mem_db.add_dependency(b, a)
+        assert len(mem_db.query_dependencies(entity_uuid=b)) == 1
+
+        mem_db.delete_entity("feature:d01-a", project_id=TEST_PROJECT_ID)
+
+        # Edge is gone (FK ON DELETE CASCADE -- the live deletion mechanism
+        # post-124, not a manual DELETE).
+        assert mem_db.query_dependencies(entity_uuid=b) == []
+        entity_b = mem_db.get_entity_by_uuid(b)
+        assert entity_b["status"] == "ready"
+        events = mem_db.query_phase_events(
+            type_id=entity_b["type_id"], event_type="cascade_ready",
+        )
+        assert len(events) == 1
+
+    def test_delete_one_of_two_blockers_stays_blocked_if_other_unresolved(
+        self, mem_db
+    ):
+        """Over-eager-flip guard (not a red-first case: pre-124 delete_entity
+        had no unblock-on-delete hook at all, so "B stays blocked" trivially
+        held before 124 too -- green both before and after, like SC3-b/c).
+        A and C both block B. Deleting A (unresolved C remains) must leave
+        B blocked -- the hook must not flip on a merely-shrunk, still
+        non-empty unresolved remainder (this WOULD catch a naive
+        "flip whenever a blocker is deleted, ignoring what's left" mutant)."""
+        a = mem_db.register_entity(
+            "feature", "d03-a", "Blocker A", status="active",
+            project_id=TEST_PROJECT_ID,
+        )
+        c = mem_db.register_entity(
+            "feature", "d04-c", "Blocker C", status="active",
+            project_id=TEST_PROJECT_ID,
+        )
+        b = mem_db.register_entity(
+            "feature", "d05-b", "Blocked B", status="blocked",
+            project_id=TEST_PROJECT_ID,
+        )
+        mem_db.add_dependency(b, a)
+        mem_db.add_dependency(b, c)
+
+        mem_db.delete_entity("feature:d03-a", project_id=TEST_PROJECT_ID)
+
+        remaining = mem_db.query_dependencies(entity_uuid=b)
+        assert len(remaining) == 1
+        assert remaining[0]["blocked_by_uuid"] == c
+        entity_b = mem_db.get_entity_by_uuid(b)
+        assert entity_b["status"] == "blocked"
+
+    def test_delete_one_of_two_blockers_flips_if_remaining_already_resolved(
+        self, mem_db
+    ):
+        """A and C both block B; C is ALREADY resolved. Deleting A leaves
+        only the resolved C -- all remaining blockers resolved -> B flips."""
+        a = mem_db.register_entity(
+            "feature", "d06-a", "Blocker A", status="active",
+            project_id=TEST_PROJECT_ID,
+        )
+        c = mem_db.register_entity(
+            "feature", "d07-c", "Blocker C", status="completed",
+            project_id=TEST_PROJECT_ID,
+        )
+        b = mem_db.register_entity(
+            "feature", "d08-b", "Blocked B", status="blocked",
+            project_id=TEST_PROJECT_ID,
+        )
+        mem_db.add_dependency(b, a)
+        mem_db.add_dependency(b, c)
+
+        mem_db.delete_entity("feature:d06-a", project_id=TEST_PROJECT_ID)
+
+        remaining = mem_db.query_dependencies(entity_uuid=b)
+        assert len(remaining) == 1
+        assert remaining[0]["blocked_by_uuid"] == c
+        entity_b = mem_db.get_entity_by_uuid(b)
+        assert entity_b["status"] == "ready"
 
 
 class TestReattribution:
@@ -6527,16 +7048,16 @@ class TestCascadeOnComplete:
         )
         db.add_dependency(uuid_a, uuid_b)  # A blocked_by B
 
-        # Complete B — should cascade: remove edge, promote A blocked→planned
+        # Complete B — should cascade: edge SURVIVES, promote A blocked→ready
         db.update_entity("feature:cas-b", status="completed")
 
-        # Edge should be gone
+        # Feature 124 FR124-4c: edge SURVIVES (no longer tombstoned)
         deps = db.query_dependencies(entity_uuid=uuid_a)
-        assert len(deps) == 0, f"Expected edge removed, got {deps}"
+        assert len(deps) == 1, f"Expected edge to survive, got {deps}"
 
-        # A should be promoted to planned
+        # Feature 124 FR124-4a: A should be promoted to ready (not planned)
         entity_a = db.get_entity_by_uuid(uuid_a)
-        assert entity_a["status"] == "planned"
+        assert entity_a["status"] == "ready"
 
     def test_non_completed_status_no_cascade(self, db):
         """Non-completed status (e.g., 'active') does not trigger cascade."""
@@ -6585,13 +7106,24 @@ class TestCascadeOnComplete:
         db.add_dependency(uuid_a, uuid_b)
 
         db.update_entity("feature:idem-b", status="completed")
-        # Second completion — should not raise
+        # Second completion — should not raise, and should not re-flip
+        # (idempotent: A is already 'ready', so the 'blocked' guard inside
+        # _evaluate_and_flip skips it on the repeat terminal write).
         db.update_entity("feature:idem-b", status="completed")
 
+        # Feature 124 FR124-4c: edge SURVIVES completion
         deps = db.query_dependencies(entity_uuid=uuid_a)
-        assert len(deps) == 0
+        assert len(deps) == 1
+        # Feature 124 FR124-4a: flip target is 'ready', not 'planned'
         entity_a = db.get_entity_by_uuid(uuid_a)
-        assert entity_a["status"] == "planned"
+        assert entity_a["status"] == "ready"
+        # Idempotency is airtight: exactly ONE cascade_ready event, not two
+        # -- the repeat terminal write re-flips nothing (the Migration-19-widened
+        # completion trigger in database.py update_entity).
+        events = db.query_phase_events(
+            type_id=entity_a["type_id"], event_type="cascade_ready",
+        )
+        assert len(events) == 1
 
 
 # ===========================================================================
@@ -7037,20 +7569,21 @@ class TestMigration11WorkspaceBootstrap:
                 / "migrations"
                 / "migration-11-workspace-mapping.json"
             )
-            assert mapping_path.exists(), (
-                f"Mapping file not emitted: {mapping_path}"
+            # Feature 132 (D6.5 call-half): the audit-JSON side effect is
+            # REMOVED from migration 11 — the mapping now feeds ONLY the
+            # workspaces INSERTs. The old file must NOT appear (its stray
+            # writes were the #066 class), while the real migration output
+            # (one workspaces row per legacy id) is unchanged.
+            assert not mapping_path.exists(), (
+                f"Audit JSON should no longer be emitted (132): {mapping_path}"
             )
-            data = json.loads(mapping_path.read_text())
-            # Map every legacy id to its new workspace UUID.
-            assert "wsA" in data
-            assert "wsB" in data
-            for legacy, new_uuid in data.items():
+            for legacy in ("wsA", "wsB"):
                 row = conn.execute(
                     "SELECT uuid FROM workspaces WHERE project_id_legacy=?",
                     (legacy,),
                 ).fetchone()
-                assert row is not None
-                assert row[0] == new_uuid
+                assert row is not None, f"workspaces row missing for {legacy}"
+                assert row[0]
         finally:
             conn.close()
 
@@ -7395,11 +7928,11 @@ class TestMigration11ConcurrentRunners:
                 [(db_path, str(tmp_path))] * 2,
             )
 
-        # Both workers should converge on the latest schema_version (14 after
-        # feature 111 added migration 14). The race condition under test is
+        # Both workers should converge on the latest schema_version (dynamic
+        # head — F117 FR-B.2a sweep site). The race condition under test is
         # migration 11's concurrent-runner short-circuit; subsequent migrations
         # run sequentially after 11 stamps in both workers.
-        assert all(r == "17" for r in results), results
+        assert all(r == str(_latest_entity_version()) for r in results), results
 
         # Open the DB again and check exactly one row per legacy project_id.
         verify_conn = sqlite3.connect(db_path)
@@ -8285,29 +8818,63 @@ def test_m15_safe_to_rerun_with_documented_reset_semantics(tmp_path):
 
 
 class TestProvidedWorkspaceUuidMembership:
-    """Task #5: _resolve_workspace_uuid_kwargs fails loud on an orphaned
-    provided workspace_uuid instead of letting a bare FK error escape."""
+    """Task #5: ``_validated_provided_workspace_uuid`` fails loud on an
+    orphaned provided workspace_uuid instead of letting a bare FK error
+    escape. Feature 132 D6.4 deleted the (workspace_uuid, project_id)
+    dual-kwarg wrapper this class used to exercise indirectly — every
+    method below rewires to call the surviving helper the wrapper always
+    delegated to for the provided-workspace_uuid branches; the
+    split-brain guard is re-homed here, not dropped."""
 
     _ORPHAN = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"
 
     def test_orphan_uuid_raises_actionable(self, db):
         with pytest.raises(ValueError, match="split-brain"):
-            db._resolve_workspace_uuid_kwargs(self._ORPHAN, None)
+            db._validated_provided_workspace_uuid(self._ORPHAN, "register_entity")
 
     def test_orphan_uuid_message_names_doctor_and_restart(self, db):
         with pytest.raises(ValueError) as exc:
-            db._resolve_workspace_uuid_kwargs(self._ORPHAN, None)
+            db._validated_provided_workspace_uuid(self._ORPHAN, "register_entity")
         msg = str(exc.value)
         assert "pd:doctor --fix" in msg and "restart the session" in msg
 
-    def test_both_supplied_branch_also_checked(self, db):
-        # workspace_uuid wins over project_id, and is still validated.
-        with pytest.raises(ValueError, match="split-brain"):
-            db._resolve_workspace_uuid_kwargs(self._ORPHAN, "__test__")
+    def test_caller_label_interpolated_into_message(self, db):
+        """The guard's error names WHICHEVER caller invoked it -- ``_caller``
+        is a required, caller-supplied label on the direct helper (the
+        retired wrapper's "both workspace_uuid and project_id supplied"
+        precedence dance collapsed away with it, since D6.4's six rewired
+        callers no longer route a second kwarg through this guard).
+        Uses a caller distinct from the other tests in this class, proving
+        the interpolation is live rather than a hardcoded string -- a fact
+        true only when the label genuinely flows through."""
+        with pytest.raises(ValueError) as exc:
+            db._validated_provided_workspace_uuid(
+                self._ORPHAN, "upsert_workflow_phase"
+            )
+        assert "upsert_workflow_phase():" in str(exc.value)
 
     def test_present_uuid_returns_it(self, db):
         ws = _bootstrap_test_workspace(db, "membership-present")
-        assert db._resolve_workspace_uuid_kwargs(ws, None) == ws
+        assert db._validated_provided_workspace_uuid(ws, "register_entity") == ws
+
+    def test_register_entity_end_to_end_raises_split_brain_before_any_insert(
+        self, db,
+    ):
+        """Every method above calls ``_validated_provided_workspace_uuid``
+        directly -- none drives it through a REAL caller's own call chain
+        (``_resolve_optional_workspace_filter`` -> the guard, D6.4's
+        six-caller rewire). ``register_entity(workspace_uuid=<orphan>)``
+        must raise the identical error, and -- non-vacuously -- must do
+        so BEFORE any entities row lands, proving the rewire is genuinely
+        wired into the write path rather than merely directly callable in
+        isolation. dimension:adversarial
+        """
+        with pytest.raises(ValueError, match="split-brain"):
+            db.register_entity(
+                "feature", "001-orphan-e2e", "Orphan E2E",
+                workspace_uuid=self._ORPHAN,
+            )
+        assert db.get_entity("feature:001-orphan-e2e") is None
 
     def test_unknown_uuid_bootstraps_not_raises(self, db):
         from entity_registry.database import _UNKNOWN_WORKSPACE_UUID
@@ -8318,8 +8885,8 @@ class TestProvidedWorkspaceUuidMembership:
             "DELETE FROM workspaces WHERE uuid = ?", (_UNKNOWN_WORKSPACE_UUID,)
         )
         db._conn.commit()
-        result = db._resolve_workspace_uuid_kwargs(
-            _UNKNOWN_WORKSPACE_UUID, None
+        result = db._validated_provided_workspace_uuid(
+            _UNKNOWN_WORKSPACE_UUID, "register_entity"
         )
         assert result == _UNKNOWN_WORKSPACE_UUID
         # Row now exists.
@@ -8327,3 +8894,828 @@ class TestProvidedWorkspaceUuidMembership:
             "SELECT 1 FROM workspaces WHERE uuid = ?",
             (_UNKNOWN_WORKSPACE_UUID,),
         ).fetchone() is not None
+
+
+# ---------------------------------------------------------------------------
+# Task 3 (feature 118 / design D6, Testing Strategy #9): uuid7 round-trip.
+# ---------------------------------------------------------------------------
+
+
+class TestUuid7RegisterEntityRoundTrip:
+    """register_entity mints uuid7 (not uuid4); the minted uuid flows
+    through get_entity's uuid branch, resolve_ref's uuid branch, and
+    frontmatter.validate_header without error (design Testing Strategy #9).
+    """
+
+    def test_minted_uuid_round_trips_through_lookup_and_validation(
+        self, db: EntityDatabase
+    ):
+        from entity_registry import frontmatter
+
+        minted = db.register_entity(
+            "feature", "001-uuid7-round-trip", "UUID7 Round Trip",
+            project_id="__unknown__",
+        )
+
+        # Non-vacuous: the version nibble sits at string index 14 in the
+        # 8-4-4-4-12 layout (after the second hyphen). This assertion is
+        # impossible to satisfy before Task 3's rewiring, when
+        # register_entity minted str(uuid.uuid4()) (version nibble '4').
+        assert minted[14] == "7", (
+            f"Expected a uuid7 mint (version nibble '7' at index 14), "
+            f"got {minted!r}"
+        )
+
+        # get_entity(uuid) resolves via the uuid branch of
+        # _resolve_identifier (database.py's
+        # `if _UUID_RE.match(identifier.lower())` path).
+        fetched = db.get_entity(minted)
+        assert fetched is not None
+        assert fetched["uuid"] == minted
+
+        # resolve_ref(uuid) resolves via its own uuid branch
+        # (`if _UUID_RE.match(ref.lower())`).
+        assert db.resolve_ref(minted) == minted
+
+        # frontmatter.validate_header accepts the minted uuid7 with no
+        # errors — the widened _UUID_RE (Task 2) plus the uuid7 mint
+        # (Task 3) together satisfy the v17 gated-path acceptance chain.
+        header = {
+            "entity_uuid": minted,
+            "entity_type_id": "feature:001-uuid7-round-trip",
+            "artifact_type": "spec",
+            "created_at": "2026-01-01T00:00:00+00:00",
+        }
+        assert frontmatter.validate_header(header) == []
+
+    def test_uppercase_minted_uuid_round_trips_through_all_three_gated_paths(
+        self, db: EntityDatabase
+    ):
+        """The R11 lowercase contract (".lower() before matching") holds
+        for an UPPERCASED uuid7 across all three formerly-v4-gated paths in
+        the SAME round-trip: get_entity, resolve_ref, and
+        frontmatter.validate_header. The sibling boundary test
+        (test_uppercase_uuid_normalizes_to_lowercase in
+        TestResolveIdentifierBoundary) only exercises _resolve_identifier;
+        this closes the gap for resolve_ref and validate_header
+        specifically with a genuinely-minted (not hand-typed v4-shaped)
+        uuid7 value.
+
+        Anticipate: the widened `_UUID_RE` regex itself is case-sensitive
+        ([0-9a-f], not [0-9a-fA-F]) by design (R11's contract is "callers
+        lowercase before matching", not "the regex is case-insensitive").
+        If any ONE of the three call sites forgot its `.lower()` call
+        during the Task 2 rename sweep, an uppercased uuid7 would silently
+        misroute at exactly that site — a lowercase-only round-trip test
+        (the existing one) cannot detect a single missing `.lower()`
+        because a lowercase input can never exercise that branch.
+        derived_from: spec:SC5 (uuid7 round-trip through the three gated
+        paths), spec:R23/R11 (lowercase normalization), dimension:adversarial
+        """
+        from entity_registry import frontmatter
+
+        minted = db.register_entity(
+            "feature", "002-uuid7-uppercase-round-trip", "UUID7 Uppercase Round Trip",
+            project_id="__unknown__",
+        )
+        uppercased = minted.upper()
+        # Sanity: uppercasing actually changed the string (otherwise this
+        # test would vacuously pass no matter what "case handling" does).
+        assert uppercased != minted
+
+        # get_entity(uuid) — uppercase input must still resolve.
+        fetched = db.get_entity(uppercased)
+        assert fetched is not None
+        assert fetched["uuid"] == minted
+
+        # resolve_ref(uuid) — uppercase input must still resolve.
+        assert db.resolve_ref(uppercased) == minted
+
+        # frontmatter.validate_header — uppercase entity_uuid must pass.
+        header = {
+            "entity_uuid": uppercased,
+            "entity_type_id": "feature:002-uuid7-uppercase-round-trip",
+            "artifact_type": "spec",
+            "created_at": "2026-01-01T00:00:00+00:00",
+        }
+        assert frontmatter.validate_header(header) == []
+
+
+# ---------------------------------------------------------------------------
+# Task 3 (feature 118) / design Testing Strategy #12: residual-uuid4 scan.
+# ---------------------------------------------------------------------------
+
+
+class TestResidualUuid4Scan:
+    """Pins spec SC4: after the 4-site rewiring (design D6), ``uuid4(``
+    occurs in non-test entity_registry/ sources at EXACTLY the two frozen
+    migration sites (database.py:272 inside _migrate_to_uuid_pk, :1855
+    inside _migration_11_workspace_identity — both untouched by Task 3).
+
+    Pinned by function identity via MIGRATIONS/MIGRATIONS_DOWN +
+    ``inspect.getsource``, never by line number — Task 3's own local
+    import insertions shift every line below each mint site.
+    """
+
+    def test_uuid4_residual_sites_are_exactly_the_frozen_migrations(self):
+        import inspect
+        import pathlib
+
+        from entity_registry.database import MIGRATIONS_DOWN
+
+        pkg_dir = pathlib.Path(__file__).resolve().parent
+        non_test_sources = sorted(
+            p for p in pkg_dir.glob("*.py") if not p.name.startswith("test_")
+        )
+        total = sum(p.read_text().count("uuid4(") for p in non_test_sources)
+        assert total == 2, (
+            f"Expected exactly 2 residual uuid4( occurrences in non-test "
+            f"entity_registry/*.py; found {total}. Task 3 rewires every "
+            f"non-migration mint site to generate_uuid7()."
+        )
+
+        migration_fns = (
+            list(MIGRATIONS.values()) + list(MIGRATIONS_DOWN.values())
+        )
+        in_migrations = sum(
+            inspect.getsource(fn).count("uuid4(") for fn in migration_fns
+        )
+        assert in_migrations == 2, (
+            f"Expected both residual uuid4( occurrences to be inside "
+            f"registered migration function bodies (frozen per design D6); "
+            f"only {in_migrations} were found there — a stray uuid4( mint "
+            f"exists outside the frozen migration bodies."
+        )
+
+
+# ===========================================================================
+# Feature 130 (workspace switcher UI): list_workspaces_with_entities (D1)
+# ===========================================================================
+
+
+class TestListWorkspacesWithEntities:
+    """SC1/D1: cross-workspace directory read for the UI switcher.
+
+    INNER JOIN against entities means zero-entity workspaces never appear
+    in the result; ordering is entity_count DESC, project_root ASC as the
+    deterministic tie-breaker.
+    """
+
+    def _make_workspace(
+        self,
+        db: EntityDatabase,
+        *,
+        project_root: str | None,
+        legacy_id: str,
+    ) -> str:
+        """Insert a fresh workspaces row with an explicit project_root."""
+        ws_uuid = str(uuid.uuid4())
+        now = db._now_iso()
+        db._conn.execute(
+            "INSERT INTO workspaces (uuid, project_id_legacy, "
+            "project_root, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (ws_uuid, legacy_id, project_root, now, now),
+        )
+        db._conn.commit()
+        return ws_uuid
+
+    def test_populated_only_empty_workspace_absent(self, db: EntityDatabase):
+        """Two populated workspaces plus one empty row -> empty is absent."""
+        ws_populated_1 = self._make_workspace(
+            db, project_root="/tmp/ws-pop-1", legacy_id="ws-pop-1",
+        )
+        db.register_entity(
+            "feature", "001-a", "A", workspace_uuid=ws_populated_1,
+        )
+        ws_populated_2 = self._make_workspace(
+            db, project_root="/tmp/ws-pop-2", legacy_id="ws-pop-2",
+        )
+        db.register_entity(
+            "feature", "001-b", "B", workspace_uuid=ws_populated_2,
+        )
+        ws_empty = self._make_workspace(
+            db, project_root="/tmp/ws-empty", legacy_id="ws-empty",
+        )
+
+        result = db.list_workspaces_with_entities()
+        result_uuids = {row["uuid"] for row in result}
+
+        assert ws_populated_1 in result_uuids
+        assert ws_populated_2 in result_uuids
+        assert ws_empty not in result_uuids
+        # The db fixture also bootstraps 2 empty workspaces (__test__,
+        # __other__) — confirms only the 2 populated rows above surface.
+        assert len(result) == 2
+
+    def test_counts_exact_with_mixed_kinds_and_statuses(
+        self, db: EntityDatabase,
+    ):
+        """A feature + a task + a completed backlog in one workspace -> 3."""
+        ws = self._make_workspace(
+            db, project_root="/tmp/ws-mixed", legacy_id="ws-mixed",
+        )
+        db.register_entity("feature", "001-x", "X", workspace_uuid=ws)
+        db.register_entity("task", "001-y", "Y", workspace_uuid=ws)
+        db.register_entity(
+            "backlog", "001-z", "Z", status="completed", workspace_uuid=ws,
+        )
+
+        result = db.list_workspaces_with_entities()
+        row = next(r for r in result if r["uuid"] == ws)
+
+        assert row["entity_count"] == 3
+
+    def test_desc_order_by_entity_count(self, db: EntityDatabase):
+        """Higher entity_count sorts first."""
+        ws_low = self._make_workspace(
+            db, project_root="/tmp/ws-low", legacy_id="ws-low",
+        )
+        db.register_entity("feature", "001-a", "A", workspace_uuid=ws_low)
+
+        ws_high = self._make_workspace(
+            db, project_root="/tmp/ws-high", legacy_id="ws-high",
+        )
+        db.register_entity("feature", "001-b", "B", workspace_uuid=ws_high)
+        db.register_entity("feature", "001-c", "C", workspace_uuid=ws_high)
+        db.register_entity("feature", "001-d", "D", workspace_uuid=ws_high)
+
+        result = db.list_workspaces_with_entities()
+        result_uuids = [row["uuid"] for row in result]
+
+        assert result_uuids.index(ws_high) < result_uuids.index(ws_low)
+
+    def test_count_tie_breaks_by_project_root_ascending(
+        self, db: EntityDatabase,
+    ):
+        """Equal entity_count -> project_root ASC order."""
+        ws_zzz = self._make_workspace(
+            db, project_root="/tmp/zzz-project", legacy_id="ws-zzz",
+        )
+        db.register_entity("feature", "001-a", "A", workspace_uuid=ws_zzz)
+
+        ws_aaa = self._make_workspace(
+            db, project_root="/tmp/aaa-project", legacy_id="ws-aaa",
+        )
+        db.register_entity("feature", "001-b", "B", workspace_uuid=ws_aaa)
+
+        result = db.list_workspaces_with_entities()
+
+        assert [row["uuid"] for row in result] == [ws_aaa, ws_zzz]
+
+    def test_null_project_root_workspace_present(self, db: EntityDatabase):
+        """A populated workspace with NULL project_root is included as None."""
+        ws_null_root = self._make_workspace(
+            db, project_root=None, legacy_id="ws-null-root",
+        )
+        db.register_entity(
+            "feature", "001-a", "A", workspace_uuid=ws_null_root,
+        )
+
+        result = db.list_workspaces_with_entities()
+        row = next(r for r in result if r["uuid"] == ws_null_root)
+
+        assert row["project_root"] is None
+
+
+# ---------------------------------------------------------------------------
+# Feature 132 Task 3 (D5/FR132-4b): v2 dual-write
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def v2_db(tmp_path):
+    """A v2-generation EntityDatabase.
+
+    Built via rebuild_tool.build_staging_database (feature 132 D1's three
+    ordered steps -- chain replay, selective v2 seed, generation stamp),
+    NOT a hand-rolled stamp: this is the exact core+v2 shape the real
+    cutover produces, so tests against it exercise the real
+    ``self._is_v2_generation`` gate rather than a synthetic approximation.
+    Bootstraps the same two legacy workspace rows as the plain ``db``
+    fixture above.
+    """
+    staging_path = str(tmp_path / "entities.db.v2-test")
+    rebuild_tool.build_staging_database(staging_path)
+    database = EntityDatabase(staging_path)
+    _bootstrap_test_workspace(database)
+    _bootstrap_test_workspace(database, "__other__")
+    yield database
+    database.close()
+
+
+def _events_for(v2_db, entity_uuid: str, *, axis: str | None = None) -> list[dict]:
+    """Raw SELECT over the v2 ``events`` table for *entity_uuid*.
+
+    No production code reads events.py at feature 132's scope (the Scope
+    model's post-cutover reads stay v1), so tests query the table
+    directly rather than via a public read API.
+    """
+    sql = "SELECT * FROM events WHERE entity_uuid = ?"
+    params: list = [entity_uuid]
+    if axis is not None:
+        sql += " AND axis = ?"
+        params.append(axis)
+    sql += " ORDER BY uuid"
+    return [dict(r) for r in v2_db._conn.execute(sql, params).fetchall()]
+
+
+def _db_file_path(db: EntityDatabase) -> str:
+    """The 'main' database's file path, via PRAGMA database_list."""
+    return db._conn.execute("PRAGMA database_list").fetchone()[2]
+
+
+class _EventsInsertFailureProxy:
+    """Thin proxy that fails on the ``INSERT INTO events`` statement,
+    forwarding everything else to the real connection. Mirrors
+    test_event_sourced_state.py's ``_Proxy`` (built fresh here rather
+    than patching ``sqlite3.Connection.execute`` directly because the
+    C-extension method is read-only).
+    """
+
+    def __init__(self, target):
+        self._target = target
+
+    def execute(self, sql, params=None):
+        if "INSERT INTO events" in sql:
+            raise RuntimeError("test injection: events insert failed")
+        if params is None:
+            return self._target.execute(sql)
+        return self._target.execute(sql, params)
+
+    def __getattr__(self, item):
+        return getattr(self._target, item)
+
+
+class TestV2GenerationCachedFlag:
+    """``_is_v2_generation`` is computed once, in ``_migrate()`` (D5's
+    'one _metadata read, cached per connection')."""
+
+    def test_v1_file_flag_is_false(self, db: EntityDatabase):
+        assert db._is_v2_generation is False
+
+    def test_v2_file_flag_is_true(self, v2_db: EntityDatabase):
+        assert v2_db._is_v2_generation is True
+
+    def test_v1_generation_emit_is_a_silent_no_op(self, db: EntityDatabase):
+        """The guard is a REAL branch, not decorative (plan.md): a v1 file
+        has no ``events`` table at all, so calling the dual-write-wired
+        methods must NOT attempt to touch it -- proven here by asserting
+        no exception (an unconditional emit would raise
+        'no such table: events' on every v1 fixture in the suite)."""
+        ws_uuid = _bootstrap_test_workspace(db, "v1-guard-proj")
+        entity_uuid = db.register_entity(
+            "backlog", "000-v1", "V1 Item", workspace_uuid=ws_uuid,
+        )
+        db.update_entity(entity_uuid, status="archived")
+        assert db.get_entity_by_uuid(entity_uuid)["status"] == "archived"
+
+
+class TestSC7AcknowledgedButLostRegression:
+    """SC7 (#055/#060 incident pins): success is reported only AFTER
+    commit. Each test opens a SEPARATE, freshly-opened connection to the
+    SAME file immediately after the call returns -- proving durable
+    commit, not merely same-connection/same-transaction visibility (the
+    exact shape of the original incident: a caller reported success while
+    a DIFFERENT reader still saw nothing)."""
+
+    def test_backlog_registration_visible_to_get_entity_and_raw_sql(self, v2_db):
+        ws_uuid = _bootstrap_test_workspace(v2_db, "backlog-proj")
+        entity_uuid = v2_db.register_entity(
+            "backlog", "001-example", "Example backlog item",
+            workspace_uuid=ws_uuid,
+        )
+
+        # get_entity() sees it via the same connection.
+        assert v2_db.get_entity("backlog:001-example") is not None
+
+        # A SEPARATE connection to the SAME file also sees it immediately.
+        other_conn = sqlite3.connect(_db_file_path(v2_db))
+        try:
+            row = other_conn.execute(
+                "SELECT uuid FROM entities WHERE uuid = ?", (entity_uuid,)
+            ).fetchone()
+        finally:
+            other_conn.close()
+        assert row is not None
+
+    def test_phase_event_exists_after_complete_reports_success(self, v2_db):
+        ws_uuid = _bootstrap_test_workspace(v2_db, "feat-proj")
+        v2_db.register_entity(
+            "feature", "002-example", "Example feature", workspace_uuid=ws_uuid,
+        )
+        v2_db.create_workflow_phase(
+            "feature:002-example", workflow_phase="brainstorm",
+        )
+
+        v2_db.append_phase_event(
+            type_id="feature:002-example", project_id="feat-proj",
+            event_type="completed", phase="brainstorm", iterations=1,
+            workspace_uuid=ws_uuid,
+        )
+
+        rows = v2_db.query_phase_events(
+            type_id="feature:002-example", event_type="completed",
+        )
+        assert len(rows) == 1
+
+        other_conn = sqlite3.connect(_db_file_path(v2_db))
+        try:
+            count = other_conn.execute(
+                "SELECT COUNT(*) FROM phase_events "
+                "WHERE type_id = ? AND event_type = 'completed'",
+                ("feature:002-example",),
+            ).fetchone()[0]
+        finally:
+            other_conn.close()
+        assert count == 1
+
+
+class TestSC8DualWritePerClass:
+    """SC8: per-class dual-write atomicity, tool-built v2 files.
+
+    5 of the 6 funnel classes are covered here (phase transition, entity
+    registration, status change via update_entity, cascade flip lives in
+    test_dependencies.py, initial establishment via create_workflow_phase).
+    The 6th -- entity deletion -- is NOT implemented (see delete_entity's
+    docstring + TestDeleteEntityV2GenerationFKFinding below): wiring an
+    ``entity_deleted`` emit is provably impossible to also succeed at
+    hard-deleting the row, given events.entity_uuid's FK. Recorded as a
+    deliberate, flagged gap, not a silently-skipped class.
+    """
+
+    def test_phase_transition_emits_pipeline_axis_event_for_feature_kind(
+        self, v2_db,
+    ):
+        ws_uuid = _bootstrap_test_workspace(v2_db, "phase-proj")
+        entity_uuid = v2_db.register_entity(
+            "feature", "004-flow", "Flow Feature", workspace_uuid=ws_uuid,
+        )
+        v2_db.create_workflow_phase("feature:004-flow", workflow_phase="brainstorm")
+
+        v2_db.append_phase_event(
+            type_id="feature:004-flow", project_id="phase-proj",
+            event_type="started", phase="specify", workspace_uuid=ws_uuid,
+        )
+
+        started = [
+            e for e in _events_for(v2_db, entity_uuid, axis="pipeline")
+            if e["event_type"] == "started"
+        ]
+        assert len(started) == 1
+        assert started[0]["to_value"] == "specify"
+
+    def test_phase_transition_resolves_entity_without_workspace_uuid(self, v2_db):
+        """The unscoped fallback branch (workspace_uuid=None -- exactly
+        how workflow_state_server.py's `_workspace_uuid or None` pattern
+        calls append_phase_event for phase transitions): still resolves
+        the right entity and emits, since workflow_phases.type_id is
+        globally unique (this entity's type_id has no cross-workspace
+        duplicate here)."""
+        ws_uuid = _bootstrap_test_workspace(v2_db, "unscoped-proj")
+        entity_uuid = v2_db.register_entity(
+            "feature", "013-unscoped", "Unscoped Feature", workspace_uuid=ws_uuid,
+        )
+        v2_db.create_workflow_phase("feature:013-unscoped", workflow_phase="brainstorm")
+
+        v2_db.append_phase_event(
+            type_id="feature:013-unscoped", project_id="unscoped-proj",
+            event_type="started", phase="specify", workspace_uuid=None,
+        )
+
+        started = [
+            e for e in _events_for(v2_db, entity_uuid, axis="pipeline")
+            if e["event_type"] == "started"
+        ]
+        assert len(started) == 1
+        assert started[0]["to_value"] == "specify"
+
+    def test_register_entity_emits_entity_created_event(self, v2_db):
+        ws_uuid = _bootstrap_test_workspace(v2_db, "reg-proj")
+        entity_uuid = v2_db.register_entity(
+            "backlog", "003-widget", "Widget", workspace_uuid=ws_uuid,
+            status="active",
+        )
+
+        events = _events_for(v2_db, entity_uuid)
+        assert len(events) == 1
+        assert events[0]["event_type"] == "entity_created"
+        assert events[0]["axis"] == "lifecycle"
+        assert events[0]["to_value"] is None
+        payload = json.loads(events[0]["payload"])
+        assert payload == {"kind": "backlog", "name": "Widget", "status": "active"}
+
+    def test_update_entity_emits_entity_status_changed_event(self, v2_db):
+        ws_uuid = _bootstrap_test_workspace(v2_db, "upd-proj")
+        entity_uuid = v2_db.register_entity(
+            "backlog", "007-item", "Item", workspace_uuid=ws_uuid,
+            status="active",
+        )
+
+        v2_db.update_entity(entity_uuid, status="archived")
+
+        changed = [
+            e for e in _events_for(v2_db, entity_uuid, axis="lifecycle")
+            if e["event_type"] == "entity_status_changed"
+        ]
+        assert len(changed) == 1
+        assert changed[0]["to_value"] == "archived"
+
+    def test_update_entity_no_op_status_write_emits_nothing(self, v2_db):
+        """AC-C.4 (pre-existing, re-verified post-132): no status change
+        (same value) means no emit at all."""
+        ws_uuid = _bootstrap_test_workspace(v2_db, "noop-proj")
+        entity_uuid = v2_db.register_entity(
+            "backlog", "008-steady", "Steady", workspace_uuid=ws_uuid,
+            status="active",
+        )
+
+        v2_db.update_entity(entity_uuid, status="active")
+
+        changed = [
+            e for e in _events_for(v2_db, entity_uuid)
+            if e["event_type"] == "entity_status_changed"
+        ]
+        assert changed == []
+
+    def test_create_workflow_phase_emits_pipeline_establishment_for_feature(
+        self, v2_db,
+    ):
+        ws_uuid = _bootstrap_test_workspace(v2_db, "estab-proj")
+        entity_uuid = v2_db.register_entity(
+            "feature", "005-newborn", "Newborn Feature", workspace_uuid=ws_uuid,
+        )
+
+        v2_db.create_workflow_phase("feature:005-newborn", workflow_phase="brainstorm")
+
+        established = [
+            e for e in _events_for(v2_db, entity_uuid, axis="pipeline")
+            if e["event_type"] == "workflow_established"
+        ]
+        assert len(established) == 1
+        assert established[0]["to_value"] == "brainstorm"
+
+    def test_create_workflow_phase_emits_lifecycle_establishment_for_5d_kind(
+        self, v2_db,
+    ):
+        ws_uuid = _bootstrap_test_workspace(v2_db, "estab-5d-proj")
+        entity_uuid = v2_db.register_entity(
+            "initiative", "i009-newborn", "Newborn Initiative",
+            workspace_uuid=ws_uuid,
+        )
+
+        v2_db.create_workflow_phase("initiative:i009-newborn", workflow_phase="discover")
+
+        established = [
+            e for e in _events_for(v2_db, entity_uuid, axis="lifecycle")
+            if e["event_type"] == "workflow_established"
+        ]
+        assert len(established) == 1
+        assert established[0]["to_value"] == "discover"
+
+    def test_create_workflow_phase_null_workflow_phase_is_null_safe(self, v2_db):
+        """to_value = the initial workflow_phase, NULL-safe (design D5):
+        the default (no workflow_phase kwarg) must not crash and must not
+        trip the pipeline vocab trigger (which only fires on NON-NULL
+        out-of-vocabulary values)."""
+        ws_uuid = _bootstrap_test_workspace(v2_db, "null-estab-proj")
+        entity_uuid = v2_db.register_entity(
+            "feature", "010-blank", "Blank Feature", workspace_uuid=ws_uuid,
+        )
+
+        v2_db.create_workflow_phase("feature:010-blank")
+
+        established = [
+            e for e in _events_for(v2_db, entity_uuid, axis="pipeline")
+            if e["event_type"] == "workflow_established"
+        ]
+        assert len(established) == 1
+        assert established[0]["to_value"] is None
+
+    def test_create_workflow_phase_emit_failure_rolls_back_establishment_insert(
+        self, v2_db,
+    ):
+        """SC8 / battery-r1 blocker: an emit failure inside
+        create_workflow_phase rolls back the workflow_phases INSERT too --
+        both-or-neither asserted on BOTH tables via a SEPARATE connection,
+        and only AFTER forcing a subsequent commit on the primary
+        connection. Pre-fix, the INSERT stayed pending (no transaction
+        wrapper; the IntegrityError handler re-raised without ROLLBACK)
+        and silently persisted at that next commit while the caller had
+        already been told the call failed -- the #055/#060 class inverted.
+
+        The failure is a REAL 122 vocab-trigger rejection, not an injected
+        proxy: 'discover' passes the v1 workflow_phases CHECK (the 5D arm
+        of the union) but is out-of-vocabulary for the pipeline axis a
+        feature-kind establishment emit targets.
+        """
+        ws_uuid = _bootstrap_test_workspace(v2_db, "estab-rollback-proj")
+        v2_db.register_entity(
+            "feature", "011-fumble", "Fumbled Feature", workspace_uuid=ws_uuid,
+        )
+
+        with pytest.raises(ValueError, match="out-of-vocabulary"):
+            v2_db.create_workflow_phase(
+                "feature:011-fumble", workflow_phase="discover",
+            )
+
+        # Force a subsequent commit on the SAME connection: pre-fix, this
+        # is the exact moment the orphaned pending INSERT persisted.
+        v2_db.register_entity(
+            "feature", "012-bystander", "Bystander", workspace_uuid=ws_uuid,
+        )
+
+        other_conn = sqlite3.connect(_db_file_path(v2_db))
+        try:
+            wp_count = other_conn.execute(
+                "SELECT COUNT(*) FROM workflow_phases WHERE type_id = ?",
+                ("feature:011-fumble",),
+            ).fetchone()[0]
+            established_count = other_conn.execute(
+                "SELECT COUNT(*) FROM events "
+                "WHERE event_type = 'workflow_established'"
+            ).fetchone()[0]
+        finally:
+            other_conn.close()
+        assert wp_count == 0
+        assert established_count == 0
+
+    def test_update_entity_emit_failure_rolls_back_status_write(self, v2_db):
+        """SC8: an injected events-append failure rolls back the v1
+        write, asserted on BOTH tables -- for update_entity specifically,
+        the ROLLBACK of the status write (a fact true only on this
+        fail-closed path, not merely 'no exception')."""
+        ws_uuid = _bootstrap_test_workspace(v2_db, "rollback-proj")
+        entity_uuid = v2_db.register_entity(
+            "backlog", "011-brittle", "Brittle", workspace_uuid=ws_uuid,
+            status="active",
+        )
+
+        real_conn = v2_db._conn
+        v2_db._conn = _EventsInsertFailureProxy(real_conn)
+        try:
+            with pytest.raises(RuntimeError, match="test injection"):
+                v2_db.update_entity(entity_uuid, status="archived")
+        finally:
+            v2_db._conn = real_conn
+
+        # Both tables rolled back: status reverted...
+        entity = v2_db.get_entity_by_uuid(entity_uuid)
+        assert entity["status"] == "active"
+        # ...and no entity_status_changed event was added.
+        changed = [
+            e for e in _events_for(v2_db, entity_uuid)
+            if e["event_type"] == "entity_status_changed"
+        ]
+        assert changed == []
+
+    def test_register_entity_emit_failure_rolls_back_the_whole_insert(self, v2_db):
+        """Both-or-neither for the registration class too: an injected
+        events-append failure means the entity row itself never lands."""
+        ws_uuid = _bootstrap_test_workspace(v2_db, "reg-rollback-proj")
+
+        real_conn = v2_db._conn
+        v2_db._conn = _EventsInsertFailureProxy(real_conn)
+        try:
+            with pytest.raises(RuntimeError, match="test injection"):
+                v2_db.register_entity(
+                    "backlog", "012-never", "Never Lands",
+                    workspace_uuid=ws_uuid,
+                )
+        finally:
+            v2_db._conn = real_conn
+
+        assert v2_db.get_entity("backlog:012-never") is None
+
+
+class TestDeleteEntityV2GenerationFKFinding:
+    """Feature 132 task-3 finding (see delete_entity's docstring for the
+    full analysis): once ANY events row exists for an entity -- which
+    register_entity's own entity_created dual-write guarantees at birth
+    on a v2-generation file -- delete_entity's hard ``DELETE FROM
+    entities`` can never succeed again. ``events.entity_uuid`` is ``NOT
+    NULL REFERENCES entities(uuid)`` with no ``ON DELETE`` clause, and
+    ``events_no_delete`` fires even on an FK CASCADE-induced delete
+    (verified empirically, all 3 statement orderings, with and without
+    ``PRAGMA defer_foreign_keys``). This is an emergent consequence of
+    dual-write landing at all, NOT something delete_entity's own code
+    introduces (task 3 deliberately does NOT wire an emit into it).
+    Pinned here as an HONEST regression test -- not a fabricated success
+    case -- so a future v1-retirement effort has a concrete starting
+    point (options: a nullable entity_uuid + ON DELETE SET NULL in
+    events.py, or a soft-delete redesign of delete_entity's contract;
+    both are design decisions outside task 3's scope).
+    """
+
+    def test_delete_entity_raises_once_the_entity_has_any_v2_event(self, v2_db):
+        ws_uuid = _bootstrap_test_workspace(v2_db, "del-proj")
+        entity_uuid = v2_db.register_entity(
+            "feature", "099-doomed", "Doomed Feature", workspace_uuid=ws_uuid,
+        )
+        pre_events = v2_db._conn.execute(
+            "SELECT COUNT(*) FROM events WHERE entity_uuid = ?", (entity_uuid,)
+        ).fetchone()[0]
+        assert pre_events == 1  # register_entity's own entity_created row
+
+        with pytest.raises(sqlite3.IntegrityError):
+            v2_db.delete_entity("feature:099-doomed", workspace_uuid=ws_uuid)
+
+        # delete_entity's own (feature-132-unrelated) except/rollback
+        # already leaves the entity intact.
+        assert v2_db.get_entity("feature:099-doomed") is not None
+
+    def test_delete_entity_still_works_on_v1_file(self, db: EntityDatabase):
+        """Confirms the finding is v2-only: a v1 file has no events table
+        at all, so delete_entity's existing (pre-132) behavior is
+        completely unaffected -- see also TestDeleteEntity::
+        test_delete_entity_success above, this just makes the v1/v2
+        contrast explicit in one place."""
+        ws_uuid = _bootstrap_test_workspace(db, "del-v1-proj")
+        entity_uuid = db.register_entity(
+            "feature", "098-fine", "Fine Feature", workspace_uuid=ws_uuid,
+        )
+        db.delete_entity("feature:098-fine", workspace_uuid=ws_uuid)
+        assert db.get_entity("feature:098-fine") is None
+
+
+# ---------------------------------------------------------------------------
+# Test-deepening addition: TestSC8DualWritePerClass's rollback tests above
+# all use an INJECTED proxy failure (_EventsInsertFailureProxy);
+# TestVocabTriggerRejection (test_axes.py) proves the REAL 122 vocab
+# trigger rejects a raw INSERT, never through append_phase_event's own
+# production call path. Closes that gap: an out-of-vocabulary phase value
+# on a feature-kind entity's phase transition hits the SAME production
+# ``_emit_v2_event`` call as every legitimate transition and must roll
+# back the v1 phase_events INSERT + workflow_phases UPDATE too --
+# both-or-neither via the REAL mechanism, not a synthetic substitute.
+# dimension:error_paths, dimension:concurrency
+# ---------------------------------------------------------------------------
+class TestRealVocabTriggerRejectionRollsBackDualWrite:
+    def test_append_phase_event_real_vocab_rejection_rolls_back_v1_write_too(
+        self, v2_db,
+    ):
+        ws_uuid = _bootstrap_test_workspace(v2_db, "vocab-reject-proj")
+        v2_db.register_entity(
+            "feature", "014-vocab-reject", "Vocab Reject", workspace_uuid=ws_uuid,
+        )
+        v2_db.create_workflow_phase(
+            "feature:014-vocab-reject", workflow_phase="brainstorm",
+        )
+
+        with pytest.raises(sqlite3.IntegrityError):
+            v2_db.append_phase_event(
+                type_id="feature:014-vocab-reject", project_id="vocab-reject-proj",
+                event_type="started", phase="not-a-real-phase", workspace_uuid=ws_uuid,
+            )
+
+        rows = v2_db.query_phase_events(
+            type_id="feature:014-vocab-reject", event_type="started",
+        )
+        assert rows == []
+        wf = v2_db.get_workflow_phase("feature:014-vocab-reject")
+        assert wf["workflow_phase"] == "brainstorm"
+
+        entity_uuid = v2_db.get_entity("feature:014-vocab-reject")["uuid"]
+        started = [
+            e for e in _events_for(v2_db, entity_uuid, axis="pipeline")
+            if e["event_type"] == "started"
+        ]
+        assert started == []
+
+    def test_rejection_rollback_is_invisible_to_a_separate_connection(self, v2_db):
+        """Same failure as above, but proved via a SEPARATE connection to
+        the SAME file -- durable isolation, not merely same-connection
+        visibility (a rollback that somehow left a dirty read visible to
+        another connection would still pass a same-connection-only
+        check)."""
+        ws_uuid = _bootstrap_test_workspace(v2_db, "vocab-reject-iso-proj")
+        v2_db.register_entity(
+            "feature", "015-vocab-reject-iso", "Vocab Reject Iso",
+            workspace_uuid=ws_uuid,
+        )
+        v2_db.create_workflow_phase(
+            "feature:015-vocab-reject-iso", workflow_phase="brainstorm",
+        )
+
+        with pytest.raises(sqlite3.IntegrityError):
+            v2_db.append_phase_event(
+                type_id="feature:015-vocab-reject-iso",
+                project_id="vocab-reject-iso-proj",
+                event_type="started", phase="not-a-real-phase",
+                workspace_uuid=ws_uuid,
+            )
+
+        other_conn = sqlite3.connect(_db_file_path(v2_db))
+        try:
+            pe_count = other_conn.execute(
+                "SELECT COUNT(*) FROM phase_events "
+                "WHERE type_id = ? AND event_type = 'started'",
+                ("feature:015-vocab-reject-iso",),
+            ).fetchone()[0]
+            ev_count = other_conn.execute(
+                "SELECT COUNT(*) FROM events WHERE event_type = 'started'"
+            ).fetchone()[0]
+        finally:
+            other_conn.close()
+        assert pe_count == 0
+        assert ev_count == 0

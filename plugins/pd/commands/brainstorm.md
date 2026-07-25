@@ -1,30 +1,20 @@
 ---
-description: Start brainstorming to produce evidence-backed PRD
+description: Explore an idea into an evidence-backed PRD
 argument-hint: [topic or idea to explore]
 ---
 
-# /pd:brainstorm Command
+# /pd:brainstorm
 
-## Config Variables
-Use these values from session context (injected at session start):
-- `{pd_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+Contract command. No engine entry — no feature entity exists yet.
 
-## Steps
+**Purpose:** turn a raw idea into a PRD a later phase can consume.
 
-### Step 1: Execute Brainstorming Skill
+**Inputs:** the topic argument, or the topic asked of the user when the argument is empty.
 
-Invoke `/pd:brainstorming` skill which runs 7 stages:
+**Output:** `{pd_artifacts_root}/brainstorms/{YYYYMMDD-HHMMSS}-{slug}.prd.md` — problem, cited evidence, requirements, risks, open questions.
 
-| Stage | Name | Action | Output |
-|-------|------|--------|--------|
-| 1 | CLARIFY | Q&A to resolve ambiguities | Clear problem + goals |
-| 2 | RESEARCH | Parallel subagent research | Evidence from 3 sources |
-| 3 | DRAFT PRD | Generate PRD with citations | PRD file |
-| 4 | CRITICAL REVIEW | prd-reviewer challenges draft | Issues list |
-| 5 | AUTO-CORRECT | Apply reviewer fixes | Updated PRD |
-| 6 | READINESS CHECK | brainstorm-reviewer validates | Approval status |
-| 7 | USER DECISION | Promote, refine, or save | Next action |
+**Steps:**
+1. Invoke the `brainstorming` skill with the topic. The skill owns its stages and their outputs.
+2. Report the PRD path, then offer promotion via `/pd:create-feature --prd=<path>`.
 
-### Step 2: Handle Output
-
-PRD saved to `{pd_artifacts_root}/brainstorms/YYYYMMDD-HHMMSS-{slug}.prd.md`
+**Constraints:** no feature directory, branch, or entity is created here — promotion is `/pd:create-feature`'s job.

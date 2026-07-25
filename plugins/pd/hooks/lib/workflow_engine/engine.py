@@ -6,7 +6,6 @@ import json
 import os
 import sqlite3
 import sys
-import tempfile
 from collections.abc import Callable
 from datetime import datetime, timezone
 
@@ -22,14 +21,50 @@ from transition_gate import (
 )
 from transition_gate.constants import HARD_PREREQUISITES
 
-from .kanban import derive_kanban
-from .models import FeatureWorkflowState, TransitionResponse
+from .models import FeatureWorkflowState, TransitionResponse, db_unavailable_error
 
 # Precomputed constants from immutable sources
 _PHASE_VALUES: tuple[str, ...] = tuple(p.value for p in PHASE_SEQUENCE)
 _ALL_HARD_ARTIFACTS: frozenset[str] = frozenset(
     name for names in HARD_PREREQUISITES.values() for name in names
 )
+
+# Local replica of the former workflow_engine.kanban module (deleted at
+# feature 132, Scope model D6.1-.3 — post-cutover call sites carry their
+# own copy instead of importing the shared kanban.py helper). Byte-identical to
+# its siblings in backfill.py / feature_lifecycle.py / reconciliation.py /
+# workflow_state_server.py — kept in sync via test_constants.py's parity
+# pin.
+_PHASE_TO_KANBAN: dict[str, str] = {
+    "brainstorm": "backlog",
+    "specify": "backlog",
+    "design": "prioritised",
+    "create-plan": "prioritised",
+    "implement": "wip",
+    "finish": "documenting",
+    "discover": "backlog",
+    "define": "backlog",
+    "deliver": "wip",
+    "debrief": "documenting",
+}
+
+
+def _kanban_column_for(status: str, workflow_phase: str | None) -> str:
+    """Kanban column for (status, workflow_phase).
+
+    Priority order (unchanged from the retired kanban.py logic):
+    1. Terminal statuses (completed, abandoned) -> "completed"
+    2. Blocked status -> "blocked"
+    3. Planned status -> "backlog"
+    4. Phase-based lookup with "backlog" fallback
+    """
+    if status in ("completed", "abandoned"):
+        return "completed"
+    if status == "blocked":
+        return "blocked"
+    if status == "planned":
+        return "backlog"
+    return _PHASE_TO_KANBAN.get(workflow_phase, "backlog")
 
 
 def _iso_now() -> str:
@@ -82,19 +117,29 @@ class WorkflowStateEngine:
         yolo_active: bool = False,
         *,
         workspace_uuid: str | None = None,
+        skipped_phases: list[str] | None = None,
     ) -> TransitionResponse:
-        """Validate and enter a target phase."""
+        """Validate and enter a target phase.
+
+        ``skipped_phases`` (feature 134 FR-7): phase names being skipped in
+        THIS transition; their produced artifacts are exempt from the G-08
+        hard-prerequisite check so express mode reaches implement without
+        shape.md/plan.md. Deep-mode calls omit it — full check unchanged.
+        """
         state = self.get_state(feature_type_id)
         if state is None:
             raise ValueError(f"Feature not found: {feature_type_id}")
 
         slug = self._extract_slug(feature_type_id)
         existing_artifacts = self._get_existing_artifacts(slug)
-        results = self._evaluate_gates(state, target_phase, existing_artifacts, yolo_active)
+        results = self._evaluate_gates(
+            state, target_phase, existing_artifacts, yolo_active,
+            skipped_phases=skipped_phases,
+        )
 
         # Primary defense: health probe already failed during get_state
         if state.source == "meta_json_fallback":
-            return TransitionResponse(results=tuple(results), degraded=True)
+            raise db_unavailable_error("transition_phase", feature_type_id, None)
 
         if all(r.allowed for r in results):
             # Secondary defense: catch DB write failures
@@ -105,16 +150,11 @@ class WorkflowStateEngine:
                     workspace_uuid=workspace_uuid,
                 )
             except sqlite3.Error as exc:
-                print(
-                    f"workflow-engine: DB write failed in transition_phase "
-                    f"for {feature_type_id}: {exc}",
-                    file=sys.stderr,
-                )
-                return TransitionResponse(
-                    results=tuple(results), degraded=True
-                )
+                raise db_unavailable_error(
+                    "transition_phase", feature_type_id, exc
+                ) from exc
 
-        return TransitionResponse(results=tuple(results), degraded=False)
+        return TransitionResponse(results=tuple(results))
 
     def complete_phase(
         self, feature_type_id: str, phase: str,
@@ -158,14 +198,7 @@ class WorkflowStateEngine:
 
         # Primary defense: DB was already unhealthy during get_state
         if state.source == "meta_json_fallback":
-            print(
-                f"workflow-engine: DB already degraded, writing "
-                f"complete_phase to .meta.json for {feature_type_id}",
-                file=sys.stderr,
-            )
-            return self._write_meta_json_fallback(
-                feature_type_id, phase, state
-            )
+            raise db_unavailable_error("complete_phase", feature_type_id, None)
 
         # Secondary defense: catch DB write failures
         try:
@@ -179,14 +212,9 @@ class WorkflowStateEngine:
             if phase == "finish":
                 self.db.update_entity(feature_type_id, status="completed", workspace_uuid=workspace_uuid)
         except sqlite3.Error as exc:
-            print(
-                f"workflow-engine: DB write failed in complete_phase "
-                f"for {feature_type_id}: {exc}",
-                file=sys.stderr,
-            )
-            return self._write_meta_json_fallback(
-                feature_type_id, phase, state
-            )
+            raise db_unavailable_error(
+                "complete_phase", feature_type_id, exc
+            ) from exc
 
         return FeatureWorkflowState(
             feature_type_id=feature_type_id,
@@ -211,8 +239,18 @@ class WorkflowStateEngine:
             state, target_phase, existing_artifacts, yolo_active=False
         )
 
-    def list_by_phase(self, phase: str) -> list[FeatureWorkflowState]:
-        """All features currently in the given phase."""
+    def list_by_phase(
+        self, phase: str, *, workspace_uuid: str | None = None
+    ) -> list[FeatureWorkflowState]:
+        """All features currently in the given phase.
+
+        ``workspace_uuid``, when provided, scopes the DB-backed query to
+        that workspace (plus orphan rows -- see
+        ``EntityDatabase.list_workflow_phases``). The degraded filesystem
+        fallback below takes no workspace argument: a local
+        ``artifacts_root`` scan is implicitly current-workspace-only, so a
+        ``'*'`` (all-workspaces) request cannot be served while degraded.
+        """
         if not self._check_db_health():
             print(
                 f"workflow-engine: DB unhealthy, falling back to filesystem "
@@ -225,7 +263,9 @@ class WorkflowStateEngine:
             ]
 
         try:
-            rows = self.db.list_workflow_phases(workflow_phase=phase)
+            rows = self.db.list_workflow_phases(
+                workflow_phase=phase, workspace_uuid=workspace_uuid
+            )
             return [self._row_to_state(row) for row in rows]
         except sqlite3.Error as exc:
             print(
@@ -238,8 +278,19 @@ class WorkflowStateEngine:
                 if s.current_phase == phase
             ]
 
-    def list_by_status(self, status: str) -> list[FeatureWorkflowState]:
-        """All features with the given entity status."""
+    def list_by_status(
+        self, status: str, *, workspace_uuid: str | None = None
+    ) -> list[FeatureWorkflowState]:
+        """All features with the given entity status.
+
+        ``workspace_uuid``, when provided, scopes BOTH data sources this
+        method reads -- the ``list_entities`` call and the
+        ``list_workflow_phases`` call -- so the two stay consistent. The
+        degraded filesystem fallback below takes no workspace argument: a
+        local ``artifacts_root`` scan is implicitly current-workspace-only,
+        so a ``'*'`` (all-workspaces) request cannot be served while
+        degraded.
+        """
         if not self._check_db_health():
             print(
                 f"workflow-engine: DB unhealthy, falling back to filesystem "
@@ -249,11 +300,13 @@ class WorkflowStateEngine:
             return self._scan_features_by_status(status)
 
         try:
-            entities = self.db.list_entities(entity_type="feature")
+            entities = self.db.list_entities(
+                entity_type="feature", workspace_uuid=workspace_uuid
+            )
             matching = [e for e in entities if e.get("status") == status]
 
             # 2-query pattern: fetch all workflow rows once, join in Python
-            wp_rows = self.db.list_workflow_phases()
+            wp_rows = self.db.list_workflow_phases(workspace_uuid=workspace_uuid)
             wp_map = {r["type_id"]: r for r in wp_rows}
 
             results: list[FeatureWorkflowState] = []
@@ -441,79 +494,6 @@ class WorkflowStateEngine:
             meta, feature_type_id, source="meta_json_fallback"
         )
 
-    # F4-AUDIT: degraded-mode-only
-    def _write_meta_json_fallback(
-        self,
-        feature_type_id: str,
-        phase: str,
-        state: FeatureWorkflowState,
-    ) -> FeatureWorkflowState:
-        """Atomic .meta.json update when DB is unavailable.
-
-        Reads current .meta.json, updates lastCompletedPhase and phase
-        timestamps, writes atomically via NamedTemporaryFile + os.replace().
-
-        Only state.mode is read from the state parameter -- all other data
-        comes from the .meta.json file and the phase argument.
-        """
-        slug = self._extract_slug(feature_type_id)
-        meta_path = os.path.join(
-            self.artifacts_root, "features", slug, ".meta.json"
-        )
-
-        try:
-            with open(meta_path) as f:
-                meta = json.load(f)
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ValueError(f"Cannot update .meta.json: {exc}") from exc
-
-        now = _iso_now()
-        meta["lastCompletedPhase"] = phase
-        meta.setdefault("phases", {})
-        meta["phases"].setdefault(phase, {})
-        if "started" not in meta["phases"][phase]:
-            meta["phases"][phase]["started"] = now
-        meta["phases"][phase]["completed"] = now
-
-        next_phase = self._next_phase_value(phase)
-        workflow_phase = next_phase if next_phase is not None else phase
-
-        if next_phase is None:
-            meta["status"] = "completed"
-            meta["completed"] = now
-
-        # Atomic write: NamedTemporaryFile + os.replace().
-        # Catches BaseException (not just Exception) to clean up temp file
-        # on KeyboardInterrupt or SystemExit, preventing stale .tmp files.
-        tmp_name = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                dir=os.path.dirname(meta_path),
-                suffix=".tmp",
-                delete=False,
-                encoding="utf-8",
-            ) as fd:
-                tmp_name = fd.name
-                json.dump(meta, fd, indent=2)
-            os.replace(tmp_name, meta_path)
-        except BaseException:
-            if tmp_name is not None:
-                try:
-                    os.unlink(tmp_name)
-                except OSError:
-                    pass
-            raise
-
-        return FeatureWorkflowState(
-            feature_type_id=feature_type_id,
-            current_phase=workflow_phase,
-            last_completed_phase=phase,
-            completed_phases=self._derive_completed_phases(phase),
-            mode=state.mode,
-            source="meta_json_fallback",
-        )
-
     def _iter_meta_jsons(self):
         """Yield (feature_type_id, meta_dict) for each parseable .meta.json."""
         pattern = os.path.join(
@@ -592,16 +572,20 @@ class WorkflowStateEngine:
         try:
             self.db.create_workflow_phase(
                 feature_type_id,
-                kanban_column=derive_kanban("active", state.current_phase),
+                kanban_column=_kanban_column_for("active", state.current_phase),
                 workflow_phase=state.current_phase,
                 last_completed_phase=state.last_completed_phase,
                 mode=state.mode,
             )
         except ValueError:
-            # All inputs (workflow_phase, last_completed, mode) are pre-validated
-            # by _next_phase_value / _derive_completed_phases above, so the only
-            # ValueError from create_workflow_phase is a duplicate-row conflict.
-            # Re-fetch handles the race condition; re-raise if no row found.
+            # Three ValueError sources post-132 (battery-r2 count): a
+            # duplicate-row conflict (another writer won the race), a v1
+            # CHECK-constraint rejection (bad values from parsed
+            # .meta.json), or a rolled-back v2 emit failure
+            # (create_workflow_phase is transaction-wrapped, so its row
+            # is GONE on that path). The re-fetch discriminates: a row
+            # exists only for the duplicate case -- return it; the other
+            # two find nothing and re-raise loudly.
             row = self.db.get_workflow_phase(feature_type_id)
             if row is not None:
                 return self._row_to_state(row, source="meta_json")
@@ -629,6 +613,7 @@ class WorkflowStateEngine:
         target_phase: str,
         existing_artifacts: list[str],
         yolo_active: bool,
+        skipped_phases: list[str] | None = None,
     ) -> list[TransitionResult]:
         """Run ordered gate evaluation with skip conditions and YOLO overrides."""
         results: list[TransitionResult] = []
@@ -641,12 +626,22 @@ class WorkflowStateEngine:
                 yolo_active=yolo_active,
             ))
 
-        # Gate 2: check_hard_prerequisites (never skipped)
-        results.append(self._run_gate(
-            "G-08", check_hard_prerequisites,
-            target_phase, existing_artifacts,
-            yolo_active=yolo_active,
-        ))
+        # Gate 2: check_hard_prerequisites (never skipped). Feature 134 FR-7:
+        # phases skipped in THIS transition exempt their artifacts via the
+        # existing active_phases filter — express mode's whole point.
+        if skipped_phases:
+            active = [p for p in HARD_PREREQUISITES if p not in skipped_phases]
+            results.append(self._run_gate(
+                "G-08", check_hard_prerequisites,
+                target_phase, existing_artifacts, active,
+                yolo_active=yolo_active,
+            ))
+        else:
+            results.append(self._run_gate(
+                "G-08", check_hard_prerequisites,
+                target_phase, existing_artifacts,
+                yolo_active=yolo_active,
+            ))
 
         # Gate 3: check_soft_prerequisites (never skipped)
         results.append(self._run_gate(

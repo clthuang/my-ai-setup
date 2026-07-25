@@ -6,7 +6,7 @@
 # Single-statement (skip): add_tag, remove_tag, add_okr_alignment,
 #   remove_okr_alignment, set_parent, insert_workflow_phase,
 #   update_workflow_phase, delete_workflow_phase, set_metadata,
-#   add_dependency, remove_dependency, remove_dependencies_by_blocker
+#   add_dependency, remove_dependency
 # Infrastructure (skip): _migrate (2 sites)
 from __future__ import annotations
 
@@ -16,14 +16,15 @@ import os
 import re
 import sqlite3
 import sys
+import time
 import uuid as uuid_mod
 import warnings
 from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-_UUID_V4_RE = re.compile(
-    r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+_UUID_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-7][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
 )
 
 # Tag format: lowercase letters, digits, hyphens. 1-50 chars. No leading/trailing hyphens.
@@ -1723,52 +1724,6 @@ def _migration_10_phase_events(conn: sqlite3.Connection) -> None:
         raise
 
 
-def _atomic_write_workspace_mapping(
-    workspace_root: str, mapping: dict[str, str]
-) -> str:
-    """Atomic-write the migration-11 workspace mapping audit JSON.
-
-    Writes ``<workspace_root>/.claude/pd/migrations/migration-11-workspace-mapping.json``
-    using the same-directory tempfile + os.replace pattern (NFR-7 atomicity).
-
-    Parameters
-    ----------
-    workspace_root:
-        Absolute path of the directory that owns ``.claude/``.
-    mapping:
-        ``{old_project_id_hex: new_workspace_uuid}`` dict.
-
-    Returns
-    -------
-    str
-        Absolute path to the emitted file.
-    """
-    import tempfile as _tempfile
-
-    target_dir = os.path.join(
-        workspace_root, ".claude", "pd", "migrations"
-    )
-    os.makedirs(target_dir, exist_ok=True)
-    target_path = os.path.join(target_dir, "migration-11-workspace-mapping.json")
-
-    fd, tmp_path = _tempfile.mkstemp(
-        prefix=".migration-11-workspace-mapping.", suffix=".json", dir=target_dir,
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(mapping, fh, indent=2, sort_keys=True)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp_path, target_path)
-    except Exception:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
-    return target_path
-
-
 def _migration_11_workspace_identity(conn: sqlite3.Connection) -> None:
     """Migration 11: workspaces table + entities.workspace_uuid + drop parent_type_id.
 
@@ -1854,18 +1809,15 @@ def _migration_11_workspace_identity(conn: sqlite3.Connection) -> None:
         else:
             mapping[pid] = str(uuid_mod.uuid4())
 
-    # Emit the mapping JSON. PD_WORKSPACE_ROOT may override the workspace
-    # root (used by tests); falls back to os.getcwd().
-    workspace_root = os.environ.get("PD_WORKSPACE_ROOT") or os.getcwd()
-    try:
-        _atomic_write_workspace_mapping(workspace_root, mapping)
-    except OSError as e:
-        # Audit emit failure is non-fatal in dev environments where
-        # workspace_root may not be writable; warn and continue.
-        print(
-            f"[migration-11] workspace mapping audit emit failed: {e}",
-            file=sys.stderr,
-        )
+    # Feature 132 (D6.5): the workspace-mapping audit JSON write is
+    # REMOVED here — a filesystem side effect inside a migration body,
+    # incompatible with the rebuild tool's step-1 chain replay running
+    # this same function against an empty staging file (spec FR132-5b;
+    # #066's root cause). DDL/DML is unchanged: `mapping` (built above)
+    # still seeds the `workspaces` table below; only the JSON emission is
+    # gone. The helper that used to perform that write (task 1's call-half
+    # removal left it callerless) is deleted in the same change (D6.5
+    # body-half, task 5).
 
     if unknown_count:
         print(
@@ -5406,8 +5358,9 @@ def _migration_15_audit_emit_counter(conn: sqlite3.Connection) -> None:
 
     Per spec FR-C.3: counter is touched only by the FR-C-115.1 fail-open
     emit path in db.update_entity (on emit failure). Migration 15 is the
-    ONLY initializer; subsequent migrations MUST NOT touch this key
-    (enforced by check_audit_counter_write_path AST check, C10-115.4).
+    ONLY initializer; subsequent migrations MUST NOT touch this key (an
+    AST guard enforced this invariant until feature 133 retired it
+    alongside the counter's now-dead consuming doctor checks).
     """
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -5531,6 +5484,434 @@ def _migration_17_cross_workspace_allowlist_down(conn: sqlite3.Connection) -> No
         raise
 
 
+# Feature 124 (C-124.1): Migration 18 — unify the dependency store.
+# Widens entity_relations.kind to admit 'blocks', copies entity_dependencies
+# rows + resolvable depends_on_features metadata refs into it as blocks
+# rows, then drops entity_dependencies. FORWARD-ONLY — no MIGRATIONS_DOWN
+# entry (see the carve-out on the comment above MIGRATIONS_DOWN): unifying
+# two stores into one is lossy at the table-drop step, so un-dropping is
+# not implementable. 132 owns the physical v2 cutover.
+def _migration_18_unify_dependency_store(conn: sqlite3.Connection) -> None:
+    """Migration 18 — unify entity_dependencies into entity_relations.
+
+    Four steps in ONE ``BEGIN IMMEDIATE`` / single ``COMMIT`` (a step-1-only
+    commit would strand a half-applied run):
+
+    1. Copy-rename rebuild of ``entity_relations`` widening
+       ``CHECK(kind IN ('fixes'))`` to ``CHECK(kind IN ('fixes', 'blocks'))``.
+       Mirrors the :func:`_copy_rename_entities_for_v14` idiom: capture
+       indices, rebuild with the widened CHECK, INSERT-SELECT all rows
+       (byte-identical columns otherwise), drop old, rename new, recreate
+       indices.
+    2. Unification copy: every ``entity_dependencies`` row becomes a
+       ``blocks`` row — ``from_uuid = blocked_by_uuid`` (the blocker),
+       ``to_uuid = entity_uuid`` (the blocked). Rows whose either uuid is
+       missing from ``entities`` (the old table has no FK) are skipped
+       with a stderr note each; self-edges
+       (``entity_uuid == blocked_by_uuid``) are also skipped with a note
+       (the guarded ``DependencyManager`` path rejects self-deps via
+       ``check_dependency_cycle``, but this raw copy bypasses it).
+    3. ``depends_on_features`` metadata materialization: for every entity
+       whose metadata carries the key, resolve each ``feature:{id}-{slug}``
+       ref to a uuid within the SAME workspace and ``INSERT OR IGNORE`` a
+       ``blocks`` row (same self-edge filter). Unresolvable refs warn to
+       stderr; metadata is left untouched (audit trail).
+    4. ``DROP TABLE entity_dependencies`` (+ its 2 indices). Migration 6's
+       CREATE (this file, Step 7 of ``_schema_expansion_v6``) is untouched.
+
+    Pragma bracketing per the Migration 14 ``finally`` idiom:
+    ``foreign_keys=OFF`` (verified) BEFORE ``BEGIN IMMEDIATE``;
+    ``foreign_key_check`` pre-commit inside the transaction;
+    ``foreign_keys=ON`` restored in a ``finally`` AFTER the single COMMIT;
+    defensive post-transaction ``foreign_key_check``.
+
+    Replay-safe: the fingerprint is ``entity_dependencies`` ABSENT from
+    ``sqlite_master`` — only true after step 4 completes, so probing it
+    before this function does any work reflects genuine completion (unlike
+    a CHECK-based fingerprint, which would already be set after step 1).
+
+    Forward-only: no reverse migration is registered for 18 (unification
+    is lossy at the table-drop step — un-dropping is not implementable).
+    """
+    tables = {
+        r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+    if "entity_dependencies" not in tables:
+        return
+
+    conn.execute("PRAGMA foreign_keys = OFF")
+    fk_status = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+    if fk_status != 0:
+        raise MigrationError(
+            "PRAGMA foreign_keys = OFF did not take effect — "
+            "aborting migration 18"
+        )
+
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+
+        # Racer-tolerant re-check: a concurrent peer may have completed
+        # migration 18 between our table probe and BEGIN IMMEDIATE
+        # acquisition.
+        tables_in_tx = {
+            r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        if "entity_dependencies" not in tables_in_tx:
+            conn.rollback()
+            return
+
+        # --------------------------------------------------------------
+        # Step 1: Copy-rename rebuild of entity_relations, widening the
+        # kind CHECK to admit 'blocks'.
+        # --------------------------------------------------------------
+        saved_indexes = [
+            (r[0], r[1])
+            for r in conn.execute(
+                "SELECT name, sql FROM sqlite_master "
+                "WHERE type='index' AND tbl_name='entity_relations' "
+                "AND sql IS NOT NULL"
+            ).fetchall()
+        ]
+
+        src_cols = [
+            r[1] for r in conn.execute(
+                "PRAGMA table_info(entity_relations)"
+            ).fetchall()
+        ]
+        expected_cols = {"id", "from_uuid", "to_uuid", "kind", "created_at"}
+        if set(src_cols) != expected_cols:
+            raise MigrationError(
+                "Migration 18 entity_relations copy-rename: column-set "
+                f"mismatch. found={src_cols!r}"
+            )
+
+        conn.execute("""
+            CREATE TABLE entity_relations_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                from_uuid TEXT NOT NULL,
+                to_uuid TEXT NOT NULL,
+                kind TEXT NOT NULL CHECK(kind IN ('fixes', 'blocks')),
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (from_uuid) REFERENCES entities(uuid)
+                    ON DELETE CASCADE,
+                FOREIGN KEY (to_uuid) REFERENCES entities(uuid)
+                    ON DELETE CASCADE
+            )
+        """)
+        conn.execute(
+            "INSERT INTO entity_relations_new "
+            "(id, from_uuid, to_uuid, kind, created_at) "
+            "SELECT id, from_uuid, to_uuid, kind, created_at "
+            "FROM entity_relations"
+        )
+        conn.execute("DROP TABLE entity_relations")
+        conn.execute("PRAGMA legacy_alter_table = OFF")
+        conn.execute(
+            "ALTER TABLE entity_relations_new RENAME TO entity_relations"
+        )
+        for _, idx_sql in saved_indexes:
+            if idx_sql:
+                conn.execute(idx_sql)
+
+        # --------------------------------------------------------------
+        # Step 2: Unification copy from entity_dependencies.
+        # --------------------------------------------------------------
+        migration_ts = datetime.now(timezone.utc).isoformat()
+
+        orphan_rows = conn.execute(
+            "SELECT ed.entity_uuid, ed.blocked_by_uuid "
+            "FROM entity_dependencies ed "
+            "LEFT JOIN entities e1 ON e1.uuid = ed.entity_uuid "
+            "LEFT JOIN entities e2 ON e2.uuid = ed.blocked_by_uuid "
+            "WHERE e1.uuid IS NULL OR e2.uuid IS NULL"
+        ).fetchall()
+        for entity_uuid, blocked_by_uuid in orphan_rows:
+            print(
+                "[migration-18] skipping orphan entity_dependencies row "
+                f"entity_uuid={entity_uuid!r} "
+                f"blocked_by_uuid={blocked_by_uuid!r} "
+                "(uuid not found in entities)",
+                file=sys.stderr,
+            )
+
+        self_edge_rows = conn.execute(
+            "SELECT ed.entity_uuid FROM entity_dependencies ed "
+            "JOIN entities e ON e.uuid = ed.entity_uuid "
+            "WHERE ed.entity_uuid = ed.blocked_by_uuid"
+        ).fetchall()
+        for (self_uuid,) in self_edge_rows:
+            print(
+                "[migration-18] skipping self-edge entity_dependencies "
+                f"row uuid={self_uuid!r}",
+                file=sys.stderr,
+            )
+
+        conn.execute(
+            "INSERT OR IGNORE INTO entity_relations "
+            "(from_uuid, to_uuid, kind, created_at) "
+            "SELECT ed.blocked_by_uuid, ed.entity_uuid, 'blocks', ? "
+            "FROM entity_dependencies ed "
+            "JOIN entities e1 ON e1.uuid = ed.entity_uuid "
+            "JOIN entities e2 ON e2.uuid = ed.blocked_by_uuid "
+            "WHERE ed.entity_uuid != ed.blocked_by_uuid",
+            (migration_ts,),
+        )
+
+        # --------------------------------------------------------------
+        # Step 3: depends_on_features metadata materialization.
+        # --------------------------------------------------------------
+        from entity_registry.metadata import parse_metadata
+
+        meta_rows = conn.execute(
+            "SELECT uuid, workspace_uuid, type_id, metadata FROM entities "
+            "WHERE metadata LIKE '%depends_on_features%'"
+        ).fetchall()
+        for entity_uuid, workspace_uuid, type_id, raw_metadata in meta_rows:
+            meta = parse_metadata(raw_metadata)
+            refs = meta.get("depends_on_features") or []
+            if not isinstance(refs, list):
+                continue
+            for ref in refs:
+                if not isinstance(ref, str):
+                    continue
+                ref_row = conn.execute(
+                    "SELECT uuid FROM entities "
+                    "WHERE type_id = ? AND workspace_uuid = ?",
+                    (ref, workspace_uuid),
+                ).fetchone()
+                if ref_row is None:
+                    print(
+                        "[migration-18] unresolvable depends_on_features "
+                        f"ref {ref!r} on entity {type_id!r} "
+                        f"({entity_uuid}) — metadata left intact",
+                        file=sys.stderr,
+                    )
+                    continue
+                resolved_uuid = ref_row[0]
+                if resolved_uuid == entity_uuid:
+                    print(
+                        "[migration-18] skipping self-referential "
+                        f"depends_on_features ref {ref!r} on entity "
+                        f"{type_id!r} ({entity_uuid})",
+                        file=sys.stderr,
+                    )
+                    continue
+                conn.execute(
+                    "INSERT OR IGNORE INTO entity_relations "
+                    "(from_uuid, to_uuid, kind, created_at) "
+                    "VALUES (?, ?, 'blocks', ?)",
+                    (resolved_uuid, entity_uuid, migration_ts),
+                )
+
+        # --------------------------------------------------------------
+        # Step 4: Drop the legacy entity_dependencies table + indices.
+        # --------------------------------------------------------------
+        conn.execute("DROP INDEX IF EXISTS idx_ed_entity_uuid")
+        conn.execute("DROP INDEX IF EXISTS idx_ed_blocked_by_uuid")
+        conn.execute("DROP TABLE entity_dependencies")
+
+        # --------------------------------------------------------------
+        # Pre-commit FK check (in-transaction).
+        # --------------------------------------------------------------
+        in_tx_fk = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if in_tx_fk:
+            raise MigrationError(
+                f"Migration 18 in-transaction FK check non-empty: {in_tx_fk}"
+            )
+
+        conn.execute(
+            "INSERT OR REPLACE INTO _metadata (key, value) "
+            "VALUES ('schema_version', '18')"
+        )
+
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except sqlite3.Error:
+            pass
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+
+    post_fk = conn.execute("PRAGMA foreign_key_check").fetchall()
+    if post_fk:
+        raise MigrationError(
+            f"Migration 18 post-FK check non-empty: {post_fk}"
+        )
+
+
+# Feature 124 (Task 2 addendum, D3): Migration 19 — widen phase_events'
+# event_type CHECK to admit 'cascade_ready'. D3 pins the cascade flip's
+# atomic record as a phase_events row with event_type='cascade_ready'
+# (from_value/to_value/actor carried in metadata, mirroring the
+# entity_status_changed convention); the live CHECK (widened to 8 values by
+# Migration 14's _copy_rename_phase_events_for_v14) does not admit it, and
+# SQLite CHECKs are immutable in place. Forward-only (no MIGRATIONS_DOWN
+# entry): a pure widen has no data to lose, and 132 owns the physical v2
+# cutover -- adding a reverse here would touch the MIGRATIONS_DOWN keys
+# pin (test_database.py) for no functional benefit, mirroring Migration
+# 18's own forward-only precedent.
+def _migration_19_widen_phase_events_cascade_ready(
+    conn: sqlite3.Connection,
+) -> None:
+    """Migration 19 — widen phase_events.event_type CHECK to admit
+    'cascade_ready'.
+
+    Mirrors the Migration 14 copy-rename idiom
+    (_copy_rename_phase_events_for_v14, database.py:4637): capture indexes
+    + triggers, rebuild with the widened CHECK (9 values, adds
+    'cascade_ready'), INSERT-SELECT all rows (byte-identical columns;
+    the m18-style column-set pre-flight assertion is intentionally omitted
+    -- phase_events' shape is stable and the explicit column list fails
+    loudly on mismatch),
+    DROP old, RENAME new, recreate indexes + triggers. No FK pragma
+    bracketing needed -- phase_events carries no FK constraints (unlike
+    Migration 18's entity_relations rebuild).
+
+    Replay-safe: probes sqlite_master for a `'cascade_ready'` substring in
+    the phase_events CHECK SQL; if present, a prior interrupted attempt
+    already completed the rebuild -- skip.
+    """
+    pe_sql_row = conn.execute(
+        "SELECT sql FROM sqlite_master "
+        "WHERE type='table' AND name='phase_events'"
+    ).fetchone()
+    if "'cascade_ready'" in (pe_sql_row[0] if pe_sql_row else ""):
+        return
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        # Racer-tolerant re-check: a concurrent peer may have completed
+        # migration 19 between our probe and BEGIN IMMEDIATE acquisition.
+        pe_sql_row_tx = conn.execute(
+            "SELECT sql FROM sqlite_master "
+            "WHERE type='table' AND name='phase_events'"
+        ).fetchone()
+        if "'cascade_ready'" in (pe_sql_row_tx[0] if pe_sql_row_tx else ""):
+            conn.rollback()
+            return
+
+        pe_pre_count = conn.execute(
+            "SELECT COUNT(*) FROM phase_events"
+        ).fetchone()[0]
+
+        pe_saved_indexes = [
+            (r[0], r[1])
+            for r in conn.execute(
+                "SELECT name, sql FROM sqlite_master "
+                "WHERE type='index' AND tbl_name='phase_events' "
+                "AND sql IS NOT NULL"
+            ).fetchall()
+        ]
+        pe_saved_triggers = [
+            (r[0], r[1])
+            for r in conn.execute(
+                "SELECT name, sql FROM sqlite_master "
+                "WHERE type='trigger' AND tbl_name='phase_events' "
+                "AND sql IS NOT NULL"
+            ).fetchall()
+        ]
+        pe_cross_triggers = [
+            (r[0], r[1])
+            for r in conn.execute(
+                "SELECT name, sql FROM sqlite_master "
+                "WHERE type='trigger' "
+                "AND tbl_name <> 'phase_events' "
+                "AND sql LIKE '%phase_events%' "
+                "AND sql IS NOT NULL"
+            ).fetchall()
+        ]
+        for trg_name, _ in pe_cross_triggers:
+            conn.execute(f"DROP TRIGGER IF EXISTS {trg_name}")
+
+        conn.execute("""
+            CREATE TABLE phase_events_new (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                type_id         TEXT NOT NULL,
+                project_id      TEXT NOT NULL,
+                phase           TEXT,
+                event_type      TEXT NOT NULL CHECK(event_type IN (
+                    'started', 'completed', 'skipped', 'backward',
+                    'entity_created', 'entity_status_changed',
+                    'entity_promoted', 'spawned_child', 'cascade_ready'
+                )),
+                timestamp       TEXT NOT NULL,
+                iterations      INTEGER,
+                reviewer_notes  TEXT,
+                backward_reason TEXT,
+                backward_target TEXT,
+                source          TEXT NOT NULL DEFAULT 'live' CHECK(
+                    source IN ('live', 'backfill')
+                ),
+                created_at      TEXT NOT NULL,
+                metadata        TEXT
+            )
+        """)
+
+        conn.execute(
+            "INSERT INTO phase_events_new "
+            "(id, type_id, project_id, phase, event_type, timestamp, "
+            "iterations, reviewer_notes, backward_reason, "
+            "backward_target, source, created_at, metadata) "
+            "SELECT id, type_id, project_id, phase, event_type, "
+            "timestamp, iterations, reviewer_notes, backward_reason, "
+            "backward_target, source, created_at, metadata "
+            "FROM phase_events"
+        )
+        pe_post_count = conn.execute(
+            "SELECT COUNT(*) FROM phase_events_new"
+        ).fetchone()[0]
+        if pe_post_count != pe_pre_count:
+            raise MigrationError(
+                f"Migration 19 phase_events copy-rename row-count "
+                f"mismatch: pre={pe_pre_count}, post={pe_post_count}"
+            )
+
+        conn.execute("DROP TABLE phase_events")
+        conn.execute("ALTER TABLE phase_events_new RENAME TO phase_events")
+
+        for _, idx_sql in pe_saved_indexes:
+            if idx_sql:
+                conn.execute(idx_sql)
+        for _, trg_sql in pe_saved_triggers:
+            if trg_sql:
+                conn.execute(trg_sql)
+        for _, trg_sql in pe_cross_triggers:
+            if trg_sql:
+                conn.execute(trg_sql)
+
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+
+
+def _upsert_metadata(conn: sqlite3.Connection, key: str, value: str) -> None:
+    """Upsert one ``_metadata`` key/value pair (ON CONFLICT DO UPDATE).
+
+    Feature 132 #062: a plain ``INSERT OR IGNORE`` would silently skip a
+    version bump against an existing cell. Takes a raw connection (not an
+    ``EntityDatabase`` instance) so both schema generations' stamp-write
+    sites share this one implementation: ``EntityDatabase._migrate()``'s
+    per-version write (v1, below) and the v2 rebuild tool's
+    staging-connection generation stamp (``entity_registry.rebuild_tool``,
+    design 132 D1 step 3).
+    """
+    conn.execute(
+        "INSERT INTO _metadata (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+
+
 # Ordered mapping of version -> migration function.
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     1: _create_initial_schema,
@@ -5550,11 +5931,16 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     15: _migration_15_audit_emit_counter,
     16: _migration_16_reserved,
     17: _migration_17_cross_workspace_allowlist,
+    18: _migration_18_unify_dependency_store,
+    19: _migration_19_widen_phase_events_cascade_ready,
 }
 
 # Reverse-migration registry (FR-8 / design §6.7). Migrations 1-10 are
 # forward-only; calling _migrate_down() with target_version < 10 raises
-# NotImplementedError. Schema versions 11+ are reversible.
+# NotImplementedError. Schema versions 11-17 are reversible; 18 is
+# forward-only (unifying entity_dependencies into entity_relations is lossy
+# at the table-drop step — un-dropping is not implementable; 132 owns the
+# physical v2 cutover).
 MIGRATIONS_DOWN: dict[int, Callable[[sqlite3.Connection], None]] = {
     11: _migration_11_workspace_identity_down,
     12: _migration_12_polymorphic_taxonomy_and_events_down,
@@ -5564,6 +5950,282 @@ MIGRATIONS_DOWN: dict[int, Callable[[sqlite3.Connection], None]] = {
     16: _migration_16_reserved_down,
     17: _migration_17_cross_workspace_allowlist_down,
 }
+
+
+# ---------------------------------------------------------------------------
+# v2 forward-only migration chain (feature 134 NFR-4; backlog #077 class)
+# ---------------------------------------------------------------------------
+#
+# A v2-generation file (``_metadata.schema_generation == 'v2'``) starts a
+# FRESH version lineage and never replays the v1 ``MIGRATIONS`` chain above —
+# see ``EntityDatabase._migrate``'s FR132-1 generation guard.
+# ``V2_MIGRATIONS`` IS that lineage's chain: entry N lifts a file from
+# version N-1 to N, and ``max(V2_MIGRATIONS)`` MUST equal
+# ``schema_v2.V2_SCHEMA_VERSION`` (the number every stamp site writes:
+# ``schema_v2.bootstrap_v2`` and ``rebuild_tool._stamp_v2_generation``).
+# Version 1 is the cutover baseline itself, so the chain starts at 2 — there
+# is deliberately no ``V2_MIGRATIONS[1]``.
+#
+# Forward-only by construction: there is no ``V2_MIGRATIONS_DOWN``. Every
+# entry MUST be replay-safe (probe the live schema, skip when already
+# applied) so an interrupted run converges on the next open.
+
+
+def _v2_migration_2_mini_spec(conn: sqlite3.Connection) -> None:
+    """v2 migration 2 — widen ``phase_events.event_type`` to admit ``'mini_spec'``.
+
+    The workflow rebuild (feature 134) records a mini-spec as a
+    ``phase_events`` row whose text rides in ``metadata``; the live CHECK
+    (9 values, last widened by v1 Migration 19) rejects it and SQLite
+    CHECKs are immutable in place, so the table is rebuilt copy-rename
+    style — the same idiom Migration 19
+    (``_migration_19_widen_phase_events_cascade_ready``) uses:
+
+    1. capture the table's indexes + triggers from ``sqlite_master``
+       (exact live SQL, never a hand-copied mirror),
+    2. ``CREATE phase_events_new`` with the widened 10-value CHECK and an
+       otherwise byte-identical column list,
+    3. ``INSERT ... SELECT`` every row with an explicit column list (fails
+       loudly on any shape mismatch) + a row-count equality assertion,
+    4. ``DROP`` old, ``ALTER TABLE ... RENAME``, recreate the captured
+       indexes + triggers, and assert every captured index name came back.
+
+    Wrapped in ``BEGIN IMMEDIATE`` with a ``PRAGMA foreign_key_check``
+    immediately before ``COMMIT`` (CLAUDE.md migration pattern). v2's
+    ``phase_events`` carries no FK constraints and no triggers today, so
+    both the FK check and the trigger replay are cheap insurance against a
+    future shape change rather than load-bearing today.
+
+    Transaction control is issued as literal SQL (``COMMIT`` / ``ROLLBACK``
+    statements), NOT ``conn.commit()`` / ``conn.rollback()``, because this
+    one function runs against BOTH connection modes: the legacy-mode
+    connection ``EntityDatabase`` opens (where the method calls work) and
+    the ``autocommit=True`` connection ``rebuild_tool`` opens (where they
+    are silent no-ops that would leave this transaction open and discard
+    the whole rebuild at close). Same finding, same fix as
+    ``rebuild_tool._seed_v2_schema``.
+
+    Replay-safe / no-op safe:
+    - returns immediately if ``phase_events`` does not exist at all (a
+      core-only ``bootstrap_v2`` file has the v2 ``events`` table but no v1
+      ``phase_events``);
+    - returns immediately if the CHECK already names ``'mini_spec'``,
+      re-probing once more INSIDE ``BEGIN IMMEDIATE`` so a peer that
+      completed the rebuild between the probe and the lock wins cleanly.
+    """
+    pe_sql_row = conn.execute(
+        "SELECT sql FROM sqlite_master "
+        "WHERE type='table' AND name='phase_events'"
+    ).fetchone()
+    if pe_sql_row is None:
+        return
+    if "'mini_spec'" in (pe_sql_row[0] or ""):
+        return
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        # Racer-tolerant re-check: a concurrent peer may have completed this
+        # migration between our probe and BEGIN IMMEDIATE acquisition.
+        # qa-mig3 LOW: a leftover phase_events_new from a crash of some
+        # FUTURE code path would fail every open permanently; cheap insurance.
+        conn.execute("DROP TABLE IF EXISTS phase_events_new")
+        pe_sql_row_tx = conn.execute(
+            "SELECT sql FROM sqlite_master "
+            "WHERE type='table' AND name='phase_events'"
+        ).fetchone()
+        if pe_sql_row_tx is None or "'mini_spec'" in (pe_sql_row_tx[0] or ""):
+            conn.execute("ROLLBACK")
+            return
+
+        pe_pre_count = conn.execute(
+            "SELECT COUNT(*) FROM phase_events"
+        ).fetchone()[0]
+
+        # Index + trigger SQL comes from the LIVE file, so the four indexes
+        # this table carries (idx_pe_lookup, idx_pe_project, idx_pe_timestamp,
+        # phase_events_backfill_dedup) are restored byte-for-byte rather than
+        # from a mirror that could drift. Auto-indexes (sql IS NULL) are
+        # excluded — SQLite recreates those from the CREATE TABLE itself.
+        pe_saved_indexes = [
+            (r[0], r[1])
+            for r in conn.execute(
+                "SELECT name, sql FROM sqlite_master "
+                "WHERE type='index' AND tbl_name='phase_events' "
+                "AND sql IS NOT NULL"
+            ).fetchall()
+        ]
+        pe_saved_triggers = [
+            (r[0], r[1])
+            for r in conn.execute(
+                "SELECT name, sql FROM sqlite_master "
+                "WHERE type='trigger' AND tbl_name='phase_events' "
+                "AND sql IS NOT NULL"
+            ).fetchall()
+        ]
+        pe_cross_triggers = [
+            (r[0], r[1])
+            for r in conn.execute(
+                "SELECT name, sql FROM sqlite_master "
+                "WHERE type='trigger' "
+                "AND tbl_name <> 'phase_events' "
+                "AND sql LIKE '%phase_events%' "
+                "AND sql IS NOT NULL"
+            ).fetchall()
+        ]
+        for trg_name, _ in pe_cross_triggers:
+            conn.execute(f"DROP TRIGGER IF EXISTS {trg_name}")
+
+        conn.execute("""
+            CREATE TABLE phase_events_new (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                type_id         TEXT NOT NULL,
+                project_id      TEXT NOT NULL,
+                phase           TEXT,
+                event_type      TEXT NOT NULL CHECK(event_type IN (
+                    'started', 'completed', 'skipped', 'backward',
+                    'entity_created', 'entity_status_changed',
+                    'entity_promoted', 'spawned_child', 'cascade_ready',
+                    'mini_spec'
+                )),
+                timestamp       TEXT NOT NULL,
+                iterations      INTEGER,
+                reviewer_notes  TEXT,
+                backward_reason TEXT,
+                backward_target TEXT,
+                source          TEXT NOT NULL DEFAULT 'live' CHECK(
+                    source IN ('live', 'backfill')
+                ),
+                created_at      TEXT NOT NULL,
+                metadata        TEXT
+            )
+        """)
+
+        conn.execute(
+            "INSERT INTO phase_events_new "
+            "(id, type_id, project_id, phase, event_type, timestamp, "
+            "iterations, reviewer_notes, backward_reason, "
+            "backward_target, source, created_at, metadata) "
+            "SELECT id, type_id, project_id, phase, event_type, "
+            "timestamp, iterations, reviewer_notes, backward_reason, "
+            "backward_target, source, created_at, metadata "
+            "FROM phase_events"
+        )
+        pe_post_count = conn.execute(
+            "SELECT COUNT(*) FROM phase_events_new"
+        ).fetchone()[0]
+        if pe_post_count != pe_pre_count:
+            raise MigrationError(
+                f"v2 migration 2 phase_events copy-rename row-count "
+                f"mismatch: pre={pe_pre_count}, post={pe_post_count}"
+            )
+
+        conn.execute("DROP TABLE phase_events")
+        conn.execute("ALTER TABLE phase_events_new RENAME TO phase_events")
+
+        for _, idx_sql in pe_saved_indexes:
+            if idx_sql:
+                conn.execute(idx_sql)
+        for _, trg_sql in pe_saved_triggers:
+            if trg_sql:
+                conn.execute(trg_sql)
+        for _, trg_sql in pe_cross_triggers:
+            if trg_sql:
+                conn.execute(trg_sql)
+
+        # Non-vacuity guard: DROP TABLE takes the old table's indexes with
+        # it, so a missed replay would silently leave phase_events unindexed
+        # (correct results, table-scan performance). Assert the exact set,
+        # not a count.
+        restored_index_names = {
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='index' AND tbl_name='phase_events' "
+                "AND sql IS NOT NULL"
+            ).fetchall()
+        }
+        expected_index_names = {name for name, _ in pe_saved_indexes}
+        if restored_index_names != expected_index_names:
+            raise MigrationError(
+                f"v2 migration 2 phase_events index replay mismatch: "
+                f"expected={sorted(expected_index_names)}, "
+                f"restored={sorted(restored_index_names)}"
+            )
+
+        post_fk = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if post_fk:
+            raise MigrationError(
+                f"v2 migration 2 post-FK check non-empty: {post_fk}"
+            )
+
+        conn.execute("COMMIT")
+    except Exception:
+        try:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+
+
+def _v2_migration_3_state_only_axis_views(conn: sqlite3.Connection) -> None:
+    """v2 migration 3 — rebuild entity_axis_state/entity_state (qa-mig3 HIGH).
+
+    The original entity_axis_state derived state from MAX(uuid) over ALL
+    events, so a trailing `skipped` row moved the pipeline axis (the same
+    last-skipped-wins defect fixed on workflow_phases) and a NULL-to_value
+    audit row (mini_spec, spawned_child, cascade_ready) clobbered lifecycle
+    state with NULL. The rebuilt view filters to state-changing rows:
+    ``to_value IS NOT NULL AND event_type != 'skipped'``.
+
+    Replay-safe: probes sqlite_master for the filter clause and returns when
+    already present. Both views are dropped and recreated from views.py's
+    registered DDL (entity_state depends on entity_axis_state), inside the
+    caller-visible transaction discipline of the chain (view DDL is cheap;
+    no table data moves).
+    """
+    # v1-generation files carry no v2 events store (dark-ship never landed
+    # in database.py — the store arrives with cutover/rebuild files); with
+    # no events table there is nothing to rebuild and CREATE VIEW would
+    # fail. The v1-chain alias MIGRATIONS[21] is a deliberate no-op there.
+    has_events = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='events'"
+    ).fetchone() is not None
+    if not has_events:
+        return
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='view' AND name='entity_axis_state'"
+    ).fetchone()
+    if row is not None and "event_type != 'skipped'" in (row[0] or ""):
+        return
+    from entity_registry import views as _views
+    conn.execute("DROP VIEW IF EXISTS entity_state")
+    conn.execute("DROP VIEW IF EXISTS entity_axis_state")
+    conn.executescript(_views._VIEWS_DDL)
+
+
+V2_MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
+    2: _v2_migration_2_mini_spec,
+    3: _v2_migration_3_state_only_axis_views,
+}
+
+# qa-mig3 MEDIUM: the stamp sites write schema_v2.V2_SCHEMA_VERSION; a bump
+# without the matching chain entry strands stamped files unfixably
+# (_migrate_v2's range never reaches them). Fail at import, not in the field.
+from entity_registry.schema_v2 import V2_SCHEMA_VERSION as _V2_SCHEMA_VERSION  # noqa: E402
+
+assert max(V2_MIGRATIONS) == _V2_SCHEMA_VERSION, (
+    "V2_MIGRATIONS and schema_v2.V2_SCHEMA_VERSION moved apart"
+)
+
+# Feature 134 QA follow-up: FRESH EntityDatabase files are v1-generation
+# (the v1 chain, no schema_generation stamp), so without a v1-chain entry a
+# NEW workspace's phase_events CHECK rejects 'mini_spec' and express mode
+# crashes on first use. The widening helper is replay-safe and
+# generation-agnostic — the same function serves both chains. Forward-only
+# (no MIGRATIONS_DOWN entry; downs stop at 17 by precedent).
+MIGRATIONS[20] = _v2_migration_2_mini_spec
+MIGRATIONS[21] = _v2_migration_3_state_only_axis_views
 
 
 def _migrate_down(conn: sqlite3.Connection, target_version: int) -> None:
@@ -5672,6 +6334,18 @@ _VALID_PARAMS: dict[str, set[str]] = {
     # future non-issue_spawn caller can promote to required when needed
     # (plan-reviewer iter 3 S3 downgrade).
     "spawned_child":        {"metadata"},
+    # Feature 124 D3/Migration 19: cascade_ready is the atomic flip record
+    # emitted by DependencyManager._evaluate_and_flip (blocked -> ready).
+    # metadata carries from_value/to_value/actor -- required, since the
+    # event is meaningless without that payload (unlike spawned_child,
+    # which has exactly one caller that already guarantees it).
+    "cascade_ready":        {"metadata"},
+    # Feature 134 NFR-4 / v2 migration 2: mini_spec carries the mini-spec
+    # text in metadata. NOT phase-named (so _v2_classify_phase_event routes
+    # it to the lifecycle axis, never pipeline) and NOT in _REQUIRED_PARAMS
+    # — an empty-metadata mini_spec is a degenerate but legal audit marker,
+    # same latitude spawned_child gets.
+    "mini_spec":            {"metadata"},
 }
 _REQUIRED_PARAMS: dict[str, set[str]] = {
     "started":              {"phase"},
@@ -5680,6 +6354,7 @@ _REQUIRED_PARAMS: dict[str, set[str]] = {
     "backward":             {"phase", "backward_reason", "backward_target"},
     "entity_status_changed":{"metadata"},
     "entity_promoted":      {"metadata"},
+    "cascade_ready":        {"metadata"},
 }
 
 # Discriminator kwargs visible to validation (must match the union of all
@@ -5689,6 +6364,36 @@ _DISCRIMINATOR_KWARGS: tuple[str, ...] = (
     "phase", "iterations", "reviewer_notes",
     "backward_reason", "backward_target", "metadata",
 )
+
+# Feature 132 D5/D3: the LIVE half of the axis-mapping table design D3
+# pins for the backfill (rebuild_tool.py's ``_classify_phase_event``,
+# which this mirrors byte-for-byte in rule, not by import -- rebuild_tool.py
+# imports FROM this module, so importing back would be circular).
+_V2_PHASE_NAMED_EVENT_TYPES = frozenset({"started", "completed", "skipped", "backward"})
+
+
+def _v2_classify_phase_event(
+    kind: str, event_type: str, phase: str | None, metadata: dict | None
+) -> tuple[str, str | None]:
+    """Route one ``append_phase_event`` call onto its v2 (axis, to_value).
+
+    Phase-named event_types go to the ``pipeline`` axis (122's 6-value
+    vocab) for feature-kind entities, ``lifecycle`` (vocab-free) for every
+    other kind -- matching FR132-2b / D3's table. Every other event_type
+    (``entity_created``, ``entity_status_changed``, ``entity_promoted``,
+    ``spawned_child``, ``cascade_ready``, ``mini_spec``) goes to
+    ``lifecycle`` with
+    ``to_value`` set to ``metadata['new_status']`` when present, else
+    NULL -- NEVER the ``execution`` axis (that axis is backfill-only: the
+    one-time ``status_backfilled`` synthesis, D3). Same rule
+    rebuild_tool.py's ``_classify_phase_event`` applies to copied rows, so
+    a live-written event and a backfilled event of the same shape land on
+    the same axis with the same to_value.
+    """
+    if event_type in _V2_PHASE_NAMED_EVENT_TYPES:
+        axis = "pipeline" if kind == "feature" else "lifecycle"
+        return axis, phase
+    return "lifecycle", (metadata or {}).get("new_status")
 
 
 # ---------------------------------------------------------------------------
@@ -5738,7 +6443,6 @@ class InvalidCloseTargetError(ValueError):
 
     Used by F10 complete_phase(closes=) for:
     - lifecycle_class not in _CLOSES_TERMINAL (FR-10.3 step 3)
-    - cross-workspace closure attempt (FR-10.3 step 2)
     - already terminal with different prior closer (FR-10.3 step 4)
     - already terminal with no prior closer record (FR-10.3 step 4)
     """
@@ -5766,33 +6470,6 @@ class PromotionConflictError(ValueError):
         self.workspace_uuid = workspace_uuid
         self.old_type_id = old_type_id
         self.new_type_id = new_type_id
-
-
-class CrossWorkspaceError(ValueError):
-    """Feature 115 FR-E.3 / 114 IF-3: raised when an MCP op would create a
-    cross-workspace link between entities that reside in different workspaces.
-
-    Inherits ValueError so existing MCP error handlers catch via the standard
-    ValueError path. The MCP envelope translator branch in entity_server.py
-    and server_helpers.py recognizes this typed exception and emits
-    ``error_type=cross_workspace_forbidden`` instead of the generic envelope.
-    """
-
-    def __init__(
-        self,
-        op_name: str,
-        pairs: list[tuple[str, str | None, str, str | None]],
-    ):
-        # Each tuple: (uuid_a, ws_a, uuid_b, ws_b) — pairs that mismatch
-        self.op_name = op_name
-        self.pairs = pairs
-        super().__init__(
-            f"cross-workspace {op_name} forbidden: "
-            + "; ".join(
-                f"{ua}@{wa} vs {ub}@{wb}"
-                for ua, wa, ub, wb in pairs
-            )
-        )
 
 
 class EntityDatabase:
@@ -5889,73 +6566,6 @@ class EntityDatabase:
             )
         return workspace_uuid
 
-    def _resolve_workspace_uuid_kwargs(
-        self,
-        workspace_uuid: str | None,
-        project_id: str | None,
-        *,
-        _caller: str = "register_entity",
-    ) -> str:
-        """Resolve the (workspace_uuid, project_id) kwarg pair to a canonical
-        workspace_uuid.
-
-        Compatibility shim for Feature 108 Migration 11 transition window.
-
-        Resolution rules
-        ----------------
-        * Both supplied → ``workspace_uuid`` wins; emits DeprecationWarning.
-        * Only ``workspace_uuid`` → returned as-is.
-        * Only ``project_id == "__unknown__"`` → returns canonical
-          ``_UNKNOWN_WORKSPACE_UUID`` and ensures the workspaces row exists.
-        * Only ``project_id == "<other>"`` → JOIN on
-          ``workspaces.project_id_legacy``; raises if no row matches.
-        * Neither → ``ValueError``.
-
-        Returns
-        -------
-        str
-            The resolved workspace_uuid (FK target satisfied).
-
-        Raises
-        ------
-        ValueError
-            If neither kwarg is supplied, or if a non-``__unknown__``
-            ``project_id`` cannot be resolved against the workspaces table.
-        """
-        if workspace_uuid is not None and project_id is not None:
-            warnings.warn(
-                f"{_caller}() received both workspace_uuid and project_id; "
-                f"workspace_uuid wins. project_id is deprecated.",
-                DeprecationWarning,
-                stacklevel=3,
-            )
-            return self._validated_provided_workspace_uuid(
-                workspace_uuid, _caller
-            )
-        if workspace_uuid is not None:
-            return self._validated_provided_workspace_uuid(
-                workspace_uuid, _caller
-            )
-        if project_id is None:
-            raise ValueError(
-                f"{_caller}() requires workspace_uuid or project_id"
-            )
-        # Legacy project_id path
-        if project_id == "__unknown__":
-            self._ensure_unknown_workspace_row()
-            return _UNKNOWN_WORKSPACE_UUID
-        row = self._conn.execute(
-            "SELECT uuid FROM workspaces WHERE project_id_legacy = ?",
-            (project_id,),
-        ).fetchone()
-        if row is None:
-            raise ValueError(
-                f"{_caller}(): project_id={project_id!r} has no matching "
-                f"workspaces.project_id_legacy row. Either pass "
-                f"workspace_uuid directly or pre-register the workspace."
-            )
-        return row["uuid"]
-
     def _resolve_optional_workspace_filter(
         self,
         workspace_uuid: str | None,
@@ -5965,10 +6575,24 @@ class EntityDatabase:
     ) -> str | None:
         """Resolve an optional (workspace_uuid, project_id) scope filter.
 
-        Variant of :meth:`_resolve_workspace_uuid_kwargs` for read paths
-        that treat ``None`` as "no scoping" rather than an error. Used by
-        ``list_entities``, ``search_entities``, ``_resolve_identifier``,
-        ``resolve_ref``, etc.
+        Originally a read-path-only variant of the Feature 108 Migration 11
+        transition shim (the dedicated (workspace_uuid, project_id) resolver
+        method retired at feature 132 D6.4). Two call-site shapes now share
+        it:
+
+        * Read paths (``list_entities``, ``search_entities``,
+          ``_resolve_identifier``, ``resolve_ref``, etc.) use the return
+          value AS-IS — ``None`` means "no scoping", and an unrecognized
+          ``workspace_uuid`` is not an error (a query against it just
+          yields zero rows).
+        * Write paths (``register_entity``, ``upsert_entity``,
+          ``update_entity``'s re-attribution branch, ``upsert_workflow_phase``,
+          ``next_sequence_value``, ``register_entities_batch``) additionally
+          require a resolved value AND run it through
+          :meth:`_validated_provided_workspace_uuid` — the split-brain
+          fail-loud guard the retired shim used to apply directly. This
+          reproduces the old shim's exact behavior (same messages, same
+          ``stacklevel``) without a dedicated wrapper.
 
         Resolution rules
         ----------------
@@ -6029,7 +6653,7 @@ class EntityDatabase:
         Parameters
         ----------
         identifier:
-            Either a UUID v4 string or a type_id string.
+            Either a UUID string or a type_id string.
         workspace_uuid:
             If provided, restrict type_id lookup to this workspace.
             UUID lookups are unchanged (UUID is globally unique).
@@ -6051,7 +6675,7 @@ class EntityDatabase:
             is ambiguous across workspaces (when neither kwarg is
             provided).
         """
-        if _UUID_V4_RE.match(identifier.lower()):
+        if _UUID_RE.match(identifier.lower()):
             row = self._conn.execute(
                 "SELECT uuid, type_id FROM entities WHERE uuid = ?",
                 (identifier.lower(),),
@@ -6138,46 +6762,6 @@ class EntityDatabase:
             (to_uuid,),
         ).fetchone()
         return row[0] if row is not None else None
-
-    def _assert_same_workspace_pairwise(
-        self,
-        pair: tuple[str, str],
-        op_name: str,
-    ) -> None:
-        """Feature 115 FR-E.1 / 114 IF-3: assert two entities share workspace.
-
-        Raises :class:`CrossWorkspaceError` if the two entities reside in
-        different workspaces AND the pair is not present in
-        ``cross_workspace_allowlist`` (either ordering).
-
-        Per spec FR-E.2: pairwise comparison between the two entities — NOT
-        a check against the caller's workspace (which may differ from both).
-        """
-        uuid_a, uuid_b = pair
-        rows = self._conn.execute(
-            "SELECT uuid, workspace_uuid FROM entities WHERE uuid IN (?, ?)",
-            (uuid_a, uuid_b),
-        ).fetchall()
-        if len(rows) < 2:
-            # One or both entities not found — let downstream NOT-FOUND
-            # handling cover it. Don't raise here; that would mask the
-            # real "entity missing" error with a workspace mismatch.
-            return
-        by_uuid = {r["uuid"]: r["workspace_uuid"] for r in rows}
-        ws_a = by_uuid.get(uuid_a)
-        ws_b = by_uuid.get(uuid_b)
-        if ws_a == ws_b:
-            return  # Same workspace — fine.
-        # Mismatch detected. Check allowlist by entity-UUID pair (both orderings).
-        allow_row = self._conn.execute(
-            "SELECT id FROM cross_workspace_allowlist "
-            "WHERE (parent_uuid = ? AND child_uuid = ?) "
-            "OR (parent_uuid = ? AND child_uuid = ?)",
-            (uuid_a, uuid_b, uuid_b, uuid_a),
-        ).fetchone()
-        if allow_row is not None:
-            return  # Allowlisted — skip the assertion.
-        raise CrossWorkspaceError(op_name, [(uuid_a, ws_a, uuid_b, ws_b)])
 
     def insert_entity_relation(
         self,
@@ -6280,7 +6864,7 @@ class EntityDatabase:
             If ref is ambiguous (multiple prefix matches) or not found.
         """
         # 1. Try as UUID (globally unique, scoping not needed)
-        if _UUID_V4_RE.match(ref.lower()):
+        if _UUID_RE.match(ref.lower()):
             entity = self.get_entity_by_uuid(ref.lower())
             if entity is not None:
                 return entity["uuid"]
@@ -6535,10 +7119,6 @@ class EntityDatabase:
 
         Idempotent (duplicate is ignored via INSERT OR IGNORE).
 
-        Feature 115 FR-E.2: cross-workspace gate. Raises CrossWorkspaceError
-        if entity and key_result reside in different workspaces (unless
-        allowlisted via cross_workspace_allowlist).
-
         Parameters
         ----------
         entity_uuid:
@@ -6546,9 +7126,6 @@ class EntityDatabase:
         key_result_uuid:
             UUID of the key_result entity to align with.
         """
-        self._assert_same_workspace_pairwise(
-            (entity_uuid, key_result_uuid), "add_okr_alignment"
-        )
         self._conn.execute(
             "INSERT OR IGNORE INTO entity_okr_alignment "
             "(entity_uuid, key_result_uuid) VALUES (?, ?)",
@@ -6593,6 +7170,15 @@ class EntityDatabase:
     # ------------------------------------------------------------------
     # Entity CRUD
     # ------------------------------------------------------------------
+
+    # Feature 121 FR-5 / design D2: single source of truth for the
+    # blank/whitespace-name rejection message so register_entity,
+    # upsert_entity, and update_entity's name branch raise byte-identical
+    # text (blank display fields corrupt the registry).
+    _BLANK_NAME_ERROR = (
+        "entity name must be non-empty "
+        "(feature 121 FR-5: blank display fields corrupt the registry)"
+    )
 
     def register_entity(
         self,
@@ -6683,6 +7269,11 @@ class EntityDatabase:
         :meth:`update_entity` explicitly, or use the existing
         :meth:`set_parent` API.
         """
+        # Feature 121 FR-5 / design D2: reject blank/whitespace names
+        # before any write.
+        if not name or not name.strip():
+            raise ValueError(self._BLANK_NAME_ERROR)
+
         self._validate_entity_type(entity_type)
 
         # Feature 110 Group 2 (Task 2.0): fail-fast entity_id format check.
@@ -6721,8 +7312,15 @@ class EntityDatabase:
             for w in validate_metadata(entity_type, metadata):
                 print(f"metadata warning: {w}", file=sys.stderr)
 
-        ws_uuid = self._resolve_workspace_uuid_kwargs(
+        ws_uuid = self._resolve_optional_workspace_filter(
             workspace_uuid, project_id, _caller="register_entity"
+        )
+        if ws_uuid is None:
+            raise ValueError(
+                "register_entity() requires workspace_uuid or project_id"
+            )
+        ws_uuid = self._validated_provided_workspace_uuid(
+            ws_uuid, "register_entity"
         )
 
         # Compat shim (Feature 108 transition): resolve deprecated
@@ -6772,7 +7370,8 @@ class EntityDatabase:
             else:
                 resolved_project_id = "__unknown__"
 
-        entity_uuid = str(uuid_mod.uuid4())
+        from entity_registry.uuid7 import generate_uuid7
+        entity_uuid = generate_uuid7()
         with self.transaction():
             # Plain INSERT (no OR IGNORE). UNIQUE conflict on
             # (workspace_uuid, type_id) raises sqlite3.IntegrityError, which
@@ -6870,6 +7469,49 @@ class EntityDatabase:
                 timestamp=now,
             )
 
+            # Feature 124 D7 (FR124-3 dual-write): auto-materialize each
+            # resolvable `depends_on_features` metadata ref as a `blocks`
+            # row (from_uuid=blocker, to_uuid=this entity, per D1's
+            # mapping). Runs inside this same transaction so
+            # add_dependency's own _commit() is suppressed -- one atomic
+            # write alongside the entity row. upsert_entity's insert
+            # branch delegates to this method via a re-entrant
+            # transaction(), so it is covered too; its conflict branches
+            # never touch metadata, so no separate hook is needed there.
+            # The RAW db.add_dependency (kwargs form REQUIRED -- the live
+            # signature is arg1=blocked, arg2=blocker) has no cycle-raise,
+            # so an unresolvable or self-referential ref warns to stderr
+            # and is skipped WITHOUT blocking registration (decomposing
+            # SKILL.md:231/:248 stay byte-unchanged).
+            if metadata is not None:
+                for ref in metadata.get("depends_on_features") or []:
+                    if not isinstance(ref, str):
+                        continue
+                    try:
+                        blocker_uuid = self.resolve_ref(
+                            ref, workspace_uuid=ws_uuid,
+                        )
+                    except ValueError as exc:
+                        print(
+                            f"[register_entity] unresolvable "
+                            f"depends_on_features ref {ref!r} on entity "
+                            f"{type_id!r} ({entity_uuid}): {exc}",
+                            file=sys.stderr,
+                        )
+                        continue
+                    if blocker_uuid == entity_uuid:
+                        print(
+                            "[register_entity] skipping self-referential "
+                            f"depends_on_features ref {ref!r} on entity "
+                            f"{type_id!r} ({entity_uuid})",
+                            file=sys.stderr,
+                        )
+                        continue
+                    self.add_dependency(
+                        entity_uuid=entity_uuid,
+                        blocked_by_uuid=blocker_uuid,
+                    )
+
         return entity_uuid
 
     def _register_entity_no_display(
@@ -6946,6 +7588,11 @@ class EntityDatabase:
             The entity's UUID (newly generated on insert branch; existing
             on conflict branches).
         """
+        # Feature 121 FR-5 / design D2: reject blank/whitespace names
+        # before any write.
+        if not name or not name.strip():
+            raise ValueError(self._BLANK_NAME_ERROR)
+
         type_id = f"{entity_type}:{entity_id}"
         with self.transaction():
             try:
@@ -6968,8 +7615,15 @@ class EntityDatabase:
                 # that helper raises ValueError on cross-workspace ambiguity
                 # (database.py get_entity body); upsert knows the workspace
                 # so we scope the lookup explicitly.
-                ws_uuid = self._resolve_workspace_uuid_kwargs(
+                ws_uuid = self._resolve_optional_workspace_filter(
                     workspace_uuid, project_id, _caller="upsert_entity"
+                )
+                if ws_uuid is None:
+                    raise ValueError(
+                        "upsert_entity() requires workspace_uuid or project_id"
+                    )
+                ws_uuid = self._validated_provided_workspace_uuid(
+                    ws_uuid, "upsert_entity"
                 )
                 row = self._conn.execute(
                     "SELECT uuid, status FROM entities "
@@ -7067,10 +7721,6 @@ class EntityDatabase:
         # Self-parent check using UUIDs
         if child_uuid == parent_uuid:
             raise ValueError("entity cannot be its own parent")
-
-        # Feature 115 FR-E.2: cross-workspace gate. Raises CrossWorkspaceError
-        # if child and parent reside in different workspaces (unless allowlisted).
-        self._assert_same_workspace_pairwise((child_uuid, parent_uuid), "set_parent")
 
         # Circular reference detection via UUID-based CTE (depth-guarded)
         cur = self._conn.execute(
@@ -7445,7 +8095,9 @@ class EntityDatabase:
         Raises
         ------
         ValueError
-            If the entity does not exist.
+            If the entity does not exist, or if ``name`` is supplied but
+            blank/whitespace-only (feature 121 FR-5 — ``name=None`` is
+            fine; that means "not updating name").
         NotImplementedError
             If ``new_project_id`` is supplied (re-attribution path
             disabled until the workspace-aware replacement lands).
@@ -7467,6 +8119,12 @@ class EntityDatabase:
 
         set_parts: list[str] = ["updated_at = ?"]
         params: list = [self._now_iso()]
+
+        # Feature 121 FR-5 / design D2: reject a supplied-but-blank name
+        # before any write. name=None ("not updating name") stays legal —
+        # absent is not the same as blank.
+        if name is not None and not name.strip():
+            raise ValueError(self._BLANK_NAME_ERROR)
 
         if name is not None:
             set_parts.append("name = ?")
@@ -7547,13 +8205,29 @@ class EntityDatabase:
             )
             self._commit()  # no-op inside transaction(); commit handled by context manager
 
-        # Feature 115 FR-C-115.1: audit invariant emit.
-        # When status mutates (status is not None AND status != old), emit an
-        # entity_status_changed phase_event. Fail-open per spec FR-C.2 + 114 TD-2:
-        # status UPDATE has already committed; emit failures NEVER propagate.
-        # Per spec AC-C.4: no-op writes (same status) do NOT emit.
-        if status is not None and old_row is not None and old_row["status"] != status:
-            try:
+            # Feature 115 FR-C-115.1 / Feature 132 FR132-4b + D5: audit
+            # invariant emit. When status mutates (status is not None AND
+            # status != old), emit an entity_status_changed phase_event
+            # (which itself dual-writes a v2 events row per Step 6 of
+            # append_phase_event, above). Per spec AC-C.4: no-op writes
+            # (same status) do NOT emit.
+            #
+            # MOVED in-transaction and made FAIL-CLOSED (feature 132):
+            # previously this ran AFTER the block above committed, wrapped
+            # in a swallow-everything except (fail-open per old spec FR-C.2
+            # / 114 TD-2, incrementing an `audit_emit_failed_count` counter
+            # on failure) -- meaning the status UPDATE could commit while
+            # its audit trail silently vanished, exactly the #055/#060
+            # acknowledged-but-lost class FR132-4b closes at cutover. Now a
+            # failure here (e.g. the emit raising, or the 122 vocab trigger
+            # rejecting an out-of-vocabulary value) propagates and rolls
+            # back the status UPDATE too, via this same self.transaction().
+            # The audit_emit_failed_count counter-increment/except-swallow
+            # that used to live here is DELETED, confined to this block
+            # only -- the two doctor checks that used to watch the dead
+            # counter were retired in feature 133; Migration 15's counter
+            # row remains untouched, now permanently inert.
+            if status is not None and old_row is not None and old_row["status"] != status:
                 # Resolve type_id + workspace_uuid for the emit. project_id is
                 # derived from workspace_uuid via the workspaces JOIN (post-F109).
                 entity_meta = self._conn.execute(
@@ -7583,51 +8257,32 @@ class EntityDatabase:
                             "new_status": status,
                         },
                     )
-            except Exception as exc:
-                # Outer fail-open: emit failure must NEVER propagate (TD-2).
-                # Inner fail-open: counter write may itself fail (e.g., lock
-                # contention); emit a secondary stderr line so the failure is
-                # at least visible.
-                try:
-                    _md = self._conn.execute(
-                        "SELECT value FROM _metadata WHERE key='audit_emit_failed_count'"
-                    ).fetchone()
-                    _ct = (int(_md[0]) if _md else 0) + 1
-                    self._conn.execute(
-                        "INSERT OR REPLACE INTO _metadata(key, value) VALUES (?, ?)",
-                        ("audit_emit_failed_count", str(_ct)),
-                    )
-                    self._conn.commit()
-                except Exception as counter_exc:
-                    print(
-                        f"pd.audit.counter_write_failed: "
-                        f'{{"type_id": {entity_uuid!r}, '
-                        f'"exception_class": {type(counter_exc).__name__!r}}}',
-                        file=sys.stderr,
-                    )
-                try:
-                    print(
-                        f"pd.audit.emit_failed: "
-                        f'{{"type_id": {entity_uuid!r}, '
-                        f'"old_status": {(old_row["status"] if old_row else None)!r}, '
-                        f'"new_status": {status!r}, '
-                        f'"exception_class": {type(exc).__name__!r}}}',
-                        file=sys.stderr,
-                    )
-                except Exception:
-                    pass  # stderr write itself failed; nothing more we can do
-                # NO re-raise. Status UPDATE has already committed.
 
-        # Cascade unblock: when an entity is completed, remove it from all
-        # blocked_by lists and promote fully-unblocked dependents.
+        # Cascade unblock: when an entity reaches a resolved status for its
+        # kind (feature 124 D4's per-kind terminal table -- e.g. 'completed'
+        # for features/5D kinds, but ALSO 'closed' for closes=-closed tasks/
+        # bugs, which the old =='completed' check missed), flip dependents
+        # whose blockers are now all resolved. Edges SURVIVE (FR124-4c);
+        # flip target is 'ready' (FR124-4a) -- idempotent, since a dependent
+        # already flipped to 'ready' no longer satisfies the 'blocked' guard
+        # inside _evaluate_and_flip, so a repeat terminal write re-flips
+        # nothing.
         # Placed AFTER transaction exits (TD-1) to avoid nested transactions.
         # Fail-open: Layers 2 (reconciliation) and 3 (doctor) catch stale edges.
-        if status == "completed":
-            try:
-                from entity_registry.dependencies import DependencyManager
-                DependencyManager().cascade_unblock(self, entity_uuid)
-            except Exception:
-                pass  # fail-open: Layers 2+3 catch stale edges
+        if status is not None and old_row is not None:
+            from entity_registry.dependencies import (
+                DependencyManager,
+                _blocker_completed,
+            )
+            if _blocker_completed({"kind": old_row["kind"], "status": status}):
+                try:
+                    DependencyManager().cascade_unblock(self, entity_uuid)
+                except Exception as exc:
+                    print(
+                        f"cascade_unblock failed (recovered by doctor): "
+                        f"{type(exc).__name__}",
+                        file=sys.stderr,
+                    )
 
         # Re-attribution (TD-8): post-Migration-11 the column is workspace_uuid.
         # We accept the legacy ``new_project_id`` kwarg, resolve it to a
@@ -7638,8 +8293,11 @@ class EntityDatabase:
             # Resolve the target workspace, bootstrapping the canonical
             # __unknown__ row when applicable. For arbitrary legacy ids we
             # require an existing workspaces row (callers must pre-register).
-            target_ws_uuid = self._resolve_workspace_uuid_kwargs(
+            target_ws_uuid = self._resolve_optional_workspace_filter(
                 None, new_project_id, _caller="update_entity"
+            )
+            target_ws_uuid = self._validated_provided_workspace_uuid(
+                target_ws_uuid, "update_entity"
             )
             self._conn.commit()  # flush implicit transaction
             self._conn.execute("BEGIN IMMEDIATE")
@@ -7798,7 +8456,8 @@ class EntityDatabase:
                 # mint only when the root is genuinely unclaimed.
                 target_ws_uuid = _single_root_or_raise()
                 if target_ws_uuid is None:
-                    target_ws_uuid = str(uuid_mod.uuid4())
+                    from entity_registry.uuid7 import generate_uuid7
+                    target_ws_uuid = generate_uuid7()
                     now = self._now_iso()
                     self._conn.execute(
                         "INSERT INTO workspaces "
@@ -7864,9 +8523,47 @@ class EntityDatabase:
     ) -> None:
         """Delete an entity and all associated data.
 
-        Extended cascade (TD-6): deletes entity_tags, entity_dependencies,
-        entity_okr_alignment, workflow_phases, entities_fts, and the entity
-        row itself — all by UUID.
+        Extended cascade (TD-6): deletes entity_tags, entity_okr_alignment,
+        workflow_phases, entities_fts, and the entity row itself — all by
+        UUID. Dependency edges are removed via entity_relations' FK ON
+        DELETE CASCADE (fires when the entity row is deleted below — no
+        manual DELETE needed).
+
+        Feature 124 D5.3: this entity's dependents (entities it blocked)
+        are re-evaluated post-commit -- a dependent whose ONLY remaining
+        blockers are now all resolved (vacuously true if this deletion
+        removed its last one) flips 'blocked' -> 'ready', fail-open with a
+        stderr warning on failure (same posture as the completion trigger
+        in update_entity).
+
+        Feature 132 D5 finding, NOT implemented here (deliberate, recorded
+        gap -- flagged for follow-up, not silently dropped): design D5
+        classifies this method as an ``entity_deleted`` lifecycle-event
+        emitter alongside register_entity/upsert_entity. It is NOT wired
+        that way. ``events.entity_uuid`` is ``NOT NULL REFERENCES
+        entities(uuid)`` with no ``ON DELETE`` clause, and ``events_no_delete``
+        (BEFORE DELETE, immutable) fires even on an FK CASCADE-induced
+        delete (verified empirically) -- so ANY events row referencing this
+        uuid, from ANY writer, at ANY prior time (not just an emit attempted
+        HERE), makes step 6's hard ``DELETE FROM entities`` below
+        unconditionally raise ``sqlite3.IntegrityError``, in every
+        statement order and with or without ``PRAGMA defer_foreign_keys``
+        (all verified). Since ``register_entity``'s existing
+        ``entity_created`` dual-write (via append_phase_event) means every
+        entity gets an events row at birth on a v2-generation file, this is
+        not a corner case: it is a standing incompatibility between "hard-
+        delete this row" and "this row has audit history" under the
+        current schema, pre-existing this method's own code and NOT fixable
+        by any ordering/transaction change within this function. Resolving
+        it needs a schema decision (e.g. a nullable ``entity_uuid`` +
+        ``ON DELETE SET NULL``, out of this feature's file scope -- events.py
+        is not in task 3's diff) or a soft-delete redesign of this method's
+        contract (a behavior change beyond "wire an emit", not invented
+        unilaterally here). v1 files are unaffected (no ``events`` table
+        exists to reference). See feature 132's task-3 implementation
+        report for the full analysis; a v2-generation regression test
+        (test_database.py) pins the current, honest behavior rather than
+        asserting a fabricated success case.
 
         Parameters
         ----------
@@ -7894,6 +8591,17 @@ class EntityDatabase:
                 workspace_uuid=workspace_uuid,
             )
 
+            # Feature 124 D5.3: pre-capture this entity's dependents BEFORE
+            # the delete -- entity_relations' FK ON DELETE CASCADE wipes
+            # their blocks-edges at commit (step 6 below), so calling
+            # get_dependents() afterward would see []. Evaluated post-commit
+            # (below): a dependent whose ONLY blocker was this now-deleted
+            # entity has zero REMAINING blockers, which is vacuously
+            # resolved (`all([]) is True`) -- it flips to 'ready'.
+            from entity_registry.dependencies import DependencyManager
+            _dep_mgr = DependencyManager()
+            _dependents = _dep_mgr.get_dependents(self, entity_uuid)
+
             # Fetch rowid for FTS cleanup
             row = self._conn.execute(
                 "SELECT rowid FROM entities WHERE uuid = ?",
@@ -7914,11 +8622,6 @@ class EntityDatabase:
             self._conn.execute(
                 "DELETE FROM entity_tags WHERE entity_uuid = ?",
                 (entity_uuid,),
-            )
-            self._conn.execute(
-                "DELETE FROM entity_dependencies "
-                "WHERE entity_uuid = ? OR blocked_by_uuid = ?",
-                (entity_uuid, entity_uuid),
             )
             self._conn.execute(
                 "DELETE FROM entity_okr_alignment "
@@ -7946,6 +8649,18 @@ class EntityDatabase:
         except Exception:
             self._conn.rollback()
             raise
+
+        # Feature 124 D5.3: unblock-on-delete hook, run post-commit (same
+        # fail-open posture as the completion trigger in update_entity --
+        # a failure here must not undo the already-committed delete).
+        try:
+            _dep_mgr._evaluate_and_flip(self, _dependents)
+        except Exception as exc:
+            print(
+                f"cascade_unblock failed (recovered by doctor): "
+                f"{type(exc).__name__}",
+                file=sys.stderr,
+            )
 
     # ------------------------------------------------------------------
     # Re-attribution (Feature 108 Phase F)
@@ -8325,6 +9040,7 @@ class EntityDatabase:
         status: str | None = None,
         include_lineage: bool = True,
         project_id: str | None = None,
+        workspace_uuid: str | None = None,
     ) -> dict:
         """Export entities as a structured dict with schema version metadata.
 
@@ -8341,6 +9057,11 @@ class EntityDatabase:
         project_id:
             If provided, only export entities from this project.
             If None, export entities across all projects.
+        workspace_uuid:
+            Feature 133 FR133-2.i: if provided, only export entities from
+            this workspace. ``None`` preserves today's unscoped behavior
+            exactly. Additive-optional alongside ``project_id`` (132 #082
+            precedent) -- the MCP export tool does not expose this filter.
 
         Returns
         -------
@@ -8381,6 +9102,9 @@ class EntityDatabase:
         if project_id is not None:
             conditions.append("w.project_id_legacy = ?")
             params.append(project_id)
+        if workspace_uuid is not None:
+            conditions.append("e.workspace_uuid = ?")
+            params.append(workspace_uuid)
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
         query += " ORDER BY e.created_at ASC, e.type_id ASC"
@@ -8584,10 +9308,16 @@ class EntityDatabase:
                         (new_status, timestamp, workspace_uuid, type_id),
                     )
 
-            # Step 5: project workflow_phases.workflow_phase for the 4
-            # workflow event types.
+            # Step 5: project workflow_phases.workflow_phase for the event
+            # types that MOVE the entity. 'skipped' deliberately excluded
+            # (feature 134 QA blocker): a skipped event records a phase
+            # passed over, not entered — projecting it made each skipped
+            # append overwrite the target phase (last-skipped-wins), so an
+            # express transition reported success while workflow_phase
+            # stayed behind. Latent since the dual-write era; unexposed
+            # because #056 made skipped_phases unusable until 134 fixed it.
             elif event_type in (
-                "started", "completed", "skipped", "backward"
+                "started", "completed", "backward"
             ):
                 self._conn.execute(
                     "UPDATE workflow_phases "
@@ -8595,6 +9325,49 @@ class EntityDatabase:
                     "WHERE type_id = ?",
                     (phase, timestamp, type_id),
                 )
+
+            # Step 6 (feature 132 D5): v2 dual-write, same transaction as
+            # steps 2-5. Pre-checking ``_is_v2_generation`` (rather than
+            # relying solely on ``_emit_v2_event``'s own gate) skips the
+            # entity lookup entirely on v1 files -- the overwhelming
+            # majority of callers today. Resolve (entity_uuid, kind) from
+            # type_id, workspace-scoped when workspace_uuid is known
+            # (register_entity / upsert_entity / promote_entity /
+            # update_entity / dependencies.py's cascade_ready all pass it).
+            # Phase-transition callers (workflow_state_server.py) may pass
+            # workspace_uuid=None; the unscoped fallback is exact for them
+            # in practice because Step 5's own projection is ALSO keyed on
+            # the bare type_id, which create_workflow_phase's UNIQUE
+            # constraint makes globally unique in workflow_phases -- the
+            # same scoping the v1 write above already relies on.
+            if self._is_v2_generation and event_type != "mini_spec":
+                # mini_spec is audit-only (feature 134): its record lives in
+                # phase_events (get_mini_spec reads there); emitting it here
+                # would land on the lifecycle axis with to_value=NULL — the
+                # RESET semantic — silently clearing lifecycle state.
+                if workspace_uuid is not None:
+                    entity_row = self._conn.execute(
+                        "SELECT uuid, kind FROM entities "
+                        "WHERE workspace_uuid = ? AND type_id = ?",
+                        (workspace_uuid, type_id),
+                    ).fetchone()
+                else:
+                    entity_row = self._conn.execute(
+                        "SELECT uuid, kind FROM entities WHERE type_id = ?",
+                        (type_id,),
+                    ).fetchone()
+                if entity_row is not None:
+                    v2_axis, v2_to_value = _v2_classify_phase_event(
+                        entity_row["kind"], event_type, phase, metadata
+                    )
+                    self._emit_v2_event(
+                        entity_uuid=entity_row["uuid"],
+                        event_type=event_type,
+                        axis=v2_axis,
+                        to_value=v2_to_value,
+                        actor="live:append_phase_event",
+                        payload=metadata if event_type == "entity_created" else None,
+                    )
 
         return None
 
@@ -8756,25 +9529,50 @@ class EntityDatabase:
             If the entity does not exist, a row already exists, or a
             CHECK constraint is violated.
         """
-        # FK check: entity must exist
+        # FK check: entity must exist. uuid + kind are also fetched here
+        # (feature 132 D5) so the v2 establishment emit below can resolve
+        # entity_uuid and route pipeline-vs-lifecycle without a second query.
         row = self._conn.execute(
-            "SELECT type_id FROM entities WHERE type_id = ?", (type_id,)
+            "SELECT type_id, uuid, kind FROM entities WHERE type_id = ?", (type_id,)
         ).fetchone()
         if row is None:
             raise ValueError(f"Entity not found: {type_id}")
 
         now = self._now_iso()
         try:
-            self._conn.execute(
-                "INSERT INTO workflow_phases "
-                "(type_id, kanban_column, workflow_phase, "
-                "last_completed_phase, mode, backward_transition_reason, "
-                "updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (type_id, kanban_column, workflow_phase,
-                 last_completed_phase, mode, backward_transition_reason,
-                 now),
-            )
-            self._commit()
+            # Feature 132 D5: INSERT + initial-establishment emit are ONE
+            # self.transaction() unit, the same fail-closed shape as the
+            # other four dual-write writers (battery-r1 blocker: the
+            # earlier bare-implicit-transaction version left the INSERT
+            # pending on emit failure, to be silently persisted by the
+            # next unrelated commit while the caller saw ValueError).
+            # transaction() rolls back BOTH writes on any failure and
+            # commits on success. Without the emit, entities created
+            # post-cutover would diverge from a replayed entity at SC3's
+            # axis-parity check (every OTHER entity gets its first axis
+            # event from register_entity/append_phase_event; this writer
+            # previously emitted nothing at all). Pipeline for
+            # feature-kind (122's 6-value vocab), lifecycle for every
+            # other kind; to_value = the initial workflow_phase, NULL-safe
+            # (the vocab trigger's own `to_value IS NOT NULL` guard never
+            # fires on NULL).
+            with self.transaction():
+                self._conn.execute(
+                    "INSERT INTO workflow_phases "
+                    "(type_id, kanban_column, workflow_phase, "
+                    "last_completed_phase, mode, backward_transition_reason, "
+                    "updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (type_id, kanban_column, workflow_phase,
+                     last_completed_phase, mode, backward_transition_reason,
+                     now),
+                )
+                self._emit_v2_event(
+                    entity_uuid=row["uuid"],
+                    event_type="workflow_established",
+                    axis="pipeline" if row["kind"] == "feature" else "lifecycle",
+                    to_value=workflow_phase,
+                    actor="live:create_workflow_phase",
+                )
         except sqlite3.IntegrityError as e:
             msg = str(e)
             if "UNIQUE constraint" in msg:
@@ -8816,6 +9614,18 @@ class EntityDatabase:
         Only fields explicitly passed are updated. Omitted fields (using
         the ``_UNSET`` sentinel) are left unchanged. Passing ``None``
         explicitly sets the column to NULL.
+
+        Feature 132 D5: deliberately EXCLUDED from v2 dual-write duty.
+        Per the check_status_write_path doctor guard's own fix_hint
+        (``"Use upsert_workflow_phase / update_workflow_phase for
+        non-state-change writes (kanban_column, mode, etc.)"``), this
+        method is the PRESENTATIONAL sibling of append_phase_event's
+        state-change writes -- it has no axis meaning of its own
+        (kanban_column/mode/last_completed_phase are display/bookkeeping
+        fields, not one of the three v2 axes), so it emits nothing.
+        Contrast :meth:`create_workflow_phase`, which DOES emit (the
+        INITIAL establishment of the row itself, not a presentational
+        field update on an existing one).
 
         Parameters
         ----------
@@ -8925,14 +9735,19 @@ class EntityDatabase:
         existing rows in a single call. Column names in *kwargs* are
         validated against an allow-list to prevent SQL injection.
 
+        Feature 132 D5: deliberately EXCLUDED from v2 dual-write duty --
+        presentational, same rationale as :meth:`update_workflow_phase`'s
+        docstring (kanban_column/mode/etc. carry no axis meaning).
+
         Parameters
         ----------
         type_id:
             The entity type_id (e.g. ``"feature:my-feat"``).
         project_id:
             DEPRECATED — legacy alias for ``workspace_uuid``. Resolved via
-            ``_resolve_workspace_uuid_kwargs``. Defaults to ``"__unknown__"``
-            when neither this nor ``workspace_uuid`` is supplied.
+            the shared workspace-identity resolution (feature 132 D6.4).
+            Defaults to ``"__unknown__"`` when neither this nor
+            ``workspace_uuid`` is supplied.
         workspace_uuid:
             Workspace scope for entity existence check. Post-Migration-11
             the entities table is keyed on (workspace_uuid, type_id).
@@ -8963,8 +9778,16 @@ class EntityDatabase:
         if workspace_uuid is None and project_id is None:
             project_id = "__unknown__"
         try:
-            ws_uuid = self._resolve_workspace_uuid_kwargs(
+            ws_uuid = self._resolve_optional_workspace_filter(
                 workspace_uuid, project_id, _caller="upsert_workflow_phase"
+            )
+            if ws_uuid is None:
+                raise ValueError(
+                    "upsert_workflow_phase() requires workspace_uuid or "
+                    "project_id"
+                )
+            ws_uuid = self._validated_provided_workspace_uuid(
+                ws_uuid, "upsert_workflow_phase"
             )
         except ValueError:
             # Unknown project_id_legacy → entity is "not found in project"
@@ -9038,6 +9861,7 @@ class EntityDatabase:
         *,
         kanban_column: str | None = None,
         workflow_phase: str | None = None,
+        workspace_uuid: str | None = None,
     ) -> list[dict]:
         """List workflow_phases rows with optional filters.
 
@@ -9047,11 +9871,21 @@ class EntityDatabase:
             If provided, filter by kanban_column.
         workflow_phase:
             If provided, filter by workflow_phase.
+        workspace_uuid:
+            If provided, scope to rows whose joined entity belongs to this
+            workspace, PLUS orphan rows (workflow_phases rows whose entity
+            was deleted — ``e.uuid IS NULL`` post-join). Orphans are
+            RETAINED under scope for anomaly visibility (declared output
+            change — see design D2/D4). ``None`` preserves today's
+            unscoped return exactly.
 
         Returns
         -------
         list[dict]
-            Matching rows as plain dicts. Both filters use AND logic.
+            Matching rows as plain dicts. All filters use AND logic.
+            Each row also carries ``execution_status`` / ``pipeline_phase``
+            aliases of ``kanban_column`` / ``workflow_phase`` (feature 125's
+            v1->v2 read bridge; physical columns rename at feature 132).
         """
         clauses: list[str] = []
         params: list = []
@@ -9062,11 +9896,19 @@ class EntityDatabase:
         if workflow_phase is not None:
             clauses.append("wp.workflow_phase = ?")
             params.append(workflow_phase)
+        if workspace_uuid is not None:
+            clauses.append("(e.workspace_uuid = ? OR e.uuid IS NULL)")
+            params.append(workspace_uuid)
 
         # F11 (Group 6): project ``e.kind`` to the legacy ``entity_type``
         # result-set key for caller compatibility (TD-8 public API surface).
+        # The execution_status/pipeline_phase aliases are feature 125's
+        # v1->v2 read bridge (additive; UI reads them, non-UI callers keep
+        # the wp.* keys) — collapses when 132 renames the physical columns.
         sql = (
-            "SELECT wp.*, e.name AS entity_name, e.kind AS entity_type,"
+            "SELECT wp.*, wp.kanban_column AS execution_status,"
+            " wp.workflow_phase AS pipeline_phase,"
+            " e.name AS entity_name, e.kind AS entity_type,"
             " e.artifact_path AS entity_artifact_path"
             " FROM workflow_phases wp"
             " LEFT JOIN entities e ON wp.type_id = e.type_id"
@@ -9075,6 +9917,29 @@ class EntityDatabase:
             sql += " WHERE " + " AND ".join(clauses)
 
         rows = self._conn.execute(sql, params).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_workspaces_with_entities(self) -> list[dict]:
+        """List workspaces that have at least one entity, with counts.
+
+        Cross-workspace directory for the UI switcher (feature 130); the
+        INNER JOIN against entities hides workspaces with zero entities.
+
+        Returns
+        -------
+        list[dict]
+            One dict per populated workspace with ``uuid``, ``project_root``,
+            and ``entity_count`` keys. Ordered by ``entity_count`` descending,
+            then ``project_root`` ascending as a tie-breaker (rows tying on
+            BOTH keys -- e.g. split-brain duplicates sharing a project_root
+            -- have no further contractual ordering).
+        """
+        sql = (
+            "SELECT w.uuid, w.project_root, COUNT(e.uuid) AS entity_count "
+            "FROM workspaces w JOIN entities e ON e.workspace_uuid = w.uuid "
+            "GROUP BY w.uuid ORDER BY entity_count DESC, w.project_root"
+        )
+        rows = self._conn.execute(sql).fetchall()
         return [dict(row) for row in rows]
 
     # ------------------------------------------------------------------
@@ -9103,42 +9968,28 @@ class EntityDatabase:
         return int(self.get_metadata("schema_version") or 0)
 
     # ------------------------------------------------------------------
-    # Dependency management (encapsulates entity_dependencies table)
+    # Dependency management (encapsulates entity_relations kind='blocks')
     # ------------------------------------------------------------------
 
     def add_dependency(self, entity_uuid: str, blocked_by_uuid: str) -> None:
         """Add a dependency: entity_uuid is blocked by blocked_by_uuid.
 
         Uses INSERT OR IGNORE for idempotency.
-
-        Feature 115 FR-E.2: cross-workspace gate. Raises CrossWorkspaceError
-        if entity and blocked_by reside in different workspaces (unless
-        allowlisted via cross_workspace_allowlist).
         """
-        self._assert_same_workspace_pairwise(
-            (entity_uuid, blocked_by_uuid), "add_dependency"
-        )
         self._conn.execute(
-            "INSERT OR IGNORE INTO entity_dependencies "
-            "(entity_uuid, blocked_by_uuid) VALUES (?, ?)",
-            (entity_uuid, blocked_by_uuid),
+            "INSERT OR IGNORE INTO entity_relations "
+            "(from_uuid, to_uuid, kind, created_at) "
+            "VALUES (?, ?, 'blocks', ?)",
+            (blocked_by_uuid, entity_uuid, self._now_iso()),
         )
         self._commit()
 
     def remove_dependency(self, entity_uuid: str, blocked_by_uuid: str) -> None:
         """Remove a single dependency. No-op if it doesn't exist."""
         self._conn.execute(
-            "DELETE FROM entity_dependencies "
-            "WHERE entity_uuid = ? AND blocked_by_uuid = ?",
+            "DELETE FROM entity_relations "
+            "WHERE to_uuid = ? AND from_uuid = ? AND kind = 'blocks'",
             (entity_uuid, blocked_by_uuid),
-        )
-        self._commit()
-
-    def remove_dependencies_by_blocker(self, blocked_by_uuid: str) -> None:
-        """Remove all dependencies where blocked_by_uuid is the blocker."""
-        self._conn.execute(
-            "DELETE FROM entity_dependencies WHERE blocked_by_uuid = ?",
-            (blocked_by_uuid,),
         )
         self._commit()
 
@@ -9182,10 +10033,10 @@ class EntityDatabase:
         conditions: list[str] = []
         params: list[str] = []
         if entity_uuid is not None:
-            conditions.append("ed.entity_uuid = ?")
+            conditions.append("er.to_uuid = ?")
             params.append(entity_uuid)
         if blocked_by_uuid is not None:
-            conditions.append("ed.blocked_by_uuid = ?")
+            conditions.append("er.from_uuid = ?")
             params.append(blocked_by_uuid)
         if ws_uuid is not None:
             conditions.append("e.workspace_uuid = ?")
@@ -9193,19 +10044,23 @@ class EntityDatabase:
 
         if ws_uuid is not None:
             # JOIN on entities to filter by workspace; the blocked-entity
-            # side carries the workspace identity for filtering.
+            # side (to_uuid) carries the workspace identity for filtering.
             sql = (
-                "SELECT ed.entity_uuid, ed.blocked_by_uuid "
-                "FROM entity_dependencies ed "
-                "JOIN entities e ON e.uuid = ed.entity_uuid"
+                "SELECT er.to_uuid AS entity_uuid, "
+                "er.from_uuid AS blocked_by_uuid "
+                "FROM entity_relations er "
+                "JOIN entities e ON e.uuid = er.to_uuid "
+                "WHERE er.kind = 'blocks'"
             )
         else:
             sql = (
-                "SELECT ed.entity_uuid, ed.blocked_by_uuid "
-                "FROM entity_dependencies ed"
+                "SELECT er.to_uuid AS entity_uuid, "
+                "er.from_uuid AS blocked_by_uuid "
+                "FROM entity_relations er "
+                "WHERE er.kind = 'blocks'"
             )
         if conditions:
-            sql += " WHERE " + " AND ".join(conditions)
+            sql += " AND " + " AND ".join(conditions)
 
         rows = self._conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
@@ -9232,14 +10087,14 @@ class EntityDatabase:
         row = self._conn.execute(
             """
             WITH RECURSIVE dep_chain(uid, depth) AS (
-                SELECT blocked_by_uuid, 0
-                FROM entity_dependencies
-                WHERE entity_uuid = :blocked_by
+                SELECT from_uuid, 0
+                FROM entity_relations
+                WHERE to_uuid = :blocked_by AND kind = 'blocks'
                 UNION ALL
-                SELECT ed.blocked_by_uuid, dc.depth + 1
-                FROM entity_dependencies ed
-                JOIN dep_chain dc ON ed.entity_uuid = dc.uid
-                WHERE dc.depth < :max_depth
+                SELECT er.from_uuid, dc.depth + 1
+                FROM entity_relations er
+                JOIN dep_chain dc ON er.to_uuid = dc.uid
+                WHERE dc.depth < :max_depth AND er.kind = 'blocks'
             )
             SELECT 1 FROM dep_chain WHERE uid = :target
             LIMIT 1
@@ -9374,8 +10229,9 @@ class EntityDatabase:
         ----------
         project_id:
             DEPRECATED — legacy alias for ``workspace_uuid``. Resolved via
-            ``_resolve_workspace_uuid_kwargs``. Accepted as the first
-            positional arg for backward compat with id_generator and tests.
+            the shared workspace-identity resolution (feature 132 D6.4).
+            Accepted as the first positional arg for backward compat with
+            id_generator and tests.
         entity_type:
             The entity type (e.g. "feature", "task"). Required.
         workspace_uuid:
@@ -9391,8 +10247,15 @@ class EntityDatabase:
             raise TypeError(
                 "next_sequence_value() requires entity_type"
             )
-        ws_uuid = self._resolve_workspace_uuid_kwargs(
+        ws_uuid = self._resolve_optional_workspace_filter(
             workspace_uuid, project_id, _caller="next_sequence_value"
+        )
+        if ws_uuid is None:
+            raise ValueError(
+                "next_sequence_value() requires workspace_uuid or project_id"
+            )
+        ws_uuid = self._validated_provided_workspace_uuid(
+            ws_uuid, "next_sequence_value"
         )
         self._conn.commit()  # flush any implicit transaction
         self._conn.execute("BEGIN IMMEDIATE")
@@ -9542,8 +10405,16 @@ class EntityDatabase:
 
         # Resolve workspace_uuid once so we pass it consistently to
         # upsert_entity (avoids per-row __unknown__ workspace bootstrap).
-        ws_uuid = self._resolve_workspace_uuid_kwargs(
+        ws_uuid = self._resolve_optional_workspace_filter(
             workspace_uuid, project_id, _caller="register_entities_batch"
+        )
+        if ws_uuid is None:
+            raise ValueError(
+                "register_entities_batch() requires workspace_uuid or "
+                "project_id"
+            )
+        ws_uuid = self._validated_provided_workspace_uuid(
+            ws_uuid, "register_entities_batch"
         )
 
         with self.transaction():
@@ -9596,7 +10467,19 @@ class EntityDatabase:
         # busy_timeout MUST be set first — journal_mode=WAL requires a write
         # that can be blocked by concurrent connections during init.
         self._conn.execute("PRAGMA busy_timeout = 15000")
-        self._conn.execute("PRAGMA journal_mode = WAL")
+        # #059: the WAL switch can return SQLITE_BUSY *without* consulting
+        # the busy handler (deadlock-avoidance path) when another connection
+        # is mid-init on the same file — two forked runners, or two MCP
+        # servers starting after a cutover restart. Short explicit retry;
+        # the last attempt re-raises.
+        for attempt in range(5):
+            try:
+                self._conn.execute("PRAGMA journal_mode = WAL")
+                break
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc).lower() or attempt == 4:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.execute("PRAGMA cache_size = -8000")
 
@@ -9609,18 +10492,126 @@ class EntityDatabase:
         )
         self._commit()
 
+        # Feature 132 FR132-1: a v2-generation file's migrations are
+        # already fully applied. The rebuild tool's own step-1 chain
+        # replay (this very _migrate() call, against the still-unstamped
+        # fresh staging file) is the sanctioned initial use — it runs
+        # BEFORE the tool's step-3 stamp, so `schema_generation` is unset
+        # here and this guard is a no-op for it. Every open AFTER the
+        # stamp lands must short-circuit before the loop below: without
+        # this guard, a future migration 20+ would silently auto-run
+        # against the v2 file (rejected alternative: leaving the file at
+        # v1 schema_version=19 with no marker — see spec FR132-1).
+        generation_row = self._conn.execute(
+            "SELECT value FROM _metadata WHERE key='schema_generation'"
+        ).fetchone()
+        # Feature 132 D5: cache the v2-generation flag on `self` (NOT a
+        # module-level dict keyed by the connection -- sqlite3.Connection
+        # supports neither custom attributes nor weakrefs, so an id()-keyed
+        # cache would risk a stale hit after id() reuse once a connection is
+        # GC'd). One EntityDatabase instance wraps exactly one connection for
+        # its whole lifetime and the generation is one-way (nothing ever
+        # downgrades a stamped file back to v1), so computing it once here --
+        # reusing the `_metadata` read the guard below already performs, no
+        # extra query -- is correct for every subsequent `_emit_v2_event`
+        # call on this instance.
+        self._is_v2_generation = (
+            generation_row is not None and generation_row[0] == "v2"
+        )
+        if self._is_v2_generation:
+            # Feature 134 NFR-4: a v2 file skips the v1 chain but is NOT
+            # frozen — it runs its own forward-only lineage instead.
+            self._migrate_v2()
+            return
+
         current = self.get_schema_version()
         target = max(MIGRATIONS)
 
         for version in range(current + 1, target + 1):
             migration_fn = MIGRATIONS[version]
             migration_fn(self._conn)
-            self._conn.execute(
-                "INSERT INTO _metadata (key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                ("schema_version", str(version)),
-            )
+            _upsert_metadata(self._conn, "schema_version", str(version))
             self._commit()
+
+    def _migrate_v2(self) -> None:
+        """Apply pending ``V2_MIGRATIONS`` to a v2-generation file.
+
+        Same loop shape as the v1 chain in :meth:`_migrate`: run each
+        pending version's function, then stamp ``schema_version`` to that
+        version via ``_upsert_metadata`` and commit, so an interruption
+        resumes from the last completed step rather than replaying the
+        whole chain. Called ONLY from :meth:`_migrate`'s v2 branch.
+
+        The v2 lineage starts at 1 (the cutover baseline, which has no
+        migration function of its own), so a file already at
+        ``max(V2_MIGRATIONS)`` iterates zero times — re-opening is a no-op,
+        not a re-run.
+        """
+        if not V2_MIGRATIONS:
+            return
+        current = self.get_schema_version()
+        target = max(V2_MIGRATIONS)
+
+        for version in range(current + 1, target + 1):
+            migration_fn = V2_MIGRATIONS.get(version)
+            if migration_fn is not None:
+                migration_fn(self._conn)
+            _upsert_metadata(self._conn, "schema_version", str(version))
+            self._commit()
+
+    # ------------------------------------------------------------------
+    # Feature 132 D5: v2 dual-write
+    # ------------------------------------------------------------------
+
+    def _emit_v2_event(
+        self,
+        *,
+        entity_uuid: str,
+        event_type: str,
+        axis: str,
+        to_value: str | None,
+        from_value: str | None = None,
+        actor: str,
+        payload: dict | None = None,
+    ) -> None:
+        """Append a v2 ``events`` row alongside a v1 write, same transaction.
+
+        Gated on ``self._is_v2_generation`` (cached once per connection in
+        :meth:`_migrate`) -- a REAL branch, not decorative (design D5 /
+        plan.md): v1 files have no ``events`` table at all, so an
+        unconditional emit would raise ``OperationalError: no such table``
+        on every v1 fixture in the suite; a never-emit stub would silently
+        fail SC8 on v2 files. ONE shared implementation for every writer
+        below so the axis/event_type/to_value mapping can never drift
+        between call sites (design D5's explicit rationale for a single
+        helper).
+
+        Callers invoke this from INSIDE their own already-open
+        ``self.transaction()`` -- ALL five writers, including
+        ``create_workflow_phase`` (whose earlier bare-implicit-transaction
+        shape was a battery-r1 blocker: propagation without ROLLBACK left
+        the v1 INSERT pending, not rolled back) -- :func:`append_event`
+        composes on ``conn.in_transaction`` and issues a bare parameterized
+        INSERT with no COMMIT/ROLLBACK of its own in that case, so this
+        call becomes part of the caller's atomic unit: an emit failure
+        (e.g. the 122 vocab trigger rejecting an out-of-vocabulary
+        ``to_value``, or the D7b uuid-collision guard) propagates and
+        ``transaction()`` rolls back the caller's v1 write too
+        (fail-closed, FR132-4b).
+        """
+        if not self._is_v2_generation:
+            return
+        from entity_registry.events import append_event
+        append_event(
+            self._conn,
+            entity_uuid=entity_uuid,
+            event_type=event_type,
+            axis=axis,
+            from_value=from_value,
+            to_value=to_value,
+            actor=actor,
+            payload=payload,
+        )
 
     # ------------------------------------------------------------------
     # Project table operations
@@ -9733,7 +10724,8 @@ class EntityDatabase:
                 # mint only when the root is genuinely unclaimed.
                 workspace_uuid = _single_root_or_raise("upsert_project()")
                 if workspace_uuid is None:
-                    workspace_uuid = str(uuid_mod.uuid4())
+                    from entity_registry.uuid7 import generate_uuid7
+                    workspace_uuid = generate_uuid7()
                     self._conn.execute(
                         "INSERT INTO workspaces "
                         "(uuid, project_id_legacy, project_root, created_at, "

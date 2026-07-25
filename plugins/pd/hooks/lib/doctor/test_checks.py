@@ -93,12 +93,6 @@ def _make_db(tmp_path, name: str = "entities.db") -> str:
             updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
-        CREATE TABLE IF NOT EXISTS entity_dependencies (
-            entity_uuid     TEXT NOT NULL,
-            blocked_by_uuid TEXT NOT NULL,
-            UNIQUE(entity_uuid, blocked_by_uuid)
-        );
-
         CREATE TABLE IF NOT EXISTS entity_tags (
             entity_uuid TEXT NOT NULL,
             tag         TEXT NOT NULL,
@@ -110,49 +104,153 @@ def _make_db(tmp_path, name: str = "entities.db") -> str:
     return db_path
 
 
-def _register_feature(
-    db_path: str,
-    slug: str = "008-test-feature",
-    status: str = "active",
-) -> str:
-    """Register a feature entity directly via SQL. Returns type_id."""
-    import uuid as uuid_mod
+# ---------------------------------------------------------------------------
+# Live-schema fixtures (post-Migration-11)
+#
+# _make_db (above) builds the legacy pre-Mig-11 schema (entity_type /
+# project_id, no `kind` / `workspace_uuid`) and remains the baseline fixture
+# for checks that are schema-version-agnostic (db_readiness,
+# referential_integrity, config/security/stale-worktrees). _make_live_db /
+# _register_live_feature (below) bootstrap the CURRENT live schema via
+# EntityDatabase (precedent: entity_registry/test_database.py) for checks
+# that need it (e.g. missed_cascade's `entity_relations` edges).
+# ---------------------------------------------------------------------------
 
-    type_id = f"feature:{slug}"
-    conn = sqlite3.connect(db_path)
+
+_LIVE_DB_HANDLES: list = []
+
+
+@pytest.fixture(autouse=True)
+def _close_live_dbs():
+    """Deterministically close every EntityDatabase opened via _make_live_db.
+
+    Call sites close only the raw ``conn`` in their own finally blocks; the
+    EntityDatabase handle is torn down here (mirrors the documented
+    entity_registry/test_database.py fixture convention) so no test leaks a
+    SQLite connection past its own teardown.
+    """
+    yield
+    while _LIVE_DB_HANDLES:
+        db = _LIVE_DB_HANDLES.pop()
+        try:
+            db.close()
+        except Exception:
+            pass
+
+
+def _make_live_db(tmp_path, name: str = "entities.db"):
+    """Build a live-schema entity DB and return ``(db, conn)``.
+
+    ``db`` is the ``EntityDatabase`` (write authority for the register API);
+    ``conn`` is a raw ``sqlite3`` connection the doctor checks consume as
+    ``entities_conn``. Both point at the same file — EntityDatabase runs in
+    WAL mode, so committed writes on either connection are visible to the
+    other. ``db`` is auto-closed at test teardown by ``_close_live_dbs``;
+    call sites remain responsible only for ``conn``.
+    """
+    from entity_registry.database import EntityDatabase
+
+    db_path = str(tmp_path / name)
+    db = EntityDatabase(db_path)
+    _LIVE_DB_HANDLES.append(db)
+    conn = _entities_conn(db_path)
+    return db, conn
+
+
+def _register_live_feature(
+    db,
+    entity_id: str,
+    *,
+    name: str | None = None,
+    artifact_path: str | None = None,
+    status: str = "active",
+    workspace_uuid: str | None = None,
+    kind: str = "feature",
+) -> str:
+    """Register a ``kind`` (default ``'feature'``) row via the live API.
+
+    Uses ``EntityDatabase.register_entity`` — never a raw INSERT (uuid-PK
+    gotcha). ``workspace_uuid`` defaults to the canonical unknown-workspace
+    bucket, which EntityDatabase auto-bootstraps, so callers that don't care
+    about scoping need not pre-insert a workspaces row. Any non-seq-slug
+    entity_id (e.g. ``'bs-001'``) is accepted via ``_strict_id_format=False``.
+    Returns the ``type_id``.
+    """
+    from entity_registry.database import _UNKNOWN_WORKSPACE_UUID
+
+    if workspace_uuid is None:
+        workspace_uuid = _UNKNOWN_WORKSPACE_UUID
+    if name is None:
+        name = f"{kind.title()} {entity_id}"
+    db.register_entity(
+        kind,
+        entity_id,
+        name,
+        workspace_uuid=workspace_uuid,
+        artifact_path=artifact_path,
+        status=status,
+        _strict_id_format=False,
+    )
+    return f"{kind}:{entity_id}"
+
+
+def _insert_workspace(conn, project_root, uuid) -> None:
+    """INSERT a ``workspaces`` row mapping ``project_root`` -> ``uuid``.
+
+    Raw SQL is acceptable here (no API helper for arbitrary workspaces rows).
+    ``project_root`` is stored as ``os.path.abspath`` so it matches the
+    checks' ``WHERE project_root = ?`` lookup (which abspaths its input). The
+    NOT NULL ``created_at`` / ``updated_at`` columns are satisfied via
+    ``datetime('now')``.
+    """
     conn.execute(
-        "INSERT OR IGNORE INTO entities "
-        "(uuid, type_id, project_id, entity_type, entity_id, name, status, created_at, updated_at) "
-        "VALUES (?, ?, '__unknown__', 'feature', ?, ?, ?, datetime('now'), datetime('now'))",
-        (str(uuid_mod.uuid4()), type_id, slug, f"Test Feature {slug}", status),
+        "INSERT INTO workspaces "
+        "(uuid, project_id_legacy, project_root, created_at, updated_at) "
+        "VALUES (?, NULL, ?, datetime('now'), datetime('now'))",
+        (uuid, os.path.abspath(str(project_root))),
     )
     conn.commit()
-    conn.close()
-    return type_id
 
 
-def _create_meta_json(
-    tmp_path,
-    slug: str = "008-test-feature",
-    *,
-    status: str = "active",
-    mode: str | None = "standard",
-    last_completed_phase: str | None = None,
-) -> None:
-    """Create a .meta.json file in the expected location."""
-    feature_dir = tmp_path / "features" / slug
-    feature_dir.mkdir(parents=True, exist_ok=True)
-    meta = {
-        "id": slug.split("-", 1)[0],
-        "slug": slug,
-        "status": status,
-        "mode": mode,
-        "lastCompletedPhase": last_completed_phase,
-        "phases": {},
-    }
-    if status in ("completed", "abandoned"):
-        meta["completed"] = "2026-01-01T00:00:00+00:00"
-    (feature_dir / ".meta.json").write_text(json.dumps(meta))
+def _entity_uuid(conn, type_id: str) -> str:
+    """Return the uuid of the entity with ``type_id`` (live-schema helper)."""
+    row = conn.execute(
+        "SELECT uuid FROM entities WHERE type_id = ?", (type_id,)
+    ).fetchone()
+    return row[0]
+
+
+class TestLiveFixtureSmoke:
+    """Feature 131 Task 1.2: prove the live fixtures register + resolve."""
+
+    def test_live_fixture_smoke_registers_feature(self, tmp_path):
+        db, conn = _make_live_db(tmp_path)
+        try:
+            _register_live_feature(db, "001-alpha", status="active")
+            rows = conn.execute(
+                "SELECT entity_id FROM entities WHERE kind = 'feature'"
+            ).fetchall()
+            assert [r[0] for r in rows] == ["001-alpha"]
+        finally:
+            conn.close()
+
+    def test_live_fixture_smoke_workspace_roundtrip(self, tmp_path):
+        db, conn = _make_live_db(tmp_path)
+        try:
+            import uuid as uuid_mod
+
+            ws_uuid = str(uuid_mod.uuid4())
+            _insert_workspace(conn, str(tmp_path), ws_uuid)
+            rows = conn.execute(
+                "SELECT uuid FROM workspaces "
+                "WHERE project_root IS NOT NULL AND project_root = ?",
+                (os.path.abspath(str(tmp_path)),),
+            ).fetchall()
+            # Proves scoped=True is reachable before any scoping test relies
+            # on it (guards the silent-INSERT gotcha).
+            assert [r[0] for r in rows] == [ws_uuid]
+        finally:
+            conn.close()
 
 
 # ===========================================================================
@@ -279,42 +377,8 @@ class TestSerializationRoundtrip:
 
 
 # ===========================================================================
-# Task 1.2: Check 8 (DB Readiness) + _build_local_entity_set
+# Task 1.2: Check 8 (DB Readiness)
 # ===========================================================================
-
-
-class TestBuildLocalEntitySet:
-    """Test _build_local_entity_set scans feature directories."""
-
-    def test_returns_feature_dir_names(self, tmp_path):
-        from doctor.checks import _build_local_entity_set
-
-        (tmp_path / "features" / "001-alpha").mkdir(parents=True)
-        (tmp_path / "features" / "002-beta").mkdir(parents=True)
-        result = _build_local_entity_set(str(tmp_path))
-        assert result == {"001-alpha", "002-beta"}
-
-    def test_empty_features_dir(self, tmp_path):
-        from doctor.checks import _build_local_entity_set
-
-        (tmp_path / "features").mkdir(parents=True)
-        result = _build_local_entity_set(str(tmp_path))
-        assert result == set()
-
-    def test_no_features_dir(self, tmp_path):
-        from doctor.checks import _build_local_entity_set
-
-        result = _build_local_entity_set(str(tmp_path))
-        assert result == set()
-
-    def test_ignores_files_in_features_dir(self, tmp_path):
-        from doctor.checks import _build_local_entity_set
-
-        (tmp_path / "features").mkdir(parents=True)
-        (tmp_path / "features" / "README.md").write_text("hello")
-        (tmp_path / "features" / "003-gamma").mkdir()
-        result = _build_local_entity_set(str(tmp_path))
-        assert result == {"003-gamma"}
 
 
 class TestCheck8BothDbsHealthy:
@@ -396,6 +460,52 @@ class TestCheck8WrongEntitySchemaVersion:
         assert schema_issues[0].severity == "error"
 
 
+class TestCheck8V2GenerationSchemaVersion:
+    """Check 8: v2-generation files compared against V2_SCHEMA_VERSION (FR132-1)."""
+
+    def _stamp_v2(self, entity_path, version):
+        conn = sqlite3.connect(entity_path)
+        conn.execute(
+            "INSERT OR REPLACE INTO _metadata(key, value) "
+            "VALUES('schema_generation', 'v2')"
+        )
+        conn.execute(
+            "UPDATE _metadata SET value = ? WHERE key = 'schema_version'",
+            (str(version),),
+        )
+        conn.commit()
+        conn.close()
+
+    def test_v2_generation_at_v2_version_passes(self, tmp_path):
+        from doctor.checks import check_db_readiness
+        from entity_registry.schema_v2 import V2_SCHEMA_VERSION
+
+        entity_path = _make_db(tmp_path, "entities.db")
+        self._stamp_v2(entity_path, V2_SCHEMA_VERSION)
+
+        result = check_db_readiness(
+            entities_db_path=entity_path,
+        )
+        assert result.passed is True
+        assert [i for i in result.issues if "schema_version" in i.message] == []
+
+    def test_v2_generation_wrong_version_expects_v2_not_v1(self, tmp_path):
+        from doctor.checks import check_db_readiness
+        from entity_registry.schema_v2 import V2_SCHEMA_VERSION
+
+        entity_path = _make_db(tmp_path, "entities.db")
+        self._stamp_v2(entity_path, 999)
+
+        result = check_db_readiness(
+            entities_db_path=entity_path,
+        )
+        schema_issues = [i for i in result.issues if "schema_version" in i.message]
+        assert len(schema_issues) == 1
+        # "expected {V2_SCHEMA_VERSION}", NOT "expected 19" (v1 chain max) —
+        # proves the v2 branch supplied the expectation.
+        assert f"expected {V2_SCHEMA_VERSION}" in schema_issues[0].message
+
+
 class TestCheck8NonWalMode:
     """Check 8: non-WAL mode reports warning."""
 
@@ -467,1029 +577,157 @@ def _entities_conn(db_path: str) -> sqlite3.Connection:
     return conn
 
 
-class TestCheck1AllStatusesMatch:
-    """Check 1: all .meta.json statuses match DB — passes."""
+def test_all_checks_sql_explains_against_live_schema(tmp_path):
+    """Feature 131 Task 4.2 / design [D].2 / spec SC#1+SC#5: committed EXPLAIN
+    scan over every constant SQL site in checks.py.
 
-    def test_check1_all_statuses_match(self, tmp_path):
-        from doctor.checks import check_feature_status
+    AST-walk checks.py for the constant string first-argument of every
+    ``.execute(...)`` call whose text starts with SELECT/PRAGMA (constants
+    only — f-strings, names, and BinOp concatenations are intentionally
+    skipped, matching the authoring harness), then ``EXPLAIN`` each against a
+    live-schema connection. A statement referencing a dropped column
+    (``entity_type`` / ``project_id``) or any other schema drift fails to
+    compile, so this is the durable, committed form of the authoring harness
+    that found the original 7 rotted sites.
+    """
+    import ast
 
-        db_path = _make_db(tmp_path)
-        _register_feature(db_path, "001-alpha", "active")
-        _register_feature(db_path, "002-beta", "completed")
-        _create_meta_json(tmp_path, "001-alpha", status="active")
-        _create_meta_json(tmp_path, "002-beta", status="completed")
+    checks_path = os.path.join(os.path.dirname(__file__), "checks.py")
+    with open(checks_path) as f:
+        tree = ast.parse(f.read(), filename=checks_path)
 
-        conn = _entities_conn(db_path)
-        try:
-            result = check_feature_status(conn, str(tmp_path))
-            assert result.passed is True
-            assert result.name == "feature_status"
-            assert len([i for i in result.issues if i.severity in ("error", "warning")]) == 0
-        finally:
-            conn.close()
+    collected: list[tuple[int, str]] = []  # (lineno, sql)
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "execute"
+            and node.args
+        ):
+            continue
+        arg = node.args[0]
+        # Constants only: the parser folds adjacent string literals into one
+        # ast.Constant; f-strings (JoinedStr), Name references, and BinOp
+        # ("a" + b) concatenations are deliberately out of scope.
+        if not (isinstance(arg, ast.Constant) and isinstance(arg.value, str)):
+            continue
+        if arg.value.strip().upper().startswith(("SELECT", "PRAGMA")):
+            collected.append((node.lineno, arg.value))
 
-
-class TestCheck1StatusMismatch:
-    """Check 1: status mismatch reports error."""
-
-    def test_check1_status_mismatch_reports_error(self, tmp_path):
-        from doctor.checks import check_feature_status
-
-        db_path = _make_db(tmp_path)
-        _register_feature(db_path, "001-alpha", "completed")
-        _create_meta_json(tmp_path, "001-alpha", status="active")
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_feature_status(conn, str(tmp_path))
-            assert result.passed is False
-            errors = [i for i in result.issues if i.severity == "error"]
-            assert len(errors) >= 1
-            assert "active" in errors[0].message
-            assert "completed" in errors[0].message
-        finally:
-            conn.close()
-
-
-class TestCheck1MissingFromDb:
-    """Check 1: feature on disk but not in DB → warning."""
-
-    def test_check1_missing_from_db_warning(self, tmp_path):
-        from doctor.checks import check_feature_status
-
-        db_path = _make_db(tmp_path)
-        _create_meta_json(tmp_path, "001-alpha", status="active")
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_feature_status(conn, str(tmp_path))
-            assert result.passed is False
-            warnings = [i for i in result.issues if i.severity == "warning"]
-            assert len(warnings) >= 1
-            assert "not in entity DB" in warnings[0].message
-        finally:
-            conn.close()
-
-
-class TestCheck1MalformedMetaJson:
-    """Check 1: malformed .meta.json doesn't crash, reports error."""
-
-    def test_check1_malformed_meta_json_no_crash(self, tmp_path):
-        from doctor.checks import check_feature_status
-
-        db_path = _make_db(tmp_path)
-        feature_dir = tmp_path / "features" / "001-alpha"
-        feature_dir.mkdir(parents=True)
-        (feature_dir / ".meta.json").write_text("{invalid json!!!")
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_feature_status(conn, str(tmp_path))
-            # Should not crash — should report an error issue
-            errors = [i for i in result.issues if i.severity == "error"]
-            assert len(errors) >= 1
-            assert "Malformed" in errors[0].message
-        finally:
-            conn.close()
-
-
-class TestCheck1NullLastCompletedPhase:
-    """Check 1: null lastCompletedPhase with completed phase timestamps → warning."""
-
-    def test_check1_null_last_completed_phase(self, tmp_path):
-        from doctor.checks import check_feature_status
-
-        db_path = _make_db(tmp_path)
-        _register_feature(db_path, "001-alpha", "active")
-
-        # Create .meta.json with phases that have 'completed' but null lastCompletedPhase
-        feature_dir = tmp_path / "features" / "001-alpha"
-        feature_dir.mkdir(parents=True, exist_ok=True)
-        meta = {
-            "id": "001",
-            "slug": "001-alpha",
-            "status": "active",
-            "lastCompletedPhase": None,
-            "phases": {
-                "brainstorm": {"completed": "2025-01-01T00:00:00Z"},
-                "specify": {"completed": "2025-01-02T00:00:00Z"},
-            },
-        }
-        (feature_dir / ".meta.json").write_text(json.dumps(meta))
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_feature_status(conn, str(tmp_path))
-            warnings = [
-                i for i in result.issues
-                if i.severity == "warning" and "lastCompletedPhase" in i.message
-            ]
-            assert len(warnings) >= 1
-        finally:
-            conn.close()
-
-
-class TestCheck1CrossProjectEntity:
-    """Check 1: cross-project entities (not in local_entity_ids) are skipped."""
-
-    def test_check1_cross_project_entity_no_warning(self, tmp_path):
-        from doctor.checks import check_feature_status
-
-        db_path = _make_db(tmp_path)
-        # Register a feature in DB that's not local
-        _register_feature(db_path, "099-remote", "active")
-        # Only "001-alpha" is local
-        _create_meta_json(tmp_path, "001-alpha", status="active")
-        _register_feature(db_path, "001-alpha", "active")
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_feature_status(
-                conn, str(tmp_path),
-                local_entity_ids={"001-alpha"},
-            )
-            # Should NOT warn about 099-remote (it's cross-project)
-            remote_issues = [
-                i for i in result.issues if "099-remote" in (i.entity or "")
-            ]
-            assert len(remote_issues) == 0
-        finally:
-            conn.close()
-
-
-# ===========================================================================
-# Task 2.2: Check 2 (Workflow Phase)
-# ===========================================================================
-
-
-def _setup_workflow_feature(db_path, slug, *, wp="design", lcp="specify",
-                            mode="standard", kanban="wip"):
-    """Register a feature and add workflow_phases entry."""
-    import uuid as uuid_mod
-
-    type_id = f"feature:{slug}"
-    entity_uuid = str(uuid_mod.uuid4())
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "INSERT OR IGNORE INTO entities "
-        "(uuid, type_id, project_id, entity_type, entity_id, name, status, created_at, updated_at) "
-        "VALUES (?, ?, '__unknown__', 'feature', ?, ?, 'active', datetime('now'), datetime('now'))",
-        (entity_uuid, type_id, slug, f"Feature {slug}"),
+    # Guard a silently-broken walker (e.g. an AST-shape change that collects
+    # nothing): post-feature-133 retirement the surviving checks carry 10
+    # constant SQL sites.
+    assert len(collected) >= 10, (
+        f"walker collected only {len(collected)} SQL sites — expected >= 10; "
+        f"the .execute() AST shape may have drifted"
     )
-    conn.execute(
-        "INSERT OR REPLACE INTO workflow_phases "
-        "(uuid, type_id, workflow_phase, last_completed_phase, mode, kanban_column, "
-        "created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
-        (entity_uuid, type_id, wp, lcp, mode, kanban),
-    )
-    conn.commit()
-    conn.close()
-    return type_id
 
-
-class TestCheck2InSync:
-    """Check 2: in-sync features pass."""
-
-    def test_check2_in_sync_passes(self, tmp_path):
-        from doctor.checks import check_workflow_phase
-
-        db_path = _make_db(tmp_path)
-        # kanban must match derive_kanban("active", "design") == "prioritised"
-        _setup_workflow_feature(
-            db_path, "001-alpha", wp="design", lcp="specify",
-            mode="standard", kanban="prioritised",
-        )
-        _create_meta_json(
-            tmp_path, "001-alpha", status="active",
-            mode="standard", last_completed_phase="specify",
-        )
-
-        result = check_workflow_phase(db_path, str(tmp_path))
-        # No errors or warnings expected for in-sync
-        err_warn = [i for i in result.issues if i.severity in ("error", "warning")]
-        assert len(err_warn) == 0, f"Unexpected issues: {[i.message for i in err_warn]}"
-
-
-class TestCheck2MetaJsonAhead:
-    """Check 2: meta_json_ahead reports error with fix hint."""
-
-    def test_check2_meta_json_ahead_fix_hint(self, tmp_path):
-        from doctor.checks import check_workflow_phase
-
-        db_path = _make_db(tmp_path)
-        # DB says specify, meta says design (ahead)
-        _setup_workflow_feature(
-            db_path, "001-alpha", wp="specify", lcp="brainstorm",
-            mode="standard", kanban="wip",
-        )
-        _create_meta_json(
-            tmp_path, "001-alpha", status="active",
-            mode="standard", last_completed_phase="design",
-        )
-
-        result = check_workflow_phase(db_path, str(tmp_path))
-        errors = [i for i in result.issues if i.severity == "error"]
-        # Should have at least one error about drift
-        meta_ahead = [i for i in errors if "meta_json_ahead" in i.message]
-        assert len(meta_ahead) >= 1, f"Expected meta_json_ahead error, got: {[i.message for i in errors]}"
-        assert meta_ahead[0].fix_hint is not None
-        assert "reconcile" in meta_ahead[0].fix_hint.lower()
-
-
-class TestCheck2DbAhead:
-    """Check 2: db_ahead reports error with fix hint."""
-
-    def test_check2_db_ahead_fix_hint(self, tmp_path):
-        from doctor.checks import check_workflow_phase
-
-        db_path = _make_db(tmp_path)
-        # DB says design completed, meta says brainstorm
-        _setup_workflow_feature(
-            db_path, "001-alpha", wp="create-plan", lcp="design",
-            mode="standard", kanban="wip",
-        )
-        _create_meta_json(
-            tmp_path, "001-alpha", status="active",
-            mode="standard", last_completed_phase="brainstorm",
-        )
-
-        result = check_workflow_phase(db_path, str(tmp_path))
-        errors = [i for i in result.issues if i.severity == "error"]
-        db_ahead = [i for i in errors if "db_ahead" in i.message]
-        assert len(db_ahead) >= 1, f"Expected db_ahead error, got: {[i.message for i in errors]}"
-        assert db_ahead[0].fix_hint is not None
-
-
-class TestCheck2KanbanDrift:
-    """Check 2: kanban-only drift on in_sync feature → warning."""
-
-    def test_check2_kanban_only_drift_detected(self, tmp_path):
-        from doctor.checks import check_workflow_phase
-
-        db_path = _make_db(tmp_path)
-        # Feature is in sync for phases but kanban is wrong
-        _setup_workflow_feature(
-            db_path, "001-alpha", wp="design", lcp="specify",
-            mode="standard", kanban="backlog",  # wrong kanban
-        )
-        _create_meta_json(
-            tmp_path, "001-alpha", status="active",
-            mode="standard", last_completed_phase="specify",
-        )
-
-        result = check_workflow_phase(db_path, str(tmp_path))
-        kanban_issues = [
-            i for i in result.issues
-            if "kanban" in i.message.lower() or "kanban" in (i.fix_hint or "").lower()
-        ]
-        # Kanban drift may or may not be detected depending on reconciliation logic.
-        # The check only reports it if mismatches include kanban_column on in_sync features.
-        # This is implementation-dependent on what check_workflow_drift returns.
-        # We verify no crash at minimum.
-        assert result.name == "workflow_phase"
-
-
-class TestBackwardTransition:
-    """Check 2: backward transition (rework) is info, not error."""
-
-    def test_backward_transition_not_error(self, tmp_path):
-        from doctor.checks import check_workflow_phase
-
-        db_path = _make_db(tmp_path)
-        # Feature where workflow_phase < last_completed_phase (rework)
-        _setup_workflow_feature(
-            db_path, "001-alpha", wp="specify", lcp="design",
-            mode="standard", kanban="wip",
-        )
-        _create_meta_json(
-            tmp_path, "001-alpha", status="active",
-            mode="standard", last_completed_phase="design",
-        )
-
-        conn = sqlite3.connect(db_path)
-        result = check_workflow_phase(db_path, str(tmp_path), entities_conn=conn)
-        conn.close()
-        rework_infos = [
-            i for i in result.issues
-            if i.severity == "info" and "rework" in i.message.lower()
-        ]
-        # Should detect rework state as info
-        assert len(rework_infos) >= 1, f"Expected rework info, got: {[i.message for i in result.issues]}"
-        # Should NOT be error
-        rework_errors = [
-            i for i in result.issues
-            if i.severity == "error" and "rework" in i.message.lower()
-        ]
-        assert len(rework_errors) == 0
-
-
-class TestCheck2CrossProjectDbOnly:
-    """Check 2: db_only feature not in local_entity_ids is skipped."""
-
-    def test_cross_project_check2_db_only_skipped(self, tmp_path):
-        from doctor.checks import check_workflow_phase
-
-        db_path = _make_db(tmp_path)
-        # Feature in DB+workflow but no .meta.json and not local
-        _setup_workflow_feature(
-            db_path, "099-remote", wp="design", lcp="specify",
-            mode="standard", kanban="wip",
-        )
-        # Local feature that's in sync
-        _setup_workflow_feature(
-            db_path, "001-alpha", wp="design", lcp="specify",
-            mode="standard", kanban="wip",
-        )
-        _create_meta_json(
-            tmp_path, "001-alpha", status="active",
-            mode="standard", last_completed_phase="specify",
-        )
-
-        result = check_workflow_phase(
-            db_path, str(tmp_path),
-            local_entity_ids={"001-alpha"},
-        )
-        remote_issues = [
-            i for i in result.issues
-            if "099-remote" in (i.entity or "") and i.severity in ("error", "warning")
-        ]
-        assert len(remote_issues) == 0, f"Should skip cross-project: {[i.message for i in remote_issues]}"
-
-
-# ===========================================================================
-# Task 2.3: Check 3 (Brainstorm Status)
-# ===========================================================================
-
-
-def _register_brainstorm(db_path, entity_id, status="active"):
-    """Register a brainstorm entity. Returns (type_id, uuid)."""
-    import uuid as uuid_mod
-
-    type_id = f"brainstorm:{entity_id}"
-    entity_uuid = str(uuid_mod.uuid4())
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "INSERT OR IGNORE INTO entities "
-        "(uuid, type_id, project_id, entity_type, entity_id, name, status, created_at, updated_at) "
-        "VALUES (?, ?, '__unknown__', 'brainstorm', ?, ?, ?, datetime('now'), datetime('now'))",
-        (entity_uuid, type_id, entity_id, f"Brainstorm {entity_id}", status),
-    )
-    conn.commit()
-    conn.close()
-    return type_id, entity_uuid
-
-
-class TestCheck3NoPromotionNeeded:
-    """Check 3: no brainstorms needing promotion → passes."""
-
-    def test_check3_no_promotion_needed(self, tmp_path):
-        from doctor.checks import check_brainstorm_status
-
-        db_path = _make_db(tmp_path)
-        # All brainstorms already promoted
-        _register_brainstorm(db_path, "bs-001", status="promoted")
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_brainstorm_status(conn, str(tmp_path))
-            assert result.passed is True
-            assert result.name == "brainstorm_status"
-        finally:
-            conn.close()
-
-
-class TestCheck3BrainstormShouldBePromoted:
-    """Check 3: brainstorm referenced by completed feature → warning."""
-
-    def test_check3_brainstorm_should_be_promoted(self, tmp_path):
-        from doctor.checks import check_brainstorm_status
-
-        db_path = _make_db(tmp_path)
-        _register_brainstorm(db_path, "bs-001", status="active")
-
-        # Create a completed feature that references this brainstorm
-        feature_dir = tmp_path / "features" / "001-alpha"
-        feature_dir.mkdir(parents=True)
-        meta = {
-            "id": "001",
-            "slug": "001-alpha",
-            "status": "completed",
-            "brainstorm_source": "bs-001",
-        }
-        (feature_dir / ".meta.json").write_text(json.dumps(meta))
-
-        # Create brainstorm dir so file check passes
-        (tmp_path / "brainstorms").mkdir(exist_ok=True)
-        (tmp_path / "brainstorms" / "bs-001").mkdir(exist_ok=True)
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_brainstorm_status(conn, str(tmp_path))
-            assert result.passed is False
-            warnings = [i for i in result.issues if i.severity == "warning"]
-            promotion_warnings = [w for w in warnings if "promoted" in w.message]
-            assert len(promotion_warnings) >= 1
-        finally:
-            conn.close()
-
-
-class TestCheck3BrainstormActiveFeature:
-    """Check 3: brainstorm referenced by active feature → warning."""
-
-    def test_check3_brainstorm_referenced_by_active_feature(self, tmp_path):
-        from doctor.checks import check_brainstorm_status
-
-        db_path = _make_db(tmp_path)
-        _register_brainstorm(db_path, "bs-active-001", status="draft")
-
-        # Create an active feature that references this brainstorm
-        feature_dir = tmp_path / "features" / "070-active-feat"
-        feature_dir.mkdir(parents=True)
-        meta = {
-            "id": "070",
-            "slug": "active-feat",
-            "status": "active",
-            "brainstorm_source": "bs-active-001",
-        }
-        (feature_dir / ".meta.json").write_text(json.dumps(meta))
-
-        # Create brainstorm dir so file check passes
-        (tmp_path / "brainstorms").mkdir(exist_ok=True)
-        (tmp_path / "brainstorms" / "bs-active-001").mkdir(exist_ok=True)
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_brainstorm_status(conn, str(tmp_path))
-            assert result.passed is False
-            warnings = [i for i in result.issues if i.severity == "warning"]
-            promotion_warnings = [w for w in warnings if "promoted" in w.message]
-            assert len(promotion_warnings) >= 1, (
-                f"Active feature should trigger promotion warning, got: "
-                f"{[i.message for i in result.issues]}"
-            )
-        finally:
-            conn.close()
-
-    def test_check3_promoted_brainstorm_not_flagged(self, tmp_path):
-        from doctor.checks import check_brainstorm_status
-
-        db_path = _make_db(tmp_path)
-        _register_brainstorm(db_path, "bs-promoted-001", status="promoted")
-
-        feature_dir = tmp_path / "features" / "071-done-feat"
-        feature_dir.mkdir(parents=True)
-        meta = {
-            "id": "071",
-            "slug": "done-feat",
-            "status": "active",
-            "brainstorm_source": "bs-promoted-001",
-        }
-        (feature_dir / ".meta.json").write_text(json.dumps(meta))
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_brainstorm_status(conn, str(tmp_path))
-            # promoted brainstorm should NOT be flagged
-            promotion_warnings = [i for i in result.issues if "promoted" in i.message]
-            assert len(promotion_warnings) == 0
-        finally:
-            conn.close()
-
-    def test_check3_no_feature_reference_not_flagged(self, tmp_path):
-        from doctor.checks import check_brainstorm_status
-
-        db_path = _make_db(tmp_path)
-        _register_brainstorm(db_path, "bs-orphan", status="draft")
-
-        # No features reference this brainstorm
-        (tmp_path / "features").mkdir(exist_ok=True)
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_brainstorm_status(conn, str(tmp_path))
-            promotion_warnings = [i for i in result.issues if "promoted" in i.message]
-            assert len(promotion_warnings) == 0
-        finally:
-            conn.close()
-
-
-class TestCheck3EntityDepsFallback:
-    """Check 3: fallback to entity_dependencies for promotion detection."""
-
-    def test_check3_entity_deps_fallback(self, tmp_path):
-        from doctor.checks import check_brainstorm_status
-        import uuid as uuid_mod
-
-        db_path = _make_db(tmp_path)
-        bs_type_id, bs_uuid = _register_brainstorm(db_path, "bs-002", status="active")
-
-        # Create a completed feature with no brainstorm_source in meta
-        feat_uuid = str(uuid_mod.uuid4())
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO entities "
-            "(uuid, type_id, project_id, entity_type, entity_id, name, status, created_at, updated_at) "
-            "VALUES (?, 'feature:002-beta', '__unknown__', 'feature', '002-beta', 'Beta', 'completed', "
-            "datetime('now'), datetime('now'))",
-            (feat_uuid,),
-        )
-        # Add dependency: brainstorm -> feature
-        conn.execute(
-            "INSERT INTO entity_dependencies (entity_uuid, blocked_by_uuid) "
-            "VALUES (?, ?)",
-            (bs_uuid, feat_uuid),
-        )
-        conn.commit()
+    db, conn = _make_live_db(tmp_path)
+    failures: list[tuple[int, str, str]] = []
+    try:
+        for lineno, sql in collected:
+            try:
+                conn.execute("EXPLAIN " + sql, ("x",) * sql.count("?"))
+            except sqlite3.Error as exc:
+                failures.append(
+                    (lineno, str(exc), " ".join(sql.split())[:80])
+                )
+    finally:
         conn.close()
 
-        # No brainstorm_source in meta, so direct check won't find it
-        feature_dir = tmp_path / "features" / "002-beta"
-        feature_dir.mkdir(parents=True)
-        meta = {"id": "002", "slug": "002-beta", "status": "completed"}
-        (feature_dir / ".meta.json").write_text(json.dumps(meta))
-
-        conn2 = _entities_conn(db_path)
-        try:
-            result = check_brainstorm_status(conn2, str(tmp_path))
-            assert result.passed is False
-            warnings = [i for i in result.issues if i.severity == "warning"]
-            dep_warnings = [w for w in warnings if "promoted" in w.message]
-            assert len(dep_warnings) >= 1, f"Expected dep fallback warning, got: {[i.message for i in result.issues]}"
-        finally:
-            conn2.close()
-
-
-class TestCheck3BrainstormSourceMissing:
-    """Check 3: brainstorm_source file doesn't exist → warning."""
-
-    def test_check3_brainstorm_source_missing(self, tmp_path):
-        from doctor.checks import check_brainstorm_status
-
-        db_path = _make_db(tmp_path)
-        _register_brainstorm(db_path, "bs-ghost", status="active")
-
-        # Feature references non-existent brainstorm source
-        feature_dir = tmp_path / "features" / "001-alpha"
-        feature_dir.mkdir(parents=True)
-        meta = {
-            "id": "001",
-            "slug": "001-alpha",
-            "status": "active",
-            "brainstorm_source": "bs-ghost",
-        }
-        (feature_dir / ".meta.json").write_text(json.dumps(meta))
-
-        # Don't create brainstorms directory
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_brainstorm_status(conn, str(tmp_path))
-            missing_warnings = [
-                i for i in result.issues
-                if i.severity == "warning" and "does not exist" in i.message
-            ]
-            assert len(missing_warnings) >= 1
-        finally:
-            conn.close()
-
-
-# ===========================================================================
-# Task 2.4: Check 4 (Backlog Status)
-# ===========================================================================
-
-
-def _register_backlog(db_path, entity_id, status="active"):
-    """Register a backlog entity."""
-    import uuid as uuid_mod
-
-    type_id = f"backlog:{entity_id}"
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "INSERT OR IGNORE INTO entities "
-        "(uuid, type_id, project_id, entity_type, entity_id, name, status, created_at, updated_at) "
-        "VALUES (?, ?, '__unknown__', 'backlog', ?, ?, ?, datetime('now'), datetime('now'))",
-        (str(uuid_mod.uuid4()), type_id, entity_id, f"Backlog {entity_id}", status),
-    )
-    conn.commit()
-    conn.close()
-    return type_id
-
-
-# Feature 111 / FR-CL.2: free-text suffix parsers removed from
-# doctor/checks.py. The parser-driven TestCheck4 classes
-# (TestCheck4AnnotatedNotPromoted, TestCheck4PromotedNotAnnotated,
-# TestCheck4ClosedAnnotation) DELETED — see
-# docs/features/111-issue-lifecycle-closure/cleanup-inventory.md.
-# The passive checks (missing backlog.md, empty backlog.md) remain.
-
-
-class TestCheck4BacklogMissingFile:
-    """Check 4: missing backlog.md → passes."""
-
-    def test_check4_backlog_missing_file_passes(self, tmp_path):
-        from doctor.checks import check_backlog_status
-
-        db_path = _make_db(tmp_path)
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_backlog_status(conn, str(tmp_path))
-            assert result.passed is True
-            assert result.name == "backlog_status"
-        finally:
-            conn.close()
-
-
-class TestCheck4EmptyBacklog:
-    """Check 4: empty backlog.md → passes."""
-
-    def test_check4_empty_backlog_passes(self, tmp_path):
-        from doctor.checks import check_backlog_status
-
-        db_path = _make_db(tmp_path)
-
-        (tmp_path / "backlog.md").write_text("")
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_backlog_status(conn, str(tmp_path))
-            assert result.passed is True
-        finally:
-            conn.close()
-
-
-# ===========================================================================
-# Task 3.2: Check 6 (Branch Consistency)
-# ===========================================================================
-
-
-def _init_git_repo(path):
-    """Initialize a git repo with an initial commit at given path."""
-    subprocess.run(
-        ["git", "init"], cwd=str(path),
-        capture_output=True, text=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.email", "test@test.com"], cwd=str(path),
-        capture_output=True, text=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test"], cwd=str(path),
-        capture_output=True, text=True,
-    )
-    subprocess.run(
-        ["git", "commit", "--allow-empty", "-m", "initial"],
-        cwd=str(path), capture_output=True, text=True,
+    assert failures == [], (
+        "SQL sites failed to EXPLAIN against the live schema (dropped column "
+        "or schema drift):\n"
+        + "\n".join(
+            f"  checks.py:{ln}: {err} :: {prefix}"
+            for ln, err, prefix in failures
+        )
     )
 
 
-class TestCheck6AllBranchesExist:
-    """Check 6: all active features have their branches."""
+def test_fixer_sql_has_no_dropped_column_references():
+    """Feature 131 design [D].2 (fixer net): committed form of the manual grep
+    guarding the auto-fix WRITE paths against the Migration-11 dropped columns.
 
-    def test_check6_all_branches_exist(self, tmp_path):
-        from doctor.checks import check_branch_consistency
+    checks.py has its own live EXPLAIN scan
+    (test_all_checks_sql_explains_against_live_schema); the fix_actions / fixer
+    write paths (UPDATE / DELETE / INSERT on `entities` et al.) were only ever
+    guarded by a manual grep. AST-collect the constant SQL first-arg of every
+    ``.execute(...)`` in both modules and assert none names a column dropped by
+    Migration 11 (feature 108 / 109): ``entity_type``, ``project_id`` (bare —
+    ``project_id_legacy`` survives and is NOT flagged), or ``parent_type_id``.
 
-        _init_git_repo(tmp_path)
-        # Create a branch
-        subprocess.run(
-            ["git", "checkout", "-b", "feature/001-alpha"],
-            cwd=str(tmp_path), capture_output=True,
-        )
-        subprocess.run(
-            ["git", "checkout", "main"],
-            cwd=str(tmp_path), capture_output=True,
-        )
+    Textual denylist rather than EXPLAIN on purpose: the fixer touches tables
+    the minimal live fixture may omit at a given migration head, so EXPLAIN
+    could false-fail with "no such table"; the denylist targets exactly the rot
+    class the grep watched and never false-fails on table coverage.
+    """
+    import ast
+    import re
 
-        db_path = _make_db(tmp_path)
-        _register_feature(db_path, "001-alpha", "active")
+    # \b already excludes project_id_legacy: `d`->`_` is not a word boundary,
+    # so \bproject_id\b cannot match inside project_id_legacy.
+    dropped = {
+        "entity_type": re.compile(r"\bentity_type\b"),
+        "project_id": re.compile(r"\bproject_id\b"),
+        "parent_type_id": re.compile(r"\bparent_type_id\b"),
+    }
+    sql_verbs = (
+        "SELECT", "INSERT", "UPDATE", "DELETE", "REPLACE",
+        "CREATE", "DROP", "PRAGMA", "WITH",
+    )
 
-        features_dir = tmp_path / "features" / "001-alpha"
-        features_dir.mkdir(parents=True)
-        meta = {
-            "status": "active",
-            "branch": "feature/001-alpha",
-        }
-        (features_dir / ".meta.json").write_text(json.dumps(meta))
+    here = os.path.dirname(__file__)
+    targets = [
+        os.path.join(here, "fix_actions", "__init__.py"),
+        os.path.join(here, "fixer.py"),
+    ]
 
-        conn = _entities_conn(db_path)
-        try:
-            result = check_branch_consistency(
-                conn, str(tmp_path), str(tmp_path), "main",
-            )
-            err_warn = [i for i in result.issues if i.severity in ("error", "warning")]
-            assert len(err_warn) == 0
-            assert result.name == "branch_consistency"
-        finally:
-            conn.close()
+    collected: list[tuple[str, int, str]] = []  # (basename, lineno, sql)
+    for path in targets:
+        with open(path) as f:
+            tree = ast.parse(f.read(), filename=path)
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "execute"
+                and node.args
+            ):
+                continue
+            arg = node.args[0]
+            # Constants only (matches the checks.py scan): f-strings, Names and
+            # BinOp concatenations are out of scope by design.
+            if not (isinstance(arg, ast.Constant) and isinstance(arg.value, str)):
+                continue
+            if arg.value.strip().upper().startswith(sql_verbs):
+                collected.append(
+                    (os.path.basename(path), node.lineno, arg.value)
+                )
 
+    # Guard a silently-broken walker: the fixer write paths carry 4 constant
+    # SQL sites (fixer.py delegates, contributing 0; fix_actions holds the
+    # UPDATE / DELETE statements — 4 after feature 133 retired 11 fix fns,
+    # leaving 7 survivors of which 4 carry constant .execute() calls).
+    assert len(collected) >= 4, (
+        f"walker collected only {len(collected)} fixer SQL sites — expected "
+        ">= 4; the .execute() AST shape may have drifted"
+    )
 
-class TestCheck6BaseBranchMissing:
-    """Check 6: base branch missing reports error and skips rest."""
+    hits: list[str] = []
+    for fname, lineno, sql in collected:
+        flat = " ".join(sql.split())
+        for col, rx in dropped.items():
+            if rx.search(sql):
+                hits.append(
+                    f"  {fname}:{lineno}: references dropped '{col}' :: "
+                    f"{flat[:80]}"
+                )
 
-    def test_check6_base_branch_missing(self, tmp_path):
-        from doctor.checks import check_branch_consistency
-
-        _init_git_repo(tmp_path)
-        db_path = _make_db(tmp_path)
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_branch_consistency(
-                conn, str(tmp_path), str(tmp_path), "nonexistent-branch",
-            )
-            assert result.passed is False
-            errors = [i for i in result.issues if i.severity == "error"]
-            assert len(errors) >= 1
-            assert "nonexistent-branch" in errors[0].message
-        finally:
-            conn.close()
-
-
-class TestCheck6ActiveNoBranchNotMerged:
-    """Check 6: active feature, branch missing, not merged -> warning."""
-
-    def test_check6_active_no_branch_not_merged_warning(self, tmp_path):
-        from doctor.checks import check_branch_consistency
-
-        _init_git_repo(tmp_path)
-        db_path = _make_db(tmp_path)
-        _register_feature(db_path, "001-alpha", "active")
-
-        features_dir = tmp_path / "features" / "001-alpha"
-        features_dir.mkdir(parents=True)
-        meta = {
-            "status": "active",
-            "branch": "feature/001-alpha",
-        }
-        (features_dir / ".meta.json").write_text(json.dumps(meta))
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_branch_consistency(
-                conn, str(tmp_path), str(tmp_path), "main",
-            )
-            warnings = [i for i in result.issues if i.severity == "warning"]
-            assert len(warnings) >= 1
-            assert "doesn't exist" in warnings[0].message
-        finally:
-            conn.close()
-
-
-class TestCheck6ActiveMergedNotRework:
-    """Check 6: active + merged + not rework -> error."""
-
-    def test_check6_active_merged_not_rework_error(self, tmp_path):
-        from doctor.checks import check_branch_consistency
-
-        _init_git_repo(tmp_path)
-
-        # Create feature content on main
-        features_dir = tmp_path / "features" / "001-alpha"
-        features_dir.mkdir(parents=True)
-        meta = {
-            "status": "active",
-            "branch": "feature/001-alpha",
-        }
-        (features_dir / ".meta.json").write_text(json.dumps(meta))
-
-        # Commit on main so merge check finds it
-        subprocess.run(
-            ["git", "add", "."], cwd=str(tmp_path), capture_output=True,
-        )
-        subprocess.run(
-            ["git", "commit", "-m", "add feature"],
-            cwd=str(tmp_path), capture_output=True,
-        )
-
-        db_path = _make_db(tmp_path)
-        _register_feature(db_path, "001-alpha", "active")
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_branch_consistency(
-                conn, str(tmp_path), str(tmp_path), "main",
-            )
-            errors = [i for i in result.issues if i.severity == "error"]
-            assert len(errors) >= 1
-            assert "merged" in errors[0].message
-        finally:
-            conn.close()
-
-
-class TestCheck6RemoteBaseBranchFallback:
-    """Check 6: fallback to origin/base_branch when local missing."""
-
-    def test_check6_remote_base_branch_fallback(self, tmp_path):
-        from doctor.checks import check_branch_consistency
-
-        # Create a "remote" repo
-        remote_dir = tmp_path / "remote"
-        remote_dir.mkdir()
-        _init_git_repo(remote_dir)
-
-        # Create local repo that tracks remote
-        local_dir = tmp_path / "local"
-        subprocess.run(
-            ["git", "clone", str(remote_dir), str(local_dir)],
-            capture_output=True, text=True,
-        )
-        subprocess.run(
-            ["git", "config", "user.email", "test@test.com"], cwd=str(local_dir),
-            capture_output=True,
-        )
-        subprocess.run(
-            ["git", "config", "user.name", "Test"], cwd=str(local_dir),
-            capture_output=True,
-        )
-
-        # Delete local main but keep origin/main
-        subprocess.run(
-            ["git", "checkout", "-b", "temp-branch"],
-            cwd=str(local_dir), capture_output=True,
-        )
-        subprocess.run(
-            ["git", "branch", "-d", "main"],
-            cwd=str(local_dir), capture_output=True,
-        )
-
-        db_path = _make_db(local_dir)
-        conn = _entities_conn(db_path)
-        try:
-            result = check_branch_consistency(
-                conn, str(local_dir), str(local_dir), "main",
-            )
-            # Should NOT error on base branch -- origin/main exists
-            base_errors = [
-                i for i in result.issues
-                if "Base branch" in i.message and i.severity == "error"
-            ]
-            assert len(base_errors) == 0
-        finally:
-            conn.close()
-
-
-# ===========================================================================
-# Task 3.3: Check 7 (Entity Orphans)
-# ===========================================================================
-
-
-class TestCheck7AllMatched:
-    """Check 7: all entities have dirs and vice versa."""
-
-    def test_check7_all_matched(self, tmp_path):
-        from doctor.checks import check_entity_orphans
-
-        db_path = _make_db(tmp_path)
-        _register_feature(db_path, "001-alpha", "active")
-        _create_meta_json(tmp_path, "001-alpha", status="active")
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_entity_orphans(
-                conn, str(tmp_path),
-                local_entity_ids={"001-alpha"},
-                project_root=str(tmp_path),
-            )
-            err_warn = [i for i in result.issues if i.severity in ("error", "warning")]
-            assert len(err_warn) == 0
-            assert result.name == "entity_orphans"
-        finally:
-            conn.close()
-
-
-class TestCheck7OrphanedLocalEntity:
-    """Check 7: local entity in DB but no dir -> warning."""
-
-    def test_check7_orphaned_local_entity(self, tmp_path):
-        from doctor.checks import check_entity_orphans
-
-        db_path = _make_db(tmp_path)
-        _register_feature(db_path, "001-alpha", "active")
-        # No feature directory created
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_entity_orphans(
-                conn, str(tmp_path),
-                local_entity_ids={"001-alpha"},
-                project_root=str(tmp_path),
-            )
-            warnings = [i for i in result.issues if i.severity == "warning"]
-            assert len(warnings) >= 1
-            assert "not found on disk" in warnings[0].message
-        finally:
-            conn.close()
-
-
-class TestCheck7DirectoryNoEntity:
-    """Check 7: directory with .meta.json but no entity -> warning."""
-
-    def test_check7_directory_no_entity_warning(self, tmp_path):
-        from doctor.checks import check_entity_orphans
-
-        db_path = _make_db(tmp_path)
-        _create_meta_json(tmp_path, "001-alpha", status="active")
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_entity_orphans(
-                conn, str(tmp_path),
-                project_root=str(tmp_path),
-            )
-            warnings = [i for i in result.issues if i.severity == "warning"]
-            dir_warnings = [w for w in warnings if "no entity in DB" in w.message]
-            assert len(dir_warnings) >= 1
-        finally:
-            conn.close()
-
-
-class TestCheck7OrphanedBrainstormPrd:
-    """Check 7: .prd.md without entity -> warning."""
-
-    def test_check7_orphaned_brainstorm_prd(self, tmp_path):
-        from doctor.checks import check_entity_orphans
-
-        db_path = _make_db(tmp_path)
-        bs_dir = tmp_path / "brainstorms" / "bs-001"
-        bs_dir.mkdir(parents=True)
-        (bs_dir / "bs-001.prd.md").write_text("# PRD")
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_entity_orphans(
-                conn, str(tmp_path),
-                project_root=str(tmp_path),
-            )
-            warnings = [i for i in result.issues if i.severity == "warning"]
-            prd_warnings = [w for w in warnings if "brainstorm" in w.entity.lower()]
-            assert len(prd_warnings) >= 1
-        finally:
-            conn.close()
-
-
-class TestCheck7CrossProjectEntityInfoNotWarning:
-    """Check 7: cross-project entity is info, not warning."""
-
-    def test_cross_project_entity_info_not_warning(self, tmp_path):
-        from doctor.checks import check_entity_orphans
-
-        db_path = _make_db(tmp_path)
-        _register_feature(db_path, "001-alpha", "active")  # local
-        _register_feature(db_path, "099-remote", "active")  # cross-project
-        _create_meta_json(tmp_path, "001-alpha", status="active")
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_entity_orphans(
-                conn, str(tmp_path),
-                local_entity_ids={"001-alpha"},
-                project_root=str(tmp_path),
-            )
-            # 099-remote should not produce a warning
-            remote_warnings = [
-                i for i in result.issues
-                if "099-remote" in (i.entity or "") and i.severity == "warning"
-            ]
-            assert len(remote_warnings) == 0
-        finally:
-            conn.close()
-
-
-class TestCheck7CrossProjectEntitiesAggregatedInfo:
-    """Check 7: cross-project entities produce aggregated info."""
-
-    def test_cross_project_entities_aggregated_info(self, tmp_path):
-        from doctor.checks import check_entity_orphans
-
-        db_path = _make_db(tmp_path)
-        _register_feature(db_path, "098-other", "active")
-        _register_feature(db_path, "099-remote", "active")
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_entity_orphans(
-                conn, str(tmp_path),
-                local_entity_ids=set(),  # empty = check all
-                project_root=str(tmp_path),
-            )
-            # With empty local_entity_ids, these are treated as local (warn)
-            # Let's test with explicit local_entity_ids
-            conn.close()
-            conn = _entities_conn(db_path)
-            result = check_entity_orphans(
-                conn, str(tmp_path),
-                local_entity_ids={"001-nonexistent"},
-                project_root=str(tmp_path),
-            )
-            info_issues = [
-                i for i in result.issues
-                if i.severity == "info" and "other projects" in i.message
-            ]
-            assert len(info_issues) >= 1
-            assert "2" in info_issues[0].message  # 2 entities
-        finally:
-            conn.close()
+    assert hits == [], (
+        "fixer SQL references a Migration-11 dropped column (rot):\n"
+        + "\n".join(hits)
+    )
 
 
 # ===========================================================================
@@ -1692,35 +930,6 @@ class TestCheck9CircularParentChain:
             conn.close()
 
 
-class TestCheck9OrphanedDependencyRow:
-    """Check 9: entity_dependencies with non-existent UUID -> warning."""
-
-    def test_check9_orphaned_dependency_row(self, tmp_path):
-        from doctor.checks import check_referential_integrity
-
-        db_path = _make_db(tmp_path)
-        _register_entity_with_uuid(
-            db_path, "feature:001", "feature", "001",
-            uuid_val="valid-uuid",
-        )
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO entity_dependencies (entity_uuid, blocked_by_uuid) "
-            "VALUES ('valid-uuid', 'nonexistent-uuid')"
-        )
-        conn.commit()
-        conn.close()
-
-        conn = _entities_conn(db_path)
-        try:
-            result = check_referential_integrity(conn)
-            warnings = [i for i in result.issues if i.severity == "warning"]
-            orphan_deps = [w for w in warnings if "nonexistent-uuid" in w.message]
-            assert len(orphan_deps) >= 1
-        finally:
-            conn.close()
-
-
 class TestCheck9DeepChainNoFalsePositive:
     """Check 9: valid deep chain does not produce false positive."""
 
@@ -1836,27 +1045,31 @@ class TestCheck10MissingConfigFileUsesDefaults:
 # Task 5.1: Orchestrator Tests
 # ===========================================================================
 
+# Feature 131 removed check_project_attribution: 21 checks -> 20. Feature 129
+# removed check_cross_workspace_parent_uuid: 20 checks -> 19. Single source
+# for the orchestrator/CLI check-count assertions below.
+EXPECTED_CHECK_COUNT = 10
 
-class TestOrchestratorReportHas14Checks:
-    """Orchestrator: report always has 16 checks (14 pre-109 + the
-    feature-109 ``check_status_write_path`` added by Group 10 + the
-    feature-111 ``check_no_free_text_status_parsers`` added by Group E).
+
+class TestOrchestratorReportHas10Checks:
+    """Orchestrator: report always has 10 checks (feature 133's
+    post-retirement CHECK_ORDER membership; see EXPECTED_CHECK_COUNT).
     """
 
-    def test_report_has_14_checks(self, tmp_path):
+    def test_report_has_10_checks(self, tmp_path):
         from doctor import run_diagnostics
 
         db_path = _make_db(tmp_path)
         (tmp_path / "docs").mkdir(exist_ok=True)
 
         report = run_diagnostics(db_path, str(tmp_path / "docs"), str(tmp_path))
-        assert len(report.checks) == 21  # was 22 pre-memory-extraction (check_memory_health removed)
+        assert len(report.checks) == EXPECTED_CHECK_COUNT
 
 
 class TestOrchestratorReportEvenWhenLocked:
-    """Orchestrator: 16 checks even when DB is locked."""
+    """Orchestrator: 10 checks even when DB is locked."""
 
-    def test_report_14_checks_even_when_locked(self, tmp_path):
+    def test_report_10_checks_even_when_locked(self, tmp_path):
         from doctor import run_diagnostics
 
         db_path = _make_db(tmp_path)
@@ -1867,27 +1080,140 @@ class TestOrchestratorReportEvenWhenLocked:
         blocker.execute("BEGIN IMMEDIATE")
         try:
             report = run_diagnostics(db_path, str(tmp_path / "docs"), str(tmp_path))
-            assert len(report.checks) == 21  # was 22 pre-memory-extraction (check_memory_health removed)
+            assert len(report.checks) == EXPECTED_CHECK_COUNT
         finally:
             blocker.rollback()
             blocker.close()
 
 
 class TestOrchestratorHealthyProject:
-    """Orchestrator: healthy project reports all pass."""
+    """Orchestrator: a hermetically healthy project reports 0 errors and 0
+    warnings (spec SC1), proven non-vacuous by a fault-control companion
+    that seeds a live referential-integrity violation on the SAME fixture
+    and confirms the retained check_referential_integrity still fires.
+    """
 
-    def test_healthy_project_all_pass(self, tmp_path):
+    def _seed_healthy_fixture(self, tmp_path, monkeypatch):
+        """Seed every survivor check's non-DB prerequisite (spec SC1)."""
+        from doctor.checks import _get_expected_entity_version
+
+        db_path = _make_db(tmp_path, "entities.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "UPDATE _metadata SET value = ? WHERE key = 'schema_version'",
+            (str(_get_expected_entity_version()),),
+        )
+        conn.commit()
+        conn.close()
+
+        artifacts_root = tmp_path / "docs"
+        artifacts_root.mkdir(exist_ok=True)
+
+        commands_dir = tmp_path / ".claude" / "commands"
+        commands_dir.mkdir(parents=True, exist_ok=True)
+        (commands_dir / "security-review.md").write_text("# security review\n")
+
+        # check_no_free_text_status_parsers greps these 3 relative paths
+        # under project_root (unlike status_write_path/severity_vocab, which
+        # resolve via __file__ and are already hermetic) -- stub them clean
+        # so the check runs its real grep instead of warning "lint skipped".
+        for rel in (
+            "plugins/pd/hooks/lib/entity_registry/backfill.py",
+            "plugins/pd/hooks/lib/doctor/checks.py",
+            "plugins/pd/hooks/lib/reconciliation_orchestrator/entity_status.py",
+        ):
+            stub = tmp_path / rel
+            stub.parent.mkdir(parents=True, exist_ok=True)
+            stub.write_text("# stub for check_no_free_text_status_parsers\n")
+
+        # No .pd-worktrees/ directory -- check_stale_worktrees no-ops silently.
+        # Hermeticity (design-i2 W4): point the v2-cutover marker check at an
+        # empty tmp dir so it never reads the real ~/.claude/pd.
+        monkeypatch.setenv("PD_REBUILD_MARKER_DIR", str(tmp_path))
+
+        return db_path, str(artifacts_root)
+
+    def test_healthy_project_all_pass(self, tmp_path, monkeypatch):
         from doctor import run_diagnostics
 
-        db_path = _make_db(tmp_path)
-        (tmp_path / "docs").mkdir(exist_ok=True)
+        db_path, artifacts_root = self._seed_healthy_fixture(tmp_path, monkeypatch)
 
-        report = run_diagnostics(db_path, str(tmp_path / "docs"), str(tmp_path))
-        # All checks should pass (empty project)
-        failed = [c for c in report.checks if not c.passed]
-        # Note: check2 (workflow_phase) might fail if EntityDatabase migration fails
-        # In a clean test env with proper schema, it should pass or soft-fail
-        assert report.total_issues >= 0  # Sanity check
+        report = run_diagnostics(db_path, artifacts_root, str(tmp_path))
+
+        errors = [
+            (c.name, i.message) for c in report.checks for i in c.issues
+            if i.severity == "error"
+        ]
+        warnings = [
+            (c.name, i.message) for c in report.checks for i in c.issues
+            if i.severity == "warning"
+        ]
+        assert errors == []
+        assert warnings == []
+        # info issues are permitted (spec SC1)
+
+    def test_referential_integrity_fault_control_still_fires(self, tmp_path, monkeypatch):
+        """Non-vacuity control: seeding a live violation on the same
+        hermetic fixture still surfaces it, proving the 0/0 result above
+        comes from retirement, not a broken runner."""
+        from doctor import run_diagnostics
+
+        db_path, artifacts_root = self._seed_healthy_fixture(tmp_path, monkeypatch)
+
+        uuid_val = "self-ref-uuid"
+        _register_entity_with_uuid(
+            db_path, "feature:001", "feature", "001",
+            uuid_val=uuid_val,
+            parent_type_id="feature:001", parent_uuid=uuid_val,
+        )
+
+        report = run_diagnostics(db_path, artifacts_root, str(tmp_path))
+
+        ref_check = next(
+            c for c in report.checks if c.name == "referential_integrity"
+        )
+        self_ref_errors = [
+            i for i in ref_check.issues
+            if i.severity == "error" and "own parent" in i.message
+        ]
+        assert len(self_ref_errors) >= 1
+        assert report.error_count >= 1
+
+    def test_config_validity_fault_control_still_fires(self, tmp_path, monkeypatch):
+        """Non-vacuity control #2: a DIFFERENT retained-check FAMILY (the
+        config surface, not an entity-DB query) also still fires on the
+        SAME hermetic fixture -- proving the SC1 zero isn't an artifact
+        specific to referential-integrity faults but generalizes across
+        check families.
+
+        missed_cascade would be a poor second control here: this
+        fixture's legacy v9 schema (``_make_db``) has no entity_relations
+        table at all, and check_missed_cascade silently swallows
+        sqlite3.Error, so it can't be faulted without first adding DDL
+        the healthy fixture deliberately doesn't have. config_validity's
+        artifacts_root-missing branch is a clean, single-surface fault
+        that doesn't perturb any other check's prerequisites.
+        """
+        from doctor import run_diagnostics
+        import shutil
+
+        db_path, artifacts_root = self._seed_healthy_fixture(tmp_path, monkeypatch)
+        shutil.rmtree(artifacts_root)
+
+        report = run_diagnostics(db_path, artifacts_root, str(tmp_path))
+
+        config_check = next(
+            c for c in report.checks if c.name == "config_validity"
+        )
+        missing_dir_errors = [
+            i for i in config_check.issues
+            if i.severity == "error" and "does not exist" in i.message
+        ]
+        assert len(missing_dir_errors) >= 1, (
+            f"expected an artifacts_root-missing error; got "
+            f"{config_check.issues}"
+        )
+        assert report.error_count >= 1
 
 
 class TestOrchestratorEntityDbLockSkips:
@@ -1903,11 +1229,10 @@ class TestOrchestratorEntityDbLockSkips:
         blocker.execute("BEGIN IMMEDIATE")
         try:
             report = run_diagnostics(db_path, str(tmp_path / "docs"), str(tmp_path))
-            # Entity-dependent checks should be skipped
+            # Entity-dependent checks should be skipped (post-133: only the
+            # two remaining _ENTITY_DB_CHECKS members).
             for check in report.checks:
-                if check.name in ("feature_status", "brainstorm_status",
-                                   "backlog_status", "branch_consistency",
-                                   "entity_orphans", "referential_integrity"):
+                if check.name in ("referential_integrity", "missed_cascade"):
                     skip_issues = [i for i in check.issues if "Skipped" in i.message]
                     assert len(skip_issues) >= 1, f"{check.name} should be skipped"
         finally:
@@ -1927,7 +1252,7 @@ class TestOrchestratorPerCheckExceptionIsolation:
         # The orchestrator wraps each check in try/except
         # Even if a check raises, we still get 10 results
         report = run_diagnostics(db_path, str(tmp_path / "docs"), str(tmp_path))
-        assert len(report.checks) == 21  # was 22 pre-memory-extraction (check_memory_health removed)
+        assert len(report.checks) == EXPECTED_CHECK_COUNT
 
 
 class TestOrchestratorMissingDbFile:
@@ -1941,7 +1266,7 @@ class TestOrchestratorMissingDbFile:
 
         report = run_diagnostics(db_path, str(tmp_path / "docs"), str(tmp_path))
         assert not os.path.exists(db_path)
-        assert len(report.checks) == 21  # was 22 pre-memory-extraction (check_memory_health removed)
+        assert len(report.checks) == EXPECTED_CHECK_COUNT
 
 
 class TestOrchestratorBaseBranchFromConfig:
@@ -1957,7 +1282,7 @@ class TestOrchestratorBaseBranchFromConfig:
         (config_dir / "pd.local.md").write_text("base_branch: develop\n")
 
         report = run_diagnostics(db_path, str(tmp_path / "docs"), str(tmp_path))
-        assert len(report.checks) == 21  # was 22 pre-memory-extraction (check_memory_health removed)
+        assert len(report.checks) == EXPECTED_CHECK_COUNT
 
 
 class TestOrchestratorBaseBranchDefaultMain:
@@ -1970,7 +1295,7 @@ class TestOrchestratorBaseBranchDefaultMain:
         (tmp_path / "docs").mkdir(exist_ok=True)
 
         report = run_diagnostics(db_path, str(tmp_path / "docs"), str(tmp_path))
-        assert len(report.checks) == 21  # was 22 pre-memory-extraction (check_memory_health removed)
+        assert len(report.checks) == EXPECTED_CHECK_COUNT
 
 
 class TestOrchestratorCheck8RunsFirst:
@@ -1999,7 +1324,7 @@ class TestOrchestratorEntityDbLocked:
         blocker1.execute("BEGIN IMMEDIATE")
         try:
             report = run_diagnostics(db_path, str(tmp_path / "docs"), str(tmp_path))
-            assert len(report.checks) == 21  # was 22 pre-memory-extraction (check_memory_health removed)
+            assert len(report.checks) == EXPECTED_CHECK_COUNT
             assert report.healthy is False
         finally:
             blocker1.rollback()
@@ -2016,7 +1341,7 @@ class TestOrchestratorFreshProjectEmpty:
         (tmp_path / "docs").mkdir(exist_ok=True)
 
         report = run_diagnostics(db_path, str(tmp_path / "docs"), str(tmp_path))
-        assert len(report.checks) == 21  # was 22 pre-memory-extraction (check_memory_health removed)
+        assert len(report.checks) == EXPECTED_CHECK_COUNT
         assert report.elapsed_ms >= 0
 
 
@@ -2031,7 +1356,7 @@ class TestOrchestratorWorksWithoutMcp:
 
         # No MCP servers running -- should still work
         report = run_diagnostics(db_path, str(tmp_path / "docs"), str(tmp_path))
-        assert len(report.checks) == 21  # was 22 pre-memory-extraction (check_memory_health removed)
+        assert len(report.checks) == EXPECTED_CHECK_COUNT
 
 
 class TestOrchestratorConnectionsClosedOnSuccess:
@@ -2044,7 +1369,7 @@ class TestOrchestratorConnectionsClosedOnSuccess:
         (tmp_path / "docs").mkdir(exist_ok=True)
 
         report = run_diagnostics(db_path, str(tmp_path / "docs"), str(tmp_path))
-        assert len(report.checks) == 21  # was 22 pre-memory-extraction (check_memory_health removed)
+        assert len(report.checks) == EXPECTED_CHECK_COUNT
 
         # Verify we can acquire write locks (connections were closed)
         conn = sqlite3.connect(db_path, timeout=1.0)
@@ -2089,13 +1414,12 @@ def _doctor_lib_path():
     )
 
 
-class TestCliJsonOutputHas14Checks:
-    """CLI: JSON output contains 16 checks (14 pre-109 + the feature-109
-    ``check_status_write_path`` added by Group 10 + the feature-111
-    ``check_no_free_text_status_parsers`` added by Group E).
+class TestCliJsonOutputHas10Checks:
+    """CLI: JSON output contains 10 checks (feature 133's post-retirement
+    CHECK_ORDER membership; see EXPECTED_CHECK_COUNT).
     """
 
-    def test_cli_json_output_has_14_checks(self, tmp_path):
+    def test_cli_json_output_has_10_checks(self, tmp_path):
         db_path = _make_db(tmp_path)
         (tmp_path / "docs").mkdir(exist_ok=True)
 
@@ -2111,7 +1435,7 @@ class TestCliJsonOutputHas14Checks:
         data = json.loads(result.stdout)
         # Phase 2 wraps output: {"diagnostic": ...}
         diag = data.get("diagnostic", data)
-        assert len(diag["checks"]) == 21  # was 22 pre-memory-extraction (check_memory_health removed)
+        assert len(diag["checks"]) == EXPECTED_CHECK_COUNT
 
 
 class TestCliExitCodeAlwaysZero:
@@ -2181,7 +1505,7 @@ class TestCliArtifactsRootCliArgPrecedence:
         assert result.returncode == 0
         data = json.loads(result.stdout)
         diag = data.get("diagnostic", data)
-        assert len(diag["checks"]) == 21  # was 22 pre-memory-extraction (check_memory_health removed)
+        assert len(diag["checks"]) == EXPECTED_CHECK_COUNT
 
 
 class TestCliArtifactsRootConfigFallback:
@@ -2201,7 +1525,7 @@ class TestCliArtifactsRootConfigFallback:
         assert result.returncode == 0
         data = json.loads(result.stdout)
         diag = data.get("diagnostic", data)
-        assert len(diag["checks"]) == 21  # was 22 pre-memory-extraction (check_memory_health removed)
+        assert len(diag["checks"]) == EXPECTED_CHECK_COUNT
 
 
 class TestCliArtifactsRootDefaultDocs:
@@ -2220,7 +1544,7 @@ class TestCliArtifactsRootDefaultDocs:
         assert result.returncode == 0
         data = json.loads(result.stdout)
         diag = data.get("diagnostic", data)
-        assert len(diag["checks"]) == 21  # was 22 pre-memory-extraction (check_memory_health removed)
+        assert len(diag["checks"]) == EXPECTED_CHECK_COUNT
 
 
 class TestCliNoneSerializesAsJsonNull:
@@ -2381,93 +1705,207 @@ class TestLockHolderUnknownFallback:
 
 
 # ---------------------------------------------------------------------------
-# Check 11: Stale Dependencies
+# Check 11: Missed Cascade (feature 124 D6)
 # ---------------------------------------------------------------------------
 
 
-class TestCheck11StaleDependencyDetected:
-    """check_stale_dependencies detects edges to completed blockers."""
+class TestCheck11MissedCascadeDetected:
+    """check_missed_cascade flags a 'blocked' entity whose (single) blocker
+    is already resolved -- cascade_unblock should have flipped it."""
 
-    def test_stale_dependency_detected(self, tmp_path):
-        import uuid as uuid_mod
-        from doctor.checks import check_stale_dependencies
+    def test_missed_cascade_detected(self, tmp_path):
+        from doctor.checks import check_missed_cascade
 
-        db_path = _make_db(tmp_path)
-        uuid_blocked = str(uuid_mod.uuid4())
-        uuid_blocker = str(uuid_mod.uuid4())
+        db, conn = _make_live_db(tmp_path)
+        _register_live_feature(db, "blocker", status="completed")
+        blocker_uuid = _entity_uuid(conn, "feature:blocker")
+        _register_live_feature(db, "blocked", status="blocked")
+        blocked_uuid = _entity_uuid(conn, "feature:blocked")
+        db.add_dependency(blocked_uuid, blocker_uuid)
 
-        # Register blocker as completed
-        _register_entity_with_uuid(
-            db_path, "feature:blocker", "feature", "blocker",
-            uuid_val=uuid_blocker,
-        )
-        # Register blocked entity
-        _register_entity_with_uuid(
-            db_path, "feature:blocked", "feature", "blocked",
-            uuid_val=uuid_blocked,
-        )
-
-        # Set blocker to completed
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "UPDATE entities SET status = 'completed' WHERE uuid = ?",
-            (uuid_blocker,),
-        )
-        # Add stale dependency edge
-        conn.execute(
-            "INSERT INTO entity_dependencies (entity_uuid, blocked_by_uuid) VALUES (?, ?)",
-            (uuid_blocked, uuid_blocker),
-        )
-        conn.commit()
-        conn.close()
-
-        conn = _entities_conn(db_path)
         try:
-            result = check_stale_dependencies(entities_conn=conn)
-            assert result.name == "stale_dependencies"
+            result = check_missed_cascade(entities_conn=conn)
+            assert result.name == "missed_cascade"
             assert not result.passed
             assert len(result.issues) == 1
             issue = result.issues[0]
-            assert "Stale blocked_by edge" in issue.message
-            assert uuid_blocked in issue.message
-            assert uuid_blocker in issue.message
-            assert "Remove stale dependency" in issue.fix_hint
+            assert "Missed cascade" in issue.message
+            assert blocked_uuid in issue.message
+            assert blocker_uuid in issue.message
+            assert issue.fix_hint == "Run cascade evaluation"
         finally:
             conn.close()
 
 
 class TestCheck11CleanDependenciesPass:
-    """check_stale_dependencies passes when no stale edges exist."""
+    """check_missed_cascade passes when no missed-cascade edges exist."""
 
     def test_clean_dependencies_pass(self, tmp_path):
-        import uuid as uuid_mod
-        from doctor.checks import check_stale_dependencies
+        from doctor.checks import check_missed_cascade
 
-        db_path = _make_db(tmp_path)
-        uuid_a = str(uuid_mod.uuid4())
-        uuid_b = str(uuid_mod.uuid4())
+        db, conn = _make_live_db(tmp_path)
+        _register_live_feature(db, "a", status="active")
+        a_uuid = _entity_uuid(conn, "feature:a")
+        _register_live_feature(db, "b", status="blocked")
+        b_uuid = _entity_uuid(conn, "feature:b")
 
-        _register_entity_with_uuid(
-            db_path, "feature:a", "feature", "a", uuid_val=uuid_a,
-        )
-        _register_entity_with_uuid(
-            db_path, "feature:b", "feature", "b", uuid_val=uuid_b,
-        )
+        # Blocker NOT resolved (status=active) -- must not fire.
+        db.add_dependency(b_uuid, a_uuid)
 
-        # Add dependency where blocker is NOT completed (status=active)
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO entity_dependencies (entity_uuid, blocked_by_uuid) VALUES (?, ?)",
-            (uuid_a, uuid_b),
-        )
-        conn.commit()
-        conn.close()
-
-        conn = _entities_conn(db_path)
         try:
-            result = check_stale_dependencies(entities_conn=conn)
+            result = check_missed_cascade(entities_conn=conn)
             assert result.passed
             assert len(result.issues) == 0
+        finally:
+            conn.close()
+
+
+class TestCheck11MultiBlockerPartialNoFire:
+    """SC5: fires ONLY when EVERY blocker is resolved -- a blocked entity
+    with one resolved + one unresolved blocker must NOT fire (kills the
+    naive edge-to-completed-blocker false positive)."""
+
+    def test_multi_blocker_partial_completion_no_fire(self, tmp_path):
+        from doctor.checks import check_missed_cascade
+
+        db, conn = _make_live_db(tmp_path)
+        _register_live_feature(db, "resolved-blocker", status="completed")
+        resolved_uuid = _entity_uuid(conn, "feature:resolved-blocker")
+        _register_live_feature(db, "active-blocker", status="active")
+        active_uuid = _entity_uuid(conn, "feature:active-blocker")
+        _register_live_feature(db, "downstream", status="blocked")
+        downstream_uuid = _entity_uuid(conn, "feature:downstream")
+
+        db.add_dependency(downstream_uuid, resolved_uuid)
+        db.add_dependency(downstream_uuid, active_uuid)
+
+        try:
+            result = check_missed_cascade(entities_conn=conn)
+            assert result.passed
+            assert len(result.issues) == 0
+
+            # Resolve the remaining blocker via raw SQL, bypassing
+            # update_entity's OWN live cascade hook -- going through
+            # update_entity here would flip 'downstream' to 'ready'
+            # immediately (the feature working as intended), and it would
+            # never sit in 'blocked' for the doctor to catch. Raw SQL
+            # simulates the actual missed-cascade scenario this check
+            # exists for (e.g. a fail-open cascade failure or an external
+            # write) without exercising the live cascade path.
+            conn.execute(
+                "UPDATE entities SET status = 'completed' WHERE uuid = ?",
+                (active_uuid,),
+            )
+            conn.commit()
+            result2 = check_missed_cascade(entities_conn=conn)
+            assert not result2.passed
+            assert len(result2.issues) == 1
+            assert result2.issues[0].entity == "feature:downstream"
+        finally:
+            conn.close()
+
+
+class TestCheck11PerKindEquivalence:
+    """Feature 124 D6: SQL-vs-Python equivalence, one blocker per CASE arm.
+
+    Asserts the missed-cascade SQL's per-kind CASE agrees with
+    ``DependencyManager._all_blockers_resolved`` (D4) for one blocker of
+    every kind in the design-pinned terminal table.
+    """
+
+    @pytest.mark.parametrize(
+        "kind,resolved_status",
+        [
+            ("brainstorm", "abandoned"),
+            ("backlog", "dropped"),
+            ("task", "closed"),
+            ("bug", "resolved"),
+            ("feature", "completed"),
+        ],
+    )
+    def test_sql_matches_python_helper(self, tmp_path, kind, resolved_status):
+        from doctor.checks import check_missed_cascade
+        from entity_registry.dependencies import DependencyManager
+
+        db, conn = _make_live_db(tmp_path)
+        _register_live_feature(
+            db, "blocker-x", kind=kind, status=resolved_status,
+        )
+        blocker_uuid = _entity_uuid(conn, f"{kind}:blocker-x")
+        _register_live_feature(db, "downstream-x", status="blocked")
+        downstream_uuid = _entity_uuid(conn, "feature:downstream-x")
+        db.add_dependency(downstream_uuid, blocker_uuid)
+
+        try:
+            sql_flagged = {
+                i.entity for i in check_missed_cascade(entities_conn=conn).issues
+            }
+            python_resolved = DependencyManager()._all_blockers_resolved(
+                db, downstream_uuid
+            )
+            # Both sides must agree, and (since this arm's blocker is
+            # resolved) both must say "resolved" -- an arm silently
+            # defaulting to False on both sides would pass the equality
+            # check vacuously.
+            assert python_resolved is True
+            assert ("feature:downstream-x" in sql_flagged) == python_resolved
+        finally:
+            conn.close()
+
+
+class TestCheck11ZeroBlockerEdgeDivergence:
+    """Feature 124 D6 (checks.py's missed_cascade docstring, ~:1842-1846):
+    an entity that is 'blocked' but has ZERO recorded blocker edges is a
+    DIFFERENT anomaly class from a missed cascade -- the check's outer
+    EXISTS clause deliberately scopes it to "a cascade opportunity
+    existed and was missed". The Python helper
+    (``DependencyManager._all_blockers_resolved``), by contrast, treats a
+    zero-blocker entity as vacuously resolved (``all([]) is True`` --
+    load-bearing for the delete-hook's D5.3 empty-set case).
+
+    Both sides of this INTENTIONAL divergence are pinned here, in the
+    SAME test class, so a future change to either one is a deliberate
+    choice rather than an accidental drift caught only by a flaky
+    cross-file coincidence.
+    """
+
+    def test_python_helper_says_vacuously_resolved_with_zero_blockers(
+        self, tmp_path
+    ):
+        # Given a 'blocked' entity with NO blocker edges ever recorded.
+        from entity_registry.dependencies import DependencyManager
+
+        db, conn = _make_live_db(tmp_path)
+        _register_live_feature(db, "lone-blocked", status="blocked")
+        lone_uuid = _entity_uuid(conn, "feature:lone-blocked")
+
+        try:
+            # Then the Python helper is vacuously True (all([]) is True).
+            assert DependencyManager().get_blockers(db, lone_uuid) == []
+            assert (
+                DependencyManager()._all_blockers_resolved(db, lone_uuid)
+                is True
+            )
+        finally:
+            conn.close()
+
+    def test_doctor_check_does_not_fire_for_the_same_zero_blocker_entity(
+        self, tmp_path
+    ):
+        # Given the SAME construction: 'blocked' with zero blocker edges.
+        from doctor.checks import check_missed_cascade
+
+        db, conn = _make_live_db(tmp_path)
+        _register_live_feature(db, "lone-blocked-2", status="blocked")
+
+        try:
+            # When the doctor's missed_cascade check runs.
+            result = check_missed_cascade(entities_conn=conn)
+            # Then it does NOT fire -- the outer EXISTS(an edge) clause
+            # excludes it; this is a different anomaly class than a
+            # missed cascade, not a false negative.
+            assert result.passed
+            assert result.issues == []
         finally:
             conn.close()
 
@@ -2763,275 +2201,3 @@ class TestCheckStaleWorktreesMultipleOrphans:
         assert "task-b" in messages
 
 
-def _write_ws_json(proj_dir, ws_uuid, legacy=None):
-    """Write a workspace.json under <proj_dir>/.claude/pd/."""
-    d = os.path.join(proj_dir, ".claude", "pd")
-    os.makedirs(d, exist_ok=True)
-    payload = {"workspace_uuid": ws_uuid, "schema_version": 1}
-    if legacy is not None:
-        payload["project_id_legacy"] = legacy
-    with open(os.path.join(d, "workspace.json"), "w", encoding="utf-8") as fh:
-        json.dump(payload, fh)
-
-
-def _make_ws_db(tmp_path, name, rows=(), entities=0):
-    """v11 entities.db with a workspaces table (+ optional entity rows)."""
-    db_path = str(tmp_path / name)
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute(
-            "CREATE TABLE _metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
-        )
-        conn.execute(
-            "INSERT INTO _metadata VALUES ('schema_version', '11')"
-        )
-        conn.execute(
-            "CREATE TABLE workspaces ("
-            " uuid TEXT NOT NULL PRIMARY KEY,"
-            " project_id_legacy TEXT UNIQUE,"
-            " project_root TEXT,"
-            " created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"
-        )
-        conn.execute("CREATE TABLE entities (uuid TEXT PRIMARY KEY)")
-        for u, leg, root in rows:
-            conn.execute(
-                "INSERT INTO workspaces VALUES (?, ?, ?, 'n', 'n')",
-                (u, leg, root),
-            )
-        for i in range(entities):
-            conn.execute("INSERT INTO entities VALUES (?)", (f"e{i}",))
-        conn.commit()
-    finally:
-        conn.close()
-    return db_path
-
-
-class TestCheckWorkspaceUuidConsistency:
-    """First-ever coverage: the split-brain detector + fixable-hint choice."""
-
-    _A = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"
-    _B = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb"
-    _C = "cccccccc-3333-4333-8333-cccccccccccc"
-
-    def test_file_matches_db_passes(self, tmp_path):
-        from doctor.checks import check_workspace_uuid_consistency
-
-        proj = tmp_path / "proj"
-        proj.mkdir()
-        root = os.path.abspath(str(proj))
-        db = _make_ws_db(tmp_path, "e.db", rows=[(self._A, "leg", root)])
-        _write_ws_json(str(proj), self._A)
-        result = check_workspace_uuid_consistency(
-            entities_db_path=db, project_root=str(proj)
-        )
-        assert result.passed
-        assert result.issues == []
-
-    def test_orphan_single_root_row_emits_adopt_hint(self, tmp_path):
-        from doctor.checks import check_workspace_uuid_consistency
-
-        proj = tmp_path / "proj"
-        proj.mkdir()
-        root = os.path.abspath(str(proj))
-        db = _make_ws_db(tmp_path, "e.db", rows=[(self._B, "leg", root)])
-        _write_ws_json(str(proj), self._A)  # orphan A; root owned by B
-        result = check_workspace_uuid_consistency(
-            entities_db_path=db, project_root=str(proj)
-        )
-        assert not result.passed
-        assert result.issues[0].fix_hint.startswith(
-            "Adopt workspace UUID from DB row"
-        )
-
-    def test_orphan_no_root_row_emits_insert_hint(self, tmp_path):
-        from doctor.checks import check_workspace_uuid_consistency
-
-        proj = tmp_path / "proj"
-        proj.mkdir()
-        db = _make_ws_db(tmp_path, "e.db")  # empty workspaces
-        _write_ws_json(str(proj), self._A)
-        result = check_workspace_uuid_consistency(
-            entities_db_path=db, project_root=str(proj)
-        )
-        assert not result.passed
-        assert result.issues[0].fix_hint.startswith(
-            "Insert missing workspaces row"
-        )
-
-    def test_orphan_multi_root_row_manual_hint(self, tmp_path):
-        from doctor.checks import check_workspace_uuid_consistency
-
-        proj = tmp_path / "proj"
-        proj.mkdir()
-        root = os.path.abspath(str(proj))
-        db = _make_ws_db(
-            tmp_path, "e.db",
-            rows=[(self._B, "l1", root), (self._C, "l2", root)],
-        )
-        _write_ws_json(str(proj), self._A)
-        result = check_workspace_uuid_consistency(
-            entities_db_path=db, project_root=str(proj)
-        )
-        assert not result.passed
-        assert "Multiple workspaces rows" in result.issues[0].fix_hint
-
-    def test_file_missing_with_entities_errors(self, tmp_path):
-        from doctor.checks import check_workspace_uuid_consistency
-
-        proj = tmp_path / "proj"
-        proj.mkdir()
-        db = _make_ws_db(tmp_path, "e.db", entities=3)
-        result = check_workspace_uuid_consistency(
-            entities_db_path=db, project_root=str(proj)
-        )
-        assert not result.passed
-        assert any(i.severity == "error" for i in result.issues)
-
-    def test_file_missing_empty_db_warns(self, tmp_path):
-        from doctor.checks import check_workspace_uuid_consistency
-
-        proj = tmp_path / "proj"
-        proj.mkdir()
-        db = _make_ws_db(tmp_path, "e.db", entities=0)
-        result = check_workspace_uuid_consistency(
-            entities_db_path=db, project_root=str(proj)
-        )
-        # Fresh checkout: warning, not error → still "passed" (no errors).
-        assert result.passed
-        assert any(i.severity == "warning" for i in result.issues)
-
-    def test_legacy_mismatch_errors(self, tmp_path):
-        from doctor.checks import check_workspace_uuid_consistency
-
-        proj = tmp_path / "proj"
-        proj.mkdir()
-        root = os.path.abspath(str(proj))
-        # DB row for A carries legacy 'db-leg'; file claims 'file-leg'.
-        db = _make_ws_db(tmp_path, "e.db", rows=[(self._A, "db-leg", root)])
-        _write_ws_json(str(proj), self._A, legacy="file-leg")
-        result = check_workspace_uuid_consistency(
-            entities_db_path=db, project_root=str(proj)
-        )
-        assert not result.passed
-        assert any("project_id_legacy" in i.message for i in result.issues)
-
-    def test_malformed_file_uuid_no_root_row_manual_hint(self, tmp_path):
-        """Codex warning: a malformed (but parseable) file uuid + no root row
-        must NOT get the fixable Insert hint (it would write a bad row)."""
-        from doctor.checks import check_workspace_uuid_consistency
-
-        proj = tmp_path / "proj"
-        proj.mkdir()
-        db = _make_ws_db(tmp_path, "e.db")  # empty workspaces
-        _write_ws_json(str(proj), "not-a-uuid")
-        result = check_workspace_uuid_consistency(
-            entities_db_path=db, project_root=str(proj)
-        )
-        assert not result.passed
-        hint = result.issues[0].fix_hint
-        assert not hint.startswith("Insert missing workspaces row")
-        assert "malformed" in hint
-
-
-def _make_orphan_db(tmp_path, name, ws_rows=(), orphans=0):
-    """entities.db with a workspaces table + an entities table carrying a
-    ``workspace_uuid`` column, seeded with ``orphans`` rows in the unknown
-    bucket (so check_unknown_workspace_orphans can count them)."""
-    from entity_registry.database import _UNKNOWN_WORKSPACE_UUID
-
-    db_path = str(tmp_path / name)
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute(
-            "CREATE TABLE workspaces ("
-            " uuid TEXT NOT NULL PRIMARY KEY,"
-            " project_id_legacy TEXT UNIQUE,"
-            " project_root TEXT,"
-            " created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"
-        )
-        conn.execute(
-            "CREATE TABLE entities (uuid TEXT PRIMARY KEY, workspace_uuid TEXT)"
-        )
-        for u, leg, root in ws_rows:
-            conn.execute(
-                "INSERT INTO workspaces VALUES (?, ?, ?, 'n', 'n')",
-                (u, leg, root),
-            )
-        for i in range(orphans):
-            conn.execute(
-                "INSERT INTO entities VALUES (?, ?)",
-                (f"orphan{i}", _UNKNOWN_WORKSPACE_UUID),
-            )
-        conn.commit()
-    finally:
-        conn.close()
-    return db_path
-
-
-class TestCheckUnknownWorkspaceOrphans:
-    """Detect entities stranded in the unknown-workspace bucket + claim hint."""
-
-    _WS = "dddddddd-4444-4444-8444-dddddddddddd"
-
-    def test_orphans_single_workspace_emits_claim_hint(self, tmp_path):
-        from doctor.checks import check_unknown_workspace_orphans
-
-        proj = tmp_path / "proj"
-        proj.mkdir()
-        root = os.path.abspath(str(proj))
-        db = _make_orphan_db(
-            tmp_path, "e.db", ws_rows=[(self._WS, "leg", root)], orphans=3
-        )
-        result = check_unknown_workspace_orphans(
-            entities_db_path=db, project_root=str(proj)
-        )
-        # Warning (not error) → still "passed"; emits the fixable claim hint.
-        assert result.passed
-        assert len(result.issues) == 1
-        assert result.issues[0].severity == "warning"
-        assert result.issues[0].fix_hint.startswith(
-            "Claim unknown-workspace entities into"
-        )
-        assert self._WS in result.issues[0].fix_hint
-        assert "3 entities" in result.issues[0].message
-
-    def test_no_orphans_passes_clean(self, tmp_path):
-        from doctor.checks import check_unknown_workspace_orphans
-
-        proj = tmp_path / "proj"
-        proj.mkdir()
-        root = os.path.abspath(str(proj))
-        db = _make_orphan_db(
-            tmp_path, "e.db", ws_rows=[(self._WS, "leg", root)], orphans=0
-        )
-        result = check_unknown_workspace_orphans(
-            entities_db_path=db, project_root=str(proj)
-        )
-        assert result.passed
-        assert result.issues == []
-
-    def test_orphans_ambiguous_workspace_manual_hint(self, tmp_path):
-        from doctor.checks import check_unknown_workspace_orphans
-
-        proj = tmp_path / "proj"
-        proj.mkdir()
-        # No workspaces row for this project_root → cannot auto-claim.
-        db = _make_orphan_db(tmp_path, "e.db", ws_rows=(), orphans=2)
-        result = check_unknown_workspace_orphans(
-            entities_db_path=db, project_root=str(proj)
-        )
-        assert result.passed  # warning only
-        assert len(result.issues) == 1
-        assert not result.issues[0].fix_hint.startswith(
-            "Claim unknown-workspace entities into"
-        )
-
-    def test_missing_db_is_noop(self, tmp_path):
-        from doctor.checks import check_unknown_workspace_orphans
-
-        result = check_unknown_workspace_orphans(
-            entities_db_path=str(tmp_path / "nonexistent.db"),
-            project_root=str(tmp_path),
-        )
-        assert result.passed
-        assert result.issues == []

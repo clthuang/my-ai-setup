@@ -5,7 +5,6 @@ Covers:
 - Task complete_phase direct DB path + cascade
 - Cascade failure preserves completion (retryable)
 - UUID-to-type_id resolution and delegation
-- Degraded mode cascade skip
 - Rollup with no/mixed/abandoned children
 - Notification queue optional
 - Light feature integration
@@ -19,17 +18,38 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import tempfile
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from transition_gate import Severity
+
 from entity_registry.database import EntityDatabase
 from entity_registry.dependencies import DependencyManager
+from entity_registry import schema_v2
+# Test-deepening addition: imported at MODULE (collection) time -- see
+# test_database.py's identically-documented import of the same name for
+# the full rationale (registers "events"/"views"/"axes" into
+# schema_v2.DDL_REGISTRY BEFORE _reset_ddl_registry_for_v2_fixtures'
+# first snapshot below, so that fixture's restore never wipes them out).
+from entity_registry import rebuild_tool
 from workflow_engine.entity_engine import CompletionResult, EntityWorkflowEngine
-from workflow_engine.models import FeatureWorkflowState, TransitionResponse
+from workflow_engine.models import TransitionResponse, WorkflowDBUnavailableError
 from workflow_engine.notifications import Notification, NotificationQueue
 from workflow_engine.rollup import compute_progress
+
+
+@pytest.fixture(autouse=True)
+def _reset_ddl_registry_for_v2_fixtures():
+    """Snapshot/restore ``schema_v2.DDL_REGISTRY`` around every test in
+    this file -- see test_database.py's identically-documented fixture of
+    the same name for the full rationale (mirrors test_dependencies.py/
+    test_rebuild_tool.py's established idiom)."""
+    original_registry = list(schema_v2.DDL_REGISTRY)
+    yield
+    schema_v2.DDL_REGISTRY[:] = original_registry
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +245,11 @@ class TestCascadeFailure:
 
         engine = _make_engine(db, artifacts_root)
 
-        # Patch cascade to fail
+        # Patch cascade to fail. Patches the WHOLE method (still valid
+        # post-feature-132: Phase A's update_entity call already performed
+        # any cascade_unblock flip before Phase B's _run_cascade even runs,
+        # so failing this method's mocked stand-in only exercises the
+        # rollup_parent/notification failure path, not the flip itself).
         with patch.object(engine, "_run_cascade", side_effect=RuntimeError("cascade boom")):
             result = engine.complete_phase(uuid, "brainstorm")
 
@@ -239,7 +263,18 @@ class TestCascadeFailure:
         assert row["last_completed_phase"] == "brainstorm"
 
     def test_cascade_is_retryable_after_failure(self, tmp_path):
-        """After cascade failure, re-running cascade succeeds."""
+        """After a Phase-B failure, re-running _run_cascade doesn't raise.
+
+        Feature 132 D5/#080: since _run_cascade no longer owns a
+        cascade_unblock call (that flip is update_entity's alone, performed
+        during Phase A -- unaffected by this mocked Phase-B failure), this
+        "retry" only re-runs rollup_parent + notifications; it is no
+        longer a retry of the unblock flip. Kept as a smoke test that a
+        second `_run_cascade` call is safe to make (does not raise, still
+        returns the (list, float|None) shape), which is a real property
+        callers may depend on even though its cascade_unblock-retry
+        rationale no longer applies.
+        """
         db = _make_db()
         slug = "012-retry"
         artifacts_root = str(tmp_path)
@@ -255,9 +290,87 @@ class TestCascadeFailure:
             result1 = engine.complete_phase(uuid, "brainstorm")
         assert result1.cascade_error is not None
 
-        # Manual cascade retry should work
+        # Manual re-run of the (now cascade_unblock-free) Phase-B tail
+        # succeeds without raising.
         unblocked, progress = engine._run_cascade(uuid)
         assert isinstance(unblocked, list)
+
+
+# ---------------------------------------------------------------------------
+# Feature 128 (deepened): frozen-engine delegation inherits the raise
+# ---------------------------------------------------------------------------
+
+
+class TestFrozenEngineDelegationInheritsRaise:
+    """Feature 128 spec Scope / design D4 producer audit: for FEATURE
+    entities, EntityWorkflowEngine.complete_phase/transition_phase's Phase-A
+    call to the frozen engine sits OUTSIDE the Phase-B cascade try/except --
+    so post-128, WorkflowDBUnavailableError "inherits the raise for free"
+    with zero entity_engine.py code changes (design D4/D7: entity_engine.py
+    is touched only for the cascade-skip dedent, not this path). No
+    existing test drives a DB-down scenario THROUGH EntityWorkflowEngine:
+    the MCP-layer degraded tests (test_workflow_state_server.py) construct
+    a bare WorkflowStateEngine directly and never pass entity_engine=...,
+    bypassing this wrapper entirely. This closes that gap.
+
+    Anticipate: a future refactor that wraps Phase A in the same try/except
+    as Phase B (e.g. "simplifying" complete_phase to one try block around
+    the whole method) would silently swallow the raise into a
+    cascade_error string -- resurrecting the FR-10 violation one layer up,
+    above the frozen engine 128 just fixed. These tests would catch that.
+    """
+
+    def test_feature_complete_phase_through_entity_engine_propagates_db_unavailable(
+        self, tmp_path
+    ) -> None:
+        db = _make_db()
+        slug = "013-degraded-delegation"
+        artifacts_root = str(tmp_path)
+        _create_meta_json(
+            artifacts_root, slug, status="active",
+            last_completed_phase="brainstorm",
+        )
+
+        uuid = _register(db, "feature", slug, "Degraded Delegation Feature")
+        _with_phase(
+            db, f"feature:{slug}", "specify", mode="standard",
+            last_completed_phase="brainstorm",
+        )
+
+        engine = _make_engine(db, artifacts_root)
+        engine._frozen_engine._check_db_health = lambda: False  # type: ignore[assignment]
+
+        with pytest.raises(WorkflowDBUnavailableError):
+            engine.complete_phase(uuid, "specify")
+
+    def test_feature_transition_phase_through_entity_engine_propagates_db_unavailable(
+        self, tmp_path
+    ) -> None:
+        db = _make_db()
+        slug = "014-degraded-delegation-t"
+        artifacts_root = str(tmp_path)
+        _create_meta_json(
+            artifacts_root, slug, status="active",
+            last_completed_phase="brainstorm",
+        )
+
+        uuid = _register(
+            db, "feature", slug, "Degraded Delegation Transition Feature",
+        )
+        _with_phase(
+            db, f"feature:{slug}", "specify", mode="standard",
+            last_completed_phase="brainstorm",
+        )
+        feature_dir = os.path.join(artifacts_root, "features", slug)
+        os.makedirs(feature_dir, exist_ok=True)
+        with open(os.path.join(feature_dir, "spec.md"), "w") as f:
+            f.write("# Spec")
+
+        engine = _make_engine(db, artifacts_root)
+        engine._frozen_engine._check_db_health = lambda: False  # type: ignore[assignment]
+
+        with pytest.raises(WorkflowDBUnavailableError):
+            engine.transition_phase(uuid, "design")
 
 
 # ---------------------------------------------------------------------------
@@ -305,54 +418,6 @@ class TestUuidResolution:
 
         with pytest.raises(ValueError, match="Entity not found"):
             engine.complete_phase("nonexistent-uuid", "brainstorm")
-
-
-# ---------------------------------------------------------------------------
-# Test 5: Degraded mode → cascade skipped
-# ---------------------------------------------------------------------------
-
-
-class TestDegradedMode:
-    """When DB is unhealthy, frozen engine falls back to .meta.json,
-    cascade is skipped."""
-
-    def test_degraded_mode_skips_cascade(self, tmp_path):
-        db = _make_db()
-        slug = "015-degraded"
-        artifacts_root = str(tmp_path)
-        _create_meta_json(
-            artifacts_root, slug,
-            mode="standard",
-            last_completed_phase=None,
-        )
-
-        uuid = _register(db, "feature", slug, "Degraded Feature")
-        _with_phase(db, f"feature:{slug}", "brainstorm", mode="standard")
-
-        engine = _make_engine(db, artifacts_root)
-
-        # Simulate DB becoming unhealthy after entity lookup but during
-        # frozen engine's complete_phase by patching the health check
-        original_complete = engine._frozen_engine.complete_phase
-
-        def degraded_complete(type_id, phase, **kwargs):
-            """Simulate frozen engine returning meta_json_fallback state."""
-            return FeatureWorkflowState(
-                feature_type_id=type_id,
-                current_phase="specify",
-                last_completed_phase="brainstorm",
-                completed_phases=("brainstorm",),
-                mode="standard",
-                source="meta_json_fallback",
-            )
-
-        with patch.object(
-            engine._frozen_engine, "complete_phase", side_effect=degraded_complete
-        ):
-            result = engine.complete_phase(uuid, "brainstorm")
-
-        assert result.cascade_error == "cascade skipped: degraded mode"
-        assert result.unblocked_uuids == []
 
 
 # ---------------------------------------------------------------------------
@@ -643,7 +708,6 @@ class TestTransitionPhase:
         engine = _make_engine(db, str(tmp_path))
         response = engine.transition_phase(task_uuid, "deliver")
 
-        assert not response.degraded
         assert any(r.allowed for r in response.results)
 
 
@@ -651,6 +715,21 @@ class TestCascadeUnblock:
     """Integration: complete blocker → dependent unblocked."""
 
     def test_complete_blocker_unblocks_dependent(self, tmp_path):
+        """Integration: completing a blocker's terminal phase flips its
+        dependent (feature 124).
+
+        Note on `result.unblocked_uuids`: completing a FEATURE's terminal
+        phase ('finish') syncs entities.status='completed' as part of
+        Phase A (FeatureBackend) via update_entity, which owns the flip's
+        SOLE cascade_unblock call (feature 132 D5/#080: Phase B's
+        `_run_cascade` used to ALSO call cascade_unblock -- a pre-existing
+        double-fire, masked by the OLD tombstone semantics' idempotence --
+        that second call is now DELETED, so the flip is single-fire by
+        construction, not merely idempotent-if-repeated). This test still
+        asserts the OBSERVABLE OUTCOME (final status + surviving edge +
+        recorded event) rather than internal attribution, since that
+        remains the right level of assertion for an integration test.
+        """
         db = _make_db()
         slug = "030-blocker"
         artifacts_root = str(tmp_path)
@@ -659,7 +738,15 @@ class TestCascadeUnblock:
         blocker_uuid = _register(
             db, "feature", slug, "Blocker Feature"
         )
-        _with_phase(db, f"feature:{slug}", "brainstorm", mode="standard")
+        # Feature 124: the blocker must reach its OWN kind's resolved
+        # status ('completed' for features) for its dependent to flip --
+        # completing a non-terminal phase (e.g. 'brainstorm') no longer
+        # suffices (D4). 'finish' is FEATURE_7_PHASE's terminal phase,
+        # whose completion syncs entities.status='completed'.
+        _with_phase(
+            db, f"feature:{slug}", "finish", mode="standard",
+            last_completed_phase="implement",
+        )
 
         dependent_uuid = _register(
             db, "feature", "031-dep", "Dependent",
@@ -674,18 +761,83 @@ class TestCascadeUnblock:
         assert len(blockers) == 1
 
         engine = _make_engine(db, artifacts_root)
-        result = engine.complete_phase(blocker_uuid, "brainstorm")
+        result = engine.complete_phase(blocker_uuid, "finish")
+        assert result.cascade_error is None
+        # unblocked_uuids is [] by construction post-132 (see docstring):
+        # update_entity performed the flip during Phase A; Phase B's
+        # _run_cascade no longer attempts cascade_unblock at all, so its
+        # contribution to this return value is always empty -- NOT a
+        # feature-124 regression, documented so a future reader doesn't
+        # mistake this for a broken return value.
+        assert result.unblocked_uuids == []
 
-        # Dependent should be unblocked
-        assert dependent_uuid in result.unblocked_uuids
-
-        # Verify dependency removed
+        # Feature 124 FR124-4c: edge SURVIVES (no longer removed)
         blockers_after = dep_mgr.get_blockers(db, dependent_uuid)
-        assert len(blockers_after) == 0
+        assert len(blockers_after) == 1
 
-        # Status should change from blocked to planned
+        # Feature 124 FR124-4a: status should change from blocked to ready
         entity = db.get_entity_by_uuid(dependent_uuid)
-        assert entity["status"] == "planned"
+        assert entity["status"] == "ready"
+
+        # Feature 124 FR124-4d: the flip is recorded as a cascade_ready event
+        events = db.query_phase_events(
+            type_id=entity["type_id"], event_type="cascade_ready",
+        )
+        assert len(events) == 1
+
+    def test_5d_kind_terminal_completion_single_fire_observable_outcome(
+        self, tmp_path
+    ):
+        """Same single-fire cascade contract as
+        ``test_complete_blocker_unblocks_dependent`` above, pinned for the
+        5D path: ``_fived_complete`` calls ``update_entity`` directly on
+        reaching its terminal phase, and update_entity's cascade_unblock
+        call is the flip's ONLY site (feature 132 D5/#080 -- Phase B's
+        `_run_cascade` no longer attempts its own). Uses 'initiative' as a
+        representative 5D kind so a future refactor that decouples
+        FeatureBackend from FiveDBackend can't silently change this
+        contract for one path without the other failing loudly. (Renamed
+        from ..._same_double_fire_observable_outcome: the double-fire this
+        name described was deleted by feature 132's #080 fix.)"""
+        db = _make_db()
+        blocker_uuid = _register(
+            db, "initiative", "i103-blocker", "Blocker Initiative"
+        )
+        _with_phase(
+            db, "initiative:i103-blocker", "discover", mode="standard"
+        )
+
+        dependent_uuid = _register(
+            db, "feature", "032-5d-dep", "5D Dependent", status="blocked",
+        )
+        dep_mgr = DependencyManager()
+        dep_mgr.add_dependency(db, dependent_uuid, blocker_uuid)
+
+        engine = _make_engine(db, str(tmp_path))
+        phases = ["discover", "define", "design", "deliver", "debrief"]
+        result = None
+        for phase in phases:
+            result = engine.complete_phase(blocker_uuid, phase)
+        assert result.cascade_error is None
+
+        # Observable outcome: the flip DID happen (correct, load-bearing).
+        entity = db.get_entity_by_uuid(dependent_uuid)
+        assert entity["status"] == "ready"
+        assert len(dep_mgr.get_blockers(db, dependent_uuid)) == 1  # survives
+
+        # unblocked_uuids is [] by construction (same class as the
+        # feature-kind test above): Phase A's update_entity call performs
+        # the real flip; Phase B's _run_cascade no longer attempts
+        # cascade_unblock at all post-132, so its contribution here is
+        # always empty -- not an under-report of a missed flip.
+        assert result.unblocked_uuids == []
+
+        # And the flip is recorded exactly once -- single-fire by
+        # construction now, not merely idempotent-if-repeated.
+        events = db.query_phase_events(
+            type_id=entity["type_id"], event_type="cascade_ready",
+        )
+        assert len(events) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -708,7 +860,6 @@ class TestFiveDProjectTransition:
         phases = ["discover", "define", "design", "deliver", "debrief"]
         for i, phase in enumerate(phases[:-1]):
             response = engine.transition_phase(proj_uuid, phases[i + 1])
-            assert not response.degraded
             assert any(r.allowed for r in response.results), (
                 f"Transition to {phases[i + 1]} should be allowed"
             )
@@ -772,7 +923,6 @@ class TestFiveDOutOfSequence:
         engine = _make_engine(db, str(tmp_path))
         response = engine.transition_phase(proj_uuid, "deliver")
 
-        assert not response.degraded
         assert any(
             not r.allowed and "skip" in r.reason.lower()
             for r in response.results
@@ -1062,6 +1212,74 @@ class TestDeliverGateBlockerDetails:
         with pytest.raises(ValueError, match="project:p040-b1"):
             engine.transition_phase(blocked_uuid, "deliver")
 
+    def test_surviving_edge_to_completed_blocker_does_not_block_deliver(
+        self, tmp_path
+    ):
+        """Feature 124 D4/D8 red-first: an entity with a SURVIVING edge to
+        an ALREADY-COMPLETED blocker (edges no longer get removed on
+        completion, FR124-4c) transitions to its deliver phase WITHOUT
+        raising -- the gate must filter to unresolved blockers only, not
+        any-edge-exists."""
+        db = _make_db()
+        blocker_uuid = _register(
+            db, "project", "p043-resolved-blocker", "Resolved Blocker",
+            status="completed",
+        )
+        blocked_uuid = _register(
+            db, "project", "p044-survives", "Survives"
+        )
+        _with_phase(db, "project:p044-survives", "design", mode="standard")
+
+        dep_mgr = DependencyManager()
+        dep_mgr.add_dependency(db, blocked_uuid, blocker_uuid)
+        # Sanity: the edge exists and SURVIVES (no tombstoning on this
+        # direct add -- nothing has completed it via cascade here).
+        assert len(dep_mgr.get_blockers(db, blocked_uuid)) == 1
+
+        engine = _make_engine(db, str(tmp_path))
+        response = engine.transition_phase(blocked_uuid, "deliver")
+
+        assert any(r.allowed for r in response.results)
+        # The edge is still there post-transition (edges never removed by
+        # the gate check itself).
+        assert len(dep_mgr.get_blockers(db, blocked_uuid)) == 1
+
+    def test_mixed_resolved_and_unresolved_blockers_filters_message_and_still_blocks(
+        self, tmp_path
+    ):
+        """Two blockers: one ALREADY RESOLVED (edge survives per
+        FR124-4c) and one still unresolved. The gate must (a) still
+        raise -- one blocker remains unresolved -- and (b) list ONLY the
+        unresolved blocker in the error, proving the filter partitions
+        the blocker list rather than falling back to any-edge-exists
+        (which would wrongly include the resolved blocker too)."""
+        db = _make_db()
+        resolved_blocker_uuid = _register(
+            db, "project", "p045-resolved", "Resolved Blocker",
+            status="completed",
+        )
+        unresolved_blocker_uuid = _register(
+            db, "project", "p046-unresolved", "Unresolved Blocker",
+            status="active",
+        )
+        blocked_uuid = _register(
+            db, "project", "p047-mixed", "Mixed Blocked"
+        )
+        _with_phase(db, "project:p047-mixed", "design", mode="standard")
+
+        dep_mgr = DependencyManager()
+        dep_mgr.add_dependency(db, blocked_uuid, resolved_blocker_uuid)
+        dep_mgr.add_dependency(db, blocked_uuid, unresolved_blocker_uuid)
+
+        engine = _make_engine(db, str(tmp_path))
+
+        with pytest.raises(ValueError) as exc_info:
+            engine.transition_phase(blocked_uuid, "deliver")
+
+        message = str(exc_info.value)
+        assert "project:p046-unresolved" in message
+        assert "project:p045-resolved" not in message
+
     def test_complete_blocker_then_deliver_succeeds(self, tmp_path):
         """End-to-end: feature B blocked by A. Complete A → B can implement."""
         db = _make_db()
@@ -1073,7 +1291,13 @@ class TestDeliverGateBlockerDetails:
 
         a_uuid = _register(db, "feature", slug_a, "Feature A")
         b_uuid = _register(db, "feature", slug_b, "Feature B")
-        _with_phase(db, f"feature:{slug_a}", "brainstorm", mode="standard")
+        # Feature 124: A must reach its OWN resolved status ('completed')
+        # for B to flip (D4) -- 'finish' is FEATURE_7_PHASE's terminal
+        # phase, whose completion syncs entities.status='completed'.
+        _with_phase(
+            db, f"feature:{slug_a}", "finish", mode="standard",
+            last_completed_phase="implement",
+        )
         _with_phase(
             db, f"feature:{slug_b}", "create-plan", mode="standard",
             last_completed_phase="create-plan",
@@ -1084,12 +1308,14 @@ class TestDeliverGateBlockerDetails:
 
         engine = _make_engine(db, artifacts_root)
 
-        # B cannot implement while A is active
+        # B cannot implement while A is unresolved
         with pytest.raises(ValueError, match=f"feature:{slug_a}"):
             engine.transition_phase(b_uuid, "implement")
 
-        # Complete A's brainstorm → cascade_unblock removes the dep
-        engine.complete_phase(a_uuid, "brainstorm")
+        # Complete A's terminal phase → cascade_unblock flips B (edge
+        # SURVIVES per FR124-4c; the deliver-gate filters it out as
+        # resolved)
+        engine.complete_phase(a_uuid, "finish")
 
         # Now B can transition to implement
         response = engine.transition_phase(b_uuid, "implement")
@@ -1379,7 +1605,6 @@ class TestInitiativeFullLifecycle:
 
         for i in range(len(phases) - 1):
             response = engine.transition_phase(init_uuid, phases[i + 1])
-            assert not response.degraded
             assert any(r.allowed for r in response.results), (
                 f"Transition from {phases[i]} to {phases[i + 1]} should be allowed"
             )
@@ -1432,7 +1657,6 @@ class TestObjectiveFullLifecycle:
 
         for i in range(len(phases) - 1):
             response = engine.transition_phase(obj_uuid, phases[i + 1])
-            assert not response.degraded
             assert any(r.allowed for r in response.results)
 
     def test_objective_discover_phase_rejected(self, tmp_path):
@@ -1913,3 +2137,376 @@ class TestAnomalyPropagation:
         result = engine.complete_phase(task_uuid, "debrief")
         # Should complete without error — no parent to propagate to
         assert result.state is not None
+
+
+# ---------------------------------------------------------------------------
+# Feature 123 SC3 (red-first): both 5D tolerate shapes convert to fail-loud.
+# TODAY: _fived_transition returns TransitionResponse(degraded=True) on a DB
+# error; _fived_complete returns None + stderr. POST-D3: BOTH raise
+# WorkflowDBUnavailableError with pre-state intact (spec FR123-3 / H7).
+# ---------------------------------------------------------------------------
+
+
+class TestFiveDFailLoud:
+    """SC3: 5D DB-error tolerate shapes convert to fail-loud (design D3)."""
+
+    def test_fived_transition_db_error_raises_and_preserves_state(self, tmp_path):
+        db = _make_db()
+        proj_uuid = _register(db, "project", "096-failloud", "FailLoud")
+        _with_phase(db, "project:096-failloud", "discover", mode="standard")
+        engine = _make_engine(db, str(tmp_path))
+
+        row_before = db.get_workflow_phase("project:096-failloud")
+
+        def _boom(*args, **kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+        with patch.object(db, "update_workflow_phase", side_effect=_boom):
+            with pytest.raises(WorkflowDBUnavailableError):
+                engine.transition_phase(proj_uuid, "define")
+
+        row_after = db.get_workflow_phase("project:096-failloud")
+        assert row_after == row_before, (
+            "workflow_phases row must be unchanged after a fault-injected "
+            "DB error -- no partial write"
+        )
+
+    def test_fived_complete_db_error_raises_and_preserves_state(self, tmp_path):
+        db = _make_db()
+        proj_uuid = _register(db, "project", "097-failloud-c", "FailLoudC")
+        _with_phase(db, "project:097-failloud-c", "discover", mode="standard")
+        engine = _make_engine(db, str(tmp_path))
+
+        row_before = db.get_workflow_phase("project:097-failloud-c")
+
+        def _boom(*args, **kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+        with patch.object(db, "update_workflow_phase", side_effect=_boom):
+            with pytest.raises(WorkflowDBUnavailableError):
+                engine.complete_phase(proj_uuid, "discover")
+
+        row_after = db.get_workflow_phase("project:097-failloud-c")
+        assert row_after == row_before, (
+            "workflow_phases row must be unchanged after a fault-injected "
+            "DB error -- no partial write"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Feature 123 D7 (new, beyond red-first): H3's kind-collapse regression pin
+# -- an entity dict carrying only ``kind`` (no legacy ``entity_type`` alias)
+# must flow through both FiveDBackend methods without KeyError.
+# ---------------------------------------------------------------------------
+
+
+class TestKindKeyCollapse:
+    """H3 regression guard: FiveDBackend reads ``entity["kind"]`` only."""
+
+    def test_fived_transition_uses_kind_not_entity_type(self, tmp_path):
+        db = _make_db()
+        proj_uuid = _register(db, "project", "098-kindonly", "KindOnly")
+        _with_phase(db, "project:098-kindonly", "discover", mode="standard")
+        engine = _make_engine(db, str(tmp_path))
+
+        entity = db.get_entity_by_uuid(proj_uuid)
+        del entity["entity_type"]
+
+        response = engine._fived_transition(entity, "define")
+        assert response.results[0].allowed
+
+    def test_fived_complete_uses_kind_not_entity_type(self, tmp_path):
+        db = _make_db()
+        proj_uuid = _register(db, "project", "099-kindonly-c", "KindOnlyC")
+        _with_phase(db, "project:099-kindonly-c", "discover", mode="standard")
+        engine = _make_engine(db, str(tmp_path))
+
+        entity = db.get_entity_by_uuid(proj_uuid)
+        del entity["entity_type"]
+
+        state = engine._fived_complete(entity, "discover")
+        assert state is not None
+        assert state.last_completed_phase == "discover"
+
+
+# ---------------------------------------------------------------------------
+# Feature 123 Risk mitigation: double-evaluation regression guard (B2's
+# class). _fived_transition must call get_template exactly once per
+# transition (via the machine's validate()), never twice (template guard +
+# ordering, as the deleted hand-rolled block did).
+# ---------------------------------------------------------------------------
+
+
+class TestFivedTransitionSingleTemplateEvaluation:
+    def test_fived_transition_calls_get_template_exactly_once(
+        self, tmp_path, monkeypatch
+    ):
+        import workflow_engine.router as router_mod
+
+        db = _make_db()
+        proj_uuid = _register(db, "project", "100-spy", "Spy")
+        _with_phase(db, "project:100-spy", "discover", mode="standard")
+        engine = _make_engine(db, str(tmp_path))
+
+        calls = []
+        original = router_mod.get_template
+
+        def _spy(*args, **kwargs):
+            calls.append((args, kwargs))
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(router_mod, "get_template", _spy)
+
+        entity = db.get_entity_by_uuid(proj_uuid)
+        engine._fived_transition(entity, "define")
+
+        assert len(calls) == 1, (
+            f"expected exactly 1 get_template call from FiveDMachine.phases(), "
+            f"got {len(calls)}: {calls!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Feature 123 D3 (deepened): the backward-transition write-path fix. TODAY
+# (pre-123, confirmed via the c44ea200->d34e855b diff) the hand-rolled
+# block returned EARLY on a G-18 backward-warn, WITHOUT ever calling
+# update_workflow_phase. POST-123, _fived_transition computes the decision
+# FIRST and writes whenever decision.allowed -- which is True for backward
+# (G-18) too -- so backward transitions now WRITE. Parity note: this
+# matches the frozen engine's OWN transition_phase (engine.py:100-105),
+# which also unconditionally writes workflow_phase only (never
+# last_completed_phase) regardless of forward/backward/same-phase --
+# last_completed_phase is a complete_phase-only concept for BOTH backends.
+# dimension:mutation_mindset.
+# ---------------------------------------------------------------------------
+
+
+class TestFiveDTransitionWritePathByDecisionKind:
+    """D3: _fived_transition's write fires for EVERY allowed decision kind
+    (same-phase, backward-warn), pinned with an EXACT captured-kwargs
+    assertion -- proves both that the write happens (a spy call was made)
+    and that ONLY workflow_phase is passed (never last_completed_phase).
+
+    derived_from: design:D3 (backward-now-writes fix), dimension:mutation_mindset
+
+    Anticipate: a regression that reverted to the old early-return-on-
+    backward shape would leave the workflow_phases row unchanged after a
+    backward call -- undetectable by decision-only assertions (allowed/
+    guard_id), which is all the existing TestFiveDGraphDiff cross-product
+    checks (it validates the MACHINE's decision, never the BACKEND's write).
+    """
+
+    @staticmethod
+    def _spy_update_workflow_phase(db):
+        """Wrap db.update_workflow_phase, capturing kwargs while still
+        delegating to the real implementation (so DB state stays truthful
+        for the post-call row assertions)."""
+        captured: list[dict] = []
+        real = db.update_workflow_phase
+
+        def _spy(type_id, **kwargs):
+            captured.append({"type_id": type_id, **kwargs})
+            return real(type_id, **kwargs)
+
+        db.update_workflow_phase = _spy
+        return captured, real
+
+    def test_backward_transition_writes_workflow_phase_row(self, tmp_path):
+        # Given a task (standard: define->deliver->debrief) at 'debrief'
+        # with last_completed_phase='deliver'
+        db = _make_db()
+        proj_uuid = _register(db, "task", "101-backward", "Backward")
+        type_id = "task:101-backward"
+        _with_phase(
+            db, type_id, "debrief", mode="standard",
+            last_completed_phase="deliver",
+        )
+        engine = _make_engine(db, str(tmp_path))
+        captured, real = self._spy_update_workflow_phase(db)
+
+        # When it transitions BACKWARD to 'define'
+        try:
+            response = engine.transition_phase(proj_uuid, "define")
+        finally:
+            db.update_workflow_phase = real
+
+        # Then the decision is allowed-with-warn (G-18)
+        result = response.results[0]
+        assert result.allowed is True
+        assert result.guard_id == "G-18"
+        assert result.severity == Severity.warn
+
+        # And the write ACTUALLY happened (captured exactly once, with
+        # ONLY workflow_phase -- the NEW post-123 behavior; the OLD code
+        # never reached this call on a backward decision)
+        assert captured == [
+            {"type_id": type_id, "workflow_phase": "define"}
+        ], captured
+
+        row = db.get_workflow_phase(type_id)
+        assert row["workflow_phase"] == "define", (
+            "a backward 5D transition must WRITE the new (earlier) phase"
+        )
+        assert row["last_completed_phase"] == "deliver", (
+            "last_completed_phase is a complete_phase-only concept -- a "
+            "transition (forward, backward, or same-phase) must never "
+            "touch it, matching the frozen engine's own shape"
+        )
+
+    def test_same_phase_transition_writes_workflow_phase_row(self, tmp_path):
+        # Given a task at 'deliver' with last_completed_phase='define'
+        db = _make_db()
+        proj_uuid = _register(db, "task", "102-samephase", "SamePhase")
+        type_id = "task:102-samephase"
+        _with_phase(
+            db, type_id, "deliver", mode="standard",
+            last_completed_phase="define",
+        )
+        engine = _make_engine(db, str(tmp_path))
+        captured, real = self._spy_update_workflow_phase(db)
+
+        # When it transitions to its OWN current phase (same-phase)
+        try:
+            response = engine.transition_phase(proj_uuid, "deliver")
+        finally:
+            db.update_workflow_phase = real
+
+        # Then the decision is allowed, info-severity, PHASE_SEQ guard
+        result = response.results[0]
+        assert result.allowed is True
+        assert result.guard_id == "PHASE_SEQ"
+        assert result.severity == Severity.info
+
+        # And exactly one write fires, with ONLY workflow_phase
+        assert captured == [
+            {"type_id": type_id, "workflow_phase": "deliver"}
+        ], captured
+
+        row = db.get_workflow_phase(type_id)
+        assert row["workflow_phase"] == "deliver"
+        assert row["last_completed_phase"] == "define", (
+            "same-phase transition must not touch last_completed_phase"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Feature 123 D3 (deepened): the models.py MESSAGE CONTRACT (no "locked"
+# substring) verified END-TO-END through the ACTUAL 5D fail-loud call
+# sites -- not just at the db_unavailable_error() builder level (already
+# covered generically in test_engine.py's builder-focused tests).
+# dimension:error_propagation.
+# ---------------------------------------------------------------------------
+
+
+class TestFiveDFailLoudMessageContract:
+    """FR123-3 / models.py MESSAGE CONTRACT: db_unavailable_error() never
+    string-embeds the cause, verified here through the real 5D call sites
+    -- a regression that reintroduced f"...{exc}" interpolation directly
+    inside entity_engine.py (bypassing the builder) would be caught here
+    even though the builder's own unit tests (test_engine.py) stay green.
+
+    derived_from: spec:FR123-3 (message contract), dimension:error_propagation
+
+    Challenge: TestFiveDFailLoud (above) asserts
+    pytest.raises(WorkflowDBUnavailableError) + row-unchanged, but never
+    inspects the raised message's CONTENT -- a mutant that embedded
+    str(cause) in the message would still pass every assertion there.
+    """
+
+    def test_fived_transition_error_excludes_locked_substring(self, tmp_path):
+        db = _make_db()
+        proj_uuid = _register(db, "project", "103-msgc-t", "MsgContractT")
+        _with_phase(db, "project:103-msgc-t", "discover", mode="standard")
+        engine = _make_engine(db, str(tmp_path))
+
+        def _boom(*args, **kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+        with patch.object(db, "update_workflow_phase", side_effect=_boom):
+            with pytest.raises(WorkflowDBUnavailableError) as excinfo:
+                engine.transition_phase(proj_uuid, "define")
+
+        assert "locked" not in str(excinfo.value).lower()
+        assert "OperationalError" in str(excinfo.value)
+
+    def test_fived_complete_error_excludes_locked_substring(self, tmp_path):
+        db = _make_db()
+        proj_uuid = _register(db, "project", "104-msgc-c", "MsgContractC")
+        _with_phase(db, "project:104-msgc-c", "discover", mode="standard")
+        engine = _make_engine(db, str(tmp_path))
+
+        def _boom(*args, **kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+        with patch.object(db, "update_workflow_phase", side_effect=_boom):
+            with pytest.raises(WorkflowDBUnavailableError) as excinfo:
+                engine.complete_phase(proj_uuid, "discover")
+
+        assert "locked" not in str(excinfo.value).lower()
+        assert "OperationalError" in str(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
+# Test-deepening addition (feature 132 D5/#080): cascade single-fire
+# dual-write, driven through the REAL engine.complete_phase() entrypoint
+# on a v2-generation file. dimension:state_transitions
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def v2_db(tmp_path):
+    """A v2-generation EntityDatabase (feature 132 D1's three build
+    steps, via rebuild_tool.build_staging_database) -- mirrors
+    test_database.py/test_dependencies.py's identically-named,
+    identically-built fixture."""
+    staging_path = str(tmp_path / "entities.db.v2-cascade-test")
+    rebuild_tool.build_staging_database(staging_path)
+    database = EntityDatabase(staging_path)
+    yield database
+    database.close()
+
+
+class TestCascadeSingleFireDualWriteIntegration:
+    """test_dependencies.py's TestFeature132CascadeFlipDualWrite proves
+    ``DependencyManager.cascade_unblock()`` ALONE emits exactly one
+    ``cascade_ready`` v2 event; TestCascadeUnblock above proves the
+    OBSERVABLE OUTCOME through the real ``engine.complete_phase()`` ->
+    ``_run_cascade()`` path, but only on a v1 (no events table) db.
+    Neither proves the two halves TOGETHER: that ``_run_cascade``'s
+    deleted call site plus Phase A's update_entity-owned
+    ``cascade_unblock`` call still produce exactly ONE v2 events row when
+    driven through the REAL engine entrypoint on a v2-generation file --
+    not a direct DependencyManager call in isolation.
+    """
+
+    def test_complete_phase_end_to_end_emits_exactly_one_cascade_ready_event(
+        self, v2_db, tmp_path,
+    ):
+        artifacts_root = str(tmp_path)
+        slug = "042-cascade-e2e"
+        _create_meta_json(artifacts_root, slug)
+
+        blocker_uuid = _register(v2_db, "feature", slug, "Cascade E2E Blocker")
+        _with_phase(
+            v2_db, f"feature:{slug}", "finish", mode="standard",
+            last_completed_phase="implement",
+        )
+        dependent_uuid = _register(
+            v2_db, "feature", "043-cascade-e2e-dep", "Dependent",
+            status="blocked",
+        )
+        DependencyManager().add_dependency(v2_db, dependent_uuid, blocker_uuid)
+
+        engine = _make_engine(v2_db, artifacts_root)
+        result = engine.complete_phase(blocker_uuid, "finish")
+        assert result.cascade_error is None
+
+        entity = v2_db.get_entity_by_uuid(dependent_uuid)
+        assert entity["status"] == "ready"
+
+        events = v2_db._conn.execute(
+            "SELECT * FROM events WHERE entity_uuid = ? "
+            "AND event_type = 'cascade_ready'",
+            (dependent_uuid,),
+        ).fetchall()
+        assert len(events) == 1

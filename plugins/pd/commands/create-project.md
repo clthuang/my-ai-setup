@@ -1,160 +1,24 @@
 ---
-description: Create a project and invoke decomposition
-argument-hint: --prd=<path>
+description: Create a project from a PRD and decompose it into features
+argument-hint: "--prd=<path>"
 ---
 
-# /pd:create-project Command
+# /pd:create-project
 
-## Config Variables
-Use these values from session context (injected at session start):
-- `{pd_artifacts_root}` — root directory for feature artifacts (default: `docs`)
+**Purpose:** turn a PRD into a project entity plus its planned feature entities.
 
-Create a project from a PRD and invoke AI-driven decomposition into features.
+**Inputs:** `--prd=<path>`, from `/pd:brainstorm` or standalone. Missing → ask for it.
 
-## Step 1: Accept PRD
+**Output:** `project:P{NNN}` entity, `{pd_artifacts_root}/projects/P{NNN}-{slug}/prd.md`, and the planned feature entities the decomposing skill registers.
 
-Receive `--prd={path}` argument (from brainstorming (PRD-ready) or standalone invocation).
+**Steps:**
+1. PRD must exist and exceed 100 bytes. Otherwise stop.
+2. Slug from the PRD's first heading — lowercase, non-alphanumerics to hyphens, 30 chars, no trailing hyphen.
+3. **Allocate atomically:** `allocate_entity_id(entity_type="project", name="{slug}")`. Build `P{NNN}` from the returned `seq` zero-padded to 3 digits and discard the response's `entity_id` field — projects use the `P{NNN}` shape. The `sequences` table is the only source of the next number: **never scan the filesystem for `P{NNN}-*` directories**, on any path.
+4. **Two hard stops, both creating nothing:** an allocation error envelope, or a `seq` at or below an existing `P{NNN}-*` directory number (drift → run `/pd:doctor`).
+5. **Entity rows before artifact files (feature 132).** Register the brainstorm — plus the backlog entity when the PRD carries a `*Source: Backlog #NNNNN*` marker — and `set_parent` to chain backlog → brainstorm. Then `register_entity(entity_type="project", entity_id="P{NNN}", name="{slug}", status="active", parent_uuid="{brainstorm uuid}")`. A registration error stops the run here, before any directory exists.
+6. Create `{pd_artifacts_root}/projects/P{NNN}-{slug}/`, then `init_project_state(project_dir=..., project_id="P{NNN}", slug="{slug}", features='[]', milestones='[]', brainstorm_source="{prd path}")` for the state and its `.meta.json` projection.
+7. Copy the PRD to `prd.md` there and verify it is non-empty. Failure → stop and name what exists, so a partial project is visible rather than silent.
+8. Continue inline into the decomposing skill with the project directory and PRD text. It owns feature allocation, ordering, registration, and `roadmap.md`.
 
-If no `--prd` argument: ask user for PRD path via AskUserQuestion.
-
-## Step 2: Validate PRD
-
-1. Check PRD file exists at path
-2. Check file is non-empty (> 100 bytes)
-3. If validation fails: show error, stop
-
-## Step 3: Derive Project ID
-
-1. Scan `{pd_artifacts_root}/projects/` for existing `P{NNN}-*` directories
-2. Extract highest NNN, increment by 1
-3. If no projects exist, start at P001
-4. Zero-pad to 3 digits
-
-## Step 4: Derive Slug
-
-1. Extract title from PRD first heading (e.g., `# PRD: Feature Name` → `feature-name`)
-2. Lowercase, replace spaces/special chars with hyphens, max 30 chars, trim trailing hyphens
-
-## Step 5: Create Project Directory
-
-1. Create `{pd_artifacts_root}/projects/` if it doesn't exist
-2. Create `{pd_artifacts_root}/projects/P{NNN}-{slug}/`
-
-## Step 7: Create Project State
-
-Call `init_project_state` MCP tool to create the project state and `.meta.json`:
-
-```
-init_project_state(
-  project_dir="{pd_artifacts_root}/projects/P{NNN}-{slug}",
-  project_id="P{NNN}",
-  slug="{slug}",
-  features='[]',
-  milestones='[]',
-  brainstorm_source="{prd-path}"
-)
-```
-
-The MCP tool creates the `.meta.json` with required fields: `id`, `slug`, `status`, `created` timestamp, `features`, `milestones`, and `brainstorm_source`.
-
-## Step 8: Copy PRD
-
-1. Copy PRD content to `{pd_artifacts_root}/projects/P{NNN}-{slug}/prd.md`
-2. Verify copy: confirm destination file exists and is non-empty
-3. If verification fails: show error, stop
-
-## Step 8b: Register Entities
-
-After the PRD is copied, register entities in the entity registry. All MCP calls are wrapped in failure handling: if any MCP call fails, warn `"Entity registration failed: {error}"` but do NOT block project creation. Continue with Step 9.
-
-### 1. Parse Brainstorm for Backlog Source
-
-Read the copied PRD content from `{pd_artifacts_root}/projects/P{NNN}-{slug}/prd.md`.
-
-Parse for backlog source marker using pattern `\*Source: Backlog #(\d{5})\*`.
-
-Extract the brainstorm filename stem from the `--prd` path (e.g., `20260227-054029-entity-lineage-tracking` from `{pd_artifacts_root}/brainstorms/20260227-054029-entity-lineage-tracking.prd.md`).
-
-### 2. Register Backlog Entity (if backlog marker found)
-
-If the backlog source pattern matched. The MCP entity_server translates
-`EntityExistsError` to a structured JSON error (`error_type=entity_exists`,
-with `recovery_hint`) per feature 109 design §3.5; if the backlog id is
-already registered, surface the error or fall back to `upsert_entity`:
-
-```
-register_entity(
-  entity_type="backlog",
-  entity_id="{5-digit backlog id}",
-  name="Backlog #{id}",
-  status="promoted"
-)
-```
-
-Set the brainstorm-to-backlog parent relationship:
-```
-set_parent(
-  type_id="brainstorm:{filename-stem}",
-  parent_ref="backlog:{5-digit backlog id}"
-)
-```
-
-### 3. Register Brainstorm Entity
-
-Extract the title from the PRD first heading (e.g., `# PRD: Feature Name` -> `Feature Name`).
-The MCP entity_server translates `EntityExistsError` to structured JSON
-(`error_type=entity_exists`) per feature 109 design §3.5; on conflict,
-surface the error or fall back to `upsert_entity`:
-
-```
-register_entity(
-  entity_type="brainstorm",
-  entity_id="{filename-stem}",
-  name="{title}",
-  artifact_path="{prd-path}"
-)
-```
-
-### 4. Register Project Entity
-
-First resolve the brainstorm parent: `get_entity(ref="brainstorm:{filename-stem}")` → capture `uuid` as `brainstorm_uuid`.
-Same MCP routing: `EntityExistsError` returns structured JSON per
-feature 109 design §3.5:
-
-```
-register_entity(
-  entity_type="project",
-  entity_id="P{NNN}",
-  name="{slug}",
-  artifact_path="{pd_artifacts_root}/projects/P{NNN}-{slug}/",
-  status="active",
-  parent_uuid="{brainstorm_uuid}"
-)
-```
-
-## Step 9: Output
-
-```
-Project P{NNN}-{slug} created
-  Directory: {pd_artifacts_root}/projects/P{NNN}-{slug}/
-  PRD: Copied
-
-Invoking decomposition...
-```
-
-## Step 10: Invoke Decomposition
-
-Invoke the decomposing skill as inline continuation (not subprocess). Pass context:
-- `project_dir`: `{pd_artifacts_root}/projects/P{NNN}-{slug}/`
-- `prd_content`: full PRD markdown text
-
-Follow the decomposing skill steps from this point forward.
-
-## Error Handling
-
-| Error | Action |
-|-------|--------|
-| PRD file not found | Show error with path, stop |
-| PRD file empty | Show error, stop |
-| PRD copy verification fails | Show error, stop |
-| `{pd_artifacts_root}/projects/` doesn't exist | Create it (Step 6) |
+**Constraints:** no `.meta.json` writes outside MCP tools; the entities are the record and `roadmap.md` is their projection.

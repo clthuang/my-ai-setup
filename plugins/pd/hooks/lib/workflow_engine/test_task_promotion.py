@@ -62,7 +62,7 @@ def _register_feature(
     return type_id, uuid
 
 
-SAMPLE_TASKS_MD = textwrap.dedent("""\
+SAMPLE_PLAN_MD = textwrap.dedent("""\
     # Tasks: Test Feature
 
     ## Phase 3: L4 Tasks as Work Items
@@ -88,12 +88,12 @@ SAMPLE_TASKS_MD = textwrap.dedent("""\
 """)
 
 
-def _write_tasks_md(tmp_path, content: str = SAMPLE_TASKS_MD, slug: str = "052-reactive-entity-consistency") -> str:
-    """Write tasks.md and return artifact_path."""
+def _write_plan_md(tmp_path, content: str = SAMPLE_PLAN_MD, slug: str = "052-reactive-entity-consistency") -> str:
+    """Write plan.md and return artifact_path (FR-11: tasks.md retired)."""
     feature_dir = tmp_path / "features" / slug
     feature_dir.mkdir(parents=True, exist_ok=True)
-    tasks_file = feature_dir / "tasks.md"
-    tasks_file.write_text(content)
+    plan_file = feature_dir / "plan.md"
+    plan_file.write_text(content)
     return str(feature_dir)
 
 
@@ -104,16 +104,16 @@ def _write_tasks_md(tmp_path, content: str = SAMPLE_TASKS_MD, slug: str = "052-r
 
 class TestParseTaskHeadings:
     def test_extracts_headings_from_sample(self, tmp_path):
-        artifact_path = _write_tasks_md(tmp_path)
-        headings = parse_task_headings(os.path.join(artifact_path, "tasks.md"))
+        artifact_path = _write_plan_md(tmp_path)
+        headings = parse_task_headings(os.path.join(artifact_path, "plan.md"))
         assert len(headings) == 3
         assert headings[0]["heading"] == "Task 3.1: Add structured log fields"
         assert headings[1]["heading"] == "Task 3.2: Implement retry middleware"
         assert headings[2]["heading"] == "Task 3.3: Add health check endpoint"
 
     def test_extracts_depends_on(self, tmp_path):
-        artifact_path = _write_tasks_md(tmp_path)
-        headings = parse_task_headings(os.path.join(artifact_path, "tasks.md"))
+        artifact_path = _write_plan_md(tmp_path)
+        headings = parse_task_headings(os.path.join(artifact_path, "plan.md"))
         assert headings[0]["depends_on"] == []
         assert headings[1]["depends_on"] == ["Task 3.1: Add structured log fields"]
         assert set(headings[2]["depends_on"]) == {
@@ -123,13 +123,13 @@ class TestParseTaskHeadings:
 
     def test_no_tasks_returns_empty(self, tmp_path):
         content = "# Tasks\n\nNo tasks here.\n"
-        artifact_path = _write_tasks_md(tmp_path, content=content)
-        headings = parse_task_headings(os.path.join(artifact_path, "tasks.md"))
+        artifact_path = _write_plan_md(tmp_path, content=content)
+        headings = parse_task_headings(os.path.join(artifact_path, "plan.md"))
         assert headings == []
 
     def test_file_not_found_raises(self):
         with pytest.raises(FileNotFoundError):
-            parse_task_headings("/nonexistent/tasks.md")
+            parse_task_headings("/nonexistent/plan.md")
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +141,7 @@ class TestPromoteTaskExactMatch:
     def test_promote_by_exact_heading(self, tmp_path):
         db = _make_db()
         type_id, feature_uuid = _register_feature(db)
-        artifact_path = _write_tasks_md(tmp_path)
+        artifact_path = _write_plan_md(tmp_path)
         # Update entity to have artifact_path
         db.update_entity(type_id, artifact_path=artifact_path)
 
@@ -161,7 +161,7 @@ class TestPromoteTaskExactMatch:
     def test_promote_creates_workflow_phase(self, tmp_path):
         db = _make_db()
         type_id, feature_uuid = _register_feature(db)
-        artifact_path = _write_tasks_md(tmp_path)
+        artifact_path = _write_plan_md(tmp_path)
         db.update_entity(type_id, artifact_path=artifact_path)
 
         result = promote_task(db, type_id, "Task 3.1: Add structured log fields")
@@ -174,7 +174,7 @@ class TestPromoteTaskExactMatch:
     def test_promote_sets_template_from_mode(self, tmp_path):
         db = _make_db()
         type_id, feature_uuid = _register_feature(db, mode="light")
-        artifact_path = _write_tasks_md(tmp_path)
+        artifact_path = _write_plan_md(tmp_path)
         db.update_entity(type_id, artifact_path=artifact_path)
 
         result = promote_task(db, type_id, "Task 3.1: Add structured log fields")
@@ -194,7 +194,7 @@ class TestPromoteTaskFuzzyMatch:
     def test_fuzzy_match_partial_heading(self, tmp_path):
         db = _make_db()
         type_id, feature_uuid = _register_feature(db)
-        artifact_path = _write_tasks_md(tmp_path)
+        artifact_path = _write_plan_md(tmp_path)
         db.update_entity(type_id, artifact_path=artifact_path)
 
         # Partial match — "Add structured log fields" should match
@@ -206,7 +206,7 @@ class TestPromoteTaskFuzzyMatch:
     def test_fuzzy_match_case_insensitive(self, tmp_path):
         db = _make_db()
         type_id, feature_uuid = _register_feature(db)
-        artifact_path = _write_tasks_md(tmp_path)
+        artifact_path = _write_plan_md(tmp_path)
         db.update_entity(type_id, artifact_path=artifact_path)
 
         result = promote_task(db, type_id, "add structured log fields")
@@ -215,7 +215,7 @@ class TestPromoteTaskFuzzyMatch:
     def test_ambiguous_heading_returns_candidates(self, tmp_path):
         db = _make_db()
         type_id, feature_uuid = _register_feature(db)
-        artifact_path = _write_tasks_md(tmp_path)
+        artifact_path = _write_plan_md(tmp_path)
         db.update_entity(type_id, artifact_path=artifact_path)
 
         # "Add" matches both "Add structured log fields" and "Add health check endpoint"
@@ -228,7 +228,7 @@ class TestPromoteTaskFuzzyMatch:
     def test_no_match_raises_not_found(self, tmp_path):
         db = _make_db()
         type_id, feature_uuid = _register_feature(db)
-        artifact_path = _write_tasks_md(tmp_path)
+        artifact_path = _write_plan_md(tmp_path)
         db.update_entity(type_id, artifact_path=artifact_path)
 
         with pytest.raises(TaskNotFoundError, match="No matching task"):
@@ -244,7 +244,7 @@ class TestPromoteTaskAlreadyPromoted:
     def test_already_promoted_raises_error(self, tmp_path):
         db = _make_db()
         type_id, feature_uuid = _register_feature(db)
-        artifact_path = _write_tasks_md(tmp_path)
+        artifact_path = _write_plan_md(tmp_path)
         db.update_entity(type_id, artifact_path=artifact_path)
 
         # First promotion succeeds
@@ -265,7 +265,7 @@ class TestPromoteTaskDependencies:
         db = _make_db()
         dep_mgr = DependencyManager()
         type_id, feature_uuid = _register_feature(db)
-        artifact_path = _write_tasks_md(tmp_path)
+        artifact_path = _write_plan_md(tmp_path)
         db.update_entity(type_id, artifact_path=artifact_path)
 
         # Promote task 3.1 first (no deps)
@@ -282,7 +282,7 @@ class TestPromoteTaskDependencies:
         db = _make_db()
         dep_mgr = DependencyManager()
         type_id, feature_uuid = _register_feature(db)
-        artifact_path = _write_tasks_md(tmp_path)
+        artifact_path = _write_plan_md(tmp_path)
         db.update_entity(type_id, artifact_path=artifact_path)
 
         # Promote task 3.2 without promoting 3.1 first
@@ -302,7 +302,7 @@ class TestPromoteTaskRefResolution:
     def test_feature_ref_resolves_via_type_id(self, tmp_path):
         db = _make_db()
         type_id, feature_uuid = _register_feature(db)
-        artifact_path = _write_tasks_md(tmp_path)
+        artifact_path = _write_plan_md(tmp_path)
         db.update_entity(type_id, artifact_path=artifact_path)
 
         result = promote_task(db, type_id, "Task 3.1: Add structured log fields")
@@ -320,14 +320,14 @@ class TestPromoteTaskRefResolution:
         with pytest.raises(ValueError, match="artifact_path"):
             promote_task(db, type_id, "anything")
 
-    def test_feature_without_tasks_md_raises(self, tmp_path):
+    def test_feature_without_plan_md_raises(self, tmp_path):
         db = _make_db()
         type_id, _ = _register_feature(db)
-        # Set artifact_path to a dir without tasks.md
+        # Set artifact_path to a dir without plan.md
         empty_dir = tmp_path / "features" / "empty"
         empty_dir.mkdir(parents=True)
         db.update_entity(type_id, artifact_path=str(empty_dir))
-        with pytest.raises(FileNotFoundError, match="tasks.md"):
+        with pytest.raises(FileNotFoundError, match="plan.md"):
             promote_task(db, type_id, "anything")
 
 
@@ -454,3 +454,224 @@ class TestQueryReadyTasks:
 
         result = query_ready_tasks(db)
         assert result == []
+
+    def test_ready_status_task_with_surviving_resolved_edge_is_returned(
+        self, tmp_path
+    ):
+        """Feature 124 D8 red-first: a cascade-flipped task (status='ready',
+        not 'planned') WITH a surviving edge to an ALREADY-RESOLVED blocker
+        (edges no longer get removed on completion, FR124-4c) IS returned --
+        the gate must widen status to (planned, ready) AND filter blockers
+        to unresolved-only, or the surviving edge would re-exclude it."""
+        from workflow_engine.task_promotion import query_ready_tasks
+
+        db = _make_db()
+        slug = "071-ready-widen"
+        type_id = f"feature:{slug}"
+        db.register_entity(
+            entity_type="feature", entity_id=slug,
+            name="Ready Widen Parent", status="active",
+            project_id="__unknown__",
+        )
+        db.create_workflow_phase(type_id, mode="standard", workflow_phase="implement")
+
+        blocker_uuid = db.register_entity(
+            entity_type="task", entity_id="005-blocker",
+            name="Resolved Blocker Task", status="completed",
+            parent_type_id=type_id,
+            project_id="__unknown__",
+        )
+        db.create_workflow_phase("task:005-blocker", mode="standard")
+
+        ready_task_uuid = db.register_entity(
+            entity_type="task", entity_id="006-ready",
+            name="Cascade-Flipped Task", status="ready",
+            parent_type_id=type_id,
+            project_id="__unknown__",
+        )
+        db.create_workflow_phase("task:006-ready", mode="standard")
+        dep_mgr = DependencyManager()
+        dep_mgr.add_dependency(db, ready_task_uuid, blocker_uuid)
+
+        result = query_ready_tasks(db)
+        uuids = {r["uuid"] for r in result}
+        assert ready_task_uuid in uuids
+
+    def test_ready_status_task_with_parent_not_implement_excluded(
+        self, tmp_path
+    ):
+        """The 2x2 cell the D8 status-widening must still exclude: a
+        cascade-flipped task (status='ready') whose PARENT is NOT in
+        'implement' phase must NOT be returned. Widening the status gate
+        to admit 'ready' must not accidentally bypass the independent
+        parent-phase gate -- the existing 'parent not implement' test
+        only ever used status='planned', and the existing 'ready' test
+        only ever used a parent already in 'implement'; this closes the
+        untested combination of the two."""
+        from workflow_engine.task_promotion import query_ready_tasks
+
+        db = _make_db()
+        slug = "072-ready-not-implement"
+        type_id = f"feature:{slug}"
+        db.register_entity(
+            entity_type="feature", entity_id=slug,
+            name="Ready But Not Implement Parent", status="active",
+            project_id="__unknown__",
+        )
+        db.create_workflow_phase(
+            type_id, mode="standard", workflow_phase="specify"
+        )
+
+        ready_task_uuid = db.register_entity(
+            entity_type="task", entity_id="007-ready-orphaned",
+            name="Ready Task, Wrong Parent Phase", status="ready",
+            parent_type_id=type_id,
+            project_id="__unknown__",
+        )
+        db.create_workflow_phase(
+            "task:007-ready-orphaned", mode="standard"
+        )
+
+        result = query_ready_tasks(db)
+        uuids = {r["uuid"] for r in result}
+        assert ready_task_uuid not in uuids
+
+
+class TestQueryReadyTasksWorkspaceScoping:
+    """Feature 129 Task 4 / design D5: workspace_uuid scoping on
+    query_ready_tasks's candidate query.
+
+    Design Testing Strategy #7 (lib layer): a scoped call returns only
+    the target workspace's ready tasks; unscoped (``None``, the default)
+    returns tasks from all workspaces; the per-task
+    query_dependencies/get_workflow_phase lookups stay unscoped -- a
+    cross-workspace blocker still blocks the scoped candidate.
+    """
+
+    def _seed_ready_task(self, db, ws_uuid, suffix):
+        """Register a feature (in implement phase) + one ready task.
+
+        Returns the task's uuid.
+        """
+        type_id = f"feature:040-feat-{suffix}"
+        feature_uuid = db.register_entity(
+            entity_type="feature", entity_id=f"040-feat-{suffix}",
+            name=f"Feature {suffix}", status="active", workspace_uuid=ws_uuid,
+        )
+        db.create_workflow_phase(type_id, mode="standard", workflow_phase="implement")
+        task_uuid = db.register_entity(
+            entity_type="task", entity_id=f"041-task-{suffix}",
+            name=f"Task {suffix}", status="planned",
+            parent_uuid=feature_uuid, workspace_uuid=ws_uuid,
+        )
+        db.create_workflow_phase(f"task:041-task-{suffix}", mode="standard")
+        return task_uuid
+
+    def test_scoped_excludes_other_workspace_tasks(self):
+        from entity_registry.test_helpers import bootstrap_test_workspace
+        from workflow_engine.task_promotion import query_ready_tasks
+
+        db = _make_db()
+        ws_a = bootstrap_test_workspace(db, "qrt-ws-a")
+        ws_b = bootstrap_test_workspace(db, "qrt-ws-b")
+        task_a = self._seed_ready_task(db, ws_a, "a")
+        self._seed_ready_task(db, ws_b, "b")
+
+        result = query_ready_tasks(db, workspace_uuid=ws_a)
+        uuids = {r["uuid"] for r in result}
+        assert uuids == {task_a}
+
+    def test_unscoped_returns_all_workspaces(self):
+        from entity_registry.test_helpers import bootstrap_test_workspace
+        from workflow_engine.task_promotion import query_ready_tasks
+
+        db = _make_db()
+        ws_a = bootstrap_test_workspace(db, "qrt-ws-a2")
+        ws_b = bootstrap_test_workspace(db, "qrt-ws-b2")
+        task_a = self._seed_ready_task(db, ws_a, "a2")
+        task_b = self._seed_ready_task(db, ws_b, "b2")
+
+        result = query_ready_tasks(db)
+        uuids = {r["uuid"] for r in result}
+        assert uuids == {task_a, task_b}
+
+    def test_cross_workspace_blocker_still_honored(self):
+        """Blocker in a different workspace still blocks the scoped
+        candidate (dependency edges are deliberately unscoped)."""
+        from entity_registry.test_helpers import bootstrap_test_workspace
+        from workflow_engine.task_promotion import query_ready_tasks
+
+        db = _make_db()
+        ws_a = bootstrap_test_workspace(db, "qrt-ws-block-a")
+        ws_b = bootstrap_test_workspace(db, "qrt-ws-block-b")
+        task_a = self._seed_ready_task(db, ws_a, "blocker-owner")
+        task_b_blocker = self._seed_ready_task(db, ws_b, "blocker")
+
+        dep_mgr = DependencyManager()
+        dep_mgr.add_dependency(db, task_a, task_b_blocker)
+
+        result = query_ready_tasks(db, workspace_uuid=ws_a)
+        uuids = {r["uuid"] for r in result}
+        assert task_a not in uuids, (
+            "Cross-workspace blocker must still be honored -- edges are "
+            "deliberately unscoped"
+        )
+
+    def test_cross_workspace_blocker_removed_task_becomes_ready(self):
+        """Once a cross-workspace blocker's dependency edge is removed,
+        the scoped candidate becomes ready again. Kills a mutation where
+        remove_dependency (or the ready-check) implicitly re-scopes to
+        the candidate's own workspace and silently no-ops on a
+        cross-workspace edge -- which would leave the task incorrectly
+        stuck 'blocked' forever after the blocker is actually resolved.
+        derived_from: dimension:adversarial (Follow the Data),
+                      design:D5 (edges deliberately unscoped)
+        """
+        from entity_registry.test_helpers import bootstrap_test_workspace
+        from workflow_engine.task_promotion import query_ready_tasks
+
+        db = _make_db()
+        ws_a = bootstrap_test_workspace(db, "qrt-ws-unblock-a")
+        ws_b = bootstrap_test_workspace(db, "qrt-ws-unblock-b")
+        task_a = self._seed_ready_task(db, ws_a, "unblock-owner")
+        task_b_blocker = self._seed_ready_task(db, ws_b, "unblock-blocker")
+
+        dep_mgr = DependencyManager()
+        dep_mgr.add_dependency(db, task_a, task_b_blocker)
+
+        # Sanity: blocked while the cross-workspace edge exists (mirrors
+        # test_cross_workspace_blocker_still_honored above).
+        blocked_result = query_ready_tasks(db, workspace_uuid=ws_a)
+        assert task_a not in {r["uuid"] for r in blocked_result}
+
+        dep_mgr.remove_dependency(db, task_a, task_b_blocker)
+
+        result = query_ready_tasks(db, workspace_uuid=ws_a)
+        assert task_a in {r["uuid"] for r in result}, (
+            "task_a must become ready once its cross-workspace blocker "
+            "edge is removed -- the removal must not be silently scoped "
+            "away"
+        )
+
+    def test_star_sentinel_treated_as_literal_uuid_at_lib_layer(self):
+        """The '*' cross-workspace opt-out is resolved to None at the
+        MCP boundary (_resolve_list_handler_workspace_filter, design D5)
+        BEFORE query_ready_tasks is ever called. This function itself
+        must treat '*' as an ordinary non-matching literal if a caller
+        bypasses the MCP layer -- kills a mutation that special-cases
+        '*' inside query_ready_tasks (a layering violation).
+        derived_from: spec:SC3 ('*' sentinel never reaches the lib
+                      layer), dimension:boundary_values
+        """
+        from entity_registry.test_helpers import bootstrap_test_workspace
+        from workflow_engine.task_promotion import query_ready_tasks
+
+        db = _make_db()
+        ws_a = bootstrap_test_workspace(db, "qrt-ws-star-a")
+        self._seed_ready_task(db, ws_a, "star-a")
+
+        result = query_ready_tasks(db, workspace_uuid="*")
+        assert result == [], (
+            f"'*' passed directly to the lib layer must match no real "
+            f"workspace, got {result!r}"
+        )

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sqlite3
 import sys
 
 import pytest
@@ -15,9 +16,10 @@ if _mcp_dir not in sys.path:
 
 import entity_server
 from entity_registry.database import EntityDatabase
+from entity_registry.test_helpers import bootstrap_test_workspace
 
 _UUID_V4_RE = re.compile(
-    r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[1-7][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 )
 
 
@@ -76,7 +78,6 @@ async def test_register_entity_handler_concise_message(db):
         entity_type="feature",
         entity_id="reg-test",
         name="Registration Test",
-        project_id="__unknown__",
     )
     assert isinstance(result, str)
     assert result == "Registered: feature:reg-test"
@@ -212,7 +213,6 @@ class TestMetadataDictCoercion:
             entity_server.register_entity(
                 entity_type="feature", entity_id="meta-dict-001",
                 name="Dict Test", metadata={"description": "test value"},
-                project_id="__unknown__",
             )
         )
         assert "Registered:" in result
@@ -228,7 +228,6 @@ class TestMetadataDictCoercion:
             entity_server.register_entity(
                 entity_type="feature", entity_id="meta-str-001",
                 name="String Test", metadata='{"key": "val"}',
-                project_id="__unknown__",
             )
         )
         assert "Registered:" in result
@@ -244,7 +243,6 @@ class TestMetadataDictCoercion:
             entity_server.register_entity(
                 entity_type="feature", entity_id="meta-none-001",
                 name="None Test", metadata=None,
-                project_id="__unknown__",
             )
         )
         assert "Registered:" in result
@@ -275,7 +273,6 @@ class TestMetadataDictCoercion:
             entity_server.register_entity(
                 entity_type="feature", entity_id="meta-bad-001",
                 name="Bad JSON Test", metadata="{bad json}",
-                project_id="__unknown__",
             )
         )
         # Should succeed (parse_metadata returns {"error": "..."} for invalid JSON)
@@ -616,3 +613,396 @@ class TestUpsertProjectMultiRowConflict:
         _seed_ws(db, "cccccccc-3333-4333-8333-cccccccccccc", "l2", "/root/dup2")
         with pytest.raises(ValueError, match="claimed by 2 workspace rows"):
             _upsert(db, "proj-dup2", "/root/dup2", workspace_uuid=None)
+
+
+# ---------------------------------------------------------------------------
+# Feature 121 D1/D2: allocate_entity_id MCP tool + register_entity
+# blank-name pre-check
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def ws_db(tmp_path, monkeypatch):
+    """DB + seeded workspace for allocate_entity_id tests.
+
+    The module-level ``db`` fixture (:24-30) injects ``_db`` but leaves
+    ``_workspace_uuid`` at its "" default — every ``allocate_entity_id``
+    call would then hit the ``workspace_unresolved`` early-return
+    (vacuous green). This fixture seeds a REAL ``workspaces`` row (the
+    ``sequences`` table FK requires it — database.py:2144) and
+    monkeypatches both ``entity_server._db`` and
+    ``entity_server._workspace_uuid`` so allocation tests exercise the
+    real guarded path.
+    """
+    database = EntityDatabase(str(tmp_path / "alloc.db"))
+    ws_uuid = bootstrap_test_workspace(database, "alloc-ws")
+    monkeypatch.setattr(entity_server, "_db", database)
+    monkeypatch.setattr(entity_server, "_workspace_uuid", ws_uuid)
+    yield database, ws_uuid
+    database.close()
+
+
+def _sequences_row(database, ws_uuid, entity_type):
+    """Return the ``sequences`` row for (ws_uuid, entity_type), or None."""
+    return database._conn.execute(
+        "SELECT next_val FROM sequences WHERE workspace_uuid = ? AND entity_type = ?",
+        (ws_uuid, entity_type),
+    ).fetchone()
+
+
+class TestAllocateEntityId:
+    """Feature 121 D1: allocate_entity_id atomic MCP tool.
+
+    derived_from: docs/features/121-atomic-display-id-allocation/design.md D1
+    """
+
+    @pytest.mark.asyncio
+    async def test_format(self, ws_db):
+        """First allocation in a fresh workspace returns seq=1 and the
+        {seq:03d}-{slug} entity_id format (matches generate_entity_id
+        byte-for-byte per D1)."""
+        result = await entity_server.allocate_entity_id(
+            entity_type="feature", name="Atomic Display Id Allocation"
+        )
+        parsed = json.loads(result)
+        assert parsed == {"seq": 1, "entity_id": "001-atomic-display-id-allocation"}
+
+    @pytest.mark.asyncio
+    async def test_same_workspace_two_connections_distinct(self, tmp_path, monkeypatch):
+        """Two independent EntityDatabase connections on the SAME db file
+        (NOT two threads through the shared _db global — BEGIN IMMEDIATE
+        can't nest on one connection) both allocate against one workspace.
+        Sequential calls must land 1, 2 — proving next_sequence_value's
+        state lives on disk, not cached per-connection. Simulates the
+        'Concurrent MCP servers' risk noted in design.md."""
+        db_path = str(tmp_path / "race.db")
+        db_a = EntityDatabase(db_path)
+        ws_uuid = bootstrap_test_workspace(db_a, "race-ws")
+        db_b = EntityDatabase(db_path)
+        monkeypatch.setattr(entity_server, "_workspace_uuid", ws_uuid)
+        try:
+            monkeypatch.setattr(entity_server, "_db", db_a)
+            result_a = await entity_server.allocate_entity_id(
+                entity_type="feature", name="Connection A"
+            )
+            monkeypatch.setattr(entity_server, "_db", db_b)
+            result_b = await entity_server.allocate_entity_id(
+                entity_type="feature", name="Connection B"
+            )
+        finally:
+            db_a.close()
+            db_b.close()
+
+        parsed_a = json.loads(result_a)
+        parsed_b = json.loads(result_b)
+        assert parsed_a == {"seq": 1, "entity_id": "001-connection-a"}
+        assert parsed_b == {"seq": 2, "entity_id": "002-connection-b"}
+
+    @pytest.mark.asyncio
+    async def test_cross_workspace_independent_sequences(self, ws_db, monkeypatch):
+        """Two workspaces, same entity_type: each sequence progresses from
+        its own value — workspace B's allocation does not perturb
+        workspace A's counter."""
+        database, ws_a = ws_db
+        ws_b = bootstrap_test_workspace(database, "alloc-ws-2")
+
+        monkeypatch.setattr(entity_server, "_workspace_uuid", ws_a)
+        result_a1 = await entity_server.allocate_entity_id(
+            entity_type="feature", name="Workspace A First"
+        )
+        monkeypatch.setattr(entity_server, "_workspace_uuid", ws_b)
+        result_b1 = await entity_server.allocate_entity_id(
+            entity_type="feature", name="Workspace B First"
+        )
+        monkeypatch.setattr(entity_server, "_workspace_uuid", ws_a)
+        result_a2 = await entity_server.allocate_entity_id(
+            entity_type="feature", name="Workspace A Second"
+        )
+
+        assert json.loads(result_a1)["seq"] == 1
+        assert json.loads(result_b1)["seq"] == 1
+        assert json.loads(result_a2)["seq"] == 2
+
+    @pytest.mark.asyncio
+    async def test_blank_name_envelope_no_consumption(self, ws_db):
+        """Blank name -> invalid_input envelope (D1 exact text); the
+        sequences row for (ws, 'feature') is untouched (pre-check precedes
+        next_sequence_value)."""
+        database, ws_uuid = ws_db
+        before = _sequences_row(database, ws_uuid, "feature")
+        result = await entity_server.allocate_entity_id(entity_type="feature", name="")
+        parsed = json.loads(result)
+        assert parsed == {
+            "error": True,
+            "error_type": "invalid_input",
+            "message": "name must be non-empty and slugify to a non-empty slug",
+            "recovery_hint": "supply a descriptive name containing letters/digits",
+        }
+        after = _sequences_row(database, ws_uuid, "feature")
+        assert after == before
+
+    @pytest.mark.asyncio
+    async def test_unslugifiable_name_envelope_no_consumption(self, ws_db):
+        """Symbols-only name ('!!!') slugifies to '' — same invalid_input
+        envelope as blank, distinct input class, same no-consumption pin."""
+        database, ws_uuid = ws_db
+        before = _sequences_row(database, ws_uuid, "feature")
+        result = await entity_server.allocate_entity_id(entity_type="feature", name="!!!")
+        parsed = json.loads(result)
+        assert parsed == {
+            "error": True,
+            "error_type": "invalid_input",
+            "message": "name must be non-empty and slugify to a non-empty slug",
+            "recovery_hint": "supply a descriptive name containing letters/digits",
+        }
+        after = _sequences_row(database, ws_uuid, "feature")
+        assert after == before
+
+    @pytest.mark.asyncio
+    async def test_allocator_cutover_project_kind(self, ws_db):
+        """Feature 132 D6.9: the entity_type == 'project' kind_deferred
+        rejection guard is retired post-cutover -- allocate_entity_id now
+        succeeds for 'project' exactly like any other kind, CONTINUING
+        from wherever the `sequences` row was left. The rebuild tool's own
+        D6.9 seed-half plants that row at the live census max per
+        kind x workspace (task 2's SC2/D6.9 concern, not this MCP-tool
+        unit's); simulated here via direct pre-seed, mirroring
+        test_four_digit_sequence_value_not_clipped_to_three_digits' pattern
+        above. Asserts a fact true ONLY on the post-cutover path: the
+        returned seq CAME FROM the sequences table (the pre-seeded
+        continuation value, not 1, and not a kind_deferred envelope) --
+        and a second allocation advances it sequentially, proving the
+        counter genuinely advances rather than being a static readback."""
+        database, ws_uuid = ws_db
+        database._conn.execute(
+            "INSERT INTO sequences(workspace_uuid, entity_type, next_val) "
+            "VALUES(?, ?, ?)",
+            (ws_uuid, "project", 5),
+        )
+        database._conn.commit()
+
+        result = await entity_server.allocate_entity_id(
+            entity_type="project", name="Post Cutover Project"
+        )
+        parsed = json.loads(result)
+        assert parsed == {"seq": 5, "entity_id": "005-post-cutover-project"}
+
+        # A second, distinct allocation in the same workspace continues
+        # sequentially -- two concurrent-ish allocations land distinct,
+        # ascending seq values, not a repeat of the first.
+        result2 = await entity_server.allocate_entity_id(
+            entity_type="project", name="Second Post Cutover Project"
+        )
+        parsed2 = json.loads(result2)
+        assert parsed2["seq"] == 6
+
+        # The sequences row itself advanced on disk (not just in the
+        # response) -- the fact the counter is genuinely stateful, not a
+        # readback.
+        after = _sequences_row(database, ws_uuid, "project")
+        assert after["next_val"] == 7
+
+    @pytest.mark.asyncio
+    async def test_missing_entity_type_invalid_input(self, ws_db):
+        """Missing entity_type -> invalid_input envelope, checked BEFORE
+        the slug check."""
+        result = await entity_server.allocate_entity_id(entity_type="", name="Some Name")
+        parsed = json.loads(result)
+        assert parsed == {
+            "error": True,
+            "error_type": "invalid_input",
+            "message": "entity_type is required",
+            "recovery_hint": "pass entity_type, e.g. 'feature'",
+        }
+
+    @pytest.mark.asyncio
+    async def test_workspace_unresolved(self, ws_db, monkeypatch):
+        """_workspace_uuid == "" (degraded startup) -> workspace_unresolved
+        envelope, refused before any kind/name checks."""
+        monkeypatch.setattr(entity_server, "_workspace_uuid", "")
+        result = await entity_server.allocate_entity_id(
+            entity_type="feature", name="Something"
+        )
+        parsed = json.loads(result)
+        assert parsed == {
+            "error": True,
+            "error_type": "workspace_unresolved",
+            "message": (
+                "workspace identity not resolved (degraded startup) — "
+                "allocation refused"
+            ),
+            "recovery_hint": "restart the MCP server from the project root / run doctor",
+        }
+
+    # -----------------------------------------------------------------
+    # Test-deepening additions (dimensions: boundary_values, adversarial,
+    # error_propagation) — the tool tests above cover the format/race/
+    # cross-workspace/rejection contract; these pin edges the outline
+    # above left thin.
+    # -----------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_symbols_and_single_letter_name_slugifies_to_valid_one_char_slug(
+        self, ws_db
+    ):
+        """A name that is almost entirely hyphens/spaces around one letter
+        ("- a -") slugifies to "a" (non-empty) via _slugify's collapse+
+        strip rules (verified: _slugify("- a -") == "a") — this must NOT
+        trip the empty-slug rejection. Kills a mutation that tightens the
+        tool's `if not slug:` gate to also reject short-but-valid slugs
+        (e.g. accidentally requiring `len(slug) >= 2`)."""
+        result = await entity_server.allocate_entity_id(
+            entity_type="feature", name="- a -"
+        )
+        parsed = json.loads(result)
+        assert parsed == {"seq": 1, "entity_id": "001-a"}
+
+    @pytest.mark.asyncio
+    async def test_long_name_truncates_on_hyphen_boundary_through_tool_wiring(
+        self, ws_db
+    ):
+        """_slugify's 30-char hyphen-boundary truncation (id_generator.py
+        :33-37) is unit-pinned directly in test_id_generator.py's
+        TestSlugify, but never exercised through allocate_entity_id's own
+        wiring. Reuses that suite's exact truncation-boundary input
+        (slugifies to 'enterprise-reliability', 22 chars, no trailing
+        hyphen — verified empirically) to pin that the TOOL composes
+        `{seq:03d}-{slug}` from the already-truncated, trailing-hyphen-
+        free slug byte-for-byte — not a naive slice of the raw name that
+        would land mid-word or leave a dangling hyphen."""
+        result = await entity_server.allocate_entity_id(
+            entity_type="feature", name="enterprise reliability platform"
+        )
+        parsed = json.loads(result)
+        assert parsed == {"seq": 1, "entity_id": "001-enterprise-reliability"}
+        assert not parsed["entity_id"].endswith("-")
+
+    @pytest.mark.asyncio
+    async def test_four_digit_sequence_value_not_clipped_to_three_digits(
+        self, ws_db
+    ):
+        """`{seq:03d}` is a MINIMUM-width spec, not a fixed width — once a
+        workspace's counter crosses 999, the next allocation must render
+        as '1000-...', not a clipped/reformatted 3-digit value. No
+        existing test (here or in test_id_generator.py) exercises a
+        sequence value >999 through either generate_entity_id or
+        allocate_entity_id. Pre-seeds the v1 `sequences` row directly
+        (mirrors test_id_generator.py's
+        test_continues_from_existing_via_sequences pattern) so the next
+        call returns exactly 1000 without 999 prior allocations."""
+        database, ws_uuid = ws_db
+        database._conn.execute(
+            "INSERT INTO sequences(workspace_uuid, entity_type, next_val) "
+            "VALUES(?, ?, ?)",
+            (ws_uuid, "feature", 1000),
+        )
+        database._conn.commit()
+
+        result = await entity_server.allocate_entity_id(
+            entity_type="feature", name="Boundary Seq"
+        )
+        parsed = json.loads(result)
+        assert parsed == {"seq": 1000, "entity_id": "1000-boundary-seq"}
+
+    @pytest.mark.asyncio
+    async def test_next_sequence_value_operational_error_propagates_unhandled(
+        self, ws_db, monkeypatch
+    ):
+        """allocate_entity_id has no try/except around
+        next_sequence_value (unlike, e.g., create_key_result's `except
+        Exception as exc: return json.dumps({"error": str(exc)})`
+        wrapper) — a DB-layer failure here propagates as a raw, uncaught
+        exception rather than a structured §3.5 envelope. Pins
+        design.md's Error Handling line ('next_sequence_value sqlite
+        errors propagate to the server's existing exception translation')
+        at the unit level: calling the tool function directly (bypassing
+        the FastMCP transport, which is what would apply any outer
+        translation) surfaces the raw exception. Would catch a mutation
+        that silently swallowed the error into a truthy-ish envelope
+        (e.g. a bare `except Exception: return "{}"`)."""
+        database, ws_uuid = ws_db
+
+        def _boom(*args, **kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+        monkeypatch.setattr(database, "next_sequence_value", _boom)
+
+        with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+            await entity_server.allocate_entity_id(entity_type="feature", name="Boom")
+
+
+class TestRegisterEntityBlankNameGuard:
+    """Feature 121 D2: register_entity blank/whitespace-name pre-check.
+
+    Replaces the old auto_id-only truthy guard (:580-581) with an
+    invalid_input envelope that fires for BOTH auto_id and explicit-id
+    calls, before any sequence consumption.
+    """
+
+    @pytest.mark.asyncio
+    async def test_blank_name_auto_id_envelope(self, db):
+        """auto_id=True + name="" -> invalid_input envelope (not the old
+        bare 'Error: name is required when auto_id=True' string)."""
+        result = await entity_server.register_entity(
+            entity_type="feature", name="", auto_id=True,
+        )
+        parsed = json.loads(result)
+        assert parsed["error"] is True
+        assert parsed["error_type"] == "invalid_input"
+
+    @pytest.mark.asyncio
+    async def test_whitespace_name_explicit_id_envelope(self, db):
+        """Explicit entity_id + whitespace-only name -> invalid_input
+        envelope. Pre-fix, only the auto_id path was guarded — an
+        explicit-id call with a blank name reached the DB-layer raise
+        unguarded."""
+        result = await entity_server.register_entity(
+            entity_type="feature", entity_id="explicit-blank", name="   ",
+        )
+        parsed = json.loads(result)
+        assert parsed["error"] is True
+        assert parsed["error_type"] == "invalid_input"
+
+    @pytest.mark.asyncio
+    async def test_auto_id_blank_name_no_sequence_consumption(self, db):
+        """auto_id=True + blank name must NOT burn a sequence value — the
+        pre-check precedes generate_entity_id (which calls
+        next_sequence_value)."""
+        before = db._conn.execute("SELECT COUNT(*) AS n FROM sequences").fetchone()["n"]
+        result = await entity_server.register_entity(
+            entity_type="feature", name="", auto_id=True,
+        )
+        parsed = json.loads(result)
+        assert parsed["error"] is True
+        after = db._conn.execute("SELECT COUNT(*) AS n FROM sequences").fetchone()["n"]
+        assert after == before
+
+    def test_truthy_guard_removed(self):
+        """Grep pin: the deleted auto_id-only truthy guard's message string
+        no longer appears anywhere in entity_server.py."""
+        server_path = os.path.join(_mcp_dir, "entity_server.py")
+        with open(server_path, encoding="utf-8") as fh:
+            content = fh.read()
+        assert "name is required when auto_id=True" not in content
+
+
+# ---------------------------------------------------------------------------
+# Test-deepening addition (feature 132 D6.4): the register_entity MCP
+# tool's caller-facing project_id passthrough kwarg was dropped from the
+# signature (only entity_server's OWN legacy-project-id global is
+# consulted internally now). No existing test proves REMOVAL -- every
+# `project_id=` reference in this file targets EntityDatabase.
+# register_entity (the DB method, which retains the kwarg per the
+# amended FR132-5b reading), never this MCP tool function. Proves the
+# structural removal non-vacuously: passing project_id= must raise
+# TypeError synchronously (argument binding fails before the coroutine
+# is even scheduled), the same as any other unknown kwarg would.
+# dimension:adversarial
+# ---------------------------------------------------------------------------
+class TestRegisterEntityToolProjectIdKwargRemoved:
+    def test_project_id_kwarg_raises_type_error_not_silently_accepted(self):
+        with pytest.raises(TypeError, match="project_id"):
+            entity_server.register_entity(
+                entity_type="feature", entity_id="001-x", name="X",
+                project_id="should-not-exist",
+            )

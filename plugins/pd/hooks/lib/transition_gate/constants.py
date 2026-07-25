@@ -29,30 +29,30 @@ COMMAND_PHASES: tuple[Phase, ...] = PHASE_SEQUENCE[1:]
 
 HARD_PREREQUISITES: dict[str, list[str]] = {
     # Maps phase name -> required artifact filenames that must pass validation
-    # before the phase can begin.
+    # before the phase can begin. Transitive-closure semantics: each phase
+    # lists ALL artifacts that must exist so check_hard_prerequisites() is a
+    # single lookup.
     #
-    # NOTE (G-08 divergence): This map uses transitive closure semantics —
-    # each phase lists ALL artifacts that must exist, including those required
-    # by earlier phases. The original G-08 hard prerequisites table in
-    # workflow-state/SKILL.md uses direct-only semantics (e.g., create-plan
-    # lists only design.md, not spec.md). We use transitive closure here so
-    # that check_hard_prerequisites() can validate completeness in a single
-    # lookup without needing to walk the phase chain.
+    # Feature 134 FR-11: specify+design share ONE shape.md (## Requirements
+    # then ## Design); tasks derive at dispatch time so tasks.md no longer
+    # exists. Express mode skips into implement with skipped-events; the
+    # engine accepts express entries via the skip path, and shape.md/plan.md
+    # remain the deep-mode prerequisites.
     "brainstorm": [],
     "specify": [],
-    "design": ["spec.md"],
-    "create-plan": ["spec.md", "design.md"],
-    "implement": ["spec.md", "tasks.md"],
+    "design": ["shape.md"],
+    "create-plan": ["shape.md"],
+    "implement": ["shape.md", "plan.md"],
     "finish": [],
 }
 
 ARTIFACT_PHASE_MAP: dict[str, list[str]] = {
     # Maps phase name -> output artifact filename(s) produced by that phase.
-    # create-plan produces both plan.md and tasks.md (merged in feature 073).
+    # Feature 134 FR-11: specify and design BOTH produce/extend shape.md.
     "brainstorm": ["prd.md"],
-    "specify": ["spec.md"],
-    "design": ["design.md"],
-    "create-plan": ["plan.md", "tasks.md"],
+    "specify": ["shape.md"],
+    "design": ["shape.md"],
+    "create-plan": ["plan.md"],
     "implement": [],
     "finish": ["retro.md"],
 }
@@ -62,8 +62,8 @@ ARTIFACT_GUARD_MAP: dict[tuple[str, str], str] = {
     # in validate_artifact. Only explicit overrides stored here.
     # All other (phase, artifact_name) pairs resolve to "G-05" via
     # library-side default in validate_artifact (not stored in dict).
-    ("implement", "spec.md"): "G-05",
-    ("implement", "tasks.md"): "G-06",
+    ("implement", "shape.md"): "G-05",
+    ("implement", "plan.md"): "G-06",
 }
 
 

@@ -19,6 +19,7 @@ if _hooks_lib not in sys.path:
 from entity_registry.database import EntityDatabase
 from transition_gate.models import Severity, TransitionResult
 from workflow_engine.engine import WorkflowStateEngine
+from workflow_engine.entity_engine import EntityWorkflowEngine
 from workflow_engine.models import FeatureWorkflowState, TransitionResponse
 
 from entity_registry.frontmatter_sync import DriftReport, FieldMismatch
@@ -29,7 +30,7 @@ from workflow_engine.reconciliation import (
     WorkflowMismatch,
 )
 
-from entity_registry.entity_lifecycle import ENTITY_MACHINES
+from workflow_engine.router import ENTITY_MACHINES
 
 
 def _bootstrap_test_workspace(db, legacy_id: str) -> str:
@@ -77,6 +78,7 @@ from workflow_state_server import (
     _process_reconcile_check,
     _process_reconcile_frontmatter,
     _process_reconcile_status,
+    _process_reproject_meta_json,
     _process_transition_entity_phase,
     _process_transition_phase,
     _process_validate_prerequisites,
@@ -403,7 +405,7 @@ class TestProcessTransitionPhase:
         # Create spec.md so G-08 hard prereq passes for design
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
 
         result = _process_transition_phase(
@@ -412,7 +414,6 @@ class TestProcessTransitionPhase:
         )
         data = json.loads(result)
         assert data["transitioned"] is True
-        assert data["degraded"] is False
 
     def test_blocked_g08(self, seeded_engine):
         # No spec.md in tmp_path → G-08 blocks transition to design
@@ -439,7 +440,7 @@ class TestProcessTransitionPhase:
         # Create spec.md so G-08 passes
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
 
         # Without YOLO
@@ -512,7 +513,7 @@ class TestTransitionPhaseEntityMetadata:
     def test_meta_json_projected_after_successful_transition(self, seeded_engine, db, tmp_path):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         result = _process_transition_phase(seeded_engine, "feature:009-test", "design", False, db=db)
@@ -528,7 +529,7 @@ class TestTransitionPhaseEntityMetadata:
     def test_phase_timing_started_stored_in_entity_metadata(self, seeded_engine, db, tmp_path):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         result = _process_transition_phase(seeded_engine, "feature:009-test", "design", False, db=db)
@@ -544,7 +545,7 @@ class TestTransitionPhaseEntityMetadata:
     def test_skipped_phases_stored_when_provided(self, seeded_engine, db, tmp_path):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         skipped = json.dumps([{"phase": "brainstorm", "reason": "already done"}])
@@ -560,7 +561,7 @@ class TestTransitionPhaseEntityMetadata:
     def test_skipped_phases_not_stored_when_none(self, seeded_engine, db, tmp_path):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         result = _process_transition_phase(seeded_engine, "feature:009-test", "design", False, db=db, skipped_phases=None)
@@ -571,10 +572,38 @@ class TestTransitionPhaseEntityMetadata:
         metadata = json.loads(entity["metadata"])
         assert "skipped_phases" not in metadata
 
+    def test_skipped_phases_double_encoded_string_rejected_no_char_rows(
+        self, seeded_engine, db, tmp_path,
+    ):
+        """QA132-A finding: a DOUBLE-encoded skipped_phases reaches
+        json.loads as a JSON string, comes back a plain str, and the
+        dual-write loop then iterated it CHAR-BY-CHAR — one 'skipped'
+        phase_events row per character (73 such rows exist in the real
+        census across two features). Must now be rejected up-front with
+        ZERO writes: no transition, no metadata, no phase_events rows."""
+        feat_dir = os.path.join(str(tmp_path), "features", "009-test")
+        os.makedirs(feat_dir, exist_ok=True)
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
+            f.write("# Spec\n")
+        db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
+        double_encoded = json.dumps(json.dumps(["brainstorm"]))
+        result = _process_transition_phase(
+            seeded_engine, "feature:009-test", "design", False,
+            db=db, skipped_phases=double_encoded,
+        )
+        data = json.loads(result)
+        assert data.get("error") is True
+        assert data.get("error_type") == "invalid_skipped_phases"
+        rows = db.query_phase_events(type_id="feature:009-test", limit=500)
+        skipped_rows = [r for r in rows if r["event_type"] == "skipped"]
+        assert skipped_rows == []  # pre-fix: 13 single-char rows
+        entity = db.get_entity("feature:009-test")
+        assert "skipped_phases" not in json.loads(entity["metadata"])
+
     def test_started_at_included_in_response(self, seeded_engine, db, tmp_path):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         result = _process_transition_phase(seeded_engine, "feature:009-test", "design", False, db=db)
@@ -586,7 +615,7 @@ class TestTransitionPhaseEntityMetadata:
     def test_projection_warning_included_when_projection_fails(self, seeded_engine, db, tmp_path, monkeypatch):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity("feature:009-test", artifact_path=feat_dir, metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"})
         import workflow_state_server
@@ -942,7 +971,7 @@ class TestProcessValidatePrerequisites:
         # Create spec.md so G-08 passes for design
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
 
         result = _process_validate_prerequisites(
@@ -991,7 +1020,7 @@ class TestProcessValidatePrerequisites:
         # Create spec.md
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
 
         state_before = _process_get_phase(seeded_engine, "feature:009-test")
@@ -1021,13 +1050,29 @@ class TestProcessListFeaturesByPhase:
     def test_unexpected_exception(self, seeded_engine, monkeypatch):
         monkeypatch.setattr(
             seeded_engine, "list_by_phase",
-            lambda *a: (_ for _ in ()).throw(RuntimeError("boom")),
+            lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")),
         )
         result = _process_list_features_by_phase(seeded_engine, "specify")
         data = json.loads(result)
         assert data["error"] is True
         assert data["error_type"] == "internal"
         assert "RuntimeError" in data["message"]
+
+    def test_workspace_uuid_forwarded_to_engine(self, seeded_engine, monkeypatch):
+        """Feature 129 / D4: workspace_uuid kwarg threads through to
+        engine.list_by_phase -- non-vacuous pin for the wiring hop."""
+        recorded: dict = {}
+        real_list_by_phase = seeded_engine.list_by_phase
+
+        def _spy(*args, **kwargs):
+            recorded.update(kwargs)
+            return real_list_by_phase(*args, **kwargs)
+
+        monkeypatch.setattr(seeded_engine, "list_by_phase", _spy)
+        _process_list_features_by_phase(
+            seeded_engine, "specify", workspace_uuid="some-ws-uuid"
+        )
+        assert recorded.get("workspace_uuid") == "some-ws-uuid"
 
 
 # ---------------------------------------------------------------------------
@@ -1050,13 +1095,29 @@ class TestProcessListFeaturesByStatus:
     def test_unexpected_exception(self, seeded_engine, monkeypatch):
         monkeypatch.setattr(
             seeded_engine, "list_by_status",
-            lambda *a: (_ for _ in ()).throw(RuntimeError("boom")),
+            lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")),
         )
         result = _process_list_features_by_status(seeded_engine, "active")
         data = json.loads(result)
         assert data["error"] is True
         assert data["error_type"] == "internal"
         assert "RuntimeError" in data["message"]
+
+    def test_workspace_uuid_forwarded_to_engine(self, seeded_engine, monkeypatch):
+        """Feature 129 / D4: workspace_uuid kwarg threads through to
+        engine.list_by_status -- non-vacuous pin for the wiring hop."""
+        recorded: dict = {}
+        real_list_by_status = seeded_engine.list_by_status
+
+        def _spy(*args, **kwargs):
+            recorded.update(kwargs)
+            return real_list_by_status(*args, **kwargs)
+
+        monkeypatch.setattr(seeded_engine, "list_by_status", _spy)
+        _process_list_features_by_status(
+            seeded_engine, "active", workspace_uuid="some-ws-uuid"
+        )
+        assert recorded.get("workspace_uuid") == "some-ws-uuid"
 
 
 # ---------------------------------------------------------------------------
@@ -1294,7 +1355,7 @@ class TestAdversarial:
         assert "not found" in data["message"].lower()
 
     def test_transition_result_json_has_exact_key_set(self, seeded_engine):
-        """Transition response JSON has exactly {transitioned, results, degraded}.
+        """Transition response JSON has exactly {transitioned, results}.
         derived_from: dimension:adversarial (JSON shape contract)
 
         Anticipate: Extra or missing keys would break MCP clients parsing the
@@ -1308,9 +1369,10 @@ class TestAdversarial:
             db=seeded_engine.db,
         )
         data = json.loads(result)
-        # Then the top-level keys are exactly {transitioned, results, degraded}
-        # (blocked transitions don't include started_at or projection keys)
-        assert set(data.keys()) == {"transitioned", "results", "degraded"}
+        # Then the top-level keys are exactly {transitioned, results} (D4:
+        # the mutation-path degraded key is removed; blocked transitions
+        # don't include started_at or projection keys either)
+        assert set(data.keys()) == {"transitioned", "results"}
 
     def test_validate_result_json_has_exact_key_set(self, seeded_engine):
         """Validate response JSON has exactly {all_passed, results}.
@@ -1389,7 +1451,7 @@ class TestMutationMindset:
         ]
         monkeypatch.setattr(
             seeded_engine, "transition_phase",
-            lambda *a, **kw: TransitionResponse(results=tuple(mixed_results), degraded=False),
+            lambda *a, **kw: TransitionResponse(results=tuple(mixed_results)),
         )
         # When transitioning
         result = _process_transition_phase(
@@ -1399,7 +1461,6 @@ class TestMutationMindset:
         data = json.loads(result)
         # Then transitioned must be False (all() would be False, any() would be True)
         assert data["transitioned"] is False
-        assert data["degraded"] is False
 
     def test_all_passed_uses_all_not_any(self, seeded_engine, monkeypatch):
         """all_passed must be True only when ALL results are allowed, not just any.
@@ -1466,7 +1527,7 @@ class TestErrorPropagation:
         # Given: monkeypatch to raise ValueError (simulating corrupt DB row)
         monkeypatch.setattr(
             seeded_engine, "list_by_phase",
-            lambda *a: (_ for _ in ()).throw(ValueError("corrupt row")),
+            lambda *a, **kw: (_ for _ in ()).throw(ValueError("corrupt row")),
         )
         # When listing by phase
         result = _process_list_features_by_phase(seeded_engine, "specify")
@@ -1485,7 +1546,7 @@ class TestErrorPropagation:
         # Given: monkeypatch to raise ValueError
         monkeypatch.setattr(
             seeded_engine, "list_by_status",
-            lambda *a: (_ for _ in ()).throw(ValueError("corrupt data")),
+            lambda *a, **kw: (_ for _ in ()).throw(ValueError("corrupt data")),
         )
         # When listing by status
         result = _process_list_features_by_status(seeded_engine, "active")
@@ -1523,11 +1584,11 @@ class TestErrorPropagation:
 
 
 class TestIntegrationDegradation:
-    """Verify degraded=True propagates correctly when DB is closed.
-
-    Each test closes the DB connection to trigger the engine's fallback path.
-    A .meta.json file is created so the fallback has data to return.
-    """
+    """DB-closed behavior split by operation type (feature 128): READ paths
+    (get_phase, list_by_phase, list_by_status) still degrade to degraded=True
+    serving the last projection; MUTATION paths (transition_phase,
+    complete_phase) now raise WorkflowDBUnavailableError, surfaced as
+    db_unavailable envelopes."""
 
     @pytest.fixture
     def degraded_engine(self, db, tmp_path):
@@ -1560,33 +1621,34 @@ class TestIntegrationDegradation:
         assert data["degraded"] is True
         assert data["feature_type_id"] == "feature:009-test"
 
-    def test_transition_phase_db_closed_returns_degraded(self, degraded_engine):
-        """_process_transition_phase with closed DB returns response with degraded=True."""
+    def test_transition_phase_db_closed_returns_db_unavailable(self, degraded_engine):
+        """_process_transition_phase with closed DB returns a db_unavailable
+        envelope (feature 128: mutations fail loud, no success-shaped
+        degraded=True response)."""
         result = _process_transition_phase(
             degraded_engine, "feature:009-test", "design", False,
             db=None,  # DB is closed; skip entity metadata update
         )
         data = json.loads(result)
-        # Must be a transition response dict (not an error), with degraded=True
-        assert "error" not in data
-        assert data["degraded"] is True
-        assert "results" in data
-        assert "transitioned" in data
+        assert data["error"] is True
+        assert data["error_type"] == "db_unavailable"
+        assert "transition_phase" in data["message"]
+        assert "feature:009-test" in data["message"]
+        assert "doctor" in data["message"]
 
-    def test_complete_phase_db_closed_returns_degraded(self, degraded_engine):
-        """_process_complete_phase with closed DB writes to .meta.json and returns degraded=True.
-
-        The .meta.json has lastCompletedPhase=null and status=active, so the
-        fallback engine resolves current_phase='brainstorm' (first phase).
-        Completing 'brainstorm' matches that current phase and succeeds.
-        """
+    def test_complete_phase_db_closed_returns_db_unavailable(self, degraded_engine):
+        """_process_complete_phase with closed DB returns a db_unavailable
+        envelope and does not write .meta.json (feature 128: mutations fail
+        loud, no fallback write)."""
         result = _process_complete_phase(
             degraded_engine, "feature:009-test", "brainstorm"
         )
         data = json.loads(result)
-        # Must be a state dict (not an error), with degraded=True
-        assert "error" not in data
-        assert data["degraded"] is True
+        assert data["error"] is True
+        assert data["error_type"] == "db_unavailable"
+        assert "complete_phase" in data["message"]
+        assert "feature:009-test" in data["message"]
+        assert "doctor" in data["message"]
 
     def test_list_features_by_phase_db_closed_returns_degraded_states(
         self, degraded_engine
@@ -1817,7 +1879,7 @@ class TestSqlite3ErrorThroughMcpTools:
         # Given: monkeypatch to raise sqlite3.Error
         monkeypatch.setattr(
             seeded_engine, "list_by_phase",
-            lambda *a: (_ for _ in ()).throw(
+            lambda *a, **kw: (_ for _ in ()).throw(
                 sqlite3.OperationalError("table locked")
             ),
         )
@@ -1836,7 +1898,7 @@ class TestSqlite3ErrorThroughMcpTools:
         # Given: monkeypatch to raise sqlite3.Error
         monkeypatch.setattr(
             seeded_engine, "list_by_status",
-            lambda *a: (_ for _ in ()).throw(
+            lambda *a, **kw: (_ for _ in ()).throw(
                 sqlite3.OperationalError("disk space")
             ),
         )
@@ -1858,8 +1920,8 @@ class TestNotInitializedGuards:
     derived_from: dimension:error_propagation (all-6 not-initialized guards)
     """
 
-    def test_all_6_tool_handlers_have_not_initialized_guard(self):
-        """Verify by inspecting the source that all 6 async tool handlers
+    def test_all_7_tool_handlers_have_not_initialized_guard(self):
+        """Verify by inspecting the source that all 7 async tool handlers
         contain the _engine is None check. Since we cannot call async handlers
         directly without an event loop, we verify structurally.
 
@@ -1868,7 +1930,7 @@ class TestNotInitializedGuards:
         import inspect
         import workflow_state_server as mod
 
-        # All 6 tool handler functions
+        # All 7 tool handler functions
         handlers = [
             mod.get_phase,
             mod.transition_phase,
@@ -1876,6 +1938,7 @@ class TestNotInitializedGuards:
             mod.validate_prerequisites,
             mod.list_features_by_phase,
             mod.list_features_by_status,
+            mod.reproject_meta_json,
         ]
 
         for handler in handlers:
@@ -1889,21 +1952,18 @@ class TestNotInitializedGuards:
 
 
 class TestCompletePhaseDegradedSourceValue:
-    """Dimension 5 (mutation mindset): When complete_phase returns via degraded
-    fallback, the serialized source field must be 'meta_json_fallback' and
-    degraded must be True.
-
-    Anticipate: If source is set to 'db' or 'meta_json' instead of
-    'meta_json_fallback', the degraded derivation in _serialize_state would
-    incorrectly return False.
-    derived_from: dimension:mutation_mindset (source field exact value)
+    """Feature 128: When the DB is unavailable, complete_phase raises
+    WorkflowDBUnavailableError (surfaced as a db_unavailable envelope)
+    instead of returning a serialized state with source='meta_json_fallback'.
+    The surviving sibling test below pins the healthy-path source='db'
+    contract.
     """
 
-    def test_degraded_complete_phase_source_and_degraded_field(
+    def test_degraded_complete_phase_returns_db_unavailable(
         self, db, tmp_path
     ):
-        """complete_phase via MCP with closed DB returns source='meta_json_fallback'
-        and degraded=True in serialized output.
+        """complete_phase via MCP with closed DB returns a db_unavailable
+        envelope, not a serialized state.
         """
         # Given: set up feature and close DB
         db.register_entity("feature", "010-test", "Test Feature", status="active", project_id="__unknown__")
@@ -1920,14 +1980,15 @@ class TestCompletePhaseDegradedSourceValue:
         engine = WorkflowStateEngine(db, str(tmp_path))
         db.close()
 
-        # When completing brainstorm (first phase in degraded mode)
+        # When completing brainstorm (first phase, DB unavailable)
         result = _process_complete_phase(engine, "feature:010-test", "brainstorm")
         data = json.loads(result)
 
-        # Then degraded is True (source was meta_json_fallback)
-        assert "error" not in data, f"Unexpected error: {data}"
+        # Then a structured db_unavailable envelope is returned, not a state
+        assert data["error"] is True
+        assert data["error_type"] == "db_unavailable"
         assert "source" not in data
-        assert data["degraded"] is True
+        assert "degraded" not in data
 
     def test_normal_complete_phase_source_is_db(self, seeded_engine):
         """Normal complete_phase returns source='db' and degraded=False.
@@ -1987,16 +2048,17 @@ class TestValidatePrerequisitesDegradedMode:
 
 
 class TestTransitionDegradedResponseShape:
-    """Dimension 3 (adversarial): transition_phase in degraded mode still returns
-    the exact same JSON shape as non-degraded: {transitioned, results, degraded}.
+    """Feature 128: transition_phase with the DB unavailable now returns the
+    structured db_unavailable ERROR envelope shape ({error, error_type,
+    message, recovery_hint}) instead of a success-shaped {transitioned,
+    results} response.
 
-    Anticipate: A degraded code path might return a different shape (e.g., missing
-    'results' key or adding an 'error' key), breaking MCP clients.
-    derived_from: dimension:adversarial (JSON shape contract in degraded mode)
+    derived_from: dimension:adversarial (JSON shape contract when DB unavailable)
     """
 
-    def test_degraded_transition_has_exact_key_set(self, db, tmp_path):
-        """Degraded transition response has {transitioned, results, degraded}.
+    def test_degraded_transition_returns_db_unavailable_envelope(self, db, tmp_path):
+        """Transition response with the DB unavailable has the exact error
+        envelope key set, not the success-shaped transition key set.
         """
         # Given: set up feature and close DB
         db.register_entity("feature", "010-shape", "Test", status="active", project_id="__unknown__")
@@ -2013,20 +2075,16 @@ class TestTransitionDegradedResponseShape:
         engine = WorkflowStateEngine(db, str(tmp_path))
         db.close()
 
-        # When transitioning in degraded mode
+        # When transitioning with the DB unavailable
         result = _process_transition_phase(
             engine, "feature:010-shape", "brainstorm", False,
             db=None,  # DB is closed; skip entity metadata update
         )
         data = json.loads(result)
 
-        # Then exact same key set as non-degraded
-        assert set(data.keys()) == {"transitioned", "results", "degraded"}
-        assert data["degraded"] is True
-        assert isinstance(data["results"], list)
-        # Each result item has the correct shape
-        for item in data["results"]:
-            assert set(item.keys()) == {"allowed", "reason", "severity", "guard_id"}
+        # Then the exact error envelope key set -- not {transitioned, results}
+        assert set(data.keys()) == {"error", "error_type", "message", "recovery_hint"}
+        assert data["error_type"] == "db_unavailable"
 
 
 # ===========================================================================
@@ -2453,7 +2511,7 @@ class TestProcessReconcileFrontmatter:
         entity = db.get_entity("feature:011-fm")
         entity_uuid = entity["uuid"]
 
-        spec_path = os.path.join(feat_dir, "spec.md")
+        spec_path = os.path.join(feat_dir, "shape.md")
         with open(spec_path, "w") as f:
             f.write(f"---\nentity_uuid: {entity_uuid}\n"
                     f"entity_type_id: feature:011-fm\n---\n# Spec\n")
@@ -2474,7 +2532,7 @@ class TestProcessReconcileFrontmatter:
 
         feat_dir = os.path.join(str(tmp_path), "features", "011-nofm")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\nNo frontmatter here.\n")
 
         result = _process_reconcile_frontmatter(db, str(tmp_path), "feature:011-nofm")
@@ -2497,7 +2555,7 @@ class TestProcessReconcileFrontmatter:
         os.makedirs(feat_dir, exist_ok=True)
 
         # Write spec.md with matching frontmatter
-        spec_path = os.path.join(feat_dir, "spec.md")
+        spec_path = os.path.join(feat_dir, "shape.md")
         with open(spec_path, "w") as f:
             f.write(f"---\nentity_uuid: {entity['uuid']}\n"
                     f"entity_type_id: feature:011-bulk\n---\n# Spec\n")
@@ -2835,7 +2893,7 @@ class TestReconciliationEndToEnd:
         os.makedirs(feat_dir, exist_ok=True)
 
         # Create spec.md with matching frontmatter
-        spec_path = os.path.join(feat_dir, "spec.md")
+        spec_path = os.path.join(feat_dir, "shape.md")
         with open(spec_path, "w") as f:
             f.write(
                 f"---\nentity_uuid: {entity_uuid}\n"
@@ -4600,7 +4658,7 @@ class TestProjectMetaJson:
             "phase": "specify",
             "timestamp": "2026-04-02T08:00:00Z",
             "outcome": "Specification complete (3 iterations).",
-            "artifacts_produced": ["spec.md"],
+            "artifacts_produced": ["shape.md"],
             "key_decisions": "Chose update_entity over new complete_phase param.",
             "reviewer_feedback_summary": "LGTM after AC-3 gap fix.",
             "rework_trigger": None,
@@ -4627,7 +4685,7 @@ class TestProjectMetaJson:
         assert projected["phase"] == "specify"
         assert projected["timestamp"] == "2026-04-02T08:00:00Z"
         assert projected["outcome"] == "Specification complete (3 iterations)."
-        assert projected["artifacts_produced"] == ["spec.md"]
+        assert projected["artifacts_produced"] == ["shape.md"]
         assert projected["key_decisions"] == "Chose update_entity over new complete_phase param."
         assert projected["reviewer_feedback_summary"] == "LGTM after AC-3 gap fix."
         assert projected["rework_trigger"] is None
@@ -4827,6 +4885,200 @@ class TestProjectMetaJson:
             meta2 = json.load(f)
         # The re-projected data should still have the original value
         assert meta2["phase_summaries"][0]["phase"] == "specify"
+
+    # -- Feature 123 D5: kind-dispatch --
+
+    def test_project_kind_builds_project_shape(self, db, tmp_path):
+        """D5: project kind builds PROJECT shape (id/slug/status/created/
+        features/milestones/brainstorm_source), not the feature shape."""
+        project_dir = os.path.join(str(tmp_path), "projects", "P02-widget")
+        os.makedirs(project_dir, exist_ok=True)
+        metadata = {
+            "features": ["feature:001-a"],
+            "milestones": ["m1", "m2"],
+            "brainstorm_source": "brainstorm:002-source",
+        }
+        db.register_entity(
+            "project", "P02-widget", "widget",
+            artifact_path=project_dir,
+            status="active",
+            metadata=metadata,
+            project_id="__unknown__",
+        )
+
+        result = _project_meta_json(db, None, "project:P02-widget", project_dir)
+        assert result is None
+
+        with open(os.path.join(project_dir, ".meta.json")) as f:
+            meta = json.load(f)
+        created = meta.pop("created", None)
+        assert meta == {
+            "id": "P02",
+            "slug": "widget",
+            "status": "active",
+            "features": ["feature:001-a"],
+            "milestones": ["m1", "m2"],
+            "brainstorm_source": "brainstorm:002-source",
+        }
+        assert created  # DB entities.created_at is NOT NULL -- always truthy
+
+    def test_project_kind_omits_brainstorm_source_when_absent(self, db, tmp_path):
+        """D5: brainstorm_source is optional -- omitted (not null) when the
+        project has none, matching init_project_state's own convention."""
+        project_dir = os.path.join(str(tmp_path), "projects", "P03-nosource")
+        os.makedirs(project_dir, exist_ok=True)
+        metadata = {"features": [], "milestones": []}
+        db.register_entity(
+            "project", "P03-nosource", "nosource",
+            artifact_path=project_dir,
+            status="active",
+            metadata=metadata,
+            project_id="__unknown__",
+        )
+
+        result = _project_meta_json(db, None, "project:P03-nosource", project_dir)
+        assert result is None
+
+        with open(os.path.join(project_dir, ".meta.json")) as f:
+            meta = json.load(f)
+        assert "brainstorm_source" not in meta
+        assert meta["features"] == []
+        assert meta["milestones"] == []
+
+    def test_other_kind_is_noop_without_writing(self, db, tmp_path):
+        """D5: kinds with no .meta.json contract (e.g. task) are a defensive
+        no-op -- no file written, no exception, even with an artifact_path
+        set (the exact latent-clobber shape the design calls out)."""
+        task_dir = os.path.join(str(tmp_path), "tasks", "001-noop")
+        os.makedirs(task_dir, exist_ok=True)
+        db.register_entity(
+            "task", "001-noop", "noop",
+            artifact_path=task_dir,
+            status="active",
+            project_id="__unknown__",
+        )
+        db.create_workflow_phase("task:001-noop", workflow_phase="define")
+
+        result = _project_meta_json(db, None, "task:001-noop", task_dir)
+        assert result is None
+        assert not os.path.exists(os.path.join(task_dir, ".meta.json"))
+
+
+# ---------------------------------------------------------------------------
+# Feature 123 SC2 (red-first): project-kind projection must not clobber
+# features/milestones with the feature-shaped writer (design D5/H1).
+# ---------------------------------------------------------------------------
+
+
+class TestProjectKindProjectionPreservesShape:
+    """SC2: project-kind transitions/completions/reprojects must preserve
+    PROJECT .meta.json shape (features/milestones), never clobber with the
+    feature-shaped writer. RED-FIRST (pre-D5): each of the three entry
+    points below overwrites with feature shape unconditionally, losing
+    features/milestones (H1's clobber hazard). POST-D5: project shape is
+    retained, features/milestones byte-preserved, status updated.
+    """
+
+    @staticmethod
+    def _seed_project(db, tmp_path, *, phase="discover"):
+        project_dir = os.path.join(str(tmp_path), "projects", "P01-demo")
+        os.makedirs(project_dir, exist_ok=True)
+        metadata = {
+            "id": "P01",
+            "slug": "demo",
+            "features": ["feature:001-a", "feature:002-b"],
+            "milestones": ["m1", "m2"],
+            "brainstorm_source": "brainstorm:001-source",
+        }
+        db.register_entity(
+            "project", "P01-demo", "demo",
+            artifact_path=project_dir,
+            status="active",
+            metadata=metadata,
+            project_id="__unknown__",
+        )
+        db.create_workflow_phase(
+            "project:P01-demo", workflow_phase=phase, mode="standard",
+        )
+        # A real PROJECT-shaped .meta.json already on disk, simulating
+        # init_project_state's original write (feature_lifecycle.py:293-306).
+        meta_path = os.path.join(project_dir, ".meta.json")
+        with open(meta_path, "w") as f:
+            json.dump({
+                "id": "P01",
+                "slug": "demo",
+                "status": "active",
+                "created": "2026-01-01T00:00:00+00:00",
+                "features": ["feature:001-a", "feature:002-b"],
+                "milestones": ["m1", "m2"],
+                "brainstorm_source": "brainstorm:001-source",
+            }, f)
+        return "project:P01-demo", project_dir
+
+    def test_transition_phase_preserves_project_shape(self, db, tmp_path):
+        """transition_phase on a project: id must not clobber features/
+        milestones -- TODAY it does (no kind gate on the projector)."""
+        type_id, project_dir = self._seed_project(db, tmp_path, phase="discover")
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        entity_engine = EntityWorkflowEngine(db, str(tmp_path))
+
+        result = _process_transition_phase(
+            engine, type_id, "define", False,
+            db=db, entity_engine=entity_engine,
+        )
+        data = json.loads(result)
+        assert data["transitioned"] is True
+
+        with open(os.path.join(project_dir, ".meta.json")) as f:
+            meta = json.load(f)
+        assert meta["features"] == ["feature:001-a", "feature:002-b"], (
+            f"features lost -- clobbered by feature-shaped writer: {meta!r}"
+        )
+        assert meta["milestones"] == ["m1", "m2"], (
+            f"milestones lost -- clobbered by feature-shaped writer: {meta!r}"
+        )
+
+    def test_complete_phase_preserves_project_shape(self, db, tmp_path):
+        """complete_phase on a project: id must not clobber features/
+        milestones -- TODAY it does (no kind gate on the projector)."""
+        type_id, project_dir = self._seed_project(db, tmp_path, phase="discover")
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        entity_engine = EntityWorkflowEngine(db, str(tmp_path))
+
+        result = _process_complete_phase(
+            engine, type_id, "discover",
+            db=db, entity_engine=entity_engine,
+        )
+        data = json.loads(result)
+        assert "error" not in data, f"unexpected error envelope: {data!r}"
+
+        with open(os.path.join(project_dir, ".meta.json")) as f:
+            meta = json.load(f)
+        assert meta["features"] == ["feature:001-a", "feature:002-b"], (
+            f"features lost -- clobbered by feature-shaped writer: {meta!r}"
+        )
+        assert meta["milestones"] == ["m1", "m2"], (
+            f"milestones lost -- clobbered by feature-shaped writer: {meta!r}"
+        )
+
+    def test_reproject_meta_json_preserves_project_shape(self, db, tmp_path):
+        """reproject_meta_json on a project: id must not clobber features/
+        milestones -- TODAY it does (no kind gate on the projector)."""
+        type_id, project_dir = self._seed_project(db, tmp_path, phase="discover")
+        engine = WorkflowStateEngine(db, str(tmp_path))
+
+        result = _process_reproject_meta_json(engine, db, str(tmp_path), type_id)
+        data = json.loads(result)
+        assert data["projected"] is True, f"unexpected envelope: {data!r}"
+
+        with open(os.path.join(project_dir, ".meta.json")) as f:
+            meta = json.load(f)
+        assert meta["features"] == ["feature:001-a", "feature:002-b"], (
+            f"features lost -- clobbered by feature-shaped writer: {meta!r}"
+        )
+        assert meta["milestones"] == ["m1", "m2"], (
+            f"milestones lost -- clobbered by feature-shaped writer: {meta!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -5028,7 +5280,7 @@ class TestInitFeatureState:
     # -- Kanban column lifecycle tests (AC-6) --------------------------------
 
     def test_init_feature_state_active_sets_kanban_from_phase(self, db, tmp_path):
-        """Active feature init sets kanban_column from phase via derive_kanban.
+        """Active feature init sets kanban_column from phase via _kanban_column_for.
         Initial phase is brainstorm -> kanban_column = 'backlog'.
         derived_from: spec:AC-6, feature:052 AC-4
         """
@@ -6327,7 +6579,7 @@ class TestTransitionEntityPhase:
         db._conn.commit()
 
     def test_transition_brainstorm_draft_to_reviewing(self, db):
-        """Forward transition: draft -> reviewing, kanban_column -> agent_review."""
+        """Forward transition: draft -> reviewing, kanban_column -> wip."""
         self._seed_entity_with_workflow(db, "brainstorm", "idea-1", "draft", "wip")
         result = json.loads(
             _process_transition_entity_phase(db, "brainstorm:idea-1", "reviewing")
@@ -6335,7 +6587,7 @@ class TestTransitionEntityPhase:
         assert result["transitioned"] is True
         assert result["from_phase"] == "draft"
         assert result["to_phase"] == "reviewing"
-        assert result["kanban_column"] == "agent_review"
+        assert result["kanban_column"] == "wip"
 
     def test_transition_brainstorm_reviewing_to_promoted(self, db):
         """Terminal forward: reviewing -> promoted, kanban_column -> completed."""
@@ -6551,7 +6803,7 @@ class TestTransitionEntityPhaseDeepened:
         # All brainstorm transitions: draft->reviewing, draft->abandoned,
         # reviewing->promoted, reviewing->draft, reviewing->abandoned
         transitions = [
-            ("draft", "reviewing", "agent_review"),
+            ("draft", "reviewing", "wip"),
             ("draft", "abandoned", "completed"),
         ]
         for i, (from_phase, to_phase, expected_kanban) in enumerate(transitions):
@@ -6803,7 +7055,7 @@ class TestKanbanColumnLifecycle:
 
         # Create spec.md artifact required by hard-prerequisite gate for design
         feat_dir = os.path.join(str(tmp_path), "features", "200-kanban-trans")
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity(
             type_id, artifact_path=feat_dir,
@@ -6922,7 +7174,7 @@ class TestKanbanColumnLifecycleDeepened:
     def test_init_feature_state_completed_status_sets_kanban_completed(self, db, tmp_path):
         """Init with status='completed' should set kanban_column to 'completed'.
 
-        Anticipate: If derive_kanban doesn't handle 'completed' status or
+        Anticipate: If _kanban_column_for doesn't handle 'completed' status or
         the update_workflow_phase call is skipped, kanban stays at default 'backlog'.
         derived_from: spec:AC-6 (init-time kanban from status)
         """
@@ -6947,7 +7199,7 @@ class TestKanbanColumnLifecycleDeepened:
     def test_init_feature_state_abandoned_status_sets_kanban_completed(self, db, tmp_path):
         """Init with status='abandoned' should set kanban_column to 'completed'.
 
-        Anticipate: 'abandoned' maps to 'completed' via derive_kanban.
+        Anticipate: 'abandoned' maps to 'completed' via _kanban_column_for.
         If the mapping is missing, kanban would stay at 'backlog'.
         derived_from: spec:AC-6 (init-time kanban from status)
         """
@@ -6974,7 +7226,7 @@ class TestKanbanColumnLifecycleDeepened:
     def test_complete_finish_kanban_is_completed_not_documenting(self, db, tmp_path):
         """Completing finish must set kanban to 'completed', not 'documenting'.
 
-        Anticipate: If complete_phase uses derive_kanban with 'active' status
+        Anticipate: If complete_phase uses _kanban_column_for with 'active' status
         instead of 'completed' for finish, kanban would be
         'documenting' (the phase mapping for 'finish').
         derived_from: dimension:mutation_mindset (arithmetic swap)
@@ -7004,7 +7256,7 @@ class TestKanbanColumnLifecycleDeepened:
     def test_transition_uses_target_phase_not_current_phase(self, db, tmp_path):
         """Transition kanban must come from the TARGET phase, not the source.
 
-        Anticipate: If code uses current_phase for derive_kanban lookup
+        Anticipate: If code uses current_phase for the _kanban_column_for lookup
         instead of target_phase, kanban would stay 'backlog' (specify's column)
         instead of becoming 'prioritised' (design's column).
         derived_from: dimension:mutation_mindset (return value mutation)
@@ -7014,7 +7266,7 @@ class TestKanbanColumnLifecycleDeepened:
             db, tmp_path, 305, "mut-trans", "specify", kanban="backlog",
         )
         feat_dir = os.path.join(str(tmp_path), "features", "305-mut-trans")
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity(
             type_id, artifact_path=feat_dir,
@@ -7070,15 +7322,23 @@ class TestKanbanColumnLifecycleDeepened:
 
 
 # ---------------------------------------------------------------------------
-# Feature 052: derive_kanban integration (AC-4)
+# Feature 052: kanban derivation integration (AC-4). RE-PINNED at feature
+# 132 task 4 (D6.1-.3): the shared workflow_engine.kanban module (and its
+# oracle-function-call assertion style) is retired — this class now
+# asserts stored-value equality (the exact expected literal) instead of
+# computing an oracle value via an imported function at test time.
 # ---------------------------------------------------------------------------
 
 
-class TestCompletePhaseKanbanMatchesDeriveKanban:
-    """Integration test: complete_phase kanban_column must match derive_kanban output.
+class TestCompletePhaseKanbanStoredValue:
+    """Integration test: complete_phase kanban_column must match the
+    stored expected value for (status, phase).
 
     Verifies the single source of truth for kanban derivation after
-    replacing FEATURE_PHASE_TO_KANBAN and STATUS_TO_KANBAN with derive_kanban().
+    replacing FEATURE_PHASE_TO_KANBAN and STATUS_TO_KANBAN with a
+    dedicated derivation helper (the shared workflow_engine.kanban
+    module's function, historically; now this module's own private
+    _kanban_column_for, since feature 132 D6.1-.3 retired that module).
     derived_from: feature:052, AC-4
     """
 
@@ -7103,13 +7363,12 @@ class TestCompletePhaseKanbanMatchesDeriveKanban:
         engine = WorkflowStateEngine(db, str(tmp_path))
         return engine, type_id
 
-    def test_complete_specify_kanban_matches_derive_kanban(self, db, tmp_path):
-        """Completing specify advances to design; kanban must match derive_kanban('active', 'design').
+    def test_complete_specify_kanban_is_prioritised(self, db, tmp_path):
+        """Completing specify advances to design; kanban must be 'prioritised'
+        (the stored active+design mapping).
 
         derived_from: feature:052, AC-4 (single source of truth)
         """
-        from workflow_engine.kanban import derive_kanban
-
         engine, type_id = self._setup_feature(
             db, tmp_path, 400, "dk-specify", "specify", kanban="backlog",
         )
@@ -7122,18 +7381,17 @@ class TestCompletePhaseKanbanMatchesDeriveKanban:
         assert data["current_phase"] == "design"
 
         wp = db.get_workflow_phase(type_id)
-        expected = derive_kanban("active", "design")
-        assert wp["kanban_column"] == expected, (
-            f"Expected kanban '{expected}' from derive_kanban, got '{wp['kanban_column']}'"
+        assert wp["kanban_column"] == "prioritised", (
+            f"Expected kanban 'prioritised' (active+design), got '{wp['kanban_column']}'"
         )
 
-    def test_complete_finish_kanban_matches_derive_kanban(self, db, tmp_path):
-        """Completing finish sets status completed; kanban must match derive_kanban('completed', 'finish').
+    def test_complete_finish_kanban_is_completed(self, db, tmp_path):
+        """Completing finish sets status completed; kanban must be 'completed'
+        (the stored terminal-status mapping, overriding the phase-based
+        'documenting' finish would otherwise produce).
 
         derived_from: feature:052, AC-4 (single source of truth)
         """
-        from workflow_engine.kanban import derive_kanban
-
         engine, type_id = self._setup_feature(
             db, tmp_path, 401, "dk-finish", "finish", kanban="documenting",
         )
@@ -7146,9 +7404,8 @@ class TestCompletePhaseKanbanMatchesDeriveKanban:
         assert "error" not in data
 
         wp = db.get_workflow_phase(type_id)
-        expected = derive_kanban("completed", "finish")
-        assert wp["kanban_column"] == expected, (
-            f"Expected kanban '{expected}' from derive_kanban, got '{wp['kanban_column']}'"
+        assert wp["kanban_column"] == "completed", (
+            f"Expected kanban 'completed' (terminal status), got '{wp['kanban_column']}'"
         )
 
 
@@ -7444,6 +7701,184 @@ class TestListFeaturesByDefaultSingleWorkspace:
         )
 
 
+class TestListFeaturesByPhaseWorkspaceScopingContract:
+    """Feature 129 Task 4 / design D4: resolve-then-pass-down replaces
+    post-filtering for list_features_by_phase/status.
+
+    Design Testing Strategy #6: non-orphan outputs are IDENTICAL (full
+    envelope) to the pre-change post-filter shape; PLUS an explicit
+    orphan-inclusion pin -- the ONE declared output change (orphan
+    workflow_phases rows are now RETAINED on the scoped phase path, where
+    the old post-filter used to drop them via
+    ``get_entity(orphan) -> None -> dropped``).
+    """
+
+    def test_scoped_non_orphan_output_matches_expected_envelope(self, tmp_path):
+        """Scoped list_features_by_phase envelope is field-by-field
+        identical to the pre-change shape for a no-orphan fixture."""
+        import asyncio
+        import workflow_state_server as wss
+
+        db = EntityDatabase(str(tmp_path / "ws.db"))
+        from entity_registry.test_helpers import bootstrap_test_workspace
+        ws_a = bootstrap_test_workspace(db, "ws_contract_a")
+        ws_b = bootstrap_test_workspace(db, "ws_contract_b")
+
+        db.register_entity(
+            entity_type="feature", entity_id="020-alpha", name="alpha",
+            status="active", workspace_uuid=ws_a,
+        )
+        db.create_workflow_phase(
+            "feature:020-alpha", workflow_phase="specify", kanban_column="wip",
+        )
+        db.register_entity(
+            entity_type="feature", entity_id="020-beta", name="beta",
+            status="active", workspace_uuid=ws_b,
+        )
+        db.create_workflow_phase(
+            "feature:020-beta", workflow_phase="specify", kanban_column="wip",
+        )
+
+        wss._db = db
+        wss._db_unavailable = False
+        wss._engine = WorkflowStateEngine(db, "docs")
+        wss._workspace_uuid = ws_a
+
+        result = asyncio.run(wss.list_features_by_phase("specify", project_id=""))
+        entries = json.loads(result)
+        assert entries == [
+            {
+                "feature_type_id": "feature:020-alpha",
+                "current_phase": "specify",
+                "last_completed_phase": None,
+                "mode": None,
+                "degraded": False,
+            }
+        ], (
+            f"Scoped non-orphan envelope must be byte-identical to the "
+            f"pre-change post-filter shape, got {entries!r}"
+        )
+
+    def test_orphan_row_retained_on_scoped_phase_path(self, tmp_path):
+        """Declared D4 output change: an orphaned workflow_phases row (no
+        matching entity) is now RETAINED on the scoped phase path -- the
+        old post-filter dropped it via get_entity(orphan) -> None."""
+        import asyncio
+        import workflow_state_server as wss
+        from entity_registry.database import _UNKNOWN_WORKSPACE_UUID
+
+        db = EntityDatabase(str(tmp_path / "ws.db"))
+        from entity_registry.test_helpers import bootstrap_test_workspace
+        ws_a = bootstrap_test_workspace(db, "ws_orphan_a")
+
+        db.register_entity(
+            entity_type="feature", entity_id="021-owner", name="owner",
+            status="active", workspace_uuid=ws_a,
+        )
+        db.create_workflow_phase(
+            "feature:021-owner", workflow_phase="specify", kanban_column="wip",
+        )
+
+        # Orphan workflow_phases row: no matching entity. Pass workspace_uuid
+        # explicitly to bypass wp_reject_orphaned_insert.
+        db._conn.execute("PRAGMA foreign_keys = OFF")
+        db._conn.execute(
+            "INSERT INTO workflow_phases "
+            "(type_id, kanban_column, workflow_phase, updated_at, workspace_uuid) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("feature:021-ghost", "wip", "specify", "2026-01-01T00:00:00Z",
+             _UNKNOWN_WORKSPACE_UUID),
+        )
+        db._conn.commit()
+        db._conn.execute("PRAGMA foreign_keys = ON")
+
+        wss._db = db
+        wss._db_unavailable = False
+        wss._engine = WorkflowStateEngine(db, "docs")
+        wss._workspace_uuid = ws_a
+
+        result = asyncio.run(wss.list_features_by_phase("specify", project_id=""))
+        entries = json.loads(result)
+        type_ids = {e["feature_type_id"] for e in entries}
+        assert type_ids == {"feature:021-owner", "feature:021-ghost"}, (
+            f"Orphan row must be RETAINED on the scoped path (D4), got {type_ids}"
+        )
+
+    def test_mixed_fixture_scoped_returns_exact_row_multiset_with_orphan_and_cross_workspace_exclusion(
+        self, tmp_path
+    ):
+        """Combines a target-workspace pair, an other-workspace entity
+        (must be EXCLUDED), AND an orphan row (must be RETAINED) in ONE
+        fixture -- the two tests above each isolate ONE of these facts
+        in isolation; this pins their INTERACTION. Kills a mutation
+        where e.g. a JOIN-cardinality bug double-counts the orphan once
+        a second workspace's rows are present in the same phase, or
+        where the presence of cross-workspace rows somehow suppresses
+        the `OR e.uuid IS NULL` orphan arm.
+        derived_from: dimension:mutation_mindset, design:D4 (declared
+                      orphan inclusion), design:Testing Strategy #6
+        """
+        import asyncio
+        import workflow_state_server as wss
+        from entity_registry.database import _UNKNOWN_WORKSPACE_UUID
+
+        db = EntityDatabase(str(tmp_path / "ws.db"))
+        from entity_registry.test_helpers import bootstrap_test_workspace
+        ws_a = bootstrap_test_workspace(db, "ws_mixed_a")
+        ws_b = bootstrap_test_workspace(db, "ws_mixed_b")
+
+        # Target workspace: TWO entities on the queried phase.
+        db.register_entity(
+            entity_type="feature", entity_id="022-alpha", name="alpha",
+            status="active", workspace_uuid=ws_a,
+        )
+        db.create_workflow_phase(
+            "feature:022-alpha", workflow_phase="specify", kanban_column="wip",
+        )
+        db.register_entity(
+            entity_type="feature", entity_id="022-gamma", name="gamma",
+            status="active", workspace_uuid=ws_a,
+        )
+        db.create_workflow_phase(
+            "feature:022-gamma", workflow_phase="specify", kanban_column="wip",
+        )
+        # Other workspace: must be EXCLUDED.
+        db.register_entity(
+            entity_type="feature", entity_id="022-beta", name="beta",
+            status="active", workspace_uuid=ws_b,
+        )
+        db.create_workflow_phase(
+            "feature:022-beta", workflow_phase="specify", kanban_column="wip",
+        )
+        # Orphan row: must be RETAINED.
+        db._conn.execute("PRAGMA foreign_keys = OFF")
+        db._conn.execute(
+            "INSERT INTO workflow_phases "
+            "(type_id, kanban_column, workflow_phase, updated_at, workspace_uuid) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("feature:022-ghost", "wip", "specify", "2026-01-01T00:00:00Z",
+             _UNKNOWN_WORKSPACE_UUID),
+        )
+        db._conn.commit()
+        db._conn.execute("PRAGMA foreign_keys = ON")
+
+        wss._db = db
+        wss._db_unavailable = False
+        wss._engine = WorkflowStateEngine(db, "docs")
+        wss._workspace_uuid = ws_a
+
+        result = asyncio.run(wss.list_features_by_phase("specify", project_id=""))
+        entries = json.loads(result)
+        assert len(entries) == 3, (
+            f"Expected exactly 3 rows (2 ws_a entities + 1 orphan, ws_b "
+            f"excluded) with no duplication, got {len(entries)}: {entries!r}"
+        )
+        type_ids = {e["feature_type_id"] for e in entries}
+        assert type_ids == {
+            "feature:022-alpha", "feature:022-gamma", "feature:022-ghost",
+        }, f"Expected exactly {{alpha, gamma, ghost}}, got {type_ids}"
+
+
 class TestWorkspaceUuidEmptyStringNormalization:
     """FR-6: empty-string ``_workspace_uuid`` normalizes to None at db.* boundary.
 
@@ -7516,7 +7951,7 @@ class TestWorkspaceUuidEmptyStringNormalization:
             feature_dir = os.path.join(str(tmp_path), "features", "201-empty-ws-tx")
             os.makedirs(feature_dir, exist_ok=True)
             # Pre-create spec.md so G-08 hard prereq passes for design transition
-            with open(os.path.join(feature_dir, "spec.md"), "w") as f:
+            with open(os.path.join(feature_dir, "shape.md"), "w") as f:
                 f.write("# Spec\n")
 
             init_result = _process_init_feature_state(
@@ -7553,85 +7988,142 @@ class TestWorkspaceUuidEmptyStringNormalization:
             )
 
 
-class TestFilterStatesByWorkspaceExceptionHandling:
-    """FR-7: _filter_states_by_workspace narrows its except clause.
+class TestQueryReadyTasksWorkspaceScoping:
+    """Feature 129 Task 4 / design D5: query_ready_tasks scope end-to-end.
 
-    Pre-fix: ``except (json.JSONDecodeError, Exception):`` swallowed every
-    exception (including DB errors and bugs) and silently returned the
-    unfiltered cross-workspace JSON.
-
-    Post-fix:
-        - ``json.JSONDecodeError`` → return as-is (malformed engine output)
-        - ``sqlite3.OperationalError`` → ``_make_error`` JSON (db_unavailable)
-        - All other exceptions PROPAGATE to caller.
+    Design Testing Strategy #7: default (current-workspace) vs '*'
+    (cross-workspace) tool behavior; a cross-workspace blocker still
+    reports the task as blocked (dependency edges are deliberately
+    unscoped -- scoping candidates, not edges); an invalid project_id
+    returns 'invalid_project_id', not 'internal' (D5 isolated-try
+    requirement, mirroring the list_features_by_* siblings).
     """
 
-    def test_filter_states_db_error_returns_error_json(
-        self, tmp_path, monkeypatch,
-    ):
-        """OperationalError from db.get_entity → _make_error JSON (FR-7.1)."""
+    def _seed_ready_task(self, db, ws_uuid, suffix):
+        """Register a feature (in implement phase) + one ready task.
+
+        Returns the task's uuid.
+        """
+        type_id = f"feature:030-feat-{suffix}"
+        feature_uuid = db.register_entity(
+            entity_type="feature", entity_id=f"030-feat-{suffix}",
+            name=f"Feature {suffix}", status="active", workspace_uuid=ws_uuid,
+        )
+        db.create_workflow_phase(type_id, workflow_phase="implement")
+        task_uuid = db.register_entity(
+            entity_type="task", entity_id=f"031-task-{suffix}",
+            name=f"Task {suffix}", status="planned",
+            parent_uuid=feature_uuid, workspace_uuid=ws_uuid,
+        )
+        db.create_workflow_phase(f"task:031-task-{suffix}")
+        return task_uuid
+
+    def test_default_returns_current_workspace_tasks_only(self, tmp_path):
+        import asyncio
         import workflow_state_server as wss
 
         db = EntityDatabase(str(tmp_path / "ws.db"))
         from entity_registry.test_helpers import bootstrap_test_workspace
-        ws_a = bootstrap_test_workspace(db, "ws_a")
-        db.register_entity(
-            entity_type="feature",
-            entity_id="010-foo",
-            name="foo",
-            status="active",
-            workspace_uuid=ws_a,
+        ws_a = bootstrap_test_workspace(db, "ws_ready_a")
+        ws_b = bootstrap_test_workspace(db, "ws_ready_b")
+        task_a = self._seed_ready_task(db, ws_a, "a")
+        self._seed_ready_task(db, ws_b, "b")
+
+        wss._db = db
+        wss._db_unavailable = False
+        wss._engine = WorkflowStateEngine(db, "docs")
+        wss._workspace_uuid = ws_a
+
+        result = asyncio.run(wss.query_ready_tasks())
+        data = json.loads(result)
+        uuids = {t["uuid"] for t in data["tasks"]}
+        assert uuids == {task_a}, (
+            f"Default scope should return only ws_a's ready task, got {uuids}"
         )
 
-        def _boom(*args, **kwargs):
-            raise sqlite3.OperationalError("database is locked")
-
-        monkeypatch.setattr(db, "get_entity", _boom)
-        monkeypatch.setattr(wss, "_db", db)
-
-        results_json = json.dumps([
-            {"feature_type_id": "feature:010-foo"},
-        ])
-        out = wss._filter_states_by_workspace(results_json, ws_a)
-        parsed = json.loads(out)
-        assert parsed.get("error") is True, (
-            f"Expected _make_error JSON, got: {parsed!r}"
-        )
-        assert parsed.get("error_type") == "db_unavailable", (
-            f"Expected error_type='db_unavailable', got: {parsed!r}"
-        )
-        assert "database is locked" in parsed.get("message", ""), (
-            f"Expected exc message in response, got: {parsed!r}"
-        )
-
-    def test_filter_states_unexpected_error_propagates(
-        self, tmp_path, monkeypatch,
-    ):
-        """RuntimeError from db.get_entity must propagate (FR-7.1)."""
+    def test_star_returns_cross_workspace_tasks(self, tmp_path):
+        import asyncio
         import workflow_state_server as wss
 
         db = EntityDatabase(str(tmp_path / "ws.db"))
         from entity_registry.test_helpers import bootstrap_test_workspace
-        ws_a = bootstrap_test_workspace(db, "ws_a")
-        db.register_entity(
-            entity_type="feature",
-            entity_id="011-bar",
-            name="bar",
-            status="active",
-            workspace_uuid=ws_a,
+        ws_a = bootstrap_test_workspace(db, "ws_ready_star_a")
+        ws_b = bootstrap_test_workspace(db, "ws_ready_star_b")
+        task_a = self._seed_ready_task(db, ws_a, "sa")
+        task_b = self._seed_ready_task(db, ws_b, "sb")
+
+        wss._db = db
+        wss._db_unavailable = False
+        wss._engine = WorkflowStateEngine(db, "docs")
+        wss._workspace_uuid = ws_a
+
+        result = asyncio.run(wss.query_ready_tasks(project_id="*"))
+        data = json.loads(result)
+        uuids = {t["uuid"] for t in data["tasks"]}
+        assert uuids == {task_a, task_b}, (
+            f"'*' should return cross-workspace ready tasks, got {uuids}"
         )
 
-        def _boom(*args, **kwargs):
-            raise RuntimeError("unexpected")
+    def test_cross_workspace_blocker_still_honored(self, tmp_path):
+        """A task's blocker in another workspace still blocks it, even
+        though the candidate set is scoped to the task's own workspace
+        (dependency edges are deliberately unscoped -- scoping
+        candidates, not edges)."""
+        import asyncio
+        import workflow_state_server as wss
 
-        monkeypatch.setattr(db, "get_entity", _boom)
-        monkeypatch.setattr(wss, "_db", db)
+        db = EntityDatabase(str(tmp_path / "ws.db"))
+        from entity_registry.test_helpers import bootstrap_test_workspace
+        ws_a = bootstrap_test_workspace(db, "ws_ready_block_a")
+        ws_b = bootstrap_test_workspace(db, "ws_ready_block_b")
+        task_a = self._seed_ready_task(db, ws_a, "blocker-owner")
+        task_b_blocker = self._seed_ready_task(db, ws_b, "blocker")
 
-        results_json = json.dumps([
-            {"feature_type_id": "feature:011-bar"},
-        ])
-        with pytest.raises(RuntimeError, match="unexpected"):
-            wss._filter_states_by_workspace(results_json, ws_a)
+        # task_a is blocked by a task that lives in ws_b.
+        db.add_dependency(task_a, task_b_blocker)
+
+        wss._db = db
+        wss._db_unavailable = False
+        wss._engine = WorkflowStateEngine(db, "docs")
+        wss._workspace_uuid = ws_a
+
+        # Default scope: candidate set is ws_a-only (task_a), but task_a
+        # must still be excluded because its blocker (out-of-scope) is
+        # honored regardless of candidate scoping.
+        result = asyncio.run(wss.query_ready_tasks())
+        data = json.loads(result)
+        uuids = {t["uuid"] for t in data["tasks"]}
+        assert task_a not in uuids, (
+            "Cross-workspace blocker must still be honored -- edges are "
+            "deliberately unscoped"
+        )
+
+    def test_invalid_project_id_returns_invalid_project_id_not_internal(
+        self, tmp_path,
+    ):
+        """An invalid legacy project_id must surface 'invalid_project_id',
+        matching the list_features_by_* siblings -- NOT the generic
+        'internal' catch-all (D5 isolated-try requirement)."""
+        import asyncio
+        import workflow_state_server as wss
+
+        db = EntityDatabase(str(tmp_path / "ws.db"))
+        from entity_registry.test_helpers import bootstrap_test_workspace
+        ws_a = bootstrap_test_workspace(db, "ws_ready_bad_project")
+
+        wss._db = db
+        wss._db_unavailable = False
+        wss._engine = WorkflowStateEngine(db, "docs")
+        wss._workspace_uuid = ws_a
+
+        result = asyncio.run(wss.query_ready_tasks(project_id="ffffffffffff"))
+        data = json.loads(result)
+        assert data.get("error") is True, (
+            f"Invalid legacy hex must return error envelope, got {data!r}"
+        )
+        assert data.get("error_type") == "invalid_project_id", (
+            f"Expected error_type='invalid_project_id', got {data!r}"
+        )
 
 
 class TestSerializeStateDegradedLogicDeepened:
@@ -7728,7 +8220,7 @@ class TestReconcileFrontmatterBulkBoundaryDeepened:
             entity = db.get_entity(f"feature:{slug}")
             feat_dir = os.path.join(str(tmp_path), "features", slug)
             os.makedirs(feat_dir, exist_ok=True)
-            with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+            with open(os.path.join(feat_dir, "shape.md"), "w") as f:
                 f.write(
                     f"---\nentity_uuid: {entity['uuid']}\n"
                     f"entity_type_id: feature:{slug}\n---\n# Spec\n"
@@ -7757,7 +8249,7 @@ class TestReconcileFrontmatterBulkBoundaryDeepened:
             entity = db.get_entity(f"feature:{slug}")
             feat_dir = os.path.join(str(tmp_path), "features", slug)
             os.makedirs(feat_dir, exist_ok=True)
-            with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+            with open(os.path.join(feat_dir, "shape.md"), "w") as f:
                 f.write("# Spec\nNo frontmatter here.\n")
             db.update_entity(entity["uuid"], artifact_path=feat_dir)
 
@@ -7805,7 +8297,7 @@ class TestReconcileStatusHealthyWithFrontmatterDriftDeepened:
                 "phases": {"brainstorm": {"status": "completed"}},
             }, f)
         # spec.md has NO frontmatter -> triggers frontmatter drift
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\nNo frontmatter here.\n")
         db.update_entity(entity["uuid"], artifact_path=feat_dir)
 
@@ -7854,7 +8346,7 @@ class TestCheckArtifactCompleteness:
         feat_dir = os.path.join(str(tmp_path), "features", "201-noretro")
         os.makedirs(feat_dir, exist_ok=True)
         # Create all except retro.md
-        for name in ["spec.md", "tasks.md"]:
+        for name in ["shape.md", "plan.md"]:
             with open(os.path.join(feat_dir, name), "w") as f:
                 f.write("content")
 
@@ -7872,13 +8364,12 @@ class TestCheckArtifactCompleteness:
         assert len(warnings) == 1
         assert "retro.md" in warnings[0]
 
-    def test_full_mode_missing_design_and_plan_warns(self, db, tmp_path):
-        """Full mode missing design.md and plan.md produces two warnings."""
+    def test_full_mode_missing_plan_and_retro_warns(self, db, tmp_path):
+        """Full mode (134 inventory: shape/plan/retro) warns per missing file."""
         feat_dir = os.path.join(str(tmp_path), "features", "202-partial")
         os.makedirs(feat_dir, exist_ok=True)
-        for name in ["spec.md", "tasks.md", "retro.md"]:
-            with open(os.path.join(feat_dir, name), "w") as f:
-                f.write("content")
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
+            f.write("content")
 
         db.register_entity(
             "feature", "202-partial", "partial",
@@ -7892,8 +8383,8 @@ class TestCheckArtifactCompleteness:
 
         warnings = _check_artifact_completeness(db, "feature:202-partial")
         assert len(warnings) == 2
-        assert any("design.md" in w for w in warnings)
         assert any("plan.md" in w for w in warnings)
+        assert any("retro.md" in w for w in warnings)
 
     def test_full_mode_all_present_no_warnings(self, db, tmp_path):
         """Full mode with all expected artifacts produces no warnings."""
@@ -7921,7 +8412,7 @@ class TestCheckArtifactCompleteness:
         feat_dir = os.path.join(str(tmp_path), "features", "204-norow")
         os.makedirs(feat_dir, exist_ok=True)
         # Only spec.md present — standard expects spec.md, tasks.md, retro.md
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("content")
 
         db.register_entity(
@@ -7934,7 +8425,7 @@ class TestCheckArtifactCompleteness:
 
         warnings = _check_artifact_completeness(db, "feature:204-norow")
         assert len(warnings) == 2
-        assert any("tasks.md" in w for w in warnings)
+        assert any("plan.md" in w for w in warnings)
         assert any("retro.md" in w for w in warnings)
 
     def test_nonexistent_entity_returns_empty(self, db):
@@ -7976,7 +8467,7 @@ class TestCheckArtifactCompleteness:
         """Light mode with spec.md present -> no warnings (AC-15, Task 1b.10)."""
         feat_dir = os.path.join(str(tmp_path), "features", "207-light-ok")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("content")
 
         db.register_entity(
@@ -8010,11 +8501,11 @@ class TestCheckArtifactCompleteness:
 
         warnings = _check_artifact_completeness(db, "feature:208-light-nospec")
         assert len(warnings) == 1
-        assert "spec.md" in warnings[0]
+        assert "shape.md" in warnings[0]
 
     def test_light_mode_expected_artifacts_entry(self):
         """Light mode is registered in _EXPECTED_ARTIFACTS with only spec.md."""
-        assert _EXPECTED_ARTIFACTS.get("light") == ["spec.md"]
+        assert _EXPECTED_ARTIFACTS.get("light") == ["shape.md"]
 
 
 class TestCompletePhaseArtifactWarnings:
@@ -8028,7 +8519,7 @@ class TestCompletePhaseArtifactWarnings:
         with open(os.path.join(feat_dir, ".meta.json"), "w") as f:
             f.write('{"id": "210", "slug": "warn", "status": "active", "mode": "standard"}')
         # Create spec.md and tasks.md but NOT retro.md
-        for name in ["spec.md", "tasks.md"]:
+        for name in ["shape.md", "plan.md"]:
             with open(os.path.join(feat_dir, name), "w") as f:
                 f.write("content")
 
@@ -8171,7 +8662,7 @@ class TestTransitionPhaseAtomicRollback:
         db.update_entity succeeds; assert entity metadata is NOT persisted."""
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity(
             "feature:009-test",
@@ -8252,56 +8743,62 @@ class TestTransitionPhaseAtomicRollback:
             "transaction rollback not working (complete_phase)"
         )
 
-
-class TestTransitionPhaseDegradedInsideTransaction:
-    """AC-3: When engine returns degraded=True inside a transaction,
-    an OperationalError should be raised and the transaction rolled back."""
-
-    def test_transition_phase_degraded_raises_inside_transaction(
-        self, seeded_engine, db, tmp_path, monkeypatch
+    def test_complete_phase_finish_update_entity_failure_rolls_back_workflow_phase(
+        self, db, tmp_path
     ):
-        feat_dir = os.path.join(str(tmp_path), "features", "009-test")
-        os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
-            f.write("# Spec\n")
-        db.update_entity(
-            "feature:009-test",
-            artifact_path=feat_dir,
-            metadata={"id": "009", "slug": "test", "mode": "standard", "branch": "feature/009-test"},
+        """SC2 fault-injection (feature 128) -- the non-vacuous successor to
+        the test above, which injects on phase='specify' where the
+        finish-only entity-status sync never fires. This probe completes
+        phase 'finish' so engine.py's finish-status sync (self.db.update_entity)
+        actually runs: db.update_workflow_phase succeeds first, then
+        db.update_entity is mocked to raise. The whole MCP transaction
+        (:1126) must roll back -- workflow_phases unchanged -- and the
+        surfaced envelope must be db_unavailable (one probe covers SC2 + SC5,
+        per spec)."""
+        db.register_entity(
+            "feature", "011-finish-rollback", "Finish Rollback Test",
+            status="active", project_id="__unknown__",
         )
-
-        # Create a degraded response
-        degraded_response = TransitionResponse(
-            results=[
-                TransitionResult(
-                    allowed=True, reason="OK", severity=Severity.info, guard_id="G-01",
-                )
-            ],
-            degraded=True,
+        db.create_workflow_phase(
+            "feature:011-finish-rollback",
+            workflow_phase="finish", last_completed_phase="implement",
+            mode="standard",
         )
-        monkeypatch.setattr(
-            seeded_engine, "transition_phase", lambda *a, **kw: degraded_response
-        )
+        engine = WorkflowStateEngine(db, str(tmp_path))
 
-        # Snapshot metadata
-        entity_before = db.get_entity("feature:009-test")
-        metadata_before = entity_before["metadata"]
+        # Snapshot the workflow_phases row before the attempt.
+        row_before = db.get_workflow_phase("feature:011-finish-rollback")
 
-        result = _process_transition_phase(
-            seeded_engine, "feature:009-test", "design", False, db=db,
-        )
+        # update_workflow_phase succeeds; update_entity (the finish-only
+        # entity-status sync, engine.py's complete_phase) fails AFTER it.
+        original_update_entity = db.update_entity
 
-        # With atomic transactions + degraded check, the transaction should be
-        # rolled back and the result should indicate an error.
+        def exploding_update_entity(*args, **kwargs):
+            raise sqlite3.OperationalError("injected entity-sync failure")
+
+        db.update_entity = exploding_update_entity
+
+        try:
+            result = _process_complete_phase(
+                engine, "feature:011-finish-rollback", "finish", db=db,
+                iterations=None, reviewer_notes=None,
+            )
+        finally:
+            db.update_entity = original_update_entity
+
         data = json.loads(result)
-        assert data.get("error") is True, (
-            "Degraded response inside transaction should raise OperationalError "
-            "which _with_error_handling converts to an error response"
-        )
+        assert data["error"] is True
+        assert data["error_type"] == "db_unavailable"
+        assert "complete_phase" in data["message"]
+        assert "doctor" in data["message"]
 
-        # Metadata should not have been updated
-        entity_after = db.get_entity("feature:009-test")
-        assert entity_after["metadata"] == metadata_before
+        # The transaction must roll back update_workflow_phase's
+        # already-succeeded write -- no partially-advanced state visible.
+        row_after = db.get_workflow_phase("feature:011-finish-rollback")
+        assert row_after == row_before, (
+            "workflow_phases row changed despite update_entity failing inside "
+            "the same transaction -- rollback not working"
+        )
 
 
 class TestProjectMetaJsonCalledAfterTransaction:
@@ -8313,7 +8810,7 @@ class TestProjectMetaJsonCalledAfterTransaction:
     ):
         feat_dir = os.path.join(str(tmp_path), "features", "009-test")
         os.makedirs(feat_dir, exist_ok=True)
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         db.update_entity(
             "feature:009-test",
@@ -8719,9 +9216,17 @@ class TestPhaseEventsDualWrite:
         )
         assert len(events) == 1
         assert events[0]["phase"] == "brainstorm"
+        # Feature 134 QA blocker pin: the skipped append must NOT drag
+        # workflow_phase back — the TARGET phase is the resulting state.
+        # (Old Step 5 projected 'skipped' too: last-skipped-won and the
+        # transition silently failed to advance.)
+        row = db.get_workflow_phase("feature:dw-001")
+        assert row["workflow_phase"] == "specify", row
 
-    def test_ac16_insert_failure_does_not_break_transition(self, fresh_setup, monkeypatch, capsys):
-        """AC-16: insert_phase_event failure doesn't break transition."""
+    def test_append_failure_aborts_transition_atomically(self, fresh_setup, monkeypatch):
+        """Feature 134 #055 (inverts old AC-16): append_phase_event failure
+        ABORTS the whole transition — events are the primary record, so the
+        phase must NOT advance and metadata must NOT gain phase_timing."""
         db, engine = fresh_setup
 
         def raise_on_insert(**kwargs):
@@ -8734,18 +9239,16 @@ class TestPhaseEventsDualWrite:
             db=db,
         )
         data = json.loads(result)
-        assert data.get("transitioned") is True
+        # Fail-loud: no successful-transition envelope.
+        assert data.get("transitioned") is not True
 
-        # Metadata should still be updated
+        # Atomicity anchor (true only on the post-#055 path): the rolled-back
+        # transaction left NO phase_timing for the target phase.
         entity = db.get_entity("feature:dw-001")
-        metadata = json.loads(entity["metadata"])
-        assert "specify" in metadata.get("phase_timing", {})
-
-        # stderr should have warning (format updated per feature 088 FR-5.1).
-        captured = capsys.readouterr()
-        assert "phase_events dual-write failed for" in captured.err
-        # Response should also flag the partial failure (feature 088 FR-5.1).
-        assert data.get("phase_events_write_failed") is True
+        metadata = json.loads(entity["metadata"]) if entity.get("metadata") else {}
+        assert "specify" not in metadata.get("phase_timing", {})
+        # And the retired partial-failure flag is gone from the contract.
+        assert "phase_events_write_failed" not in data
 
     def test_ac19_metadata_still_has_phase_timing(self, fresh_setup, tmp_path):
         """AC-19 + AC-41 (FR-10.8): metadata retains phase_timing AFTER
@@ -9237,17 +9740,16 @@ class TestFeature088BundleE:
             )
         return db, engine
 
-    def test_dual_write_failure_commits_main_transaction(
-        self, fresh_setup, monkeypatch, capsys,
+    def test_append_failure_rolls_back_main_transaction(
+        self, fresh_setup, monkeypatch,
     ):
-        """AC-15 (FR-5.1): phase_events failure must NOT roll back entity update.
+        """Feature 134 #055 (inverts old AC-15): phase_events failure rolls
+        back the WHOLE transition transaction — no metadata write survives.
 
-        Monkeypatches ``append_phase_event`` to raise ``sqlite3.IntegrityError``,
-        calls ``transition_phase``, and asserts:
-        - entity metadata update persisted (query back)
-        - response has ``phase_events_write_failed: true``
-        - stderr matches the spec-mandated ``[workflow-state] phase_events
-          dual-write failed for`` format
+        Monkeypatches ``append_phase_event`` to raise ``sqlite3.IntegrityError``
+        and asserts the entity's metadata gained NO phase_timing for the
+        target phase (atomic abort), with no partial-failure flag in the
+        response contract.
         """
         db, engine = fresh_setup
 
@@ -9261,32 +9763,24 @@ class TestFeature088BundleE:
         )
         data = json.loads(result)
 
-        # Main transaction MUST have committed: transitioned + metadata landed.
-        assert data.get("transitioned") is True
-        assert data.get("phase_events_write_failed") is True
+        assert data.get("transitioned") is not True
+        assert "phase_events_write_failed" not in data
 
         entity = db.get_entity("feature:e-001")
-        metadata = json.loads(entity["metadata"])
-        assert "phase_timing" in metadata
-        assert "specify" in metadata["phase_timing"]
-        assert "started" in metadata["phase_timing"]["specify"]
-
-        # stderr warning matches spec format.
-        import re
-        captured = capsys.readouterr()
-        assert re.search(
-            r"\[workflow-state\] phase_events dual-write failed for",
-            captured.err,
-        ), f"stderr did not match expected pattern: {captured.err!r}"
+        metadata = json.loads(entity["metadata"]) if entity.get("metadata") else {}
+        assert "specify" not in metadata.get("phase_timing", {})
 
     def test_complete_phase_rejects_oversized_reviewer_notes(
         self, fresh_setup,
     ):
-        """AC-7 (FR-2.4): reviewer_notes >10000 chars returns structured error."""
+        """AC-7 (FR-2.4) + qa-server M3: the guard measures the SERIALIZED
+        payload (what the DB layer re-checks), so a VALID-JSON oversized
+        payload gets oversized_reviewer_notes; raw garbage that big is
+        invalid JSON and correctly maps to invalid_reviewer_notes."""
         db, engine = fresh_setup
 
-        # 20000 chars — well above the 10000 cap.
-        oversized = "x" * 20000
+        # Valid JSON whose serialized form is well above the 10000 cap.
+        oversized = json.dumps(["x" * 20000])
         result = _process_complete_phase(
             engine, "feature:e-001", "brainstorm",
             db=db, reviewer_notes=oversized,
@@ -9294,6 +9788,14 @@ class TestFeature088BundleE:
         data = json.loads(result)
         assert data.get("error") is True
         assert data.get("error_type") == "oversized_reviewer_notes"
+
+        # Raw non-JSON garbage of any size is an invalid-payload error.
+        result2 = _process_complete_phase(
+            engine, "feature:e-001", "brainstorm",
+            db=db, reviewer_notes="x" * 20000,
+        )
+        data2 = json.loads(result2)
+        assert data2.get("error_type") == "invalid_reviewer_notes"
         assert "exceeds 10000" in data.get("message", "")
 
         # F12 (feature 109): register_entity emits an entity_created phase_event,
@@ -9742,19 +10244,15 @@ class TestFeature088BundleH4:
     def test_dual_write_metadata_and_phase_events_consistency_on_partial_failure(
         self, h4_setup, monkeypatch,
     ):
-        """AC-43 / AC-15 strengthening: when phase_events dual-write fails,
-        the main transaction's metadata update MUST persist AND the response
-        MUST include ``phase_events_write_failed=True``.
-
-        Complements ``test_dual_write_failure_commits_main_transaction`` by
-        exercising ``_process_complete_phase`` (the complete-phase path)
-        rather than the transition path, and asserts consistency from both
-        sides (metadata present, phase_events absent).
+        """Feature 134 #055 (inverts old AC-43/AC-15): a phase_events failure
+        aborts the complete-phase transaction — NEITHER metadata NOR events
+        may land (atomicity from both sides), and the retired
+        ``phase_events_write_failed`` flag never appears.
         """
         db, engine = h4_setup
 
         def raise_on_insert(**kwargs):
-            raise sqlite3.OperationalError("simulated lock")
+            raise sqlite3.IntegrityError("simulated CHECK violation")
 
         monkeypatch.setattr(db, "append_phase_event", raise_on_insert)
 
@@ -9764,27 +10262,22 @@ class TestFeature088BundleH4:
         )
         data = json.loads(result)
 
-        # The complete_phase operation itself succeeded (metadata committed).
-        assert "error" not in data, f"unexpected error in response: {data!r}"
-        assert data.get("phase_events_write_failed") is True, (
-            f"expected phase_events_write_failed flag, got: {data!r}"
-        )
+        # Fail-loud contract: error envelope, no partial-failure flag.
+        assert "phase_events_write_failed" not in data
+        assert data.get("error"), f"expected error envelope, got: {data!r}"
 
-        # Metadata side: phase_timing landed despite the phase_events failure.
+        # Metadata side: the rolled-back transaction left NO completion stamp.
         entity = db.get_entity("feature:h4-001")
-        metadata = json.loads(entity["metadata"])
-        assert "phase_timing" in metadata
-        assert "completed" in metadata["phase_timing"]["brainstorm"]
+        metadata = json.loads(entity["metadata"]) if entity.get("metadata") else {}
+        assert "completed" not in metadata.get("phase_timing", {}).get("brainstorm", {})
 
-        # Phase-events side: no row was written (monkeypatch replaced the
-        # method with a raiser; the outer transaction does not fall back).
+        # Phase-events side: no row either (both sides of the old split-brain
+        # are empty — the fact true only on the atomic path).
         events = db.query_phase_events(
             type_id="feature:h4-001", phase="brainstorm",
             event_type="completed",
         )
-        assert events == [], (
-            f"phase_events row unexpectedly present after lock: {events!r}"
-        )
+        assert events == []
 
 
 # ---------------------------------------------------------------------------
@@ -9930,18 +10423,17 @@ class TestFeature089BundleE:
         )
         db.close()
 
-    # ---- AC-23 (#00165): dual-write failure row stays missing across runs ----
+    # ---- Feature 134 #055: append failure aborts; retry recovers with no gap ----
 
-    def test_dual_write_failure_row_remains_missing_after_subsequent_transition(
+    def test_append_failure_then_retry_leaves_no_event_gap(
         self, tmp_path, monkeypatch,
     ):
-        """AC-23 (#00165).
+        """Feature 134 #055 (inverts old AC-23/#00165).
 
-        When the first transition's phase_events dual-write fails
-        (simulated ``sqlite3.IntegrityError``), the main transaction
-        still commits the metadata update (FR-5.1).  A later successful
-        transition MUST NOT retroactively backfill the missing row — the
-        gap is permanent and surfaces via ``reconcile_check``.
+        When the first transition's phase_events append fails, the WHOLE
+        transition aborts (engine phase unchanged). Retrying the same
+        transition succeeds and writes its started row — the old
+        "permanent gap" cannot exist on the atomic path.
         """
         db = EntityDatabase(":memory:")
         _bootstrap_test_workspace(db, "P-e23")
@@ -9962,7 +10454,7 @@ class TestFeature089BundleE:
             )
         # Pre-create spec.md so Transition 2 (specify → design) passes
         # the G-08 hard-prerequisite guard.
-        with open(os.path.join(feat_dir, "spec.md"), "w") as f:
+        with open(os.path.join(feat_dir, "shape.md"), "w") as f:
             f.write("# Spec\n")
         engine = WorkflowStateEngine(db, str(tmp_path))
 
@@ -9978,45 +10470,39 @@ class TestFeature089BundleE:
 
         monkeypatch.setattr(db, "append_phase_event", failing_then_succeeding)
 
-        # Transition 1: brainstorm → specify.  First insert fails.
+        # Attempt 1: brainstorm → specify. First insert fails → atomic abort.
         result1 = _process_transition_phase(
             engine, "feature:089-e-23", "specify", False, db=db,
         )
         data1 = json.loads(result1)
-        assert data1.get("transitioned") is True, data1
-        assert data1.get("phase_events_write_failed") is True, (
-            f"expected phase_events_write_failed flag, got: {data1!r}"
-        )
+        assert data1.get("transitioned") is not True, data1
+        assert "phase_events_write_failed" not in data1
 
-        # Transition 2: specify → design.  Second insert succeeds.
+        # Retry: brainstorm → specify again — the engine phase rolled back,
+        # so the same transition is still valid; second insert call succeeds.
+        result1b = _process_transition_phase(
+            engine, "feature:089-e-23", "specify", False, db=db,
+        )
+        data1b = json.loads(result1b)
+        assert data1b.get("transitioned") is True, data1b
+
+        # Transition 2: specify → design.
         result2 = _process_transition_phase(
             engine, "feature:089-e-23", "design", False, db=db,
         )
         data2 = json.loads(result2)
         assert data2.get("transitioned") is True, data2
-        assert data2.get("phase_events_write_failed") is not True, (
-            f"second transition should not have flagged a failure: {data2!r}"
-        )
 
-        # Phase_events table MUST have EXACTLY ONE 'started' row for this
-        # feature — the design transition.  The specify transition's started
-        # row is permanently missing (not retroactively backfilled).
-        # F12 (feature 109): register_entity also emits an entity_created
-        # event, so filter to 'started' before counting.
+        # BOTH started rows exist — the atomic path leaves no gap.
+        # F12 (feature 109): register_entity also emits entity_created,
+        # so filter to 'started' before counting.
         all_rows = db.query_phase_events(type_id="feature:089-e-23")
-        rows = [r for r in all_rows if r["event_type"] == "started"]
-        assert len(rows) == 1, (
-            f"expected exactly 1 started phase_events row (design only); got "
-            f"{len(rows)}: {rows!r}"
+        rows = sorted(
+            (r for r in all_rows if r["event_type"] == "started"),
+            key=lambda r: r["id"],
         )
-        assert rows[0]["phase"] == "design"
-        assert rows[0]["event_type"] == "started"
-        # Specifically confirm the specify row is NOT present.
-        specify_rows = db.query_phase_events(
-            type_id="feature:089-e-23", phase="specify",
-        )
-        assert specify_rows == [], (
-            f"specify row must stay permanently missing, got: {specify_rows!r}"
+        assert [r["phase"] for r in rows] == ["specify", "design"], (
+            f"expected started rows for specify+design with no gap; got: {rows!r}"
         )
         db.close()
 
@@ -10270,16 +10756,15 @@ class TestFeature089BundleE:
     def test_reconcile_detects_drift_from_real_transition_failure(
         self, tmp_path, monkeypatch,
     ):
-        """AC-29 (#00171).
+        """AC-29 (#00171), re-sourced by feature 134 #055.
 
-        End-to-end integration:
-        1. Call ``transition_phase`` with ``append_phase_event``
-           monkeypatched to raise ``sqlite3.IntegrityError``.
-        2. Main transaction commits → ``metadata.phase_timing.specify.started``
-           persists, but phase_events has NO ``started`` row.
-        3. ``reconcile_check`` reports a
-           ``phase_events_missing_started`` drift entry for this
-           (type_id, 'specify').
+        The atomic events write means a live transition can no longer
+        produce metadata-without-events drift — but HISTORICAL gaps from
+        the pre-134 dual-write era exist in real databases, and
+        ``reconcile_check`` must still detect them. Produce the gap
+        surgically (raw SQL delete of the started row after a successful
+        transition) and assert the ``phase_events_missing_started`` drift
+        entry appears.
         """
         db = EntityDatabase(":memory:")
         _bootstrap_test_workspace(db, "P-e29")
@@ -10300,18 +10785,20 @@ class TestFeature089BundleE:
             )
         engine = WorkflowStateEngine(db, str(tmp_path))
 
-        # Step 1+2: transition with phase_events write failure.
-        def _raise_integrity(**kwargs):
-            raise sqlite3.IntegrityError("simulated failure")
-
-        monkeypatch.setattr(db, "append_phase_event", _raise_integrity)
-
+        # Step 1: a NORMAL successful transition (atomic path writes the row).
         transition_result = _process_transition_phase(
             engine, "feature:089-e-29", "specify", False, db=db,
         )
         t_data = json.loads(transition_result)
         assert t_data.get("transitioned") is True
-        assert t_data.get("phase_events_write_failed") is True
+
+        # Step 2: surgically remove the started row — simulating a
+        # pre-134 historical gap the dual-write era left behind.
+        db._conn.execute(
+            "DELETE FROM phase_events WHERE type_id='feature:089-e-29' "
+            "AND phase='specify' AND event_type='started'"
+        )
+        db._conn.commit()
 
         # Confirm the metadata was persisted (phase_timing.specify.started).
         entity = db.get_entity("feature:089-e-29")
@@ -10366,6 +10853,50 @@ class TestReconcileHandlersForwardWorkspaceUuid:
     Mutation pin: removing ``workspace_uuid=_workspace_uuid or None`` from
     any of the 3 async handler bodies fails the corresponding test.
     """
+
+    def test_reconcile_check_forwards_workspace_uuid(self, tmp_path, monkeypatch):
+        """FR133-2.ii pin (D4 three-layer thread): reconcile_check →
+        _process_reconcile_check → check_workflow_drift receives the
+        workspace_uuid kwarg.
+        """
+        import asyncio
+        import workflow_state_server as wss
+
+        db = EntityDatabase(str(tmp_path / "ws.db"))
+        from entity_registry.test_helpers import bootstrap_test_workspace
+        ws_a = bootstrap_test_workspace(db, "ws_a_reccheck")
+
+        wss._db = db
+        wss._db_unavailable = False
+        wss._engine = WorkflowStateEngine(db, str(tmp_path))
+        wss._workspace_uuid = ws_a
+        wss._artifacts_root = str(tmp_path)
+
+        captured: list[dict] = []
+
+        def capture_check(*args, **kwargs):
+            captured.append(dict(kwargs))
+            from workflow_engine.reconciliation import WorkflowDriftResult
+            return WorkflowDriftResult(
+                features=(),
+                summary={
+                    "in_sync": 0, "meta_json_ahead": 0, "db_ahead": 0,
+                    "meta_json_only": 0, "db_only": 0, "error": 0,
+                    "artifact_missing_count": 0,
+                },
+            )
+
+        monkeypatch.setattr(wss, "check_workflow_drift", capture_check)
+
+        result = asyncio.run(wss.reconcile_check())
+        data = json.loads(result)
+        assert "error" not in data, f"handler errored: {data!r}"
+
+        assert captured, "check_workflow_drift was never invoked"
+        assert captured[0].get("workspace_uuid") == ws_a, (
+            f"workspace_uuid not forwarded from reconcile_check; "
+            f"captured kwargs={captured!r}"
+        )
 
     def test_reconcile_apply_forwards_workspace_uuid(self, tmp_path, monkeypatch):
         """FR-11.3 pin: reconcile_apply → _process_reconcile_apply →
@@ -10486,3 +11017,586 @@ class TestReconcileHandlersForwardWorkspaceUuid:
             f"workspace_uuid not forwarded from reconcile_status; "
             f"captured kwargs={captured!r}"
         )
+
+
+class TestReprojectMetaJson:
+    """Feature 127 FR127-7 / design D4: the ``reproject_meta_json`` MCP
+    tool is the sanctioned re-projection path a caller invokes after a
+    DB-only status mutation (e.g. /pd:abandon-feature's ``update_entity``
+    call), now that direct ``.meta.json`` Writes are denied by the
+    sole-truth guard.
+    """
+
+    def test_reproject_via_ref_after_status_mutation_regenerates_abandoned_meta_json(
+        self, db, tmp_path
+    ):
+        """Happy path VIA ``ref=`` -- the exact shape abandon-feature uses
+        (a ``feature_type_id=`` call would be vacuous-green: it never
+        exercises ref resolution). A prior ``update_entity(status=
+        'abandoned')`` is what the projection picks up: the regenerated
+        ``.meta.json`` carries ``status: abandoned`` AND the terminal
+        top-level ``completed`` timestamp, and the envelope reports
+        ``projected: true``.
+        """
+        import asyncio
+        import workflow_state_server as wss
+
+        feature_dir = os.path.join(str(tmp_path), "features", "099-abandonme")
+        os.makedirs(feature_dir, exist_ok=True)
+        db.register_entity(
+            "feature", "099-abandonme", "abandonme",
+            artifact_path=feature_dir,
+            status="active",
+            metadata={
+                "id": "099", "slug": "abandonme",
+                "mode": "standard", "branch": "feature/099-abandonme",
+            },
+            project_id="__unknown__",
+        )
+        db.create_workflow_phase("feature:099-abandonme", workflow_phase="specify")
+
+        # abandon-feature's new Step 4 (sole status mutation) -- happens
+        # BEFORE reproject_meta_json is ever called.
+        db.update_entity(type_id="feature:099-abandonme", status="abandoned")
+
+        wss._db = db
+        wss._db_unavailable = False
+        wss._engine = WorkflowStateEngine(db, str(tmp_path))
+        wss._artifacts_root = str(tmp_path)
+
+        result = asyncio.run(wss.reproject_meta_json(ref="feature:099-abandonme"))
+        data = json.loads(result)
+        assert data["projected"] is True
+        assert data["feature_type_id"] == "feature:099-abandonme"
+        assert data["warning"] is None
+
+        meta_path = os.path.join(feature_dir, ".meta.json")
+        with open(meta_path) as f:
+            meta = json.load(f)
+        assert meta["status"] == "abandoned"
+        assert "completed" in meta
+
+    def test_reproject_unknown_ref_returns_invalid_ref_envelope(self, db, tmp_path):
+        """An unresolvable ref surfaces as ``invalid_ref`` -- resolved in
+        the TOOL BODY (the ``get_phase`` idiom), never mislabeled
+        ``invalid_transition`` by the handler's ``@_catch_value_error``.
+        """
+        import asyncio
+        import workflow_state_server as wss
+
+        wss._db = db
+        wss._db_unavailable = False
+        wss._engine = WorkflowStateEngine(db, str(tmp_path))
+        wss._artifacts_root = str(tmp_path)
+
+        result = asyncio.run(wss.reproject_meta_json(ref="feature:999-nope"))
+        data = json.loads(result)
+        assert data["error"] is True
+        assert data["error_type"] == "invalid_ref"
+
+    def test_reproject_db_read_sqlite_error_returns_db_unavailable_envelope(
+        self, db, tmp_path, monkeypatch
+    ):
+        """DB-down fault injection RAISES ``sqlite3.Error`` at the DB read
+        (``_project_meta_json``'s entity lookup) -- NEVER toggles the
+        module-global ``_db_unavailable``, which would yield a different
+        bare envelope with no ``error_type`` key.
+        """
+        import asyncio
+        import workflow_state_server as wss
+
+        db.register_entity(
+            "feature", "098-dbdown", "dbdown",
+            artifact_path=str(tmp_path), status="active",
+            project_id="__unknown__",
+        )
+
+        wss._db = db
+        wss._db_unavailable = False
+        wss._engine = WorkflowStateEngine(db, str(tmp_path))
+        wss._artifacts_root = str(tmp_path)
+
+        monkeypatch.setattr(
+            db, "get_entity",
+            lambda *a, **kw: (_ for _ in ()).throw(
+                sqlite3.OperationalError("database is locked")
+            ),
+        )
+
+        result = asyncio.run(wss.reproject_meta_json(ref="feature:098-dbdown"))
+        data = json.loads(result)
+        assert data["error"] is True
+        assert data["error_type"] == "db_unavailable"
+
+    def test_reproject_via_feature_type_id_direct_path_regenerates_meta_json(
+        self, db, tmp_path
+    ):
+        """feature_type_id= direct call path (ref=None) -- the ref= path is
+        covered by the happy-path test above; this pins that
+        `_resolve_ref_to_feature_type_id`'s OTHER branch (feature_type_id is
+        not None -> returned verbatim, `db.resolve_ref` never touched) also
+        projects correctly and shouldn't regress alongside the ref path.
+        Uses status='active' (non-terminal) as a complementary case to the
+        ref-path test's 'abandoned': the regenerated `.meta.json` must NOT
+        carry a top-level 'completed' key here -- a distinct behavior, not
+        merely a data variation of the same logical path.
+        """
+        import asyncio
+        import workflow_state_server as wss
+
+        feature_dir = os.path.join(str(tmp_path), "features", "097-directpath")
+        os.makedirs(feature_dir, exist_ok=True)
+        db.register_entity(
+            "feature", "097-directpath", "directpath",
+            artifact_path=feature_dir,
+            status="active",
+            metadata={
+                "id": "097", "slug": "directpath",
+                "mode": "standard", "branch": "feature/097-directpath",
+            },
+            project_id="__unknown__",
+        )
+        db.create_workflow_phase("feature:097-directpath", workflow_phase="specify")
+
+        wss._db = db
+        wss._db_unavailable = False
+        wss._engine = WorkflowStateEngine(db, str(tmp_path))
+        wss._artifacts_root = str(tmp_path)
+
+        result = asyncio.run(
+            wss.reproject_meta_json(feature_type_id="feature:097-directpath")
+        )
+        data = json.loads(result)
+        assert data["projected"] is True
+        assert data["feature_type_id"] == "feature:097-directpath"
+        assert data["warning"] is None
+
+        meta_path = os.path.join(feature_dir, ".meta.json")
+        with open(meta_path) as f:
+            meta = json.load(f)
+        assert meta["status"] == "active"
+        assert "completed" not in meta
+
+    def test_reproject_feature_type_id_takes_precedence_over_unresolvable_ref(
+        self, db, tmp_path
+    ):
+        """Design D4 (:1851): `_resolve_ref_to_feature_type_id` treats any
+        non-None `feature_type_id` as authoritative, returned verbatim
+        without ever calling `db.resolve_ref` -- when BOTH params are
+        provided, resolution must go via `feature_type_id`. Pinned with a
+        `ref` that CANNOT resolve (nonexistent entity): if the precedence
+        were ever reversed (ref checked/preferred first), this call would
+        fail with `invalid_ref` instead of succeeding.
+        """
+        import asyncio
+        import workflow_state_server as wss
+
+        feature_dir = os.path.join(str(tmp_path), "features", "095-winner")
+        os.makedirs(feature_dir, exist_ok=True)
+        db.register_entity(
+            "feature", "095-winner", "winner",
+            artifact_path=feature_dir,
+            status="active",
+            project_id="__unknown__",
+        )
+        db.create_workflow_phase("feature:095-winner", workflow_phase="specify")
+
+        wss._db = db
+        wss._db_unavailable = False
+        wss._engine = WorkflowStateEngine(db, str(tmp_path))
+        wss._artifacts_root = str(tmp_path)
+
+        result = asyncio.run(
+            wss.reproject_meta_json(
+                feature_type_id="feature:095-winner",
+                ref="feature:999-does-not-exist",
+            )
+        )
+        data = json.loads(result)
+        assert "error" not in data, f"feature_type_id should have won, got: {data!r}"
+        assert data["projected"] is True
+        assert data["feature_type_id"] == "feature:095-winner"
+
+    def test_reproject_entity_without_artifact_path_returns_projected_false_with_warning(
+        self, db, tmp_path
+    ):
+        """`_project_meta_json` surfaces a non-None warning when
+        `artifact_path` is unset (:400-403) -- no existing test drives this
+        branch; the 3 original tests all assert `warning is None` /
+        `projected: true`. A mutation hard-coding `"projected": True`
+        unconditionally (or dropping the `warning` key) would pass every
+        current test and only be caught here.
+        """
+        import asyncio
+        import workflow_state_server as wss
+
+        db.register_entity(
+            "feature", "096-noartifact", "noartifact",
+            status="active",
+            project_id="__unknown__",
+        )
+
+        wss._db = db
+        wss._db_unavailable = False
+        wss._engine = WorkflowStateEngine(db, str(tmp_path))
+        wss._artifacts_root = str(tmp_path)
+
+        result = asyncio.run(
+            wss.reproject_meta_json(feature_type_id="feature:096-noartifact")
+        )
+        data = json.loads(result)
+        assert data["projected"] is False
+        assert data["feature_type_id"] == "feature:096-noartifact"
+        assert data["warning"] is not None
+        assert "artifact_path" in data["warning"]
+
+    def test_reproject_feature_id_produces_exact_feature_shape_keys(
+        self, db, tmp_path,
+    ):
+        """SC2's 'no OTHER kind's projection behavior changes' claim,
+        pinned as an EXACT key-set assertion for the feature branch
+        through the D5 kind-dispatch -- complementing
+        test_project_kind_builds_project_shape's exact-dict pin on the
+        project side. With metadata carrying none of the OPTIONAL
+        feature-shape fields (no phase_timing/skipped_phases/backward_*/
+        phase_summaries/*_source -- :503-541), the base feature shape is
+        exactly 8 keys, INCLUDING the two unconditional
+        lastCompletedPhase/phases fields (:509-526, easy to miss on a
+        partial read of the function -- an earlier draft of this test
+        under-read the function and asserted only 6 keys). The real
+        target claim -- zero cross-contamination from D5's NEW
+        project-shape branch -- is asserted separately below.
+        derived_from: spec:SC2 (no other kind's projection changes),
+        dimension:mutation_mindset
+        """
+        feature_dir = os.path.join(str(tmp_path), "features", "222-shapecheck")
+        os.makedirs(feature_dir, exist_ok=True)
+        db.register_entity(
+            "feature", "222-shapecheck", "shapecheck",
+            artifact_path=feature_dir,
+            status="active",
+            metadata={
+                "id": "222", "slug": "shapecheck",
+                "mode": "standard", "branch": "feature/222-shapecheck",
+            },
+            project_id="__unknown__",
+        )
+        db.create_workflow_phase("feature:222-shapecheck", workflow_phase="specify")
+        engine = WorkflowStateEngine(db, str(tmp_path))
+
+        result = _process_reproject_meta_json(
+            engine, db, str(tmp_path), "feature:222-shapecheck",
+        )
+        data = json.loads(result)
+        assert data["projected"] is True
+
+        with open(os.path.join(feature_dir, ".meta.json")) as f:
+            meta = json.load(f)
+        assert set(meta.keys()) == {
+            "id", "slug", "mode", "status", "created", "branch",
+            "lastCompletedPhase", "phases",
+        }, (
+            f"feature-shape projection with no optional metadata set must "
+            f"carry EXACTLY these keys, got {sorted(meta)!r}"
+        )
+        assert meta["lastCompletedPhase"] is None
+        assert meta["phases"] == {}
+        # The actual D5 cross-contamination claim: none of the NEW
+        # project-shape keys leak into the feature branch's output.
+        assert "features" not in meta
+        assert "milestones" not in meta
+        assert "brainstorm_source" not in meta
+
+    def test_reproject_not_initialized_when_engine_and_db_unset(self):
+        """Tool-level guard: `reproject_meta_json` is a NEW handler beside
+        the 6 enumerated in `TestNotInitializedGuards` (source-inspection
+        only, and its hardcoded handler list doesn't include this tool) --
+        this is the first RUNTIME check (mirroring
+        `test_error_uninitialized_guard`'s idiom) that the guard actually
+        fires when the server hasn't started.
+        """
+        import asyncio
+        import workflow_state_server as wss
+
+        orig_engine = wss._engine
+        orig_db = wss._db
+        wss._engine = None
+        wss._db = None
+        try:
+            result = asyncio.run(
+                wss.reproject_meta_json(feature_type_id="feature:000-anything")
+            )
+            data = json.loads(result)
+            assert data["error"] is True
+            assert data["error_type"] == "not_initialized"
+        finally:
+            wss._engine = orig_engine
+            wss._db = orig_db
+
+
+# ---------------------------------------------------------------------------
+# Test-deepener (feature 123): _project_meta_json kind-dispatch, beyond the
+# existing TestProjectMetaJson coverage (project shape, brainstorm_source
+# omission, task-kind no-op). dimension:bdd_scenarios,
+# dimension:boundary_values, dimension:adversarial
+# ---------------------------------------------------------------------------
+
+
+class TestProjectMetaJsonKindDispatchDeepened:
+    """The existing test_other_kind_is_noop_without_writing only exercises
+    a 5D-non-project kind (task). This class adds a LIFECYCLE kind
+    (brainstorm) -- the exact 'today's would-have-been clobber victim' the
+    design cites -- plus two boundary cases inside the project-shape
+    branch itself (missing features/milestones KEYS; falsy created_at).
+    """
+
+    def test_brainstorm_kind_with_artifact_path_is_noop(self, db, tmp_path, capsys):
+        """A brainstorm entity WITH an artifact_path set (today's
+        would-have-been clobber victim per design D5) must be a defensive
+        no-op: no .meta.json written, no exception, and a structured
+        stderr log line naming the kind.
+        derived_from: design:D5 (no-op branch), dimension:bdd_scenarios
+
+        Anticipate: if the kind-dispatch `if kind not in ("feature",
+        "project")` guard were ever narrowed to an explicit tuple of only
+        5D kinds, a LIFECYCLE kind like brainstorm would fall through to
+        the feature-shape branch -- this is the only test in the suite
+        that would catch that (the existing no-op test uses "task", a 5D
+        kind, not a lifecycle kind).
+        """
+        # Given a brainstorm entity with an artifact_path set
+        brainstorm_dir = os.path.join(str(tmp_path), "brainstorms", "001-noop")
+        os.makedirs(brainstorm_dir, exist_ok=True)
+        db.register_entity(
+            "brainstorm", "001-noop", "noop",
+            artifact_path=brainstorm_dir,
+            status="draft",
+            project_id="__unknown__",
+        )
+
+        # When _project_meta_json is called for it
+        result = _project_meta_json(db, None, "brainstorm:001-noop", brainstorm_dir)
+
+        # Then it is a structured no-op: no warning, no file, a log line
+        assert result is None
+        assert not os.path.exists(os.path.join(brainstorm_dir, ".meta.json"))
+        err = capsys.readouterr().err
+        assert "no-op for kind='brainstorm'" in err
+
+    def test_project_missing_features_milestones_keys_defaults_to_empty_lists(
+        self, db, tmp_path,
+    ):
+        """metadata lacking 'features'/'milestones' KEYS entirely (distinct
+        from holding explicit empty lists, already covered by
+        test_project_kind_omits_brainstorm_source_when_absent) must still
+        project cleanly via the dict.get(..., []) fallback -- no KeyError.
+        derived_from: design:D5 (features/milestones from DB metadata),
+        dimension:boundary_values (Optional/nullable: missing key)
+        """
+        project_dir = os.path.join(str(tmp_path), "projects", "P04-nokeys")
+        os.makedirs(project_dir, exist_ok=True)
+        db.register_entity(
+            "project", "P04-nokeys", "nokeys",
+            artifact_path=project_dir,
+            status="active",
+            metadata={},  # no "features"/"milestones" keys at all
+            project_id="__unknown__",
+        )
+
+        result = _project_meta_json(db, None, "project:P04-nokeys", project_dir)
+        assert result is None
+
+        with open(os.path.join(project_dir, ".meta.json")) as f:
+            meta = json.load(f)
+        assert meta["features"] == []
+        assert meta["milestones"] == []
+        assert "brainstorm_source" not in meta
+
+    def test_project_missing_created_at_falls_back_to_iso_now(
+        self, db, tmp_path, monkeypatch,
+    ):
+        """entity.get('created_at') or _iso_now(): the DB column is NOT
+        NULL in practice (every existing test only ever observes the
+        truthy branch, per test_project_kind_builds_project_shape's own
+        "DB entities.created_at is NOT NULL -- always truthy" comment) --
+        this monkeypatches db.get_entity to simulate a falsy created_at
+        and pins that the fallback produces a usable timestamp rather
+        than writing None/"" to disk.
+        derived_from: design:D5 (created fallback pattern),
+        dimension:boundary_values (Optional/nullable: null)
+        """
+        project_dir = os.path.join(str(tmp_path), "projects", "P06-nocreated")
+        os.makedirs(project_dir, exist_ok=True)
+        db.register_entity(
+            "project", "P06-nocreated", "nocreated",
+            artifact_path=project_dir,
+            status="active",
+            metadata={"features": [], "milestones": []},
+            project_id="__unknown__",
+        )
+
+        real_get_entity = db.get_entity
+
+        def _get_entity_falsy_created(type_id):
+            entity = real_get_entity(type_id)
+            if entity is not None:
+                entity = dict(entity)
+                entity["created_at"] = None
+            return entity
+
+        monkeypatch.setattr(db, "get_entity", _get_entity_falsy_created)
+
+        result = _project_meta_json(db, None, "project:P06-nocreated", project_dir)
+        assert result is None
+
+        with open(os.path.join(project_dir, ".meta.json")) as f:
+            meta = json.load(f)
+        assert meta["created"], (
+            "falsy created_at must fall back to _iso_now(), not write "
+            "None/empty to disk"
+        )
+        assert "T" in meta["created"], "fallback must be an ISO 8601 timestamp"
+
+
+# ---------------------------------------------------------------------------
+# Test-deepener (feature 123 SC3): the MCP envelope for a 5D DB-error.
+# TestFiveDFailLoud (test_entity_engine.py) asserts at the
+# EntityWorkflowEngine layer per the plan's red-first placement (the MCP
+# envelope would have been vacuous THERE pre-fix -- the :925 guard/the
+# completion_failed branch already produced SOME structured error before
+# this feature). This closes the loop POST-fix: the MCP envelope's
+# error_type for a 5D DB failure is NOW specifically 'db_unavailable', and
+# the transaction rolled back. dimension:error_propagation
+# ---------------------------------------------------------------------------
+
+
+class TestFiveDDbUnavailableEnvelope:
+    """SC3 'Server surgical checks' + FR123-3, verified at the MCP
+    envelope boundary for a 5D (project) kind -- distinct from
+    TestFiveDFailLoud's engine-layer assertions and from
+    TestSqlite3ErrorThroughMcpTools (which only exercises the FEATURE
+    path via seeded_engine, never entity_engine/5D).
+    """
+
+    def test_transition_phase_5d_db_error_envelope_is_db_unavailable(
+        self, db, tmp_path, monkeypatch,
+    ):
+        """derived_from: spec:SC3 (MCP envelope, transaction rollback),
+        dimension:error_propagation
+        """
+        # Given a project mid-5D-lifecycle
+        db.register_entity(
+            "project", "105-envelope-t", "envelopet",
+            status="active", project_id="__unknown__",
+        )
+        db.create_workflow_phase(
+            "project:105-envelope-t", workflow_phase="discover", mode="standard",
+        )
+        row_before = db.get_workflow_phase("project:105-envelope-t")
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        entity_engine = EntityWorkflowEngine(db, str(tmp_path))
+
+        def _boom(*args, **kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+        monkeypatch.setattr(db, "update_workflow_phase", _boom)
+
+        # When transition_phase hits a DB fault mid-write
+        result = _process_transition_phase(
+            engine, "project:105-envelope-t", "define", False,
+            db=db, entity_engine=entity_engine,
+        )
+        data = json.loads(result)
+
+        # Then the envelope reports db_unavailable (not a generic/other
+        # error_type), the message excludes "locked" (models.py MESSAGE
+        # CONTRACT), and the transaction rolled back (row untouched)
+        assert data["error"] is True
+        assert data["error_type"] == "db_unavailable"
+        assert "locked" not in data["message"].lower()
+
+        row_after = db.get_workflow_phase("project:105-envelope-t")
+        assert row_after == row_before, "transaction must roll back -- no partial write"
+
+    def test_complete_phase_5d_db_error_envelope_is_db_unavailable(
+        self, db, tmp_path, monkeypatch,
+    ):
+        """Contract change: PRE-123 this same fault returned
+        error_type='completion_failed' (the None-state branch at
+        workflow_state_server.py:~1216-1221) -- NOT db_unavailable, since
+        _fived_complete used to swallow the DB error into a None return.
+        POST-123 the identical fault now surfaces the correct fail-loud
+        signal -- no existing test pins this envelope-level contract
+        change for the 5D complete path.
+        derived_from: spec:SC3 (MCP envelope, transaction rollback),
+        dimension:error_propagation
+        """
+        # Given a project mid-5D-lifecycle
+        db.register_entity(
+            "project", "106-envelope-c", "envelopec",
+            status="active", project_id="__unknown__",
+        )
+        db.create_workflow_phase(
+            "project:106-envelope-c", workflow_phase="discover", mode="standard",
+        )
+        row_before = db.get_workflow_phase("project:106-envelope-c")
+        engine = WorkflowStateEngine(db, str(tmp_path))
+        entity_engine = EntityWorkflowEngine(db, str(tmp_path))
+
+        def _boom(*args, **kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+        monkeypatch.setattr(db, "update_workflow_phase", _boom)
+
+        # When complete_phase hits a DB fault mid-write
+        result = _process_complete_phase(
+            engine, "project:106-envelope-c", "discover",
+            db=db, entity_engine=entity_engine,
+        )
+        data = json.loads(result)
+
+        # Then the envelope reports db_unavailable, excludes "locked",
+        # and the transaction rolled back
+        assert data["error"] is True
+        assert data["error_type"] == "db_unavailable"
+        assert "locked" not in data["message"].lower()
+
+        row_after = db.get_workflow_phase("project:106-envelope-c")
+        assert row_after == row_before, "transaction must roll back -- no partial write"
+
+
+# ---------------------------------------------------------------------------
+# Test-deepening addition (feature 132 D6.1-.3): the fifth
+# _kanban_column_for replica (this module) is only proven behaviorally
+# equivalent to its four same-tree siblings via
+# TestCompletePhaseKanbanStoredValue's individual literal pins above --
+# nothing directly compares its _PHASE_TO_KANBAN dict, or drives
+# _kanban_column_for over the FULL input space, against the four-way
+# same-tree parity workflow_engine/test_constants.py already proves.
+# This module sits in mcp/, a separate import root from
+# workflow_engine/backfill.py's same-tree siblings -- closing that
+# cross-import-root gap directly. dimension:boundary
+# ---------------------------------------------------------------------------
+class TestKanbanProducerCrossImportRootParity:
+    def test_phase_to_kanban_dict_matches_hooks_lib_representative(self):
+        from workflow_engine import engine as _engine_producer
+        from workflow_state_server import _PHASE_TO_KANBAN
+
+        assert _PHASE_TO_KANBAN == _engine_producer._PHASE_TO_KANBAN
+
+    def test_kanban_column_for_agrees_with_hooks_lib_representative_over_full_input_space(
+        self,
+    ):
+        from workflow_engine import engine as _engine_producer
+        from workflow_state_server import _kanban_column_for
+
+        statuses = (
+            "planned", "active", "completed", "abandoned",
+            "blocked", "unmapped-status",
+        )
+        phases = list(_engine_producer._PHASE_TO_KANBAN) + [None, "nonexistent-phase"]
+        for status in statuses:
+            for phase in phases:
+                mine = _kanban_column_for(status, phase)
+                theirs = _engine_producer._kanban_column_for(status, phase)
+                assert mine == theirs, (status, phase, mine, theirs)
