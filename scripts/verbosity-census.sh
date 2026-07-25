@@ -20,12 +20,17 @@ SKL=plugins/pd/skills
 # excluded here; scope_words_total keeps counting everything for continuity.
 DOMAIN_SKILLS="game-design crypto-analysis data-science-analysis choosing-ds-modeling-approach spotting-ds-analysis-pitfalls structuring-ds-projects writing-ds-python implementing-with-tdd systematic-debugging root-cause-analysis structured-problem-solving promptimize writing-skills creating-specialist-teams"
 DOMAIN_COMMANDS="init-ds-project review-ds-analysis review-ds-code promptimize refresh-prompt-guidelines create-specialist-team"
+# Advisor personas are ideation-lens KNOWLEDGE loaded one-at-a-time by the
+# advisor agent (several are domain-pack lenses: DS/game/crypto) — same
+# knowledge-not-orchestration class as DOMAIN_SKILLS.
+ADVISOR_REFS="plugins/pd/skills/brainstorming/references/advisors"
 
 words() { cat $(find "$@" -name '*.md' | sort) | wc -w | tr -d ' '; }
 occurrences() { local pat=$1; shift; grep -rE --include='*.md' -o "$pat" "$@" 2>/dev/null | wc -l | tr -d ' '; }
 orch_words() {
   local skl_prune=() cmd_prune=()
   for d in $DOMAIN_SKILLS;   do skl_prune+=(-not -path "$SKL/$d/*"); done
+  skl_prune+=(-not -path "$ADVISOR_REFS/*")
   for c in $DOMAIN_COMMANDS; do cmd_prune+=(-not -name "$c.md"); done
   cat $(find "$CMD" -name '*.md' "${cmd_prune[@]}"; find "$SKL" -name '*.md' "${skl_prune[@]}") | wc -w | tr -d ' '
 }

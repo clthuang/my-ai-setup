@@ -9218,8 +9218,10 @@ class TestPhaseEventsDualWrite:
         assert len(events) == 1
         assert events[0]["phase"] == "brainstorm"
 
-    def test_ac16_insert_failure_does_not_break_transition(self, fresh_setup, monkeypatch, capsys):
-        """AC-16: insert_phase_event failure doesn't break transition."""
+    def test_append_failure_aborts_transition_atomically(self, fresh_setup, monkeypatch):
+        """Feature 134 #055 (inverts old AC-16): append_phase_event failure
+        ABORTS the whole transition — events are the primary record, so the
+        phase must NOT advance and metadata must NOT gain phase_timing."""
         db, engine = fresh_setup
 
         def raise_on_insert(**kwargs):
@@ -9232,18 +9234,16 @@ class TestPhaseEventsDualWrite:
             db=db,
         )
         data = json.loads(result)
-        assert data.get("transitioned") is True
+        # Fail-loud: no successful-transition envelope.
+        assert data.get("transitioned") is not True
 
-        # Metadata should still be updated
+        # Atomicity anchor (true only on the post-#055 path): the rolled-back
+        # transaction left NO phase_timing for the target phase.
         entity = db.get_entity("feature:dw-001")
-        metadata = json.loads(entity["metadata"])
-        assert "specify" in metadata.get("phase_timing", {})
-
-        # stderr should have warning (format updated per feature 088 FR-5.1).
-        captured = capsys.readouterr()
-        assert "phase_events dual-write failed for" in captured.err
-        # Response should also flag the partial failure (feature 088 FR-5.1).
-        assert data.get("phase_events_write_failed") is True
+        metadata = json.loads(entity["metadata"]) if entity.get("metadata") else {}
+        assert "specify" not in metadata.get("phase_timing", {})
+        # And the retired partial-failure flag is gone from the contract.
+        assert "phase_events_write_failed" not in data
 
     def test_ac19_metadata_still_has_phase_timing(self, fresh_setup, tmp_path):
         """AC-19 + AC-41 (FR-10.8): metadata retains phase_timing AFTER
@@ -9735,17 +9735,16 @@ class TestFeature088BundleE:
             )
         return db, engine
 
-    def test_dual_write_failure_commits_main_transaction(
-        self, fresh_setup, monkeypatch, capsys,
+    def test_append_failure_rolls_back_main_transaction(
+        self, fresh_setup, monkeypatch,
     ):
-        """AC-15 (FR-5.1): phase_events failure must NOT roll back entity update.
+        """Feature 134 #055 (inverts old AC-15): phase_events failure rolls
+        back the WHOLE transition transaction — no metadata write survives.
 
-        Monkeypatches ``append_phase_event`` to raise ``sqlite3.IntegrityError``,
-        calls ``transition_phase``, and asserts:
-        - entity metadata update persisted (query back)
-        - response has ``phase_events_write_failed: true``
-        - stderr matches the spec-mandated ``[workflow-state] phase_events
-          dual-write failed for`` format
+        Monkeypatches ``append_phase_event`` to raise ``sqlite3.IntegrityError``
+        and asserts the entity's metadata gained NO phase_timing for the
+        target phase (atomic abort), with no partial-failure flag in the
+        response contract.
         """
         db, engine = fresh_setup
 
@@ -9759,23 +9758,12 @@ class TestFeature088BundleE:
         )
         data = json.loads(result)
 
-        # Main transaction MUST have committed: transitioned + metadata landed.
-        assert data.get("transitioned") is True
-        assert data.get("phase_events_write_failed") is True
+        assert data.get("transitioned") is not True
+        assert "phase_events_write_failed" not in data
 
         entity = db.get_entity("feature:e-001")
-        metadata = json.loads(entity["metadata"])
-        assert "phase_timing" in metadata
-        assert "specify" in metadata["phase_timing"]
-        assert "started" in metadata["phase_timing"]["specify"]
-
-        # stderr warning matches spec format.
-        import re
-        captured = capsys.readouterr()
-        assert re.search(
-            r"\[workflow-state\] phase_events dual-write failed for",
-            captured.err,
-        ), f"stderr did not match expected pattern: {captured.err!r}"
+        metadata = json.loads(entity["metadata"]) if entity.get("metadata") else {}
+        assert "specify" not in metadata.get("phase_timing", {})
 
     def test_complete_phase_rejects_oversized_reviewer_notes(
         self, fresh_setup,
@@ -10240,19 +10228,15 @@ class TestFeature088BundleH4:
     def test_dual_write_metadata_and_phase_events_consistency_on_partial_failure(
         self, h4_setup, monkeypatch,
     ):
-        """AC-43 / AC-15 strengthening: when phase_events dual-write fails,
-        the main transaction's metadata update MUST persist AND the response
-        MUST include ``phase_events_write_failed=True``.
-
-        Complements ``test_dual_write_failure_commits_main_transaction`` by
-        exercising ``_process_complete_phase`` (the complete-phase path)
-        rather than the transition path, and asserts consistency from both
-        sides (metadata present, phase_events absent).
+        """Feature 134 #055 (inverts old AC-43/AC-15): a phase_events failure
+        aborts the complete-phase transaction — NEITHER metadata NOR events
+        may land (atomicity from both sides), and the retired
+        ``phase_events_write_failed`` flag never appears.
         """
         db, engine = h4_setup
 
         def raise_on_insert(**kwargs):
-            raise sqlite3.OperationalError("simulated lock")
+            raise sqlite3.IntegrityError("simulated CHECK violation")
 
         monkeypatch.setattr(db, "append_phase_event", raise_on_insert)
 
@@ -10262,27 +10246,22 @@ class TestFeature088BundleH4:
         )
         data = json.loads(result)
 
-        # The complete_phase operation itself succeeded (metadata committed).
-        assert "error" not in data, f"unexpected error in response: {data!r}"
-        assert data.get("phase_events_write_failed") is True, (
-            f"expected phase_events_write_failed flag, got: {data!r}"
-        )
+        # Fail-loud contract: error envelope, no partial-failure flag.
+        assert "phase_events_write_failed" not in data
+        assert data.get("error"), f"expected error envelope, got: {data!r}"
 
-        # Metadata side: phase_timing landed despite the phase_events failure.
+        # Metadata side: the rolled-back transaction left NO completion stamp.
         entity = db.get_entity("feature:h4-001")
-        metadata = json.loads(entity["metadata"])
-        assert "phase_timing" in metadata
-        assert "completed" in metadata["phase_timing"]["brainstorm"]
+        metadata = json.loads(entity["metadata"]) if entity.get("metadata") else {}
+        assert "completed" not in metadata.get("phase_timing", {}).get("brainstorm", {})
 
-        # Phase-events side: no row was written (monkeypatch replaced the
-        # method with a raiser; the outer transaction does not fall back).
+        # Phase-events side: no row either (both sides of the old split-brain
+        # are empty — the fact true only on the atomic path).
         events = db.query_phase_events(
             type_id="feature:h4-001", phase="brainstorm",
             event_type="completed",
         )
-        assert events == [], (
-            f"phase_events row unexpectedly present after lock: {events!r}"
-        )
+        assert events == []
 
 
 # ---------------------------------------------------------------------------
@@ -10428,18 +10407,17 @@ class TestFeature089BundleE:
         )
         db.close()
 
-    # ---- AC-23 (#00165): dual-write failure row stays missing across runs ----
+    # ---- Feature 134 #055: append failure aborts; retry recovers with no gap ----
 
-    def test_dual_write_failure_row_remains_missing_after_subsequent_transition(
+    def test_append_failure_then_retry_leaves_no_event_gap(
         self, tmp_path, monkeypatch,
     ):
-        """AC-23 (#00165).
+        """Feature 134 #055 (inverts old AC-23/#00165).
 
-        When the first transition's phase_events dual-write fails
-        (simulated ``sqlite3.IntegrityError``), the main transaction
-        still commits the metadata update (FR-5.1).  A later successful
-        transition MUST NOT retroactively backfill the missing row — the
-        gap is permanent and surfaces via ``reconcile_check``.
+        When the first transition's phase_events append fails, the WHOLE
+        transition aborts (engine phase unchanged). Retrying the same
+        transition succeeds and writes its started row — the old
+        "permanent gap" cannot exist on the atomic path.
         """
         db = EntityDatabase(":memory:")
         _bootstrap_test_workspace(db, "P-e23")
@@ -10476,45 +10454,36 @@ class TestFeature089BundleE:
 
         monkeypatch.setattr(db, "append_phase_event", failing_then_succeeding)
 
-        # Transition 1: brainstorm → specify.  First insert fails.
+        # Attempt 1: brainstorm → specify. First insert fails → atomic abort.
         result1 = _process_transition_phase(
             engine, "feature:089-e-23", "specify", False, db=db,
         )
         data1 = json.loads(result1)
-        assert data1.get("transitioned") is True, data1
-        assert data1.get("phase_events_write_failed") is True, (
-            f"expected phase_events_write_failed flag, got: {data1!r}"
-        )
+        assert data1.get("transitioned") is not True, data1
+        assert "phase_events_write_failed" not in data1
 
-        # Transition 2: specify → design.  Second insert succeeds.
+        # Retry: brainstorm → specify again — the engine phase rolled back,
+        # so the same transition is still valid; second insert call succeeds.
+        result1b = _process_transition_phase(
+            engine, "feature:089-e-23", "specify", False, db=db,
+        )
+        data1b = json.loads(result1b)
+        assert data1b.get("transitioned") is True, data1b
+
+        # Transition 2: specify → design.
         result2 = _process_transition_phase(
             engine, "feature:089-e-23", "design", False, db=db,
         )
         data2 = json.loads(result2)
         assert data2.get("transitioned") is True, data2
-        assert data2.get("phase_events_write_failed") is not True, (
-            f"second transition should not have flagged a failure: {data2!r}"
-        )
 
-        # Phase_events table MUST have EXACTLY ONE 'started' row for this
-        # feature — the design transition.  The specify transition's started
-        # row is permanently missing (not retroactively backfilled).
-        # F12 (feature 109): register_entity also emits an entity_created
-        # event, so filter to 'started' before counting.
+        # BOTH started rows exist — the atomic path leaves no gap.
+        # F12 (feature 109): register_entity also emits entity_created,
+        # so filter to 'started' before counting.
         all_rows = db.query_phase_events(type_id="feature:089-e-23")
         rows = [r for r in all_rows if r["event_type"] == "started"]
-        assert len(rows) == 1, (
-            f"expected exactly 1 started phase_events row (design only); got "
-            f"{len(rows)}: {rows!r}"
-        )
-        assert rows[0]["phase"] == "design"
-        assert rows[0]["event_type"] == "started"
-        # Specifically confirm the specify row is NOT present.
-        specify_rows = db.query_phase_events(
-            type_id="feature:089-e-23", phase="specify",
-        )
-        assert specify_rows == [], (
-            f"specify row must stay permanently missing, got: {specify_rows!r}"
+        assert [r["phase"] for r in rows] == ["specify", "design"], (
+            f"expected started rows for specify+design with no gap; got: {rows!r}"
         )
         db.close()
 
@@ -10768,16 +10737,15 @@ class TestFeature089BundleE:
     def test_reconcile_detects_drift_from_real_transition_failure(
         self, tmp_path, monkeypatch,
     ):
-        """AC-29 (#00171).
+        """AC-29 (#00171), re-sourced by feature 134 #055.
 
-        End-to-end integration:
-        1. Call ``transition_phase`` with ``append_phase_event``
-           monkeypatched to raise ``sqlite3.IntegrityError``.
-        2. Main transaction commits → ``metadata.phase_timing.specify.started``
-           persists, but phase_events has NO ``started`` row.
-        3. ``reconcile_check`` reports a
-           ``phase_events_missing_started`` drift entry for this
-           (type_id, 'specify').
+        The atomic events write means a live transition can no longer
+        produce metadata-without-events drift — but HISTORICAL gaps from
+        the pre-134 dual-write era exist in real databases, and
+        ``reconcile_check`` must still detect them. Produce the gap
+        surgically (raw SQL delete of the started row after a successful
+        transition) and assert the ``phase_events_missing_started`` drift
+        entry appears.
         """
         db = EntityDatabase(":memory:")
         _bootstrap_test_workspace(db, "P-e29")
@@ -10798,18 +10766,20 @@ class TestFeature089BundleE:
             )
         engine = WorkflowStateEngine(db, str(tmp_path))
 
-        # Step 1+2: transition with phase_events write failure.
-        def _raise_integrity(**kwargs):
-            raise sqlite3.IntegrityError("simulated failure")
-
-        monkeypatch.setattr(db, "append_phase_event", _raise_integrity)
-
+        # Step 1: a NORMAL successful transition (atomic path writes the row).
         transition_result = _process_transition_phase(
             engine, "feature:089-e-29", "specify", False, db=db,
         )
         t_data = json.loads(transition_result)
         assert t_data.get("transitioned") is True
-        assert t_data.get("phase_events_write_failed") is True
+
+        # Step 2: surgically remove the started row — simulating a
+        # pre-134 historical gap the dual-write era left behind.
+        db._conn.execute(
+            "DELETE FROM phase_events WHERE type_id='feature:089-e-29' "
+            "AND phase='specify' AND event_type='started'"
+        )
+        db._conn.commit()
 
         # Confirm the metadata was persisted (phase_timing.specify.started).
         entity = db.get_entity("feature:089-e-29")

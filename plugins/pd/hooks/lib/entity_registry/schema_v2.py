@@ -13,7 +13,15 @@ import fcntl
 import sqlite3
 from contextlib import contextmanager
 
-V2_SCHEMA_VERSION = 1
+# v2-lineage schema version. A v2-generation file never replays the v1
+# MIGRATIONS chain (database.py ``_migrate``'s FR132-1 generation guard), so
+# this number is the target of its OWN forward-only chain,
+# ``database.V2_MIGRATIONS`` — version N's entry lifts a file from N-1 to N.
+#   1 — cutover baseline (feature 132, live 2026-07-25)
+#   2 — phase_events.event_type CHECK admits 'mini_spec' (feature 134 NFR-4)
+# Bumping this constant WITHOUT adding the matching V2_MIGRATIONS entry
+# strands every already-stamped file at the older shape; the two move together.
+V2_SCHEMA_VERSION = 2
 
 # Per-connection, non-persistent (SQLite resets it on every new connection).
 # Matches the v17 EntityDatabase._set_pragmas() value (database.py) for

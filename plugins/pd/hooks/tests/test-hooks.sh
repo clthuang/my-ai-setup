@@ -413,22 +413,21 @@ EOF
 
 # Feature 094: pre-release adversarial QA gate anti-drift assertions
 
-test_finish_feature_step_5b_present() {
-    log_test "finish-feature.md contains Step 5b QA gate dispatch"
+test_finish_feature_contract_present() {
+    # Feature 134: pins the CONTRACT finish-feature (replaces the retired
+    # Step 5b 4-reviewer gate assertions).
+    log_test "finish-feature.md carries the 134 contract essentials"
     local file="${PROJECT_ROOT}/plugins/pd/commands/finish-feature.md"
     local fails=0
-    grep -qE '^#{2,4}\s.*Step 5b.*Pre-Release Adversarial QA Gate' "$file" || { echo "  AC-14.1 missing Step 5b heading"; ((fails++)); }
-    grep -q 'pd:security-reviewer' "$file" || { echo "  AC-14.2 missing pd:security-reviewer"; ((fails++)); }
-    grep -q 'pd:code-quality-reviewer' "$file" || { echo "  AC-14.3 missing pd:code-quality-reviewer"; ((fails++)); }
-    grep -q 'pd:implementation-reviewer' "$file" || { echo "  AC-14.4 missing pd:implementation-reviewer"; ((fails++)); }
-    grep -q 'pd:test-deepener' "$file" || { echo "  AC-14.5 missing pd:test-deepener"; ((fails++)); }
-    grep -q 'Step A' "$file" || { echo "  AC-14.6 missing 'Step A' token"; ((fails++)); }
-    grep -q '\.qa-gate\.json' "$file" || { echo "  AC-14.7 missing .qa-gate.json reference"; ((fails++)); }
-    grep -q '\.qa-gate-low-findings\.md' "$file" || { echo "  AC-14.8 missing .qa-gate-low-findings.md reference"; ((fails++)); }
-    grep -q 'dispatch all 4 reviewers in parallel' "$file" || { echo "  AC-3 missing literal parallel-dispatch phrase"; ((fails++)); }
-    grep -q 'no spec.md found' "$file" || { echo "  AC-15 missing spec-absent fallback string"; ((fails++)); }
-    grep -q 'securitySeverity' "$file" || { echo "  AC-5 missing severity predicate"; ((fails++)); }
-    grep -q 'mutation_caught' "$file" || { echo "  AC-5b missing test-deepener narrowed-remap predicate"; ((fails++)); }
+    grep -q 'pd:security-reviewer' "$file" || { echo "  missing pd:security-reviewer dispatch (security surface)"; ((fails++)); }
+    grep -q 'phase-gate.sh finish' "$file" || { echo "  missing mechanical finish gate"; ((fails++)); }
+    grep -q 'retrospecting' "$file" || { echo "  missing retrospecting skill reference"; ((fails++)); }
+    grep -q '{pd_base_branch}' "$file" || { echo "  missing {pd_base_branch} merge target"; ((fails++)); }
+    grep -q 'test-hooks.sh' "$file" || { echo "  missing hooks battery line"; ((fails++)); }
+    grep -qE 'retro.*before cleanup|Retro before cleanup' "$file" || { echo "  missing retro-before-cleanup ordering"; ((fails++)); }
+    # Retired machinery must NOT come back:
+    grep -q 'pd:implementation-reviewer' "$file" && { echo "  retired implementation-reviewer reference present"; ((fails++)); }
+    grep -q '\.qa-gate\.json' "$file" && { echo "  retired .qa-gate.json reference present"; ((fails++)); }
     if [[ $fails -eq 0 ]]; then log_pass; else log_fail "$fails assertion(s) failed"; fi
 }
 
@@ -1801,7 +1800,7 @@ main() {
     test_sync_cache_missing_source
     test_sync_cache_detects_arbitrary_marketplace
     test_sync_cache_marketplace_json_target_derives
-    test_finish_feature_step_5b_present
+    test_finish_feature_contract_present
     test_finish_feature_under_600_lines
     test_qa_gate_procedure_doc_exists
     test_bash_version_capture_script_emits_three_sections

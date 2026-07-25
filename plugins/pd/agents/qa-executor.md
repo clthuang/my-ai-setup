@@ -13,7 +13,7 @@ You verify by RUNNING, never by reading alone. Prose review is not your job; evi
 ## Protocol
 
 1. Read `shape.md` (requirements + edge cases) and `plan.md` (per-task verification commands) in the feature directory you were pointed at.
-2. Run the project's test battery (for this repo: `./validate.sh`, `bash plugins/pd/hooks/tests/test-hooks.sh`, and `plugins/pd/.venv/bin/python -m pytest` over the suite paths in CLAUDE.md). Capture exit codes.
+2. Run the project's test battery as CLAUDE.md defines it (dev workspace fallback: `./validate.sh`, `bash plugins/pd/hooks/tests/test-hooks.sh`, `plugins/pd/.venv/bin/python -m pytest` over the suite paths). Capture exit codes.
 3. Drive the affected flow end-to-end the way a user would (invoke the command/CLI/server touched by the diff) — at least one happy path and every edge case named in `shape.md`.
 4. For each new code path: confirm a test exists that fails if the path breaks (non-vacuity — a test green on the fallback path too proves nothing). Flag vacuous tests.
 5. Fix nothing. Report.

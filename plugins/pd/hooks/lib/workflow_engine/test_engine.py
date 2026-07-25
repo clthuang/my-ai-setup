@@ -201,15 +201,17 @@ class TestHelpers:
         assert isinstance(HARD_PREREQUISITES, dict)
 
     def test_get_existing_artifacts_some_present(self, tmp_path) -> None:
+        """Feature 134 FR-11: the scanned set is shape.md + plan.md."""
         feature_dir = tmp_path / "features" / "008-foo"
         feature_dir.mkdir(parents=True)
-        (feature_dir / "spec.md").write_text("# Spec")
+        (feature_dir / "shape.md").write_text("# Shape")
+        # Retired-name file must NOT be picked up as an artifact any more.
         (feature_dir / "design.md").write_text("# Design")
 
         engine = WorkflowStateEngine(_make_db(), str(tmp_path))
         result = engine._get_existing_artifacts("008-foo")
-        assert "spec.md" in result
-        assert "design.md" in result
+        assert "shape.md" in result
+        assert "design.md" not in result
         assert "plan.md" not in result
 
     def test_get_existing_artifacts_none_present(self, tmp_path) -> None:
@@ -501,7 +503,7 @@ class TestGateEvaluation:
         assert state is not None
 
         results = engine._evaluate_gates(
-            state, "create-plan", ["spec.md", "design.md"], yolo_active=False
+            state, "create-plan", ["shape.md"], yolo_active=False
         )
 
         # Should have 4 results: backward, hard, soft, validate
@@ -542,7 +544,7 @@ class TestGateEvaluation:
         assert state is not None
 
         results = engine._evaluate_gates(
-            state, "design", ["spec.md"], yolo_active=False
+            state, "design", ["shape.md"], yolo_active=False
         )
 
         guard_ids = [r.guard_id for r in results]
@@ -562,7 +564,7 @@ class TestGateEvaluation:
         assert state is not None
 
         results = engine._evaluate_gates(
-            state, "create-plan", ["spec.md", "design.md"], yolo_active=True
+            state, "create-plan", ["shape.md"], yolo_active=True
         )
 
         # G-18, G-23, G-22 should be overridden (auto_select -> warn override)
@@ -583,9 +585,9 @@ class TestGateEvaluation:
         state = engine.get_state(type_id)
         assert state is not None
 
-        # Missing design.md -- hard prereq should fail even with YOLO
+        # Missing shape.md -- hard prereq should fail even with YOLO
         results = engine._evaluate_gates(
-            state, "create-plan", ["spec.md"], yolo_active=True
+            state, "create-plan", [], yolo_active=True
         )
 
         hard_result = [r for r in results if r.guard_id == "G-08"][0]
@@ -611,7 +613,7 @@ class TestTransitionPhase:
         # Create required artifacts for design
         feature_dir = tmp_path / "features" / "008-test-feature"
         feature_dir.mkdir(parents=True, exist_ok=True)
-        (feature_dir / "spec.md").write_text("# Spec")
+        (feature_dir / "shape.md").write_text("# Shape")
 
         results = engine.transition_phase(type_id, "design").results
 
@@ -628,7 +630,7 @@ class TestTransitionPhase:
             workflow_phase="specify",
             last_completed_phase="brainstorm",
         )
-        # No spec.md created -- design requires it
+        # No shape.md created -- design requires it
 
         results = engine.transition_phase(type_id, "design").results
 
@@ -665,7 +667,7 @@ class TestTransitionPhase:
         )
         feature_dir = tmp_path / "features" / "008-test-feature"
         feature_dir.mkdir(parents=True, exist_ok=True)
-        (feature_dir / "spec.md").write_text("# Spec")
+        (feature_dir / "shape.md").write_text("# Shape")
 
         results = engine.transition_phase(type_id, "design", yolo_active=True).results
 
@@ -782,7 +784,7 @@ class TestValidatePrerequisites:
         )
         feature_dir = tmp_path / "features" / "008-test-feature"
         feature_dir.mkdir(parents=True, exist_ok=True)
-        (feature_dir / "spec.md").write_text("# Spec")
+        (feature_dir / "shape.md").write_text("# Shape")
 
         validate_results = engine.validate_prerequisites(type_id, "design")
         response = engine.transition_phase(type_id, "design")
@@ -803,7 +805,7 @@ class TestValidatePrerequisites:
         )
         feature_dir = tmp_path / "features" / "008-test-feature"
         feature_dir.mkdir(parents=True, exist_ok=True)
-        (feature_dir / "spec.md").write_text("# Spec")
+        (feature_dir / "shape.md").write_text("# Shape")
 
         engine.validate_prerequisites(type_id, "design")
 
@@ -985,13 +987,14 @@ class TestBatchQueriesWorkspaceScoping:
 # Phase 7: Integration Tests
 # ===========================================================================
 
-# Artifact produced by each phase (used for creating files after completion).
 # Artifacts produced by each phase (used for creating files after completion).
-# create-plan produces both plan.md and tasks.md (create-tasks merged in 073).
+# Feature 134 FR-11: specify and design BOTH write shape.md (specify creates
+# it with ## Requirements, design appends ## Design), and create-plan emits
+# plan.md only -- tasks.md is retired, tasks derive at dispatch time.
 _PHASE_ARTIFACTS: dict[str, list[str]] = {
-    "specify": ["spec.md"],
-    "design": ["design.md"],
-    "create-plan": ["plan.md", "tasks.md"],
+    "specify": ["shape.md"],
+    "design": ["shape.md"],
+    "create-plan": ["plan.md"],
 }
 
 
@@ -1156,7 +1159,7 @@ class TestIntegration:
 
             # Complete specify, create artifact
             engine.complete_phase(type_id, "specify")
-            (feature_dir / "spec.md").write_text("# Spec")
+            (feature_dir / "shape.md").write_text("# Shape")
 
             # Transition to design (normal, not YOLO) to exercise
             # backward + hard + soft + validate gates
@@ -1213,9 +1216,9 @@ class TestIntegration:
         }
         (feature_dir / ".meta.json").write_text(json.dumps(meta))
 
-        # Create required artifacts for create-plan (next phase after design)
-        (feature_dir / "spec.md").write_text("# Spec")
-        (feature_dir / "design.md").write_text("# Design")
+        # Create required artifact for create-plan (next phase after design).
+        # Feature 134 FR-11: specify+design share one shape.md.
+        (feature_dir / "shape.md").write_text("# Shape")
 
         engine = WorkflowStateEngine(db, str(tmp_path))
 
@@ -1466,7 +1469,7 @@ class TestDeepenedAdversarial:
         )
         feature_dir = tmp_path / "features" / "008-test-feature"
         feature_dir.mkdir(parents=True, exist_ok=True)
-        (feature_dir / "spec.md").write_text("# Spec")
+        (feature_dir / "shape.md").write_text("# Shape")
 
         # When transitioning to the same phase (design)
         response = engine.transition_phase(type_id, "design")
@@ -1535,10 +1538,10 @@ class TestDeepenedErrorPropagation:
         assert state is not None
 
         results_normal = engine._evaluate_gates(
-            state, "create-plan", ["spec.md", "design.md"], yolo_active=False
+            state, "create-plan", ["shape.md"], yolo_active=False
         )
         results_yolo = engine._evaluate_gates(
-            state, "create-plan", ["spec.md", "design.md"], yolo_active=True
+            state, "create-plan", ["shape.md"], yolo_active=True
         )
         # Then both produce the same number of results (replacement, not addition)
         assert len(results_normal) == len(results_yolo)
@@ -1555,7 +1558,7 @@ class TestDeepenedErrorPropagation:
             workflow_phase="specify",
             last_completed_phase="brainstorm",
         )
-        # When transition is blocked (no spec.md for design)
+        # When transition is blocked (no shape.md for design)
         results = engine.transition_phase(type_id, "design").results
         assert any(not r.allowed for r in results)
         # Then DB still shows "specify"
@@ -1656,7 +1659,7 @@ class TestDeepenedMutationMindset:
         )
         feature_dir = tmp_path / "features" / "008-test-feature"
         feature_dir.mkdir(parents=True, exist_ok=True)
-        (feature_dir / "spec.md").write_text("# Spec")
+        (feature_dir / "shape.md").write_text("# Shape")
 
         # When transitioning to design
         results = engine.transition_phase(type_id, "design").results
@@ -1679,7 +1682,7 @@ class TestDeepenedMutationMindset:
             workflow_phase="specify",
             last_completed_phase="brainstorm",
         )
-        # No spec.md -> G-08 will block, but G-23 might pass
+        # No shape.md -> G-08 will block, but G-23 might pass
         response = engine.transition_phase(type_id, "design")
         results = response.results
 
@@ -1845,7 +1848,7 @@ class TestDeepenedPerformance:
         )
         feature_dir = tmp_path / "features" / "008-test-feature"
         feature_dir.mkdir(parents=True, exist_ok=True)
-        (feature_dir / "spec.md").write_text("# Spec")
+        (feature_dir / "shape.md").write_text("# Shape")
 
         # When timing a transition
         times = []
@@ -2801,10 +2804,10 @@ class TestTransitionPhaseFallback:
             status="active",
             last_completed_phase="brainstorm",
         )
-        # Create spec.md so the hard prerequisite for "design" is satisfied
+        # Create shape.md so the hard prerequisite for "design" is satisfied
         feature_dir = tmp_path / "features" / "008-test-feature"
         feature_dir.mkdir(parents=True, exist_ok=True)
-        (feature_dir / "spec.md").write_text("# Spec")
+        (feature_dir / "shape.md").write_text("# Shape")
 
         # Probe passes (DB is healthy for reads) but write raises
         monkeypatch.setattr(
@@ -3534,7 +3537,7 @@ class TestTransitionPhaseDualConditionDegraded:
         )
         feature_dir = tmp_path / "features" / "008-test-feature"
         feature_dir.mkdir(parents=True, exist_ok=True)
-        (feature_dir / "spec.md").write_text("# Spec")
+        (feature_dir / "shape.md").write_text("# Shape")
 
         # When transitioning successfully
         response = engine.transition_phase(type_id, "design")
@@ -3663,7 +3666,7 @@ class TestTransitionPhaseNoDoubleWrite:
     ) -> None:
         """When any gate blocks, update_workflow_phase is never called.
         """
-        # Given a feature missing spec.md (G-08 blocks design transition)
+        # Given a feature missing shape.md (G-08 blocks design transition)
         engine, db, type_id = _setup_engine(
             tmp_path,
             workflow_phase="specify",
@@ -3679,7 +3682,7 @@ class TestTransitionPhaseNoDoubleWrite:
 
         monkeypatch.setattr(db, "update_workflow_phase", tracking_update)
 
-        # When transitioning to design (blocked by G-08 -- no spec.md)
+        # When transitioning to design (blocked by G-08 -- no shape.md)
         response = engine.transition_phase(type_id, "design")
 
         # Then blocked and no update called
@@ -3696,7 +3699,7 @@ class TestTransitionPhaseNoDoubleWrite:
         """When all gates pass, update_workflow_phase is called exactly once.
         derived_from: dimension:mutation_mindset (no double-write)
         """
-        # Given a feature with spec.md present
+        # Given a feature with shape.md present
         engine, db, type_id = _setup_engine(
             tmp_path,
             workflow_phase="specify",
@@ -3704,7 +3707,7 @@ class TestTransitionPhaseNoDoubleWrite:
         )
         feature_dir = tmp_path / "features" / "008-test-feature"
         feature_dir.mkdir(parents=True, exist_ok=True)
-        (feature_dir / "spec.md").write_text("# Spec")
+        (feature_dir / "shape.md").write_text("# Shape")
 
         update_calls = []
         original_update = db.update_workflow_phase
@@ -3978,12 +3981,12 @@ class TestEngineWorkspaceUuidForwarding:
             workflow_phase="specify",
             last_completed_phase="brainstorm",
         )
-        # Satisfy hard-prerequisite (spec.md) so all gates pass and the
+        # Satisfy hard-prerequisite (shape.md) so all gates pass and the
         # transition reaches db.update_workflow_phase where the mismatch check
         # lives.
         feature_dir = tmp_path / "features" / "008-ws-mismatch"
         feature_dir.mkdir(parents=True, exist_ok=True)
-        (feature_dir / "spec.md").write_text("# Spec")
+        (feature_dir / "shape.md").write_text("# Shape")
 
         # ws_b_uuid != stored ws_a_uuid → FR-4.1 ValueError must propagate
         # through engine.py's `except sqlite3.Error:` (narrow — ValueError is
@@ -4129,7 +4132,7 @@ class TestFailLoudDegradedMode:
         )
         feature_dir = tmp_path / "features" / "008-test-feature"
         feature_dir.mkdir(parents=True, exist_ok=True)
-        (feature_dir / "spec.md").write_text("# Spec")
+        (feature_dir / "shape.md").write_text("# Shape")
         original_exc = sqlite3.OperationalError("disk full")
         monkeypatch.setattr(
             db, "update_workflow_phase",

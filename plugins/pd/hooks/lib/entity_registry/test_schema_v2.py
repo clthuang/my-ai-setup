@@ -525,22 +525,6 @@ _V2_DARK_MODULES = {
     "axes.py",
 }
 
-# Feature 132: the rebuild tool is a sanctioned importer of the v2 event
-# core — bootstrap/backfill infrastructure that legitimately reads and
-# writes schema_v2 tables directly, not a dark module.
-#
-# Task 3 (impl-t1's forward-hazard note) widens this further: database.py
-# now legitimately imports ``entity_registry.events.append_event`` for its
-# dual-write emit (design D5, FR132-4b) — database.py is the live v2 write
-# path, wiring the event core in on purpose. Re-adjudicated here as a WIDEN
-# of the sanctioned-importer set, not a retirement of the guard: the guard
-# still has residual value for every OTHER file under hooks/lib (an
-# accidental schema_v2/axes/display/views/meta_projection import anywhere
-# else remains exactly the class of bug this scan exists to catch), so the
-# class itself and its five seeded-offender teeth tests below are unchanged
-# and still exercise tmp_path fixtures unrelated to this exemption.
-_SANCTIONED_V2_IMPORTERS = {"rebuild_tool.py", "database.py"}
-
 # Every import spelling that would wire a dark v2 module into a live path.
 # A bare "events" needle is deliberately excluded — it false-positives on
 # unrelated names like phase_events / event_type. Same rationale keeps a
@@ -567,27 +551,59 @@ _V2_LIVE_REFERENCE_NEEDLES = (
     "from .axes import",
 )
 
+# Feature 132: the rebuild tool is a sanctioned importer of the v2 event
+# core — bootstrap/backfill infrastructure that legitimately reads and
+# writes schema_v2 tables directly, not a dark module.
+#
+# Task 3 (impl-t1's forward-hazard note) widens this further: database.py
+# now legitimately imports ``entity_registry.events.append_event`` for its
+# dual-write emit (design D5, FR132-4b) — database.py is the live v2 write
+# path, wiring the event core in on purpose. Re-adjudicated here as a WIDEN
+# of the sanctioned-importer set, not a retirement of the guard: the guard
+# still has residual value for every OTHER file under hooks/lib (an
+# accidental schema_v2/axes/display/views/meta_projection import anywhere
+# else remains exactly the class of bug this scan exists to catch), so the
+# class itself and its five seeded-offender teeth tests below are unchanged
+# and still exercise tmp_path fixtures unrelated to this exemption.
+#
+# Feature 134 adds doctor/checks.py, but NEEDLE-SCOPED rather than
+# whole-file: its db_readiness check imports the ``V2_SCHEMA_VERSION``
+# integer so v2-generation files are judged against their own lineage
+# instead of the v1 chain max. That is a constant read, not v2 DB access,
+# so only the "schema_v2" needle is sanctioned there — wiring
+# events/display/views/meta_projection/axes into doctor still trips the
+# guard (pinned by test_scan_still_flags_needle_outside_a_files_exemption).
+_SANCTIONED_V2_IMPORTERS: dict[str, frozenset[str]] = {
+    "rebuild_tool.py": frozenset(_V2_LIVE_REFERENCE_NEEDLES),
+    "database.py": frozenset(_V2_LIVE_REFERENCE_NEEDLES),
+    "checks.py": frozenset({"schema_v2"}),
+}
+
 
 def _scan_for_live_v2_references(
     root: Path, dark_modules: set[str], needles: tuple[str, ...]
 ) -> list[str]:
     """Return paths of every ``*.py`` file under *root* (recursively) whose
-    content contains at least one of *needles*, excluding test files
-    (name starts with "test_") and files named in *dark_modules*.
+    content contains at least one NON-sanctioned needle, excluding test
+    files (name starts with "test_") and files named in *dark_modules*.
+
+    A file listed in ``_SANCTIONED_V2_IMPORTERS`` is exempt only for the
+    needles mapped to it; any other needle in that same file still counts
+    as an offence.
 
     Shared by the real-source scan (expects []) and the seeded-fixture
     teeth test (expects the offender) below — see TestSchemaV2SanctionedImporters.
     """
     offending_files = []
     for py_file in root.rglob("*.py"):
-        if (
-            py_file.name.startswith("test_")
-            or py_file.name in dark_modules
-            or py_file.name in _SANCTIONED_V2_IMPORTERS
-        ):
+        if py_file.name.startswith("test_") or py_file.name in dark_modules:
+            continue
+        sanctioned = _SANCTIONED_V2_IMPORTERS.get(py_file.name, frozenset())
+        unsanctioned_needles = [n for n in needles if n not in sanctioned]
+        if not unsanctioned_needles:
             continue
         content = py_file.read_text()
-        if any(needle in content for needle in needles):
+        if any(needle in content for needle in unsanctioned_needles):
             offending_files.append(str(py_file))
     return offending_files
 
@@ -634,6 +650,48 @@ class TestSchemaV2SanctionedImporters:
             f"v2 dark modules must ship dark (no non-test importers), but "
             f"found references in: {offending_files}"
         )
+
+    def test_scan_still_flags_needle_outside_a_files_exemption(self, tmp_path):
+        """A needle-scoped exemption exempts ONLY its own needles.
+
+        Feature 134 sanctioned doctor/checks.py for the "schema_v2" needle
+        alone (it reads the V2_SCHEMA_VERSION constant). This seeds a
+        checks.py that ALSO wires in the event core: the file must still be
+        flagged. Anticipate: implementing the exemption as a whole-file skip
+        (the shape rebuild_tool.py/database.py use) would silently pass here.
+        """
+        offender_path = tmp_path / "checks.py"
+        offender_path.write_text(
+            "from entity_registry.schema_v2 import V2_SCHEMA_VERSION\n"
+            "from entity_registry import events\n"
+        )
+
+        offending_files = _scan_for_live_v2_references(
+            tmp_path, _V2_DARK_MODULES, _V2_LIVE_REFERENCE_NEEDLES
+        )
+
+        assert offending_files == [str(offender_path)]
+
+    def test_scan_exempts_sanctioned_needle_for_that_file_only(self, tmp_path):
+        """The sanctioned needle itself is not an offence in its own file.
+
+        Twin of the test above: a checks.py containing ONLY the sanctioned
+        "schema_v2" needle is clean, while the same line in any other file
+        is an offence.
+        """
+        (tmp_path / "checks.py").write_text(
+            "from entity_registry.schema_v2 import V2_SCHEMA_VERSION\n"
+        )
+        unsanctioned_path = tmp_path / "some_other_consumer.py"
+        unsanctioned_path.write_text(
+            "from entity_registry.schema_v2 import V2_SCHEMA_VERSION\n"
+        )
+
+        offending_files = _scan_for_live_v2_references(
+            tmp_path, _V2_DARK_MODULES, _V2_LIVE_REFERENCE_NEEDLES
+        )
+
+        assert offending_files == [str(unsanctioned_path)]
 
     def test_scan_flags_seeded_offender_with_nondotted_import_spelling(self, tmp_path):
         """Teeth check the other direction: a fixture dir containing a

@@ -1,4 +1,4 @@
-"""Task promotion: promote tasks.md headings to tracked task entities.
+"""Task promotion: promote plan.md headings to tracked task entities.
 
 Core logic for the promote_task MCP tool. This module is standalone
 and testable without MCP infrastructure.
@@ -109,7 +109,7 @@ def query_ready_tasks(
 
 
 class TaskNotFoundError(ValueError):
-    """No matching task heading found in tasks.md."""
+    """No matching task heading found in plan.md."""
     pass
 
 
@@ -158,13 +158,13 @@ def _extract_task_refs(deps_text: str) -> list[str]:
     return refs
 
 
-def parse_task_headings(tasks_md_path: str) -> list[dict]:
-    """Parse tasks.md and extract task headings with dependency info.
+def parse_task_headings(plan_md_path: str) -> list[dict]:
+    """Parse plan.md and extract task headings with dependency info.
 
     Parameters
     ----------
-    tasks_md_path:
-        Absolute path to tasks.md file.
+    plan_md_path:
+        Absolute path to plan.md file.
 
     Returns
     -------
@@ -176,12 +176,12 @@ def parse_task_headings(tasks_md_path: str) -> list[dict]:
     Raises
     ------
     FileNotFoundError
-        If tasks_md_path does not exist.
+        If plan_md_path does not exist.
     """
-    if not os.path.isfile(tasks_md_path):
-        raise FileNotFoundError(f"tasks.md not found: {tasks_md_path}")
+    if not os.path.isfile(plan_md_path):
+        raise FileNotFoundError(f"plan.md not found: {plan_md_path}")
 
-    with open(tasks_md_path, "r") as f:
+    with open(plan_md_path, "r") as f:
         lines = f.readlines()
 
     tasks: list[dict] = []
@@ -268,7 +268,7 @@ def promote_task(
     *,
     workspace_uuid: str | None = None,
 ) -> dict:
-    """Promote a task from tasks.md to a tracked entity.
+    """Promote a task from plan.md to a tracked entity.
 
     Parameters
     ----------
@@ -277,7 +277,7 @@ def promote_task(
     feature_ref:
         Feature type_id, UUID, or partial ref to resolve.
     task_heading:
-        Full or partial task heading to match against tasks.md.
+        Full or partial task heading to match against plan.md.
 
     Returns
     -------
@@ -294,7 +294,7 @@ def promote_task(
     TaskAlreadyPromotedError
         If the matched task has already been promoted.
     FileNotFoundError
-        If tasks.md does not exist at the expected path.
+        If plan.md does not exist at the expected path.
     """
     # 1. Resolve feature
     feature = db.get_entity(feature_ref)
@@ -304,18 +304,18 @@ def promote_task(
     feature_uuid = feature["uuid"]
     feature_type_id = feature["type_id"]
 
-    # 2. Find tasks.md
+    # 2. Find plan.md
     artifact_path = feature.get("artifact_path")
     if not artifact_path:
         raise ValueError(
             f"Feature {feature_type_id} has no artifact_path set"
         )
-    tasks_md_path = os.path.join(artifact_path, "tasks.md")
-    if not os.path.isfile(tasks_md_path):
-        raise FileNotFoundError(f"tasks.md not found: {tasks_md_path}")
+    plan_md_path = os.path.join(artifact_path, "plan.md")
+    if not os.path.isfile(plan_md_path):
+        raise FileNotFoundError(f"plan.md not found: {plan_md_path}")
 
     # 3. Parse headings
-    all_tasks = parse_task_headings(tasks_md_path)
+    all_tasks = parse_task_headings(plan_md_path)
     heading_texts = [t["heading"] for t in all_tasks]
 
     # 4. Fuzzy match

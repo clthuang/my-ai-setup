@@ -207,6 +207,7 @@ class EntityWorkflowEngine:
         self, entity_uuid: str, target_phase: str,
         *,
         workspace_uuid: str | None = None,
+        skipped_phases: list[str] | None = None,
     ) -> TransitionResponse:
         """Transition an entity to a target phase.
 
@@ -274,8 +275,11 @@ class EntityWorkflowEngine:
         if entity_type == "feature":
             # FR-2: forward workspace_uuid to the frozen-engine layer where
             # it threads through update_workflow_phase / update_entity writes.
+            # Feature 134 FR-7: skipped_phases rides along for the G-08
+            # skip exemption (express mode).
             return self._frozen_engine.transition_phase(
                 type_id, target_phase, workspace_uuid=workspace_uuid,
+                skipped_phases=skipped_phases,
             )
 
         if _is_phase_sequence_kind(entity_type):

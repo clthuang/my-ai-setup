@@ -974,9 +974,9 @@ def _process_transition_phase(
     # (entity_engine.transition_phase checks blockers then delegates).
     transitioned = False
     warning = None
-    # Feature 088 FR-5.1: capture entity, ts, skipped_list OUTSIDE transaction
-    # so the post-commit phase_events dual-write can reference them even if
-    # the transaction aborted before these were populated.
+    # Feature 134 #055: phase events append INSIDE the transition transaction
+    # (post-cutover, events ARE the primary record — state + events commit or
+    # abort together; the 088-era post-commit dual-write is gone).
     entity = None
     ts: str | None = None
     skipped_list: list[str] = []
@@ -998,6 +998,15 @@ def _process_transition_phase(
                 'Pass a JSON array of phase names, e.g. \'["design"]\' — '
                 "do not double-encode",
             )
+    # Feature 134 FR-7: normalized phase NAMES for the engine's G-08 skip
+    # exemption and the skipped events; metadata keeps the caller's shape
+    # verbatim (legacy dict records included).
+    skipped_names: list[str] = [
+        s if isinstance(s, str) else s.get("phase", "")
+        for s in (parsed_skipped or [])
+        if isinstance(s, (str, dict))
+    ]
+    skipped_names = [s for s in skipped_names if s]
 
     if db is not None:
         with db.transaction():
@@ -1010,6 +1019,7 @@ def _process_transition_phase(
                         response = entity_engine.transition_phase(
                             entity["uuid"], target_phase,
                             workspace_uuid=_workspace_uuid or None,
+                            skipped_phases=skipped_names or None,
                         )
                     except ValueError as exc:
                         # Blocked or invalid — return as structured error
@@ -1022,11 +1032,13 @@ def _process_transition_phase(
                     response = engine.transition_phase(
                     feature_type_id, target_phase, yolo_active,
                     workspace_uuid=_workspace_uuid or None,
+                    skipped_phases=skipped_names or None,
                 )
             else:
                 response = engine.transition_phase(
                     feature_type_id, target_phase, yolo_active,
                     workspace_uuid=_workspace_uuid or None,
+                    skipped_phases=skipped_names or None,
                 )
 
             transitioned = all(r.allowed for r in response.results)
@@ -1061,54 +1073,40 @@ def _process_transition_phase(
                 if feature_type_id.startswith("feature:"):
                     kanban = _kanban_column_for("active", target_phase)
                     db.update_workflow_phase(feature_type_id, kanban_column=kanban)
+
+                # Feature 134 #055: events are the primary record — append
+                # INSIDE this transaction; an append failure aborts the whole
+                # transition (fail loud, no reconcile-later).
+                project_id = _resolve_project_id(entity)
+                db.append_phase_event(
+                    type_id=feature_type_id,
+                    project_id=project_id,
+                    phase=target_phase,
+                    event_type="started",
+                    timestamp=ts,
+                    workspace_uuid=_workspace_uuid or None,
+                )
+                for skipped in skipped_names:
+                    db.append_phase_event(
+                        type_id=feature_type_id,
+                        project_id=project_id,
+                        phase=skipped,
+                        event_type="skipped",
+                        timestamp=ts,
+                        workspace_uuid=_workspace_uuid or None,
+                    )
     else:
         response = engine.transition_phase(
             feature_type_id, target_phase, yolo_active,
             workspace_uuid=_workspace_uuid or None,
+            skipped_phases=skipped_names or None,
         )
         transitioned = all(r.allowed for r in response.results)
-
-    # Feature 088 FR-5.1: Dual-write phase_events AFTER main transaction commits.
-    # Failure here MUST NOT roll back the primary workflow write.
-    phase_events_write_failed = False
-    if db is not None and transitioned and entity is not None and ts is not None:
-        # Feature 089 FR-2.3 (#00151): distinguish missing vs empty project_id.
-        project_id = _resolve_project_id(entity)
-        try:
-            # Feature 109 Group 9.6: pass workspace_uuid for consistency
-            # (optional for workflow event types per design §3.1; the helper
-            # uses type_id-keyed UPDATE for workflow_phases).
-            db.append_phase_event(
-                type_id=feature_type_id,
-                project_id=project_id,
-                phase=target_phase,
-                event_type="started",
-                timestamp=ts,
-                workspace_uuid=_workspace_uuid or None,
-            )
-            for skipped in skipped_list:
-                db.append_phase_event(
-                    type_id=feature_type_id,
-                    project_id=project_id,
-                    phase=skipped,
-                    event_type="skipped",
-                    timestamp=ts,
-                    workspace_uuid=_workspace_uuid or None,
-                )
-        except Exception as exc:
-            phase_events_write_failed = True
-            sys.stderr.write(
-                f"[workflow-state] phase_events dual-write failed for "
-                f"{feature_type_id}:{target_phase}: "
-                f"{type(exc).__name__}: {str(exc)[:200]}\n"
-            )
 
     result: dict = {
         "transitioned": transitioned,
         "results": [_serialize_result(r) for r in response.results],
     }
-    if phase_events_write_failed:
-        result["phase_events_write_failed"] = True
 
     # Filesystem write AFTER transaction committed
     if transitioned and db is not None:
@@ -1136,11 +1134,13 @@ def _process_transition_phase(
 # ---------------------------------------------------------------------------
 
 # Expected artifacts per mode for finish-phase completeness warning.
-# Light mode deferred to task 1b.10.
+# Feature 134 FR-11: shape.md merges spec+design; tasks derive at dispatch
+# time (no standing tasks artifact). Express features skip artifacts — their
+# completeness signal is the mini_spec event, not files.
 _EXPECTED_ARTIFACTS: dict[str, list[str]] = {
-    "standard": ["spec.md", "tasks.md", "retro.md"],
-    "full": ["spec.md", "design.md", "plan.md", "tasks.md", "retro.md"],
-    "light": ["spec.md"],
+    "standard": ["shape.md", "plan.md", "retro.md"],
+    "full": ["shape.md", "plan.md", "retro.md"],
+    "light": ["shape.md"],
 }
 
 
@@ -1316,10 +1316,9 @@ def _process_complete_phase(
             metadata["phase_timing"] = phase_timing
             metadata["last_completed_phase"] = phase
 
-            # Feature 088 FR-5.1 (ordering swap): update_entity(metadata) MUST
-            # run INSIDE the transaction; append_phase_event is dispatched
-            # AFTER the transaction commits (below). This prevents a phase_events
-            # failure from silently rolling back the primary workflow write.
+            # Feature 134 #055: update_entity(metadata) and append_phase_event
+            # both run INSIDE this transaction — events are the primary record
+            # post-cutover, so a phase_events failure aborts the completion.
             db.update_entity(
                 feature_type_id, metadata=metadata,
                 workspace_uuid=_workspace_uuid or None,
@@ -1330,6 +1329,21 @@ def _process_complete_phase(
                 status = "completed" if phase == "finish" else "active"
                 kanban = _kanban_column_for(status, state.current_phase)
                 db.update_workflow_phase(feature_type_id, kanban_column=kanban)
+
+            # Feature 134 #055: completed event INSIDE the transaction —
+            # events are the primary record; append failure aborts completion.
+            db.append_phase_event(
+                type_id=feature_type_id,
+                project_id=_resolve_project_id(entity),
+                phase=phase,
+                event_type="completed",
+                timestamp=ts,
+                iterations=iterations,
+                reviewer_notes=(
+                    json.dumps(parsed_notes) if parsed_notes is not None else None
+                ),
+                workspace_uuid=_workspace_uuid or None,
+            )
 
             # Feature 111 F10 — closes=[...] atomic closure block. Sibling
             # (NOT nested) of the feature-kanban block above: closure fires for
@@ -1424,39 +1438,7 @@ def _process_complete_phase(
     else:
         state = engine.complete_phase(feature_type_id, phase)
 
-    # Feature 088 FR-5.1: Dual-write phase_events AFTER main transaction commits.
-    # Failure here MUST NOT roll back the primary workflow write.
-    phase_events_write_failed = False
-    if db is not None and entity is not None and ts is not None:
-        # Feature 089 FR-2.3 (#00151): distinguish missing vs empty project_id.
-        project_id = _resolve_project_id(entity)
-        try:
-            # Feature 109 Group 9.6: pass workspace_uuid (optional for
-            # workflow event types per design §3.1).
-            db.append_phase_event(
-                type_id=feature_type_id,
-                project_id=project_id,
-                phase=phase,
-                event_type="completed",
-                timestamp=ts,
-                iterations=iterations,
-                reviewer_notes=(
-                    json.dumps(parsed_notes) if parsed_notes is not None else None
-                ),
-                workspace_uuid=_workspace_uuid or None,
-            )
-        except Exception as exc:
-            phase_events_write_failed = True
-            sys.stderr.write(
-                f"[workflow-state] phase_events dual-write failed for "
-                f"{feature_type_id}:{phase}: "
-                f"{type(exc).__name__}: {str(exc)[:200]}\n"
-            )
-
     result = _serialize_state(state)
-
-    if phase_events_write_failed:
-        result["phase_events_write_failed"] = True
 
     # Add cascade info when entity engine was used
     if completion is not None:
@@ -2035,15 +2017,23 @@ async def transition_phase(
     feature_type_id: str | None = None,
     target_phase: str = "",
     yolo_active: bool = False,
-    skipped_phases: str | None = None,
+    skipped_phases: str | list | None = None,
     ref: str | None = None,
 ) -> str:
-    """Validate and enter a target phase."""
+    """Validate and enter a target phase.
+
+    ``skipped_phases`` accepts a native list of phase names (preferred) or a
+    JSON-array string. Backlog #056: the transport JSON-parses string args
+    shaped like JSON back into lists, so the native-list form is the only
+    shape every caller can rely on; both normalize onto one validated path.
+    """
     err = _check_db_available()
     if err:
         return err
     if _engine is None or _db is None:
         return _NOT_INITIALIZED
+    if isinstance(skipped_phases, list):
+        skipped_phases = json.dumps(skipped_phases)
     try:
         resolved = _resolve_ref_to_feature_type_id(_db, feature_type_id, ref)
     except ValueError as exc:
@@ -2060,11 +2050,16 @@ async def complete_phase(
     feature_type_id: str | None = None,
     phase: str = "",
     iterations: int | None = None,
-    reviewer_notes: str | None = None,
+    reviewer_notes: str | list | None = None,
     ref: str | None = None,
     closes: list[str] | None = None,
 ) -> str:
     """Record a phase as completed and advance to next phase.
+
+    ``reviewer_notes`` accepts a native list (preferred) or a JSON-array
+    string — backlog #056, same transport re-parse class as
+    ``transition_phase.skipped_phases``; both shapes normalize onto the one
+    validated path (the size guard measures the serialized form).
 
     Feature 111 F10 — optional ``closes=[uuid, ...]`` atomically closes the
     referenced entities (bug/task/backlog) in the same transaction and writes
@@ -2075,6 +2070,8 @@ async def complete_phase(
         return err
     if _engine is None or _db is None:
         return _NOT_INITIALIZED
+    if isinstance(reviewer_notes, list):
+        reviewer_notes = json.dumps(reviewer_notes)
     try:
         resolved = _resolve_ref_to_feature_type_id(_db, feature_type_id, ref)
     except ValueError as exc:
@@ -2435,9 +2432,9 @@ async def get_notifications(project_root: str | None = None) -> str:
 
 @mcp.tool()
 async def promote_task(feature_ref: str, task_heading: str) -> str:
-    """Promote a task from tasks.md to a tracked task entity.
+    """Promote a task from plan.md to a tracked task entity.
 
-    Fuzzy-matches task_heading against headings in tasks.md, creates a task
+    Fuzzy-matches task_heading against headings in plan.md, creates a task
     entity with parent=feature, status=planned, and links dependencies.
     """
     err = _check_db_available()
@@ -2452,9 +2449,9 @@ async def promote_task(feature_ref: str, task_heading: str) -> str:
         )
         return json.dumps(result)
     except (TaskNotFoundError, TaskAlreadyPromotedError) as exc:
-        return _make_error(type(exc).__name__, str(exc), "Check heading text or use exact heading from tasks.md")
+        return _make_error(type(exc).__name__, str(exc), "Check heading text or use exact heading from plan.md")
     except (ValueError, FileNotFoundError) as exc:
-        return _make_error("invalid_input", str(exc), "Provide valid feature_ref and ensure tasks.md exists")
+        return _make_error("invalid_input", str(exc), "Provide valid feature_ref and ensure plan.md exists")
 
 
 @mcp.tool()

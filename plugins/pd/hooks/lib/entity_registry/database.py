@@ -5951,6 +5951,224 @@ MIGRATIONS_DOWN: dict[int, Callable[[sqlite3.Connection], None]] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# v2 forward-only migration chain (feature 134 NFR-4; backlog #077 class)
+# ---------------------------------------------------------------------------
+#
+# A v2-generation file (``_metadata.schema_generation == 'v2'``) starts a
+# FRESH version lineage and never replays the v1 ``MIGRATIONS`` chain above —
+# see ``EntityDatabase._migrate``'s FR132-1 generation guard.
+# ``V2_MIGRATIONS`` IS that lineage's chain: entry N lifts a file from
+# version N-1 to N, and ``max(V2_MIGRATIONS)`` MUST equal
+# ``schema_v2.V2_SCHEMA_VERSION`` (the number every stamp site writes:
+# ``schema_v2.bootstrap_v2`` and ``rebuild_tool._stamp_v2_generation``).
+# Version 1 is the cutover baseline itself, so the chain starts at 2 — there
+# is deliberately no ``V2_MIGRATIONS[1]``.
+#
+# Forward-only by construction: there is no ``V2_MIGRATIONS_DOWN``. Every
+# entry MUST be replay-safe (probe the live schema, skip when already
+# applied) so an interrupted run converges on the next open.
+
+
+def _v2_migration_2_mini_spec(conn: sqlite3.Connection) -> None:
+    """v2 migration 2 — widen ``phase_events.event_type`` to admit ``'mini_spec'``.
+
+    The workflow rebuild (feature 134) records a mini-spec as a
+    ``phase_events`` row whose text rides in ``metadata``; the live CHECK
+    (9 values, last widened by v1 Migration 19) rejects it and SQLite
+    CHECKs are immutable in place, so the table is rebuilt copy-rename
+    style — the same idiom Migration 19
+    (``_migration_19_widen_phase_events_cascade_ready``) uses:
+
+    1. capture the table's indexes + triggers from ``sqlite_master``
+       (exact live SQL, never a hand-copied mirror),
+    2. ``CREATE phase_events_new`` with the widened 10-value CHECK and an
+       otherwise byte-identical column list,
+    3. ``INSERT ... SELECT`` every row with an explicit column list (fails
+       loudly on any shape mismatch) + a row-count equality assertion,
+    4. ``DROP`` old, ``ALTER TABLE ... RENAME``, recreate the captured
+       indexes + triggers, and assert every captured index name came back.
+
+    Wrapped in ``BEGIN IMMEDIATE`` with a ``PRAGMA foreign_key_check``
+    immediately before ``COMMIT`` (CLAUDE.md migration pattern). v2's
+    ``phase_events`` carries no FK constraints and no triggers today, so
+    both the FK check and the trigger replay are cheap insurance against a
+    future shape change rather than load-bearing today.
+
+    Transaction control is issued as literal SQL (``COMMIT`` / ``ROLLBACK``
+    statements), NOT ``conn.commit()`` / ``conn.rollback()``, because this
+    one function runs against BOTH connection modes: the legacy-mode
+    connection ``EntityDatabase`` opens (where the method calls work) and
+    the ``autocommit=True`` connection ``rebuild_tool`` opens (where they
+    are silent no-ops that would leave this transaction open and discard
+    the whole rebuild at close). Same finding, same fix as
+    ``rebuild_tool._seed_v2_schema``.
+
+    Replay-safe / no-op safe:
+    - returns immediately if ``phase_events`` does not exist at all (a
+      core-only ``bootstrap_v2`` file has the v2 ``events`` table but no v1
+      ``phase_events``);
+    - returns immediately if the CHECK already names ``'mini_spec'``,
+      re-probing once more INSIDE ``BEGIN IMMEDIATE`` so a peer that
+      completed the rebuild between the probe and the lock wins cleanly.
+    """
+    pe_sql_row = conn.execute(
+        "SELECT sql FROM sqlite_master "
+        "WHERE type='table' AND name='phase_events'"
+    ).fetchone()
+    if pe_sql_row is None:
+        return
+    if "'mini_spec'" in (pe_sql_row[0] or ""):
+        return
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        # Racer-tolerant re-check: a concurrent peer may have completed this
+        # migration between our probe and BEGIN IMMEDIATE acquisition.
+        pe_sql_row_tx = conn.execute(
+            "SELECT sql FROM sqlite_master "
+            "WHERE type='table' AND name='phase_events'"
+        ).fetchone()
+        if pe_sql_row_tx is None or "'mini_spec'" in (pe_sql_row_tx[0] or ""):
+            conn.execute("ROLLBACK")
+            return
+
+        pe_pre_count = conn.execute(
+            "SELECT COUNT(*) FROM phase_events"
+        ).fetchone()[0]
+
+        # Index + trigger SQL comes from the LIVE file, so the four indexes
+        # this table carries (idx_pe_lookup, idx_pe_project, idx_pe_timestamp,
+        # phase_events_backfill_dedup) are restored byte-for-byte rather than
+        # from a mirror that could drift. Auto-indexes (sql IS NULL) are
+        # excluded — SQLite recreates those from the CREATE TABLE itself.
+        pe_saved_indexes = [
+            (r[0], r[1])
+            for r in conn.execute(
+                "SELECT name, sql FROM sqlite_master "
+                "WHERE type='index' AND tbl_name='phase_events' "
+                "AND sql IS NOT NULL"
+            ).fetchall()
+        ]
+        pe_saved_triggers = [
+            (r[0], r[1])
+            for r in conn.execute(
+                "SELECT name, sql FROM sqlite_master "
+                "WHERE type='trigger' AND tbl_name='phase_events' "
+                "AND sql IS NOT NULL"
+            ).fetchall()
+        ]
+        pe_cross_triggers = [
+            (r[0], r[1])
+            for r in conn.execute(
+                "SELECT name, sql FROM sqlite_master "
+                "WHERE type='trigger' "
+                "AND tbl_name <> 'phase_events' "
+                "AND sql LIKE '%phase_events%' "
+                "AND sql IS NOT NULL"
+            ).fetchall()
+        ]
+        for trg_name, _ in pe_cross_triggers:
+            conn.execute(f"DROP TRIGGER IF EXISTS {trg_name}")
+
+        conn.execute("""
+            CREATE TABLE phase_events_new (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                type_id         TEXT NOT NULL,
+                project_id      TEXT NOT NULL,
+                phase           TEXT,
+                event_type      TEXT NOT NULL CHECK(event_type IN (
+                    'started', 'completed', 'skipped', 'backward',
+                    'entity_created', 'entity_status_changed',
+                    'entity_promoted', 'spawned_child', 'cascade_ready',
+                    'mini_spec'
+                )),
+                timestamp       TEXT NOT NULL,
+                iterations      INTEGER,
+                reviewer_notes  TEXT,
+                backward_reason TEXT,
+                backward_target TEXT,
+                source          TEXT NOT NULL DEFAULT 'live' CHECK(
+                    source IN ('live', 'backfill')
+                ),
+                created_at      TEXT NOT NULL,
+                metadata        TEXT
+            )
+        """)
+
+        conn.execute(
+            "INSERT INTO phase_events_new "
+            "(id, type_id, project_id, phase, event_type, timestamp, "
+            "iterations, reviewer_notes, backward_reason, "
+            "backward_target, source, created_at, metadata) "
+            "SELECT id, type_id, project_id, phase, event_type, "
+            "timestamp, iterations, reviewer_notes, backward_reason, "
+            "backward_target, source, created_at, metadata "
+            "FROM phase_events"
+        )
+        pe_post_count = conn.execute(
+            "SELECT COUNT(*) FROM phase_events_new"
+        ).fetchone()[0]
+        if pe_post_count != pe_pre_count:
+            raise MigrationError(
+                f"v2 migration 2 phase_events copy-rename row-count "
+                f"mismatch: pre={pe_pre_count}, post={pe_post_count}"
+            )
+
+        conn.execute("DROP TABLE phase_events")
+        conn.execute("ALTER TABLE phase_events_new RENAME TO phase_events")
+
+        for _, idx_sql in pe_saved_indexes:
+            if idx_sql:
+                conn.execute(idx_sql)
+        for _, trg_sql in pe_saved_triggers:
+            if trg_sql:
+                conn.execute(trg_sql)
+        for _, trg_sql in pe_cross_triggers:
+            if trg_sql:
+                conn.execute(trg_sql)
+
+        # Non-vacuity guard: DROP TABLE takes the old table's indexes with
+        # it, so a missed replay would silently leave phase_events unindexed
+        # (correct results, table-scan performance). Assert the exact set,
+        # not a count.
+        restored_index_names = {
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='index' AND tbl_name='phase_events' "
+                "AND sql IS NOT NULL"
+            ).fetchall()
+        }
+        expected_index_names = {name for name, _ in pe_saved_indexes}
+        if restored_index_names != expected_index_names:
+            raise MigrationError(
+                f"v2 migration 2 phase_events index replay mismatch: "
+                f"expected={sorted(expected_index_names)}, "
+                f"restored={sorted(restored_index_names)}"
+            )
+
+        post_fk = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if post_fk:
+            raise MigrationError(
+                f"v2 migration 2 post-FK check non-empty: {post_fk}"
+            )
+
+        conn.execute("COMMIT")
+    except Exception:
+        try:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+
+
+V2_MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
+    2: _v2_migration_2_mini_spec,
+}
+
+
 def _migrate_down(conn: sqlite3.Connection, target_version: int) -> None:
     """Reverse-migration dispatcher (test-only in this feature).
 
@@ -6063,6 +6281,12 @@ _VALID_PARAMS: dict[str, set[str]] = {
     # event is meaningless without that payload (unlike spawned_child,
     # which has exactly one caller that already guarantees it).
     "cascade_ready":        {"metadata"},
+    # Feature 134 NFR-4 / v2 migration 2: mini_spec carries the mini-spec
+    # text in metadata. NOT phase-named (so _v2_classify_phase_event routes
+    # it to the lifecycle axis, never pipeline) and NOT in _REQUIRED_PARAMS
+    # — an empty-metadata mini_spec is a degenerate but legal audit marker,
+    # same latitude spawned_child gets.
+    "mini_spec":            {"metadata"},
 }
 _REQUIRED_PARAMS: dict[str, set[str]] = {
     "started":              {"phase"},
@@ -6098,7 +6322,8 @@ def _v2_classify_phase_event(
     vocab) for feature-kind entities, ``lifecycle`` (vocab-free) for every
     other kind -- matching FR132-2b / D3's table. Every other event_type
     (``entity_created``, ``entity_status_changed``, ``entity_promoted``,
-    ``spawned_child``, ``cascade_ready``) goes to ``lifecycle`` with
+    ``spawned_child``, ``cascade_ready``, ``mini_spec``) goes to
+    ``lifecycle`` with
     ``to_value`` set to ``metadata['new_status']`` when present, else
     NULL -- NEVER the ``execution`` axis (that axis is backfill-only: the
     one-time ``status_backfilled`` synthesis, D3). Same rule
@@ -10213,6 +10438,9 @@ class EntityDatabase:
             generation_row is not None and generation_row[0] == "v2"
         )
         if self._is_v2_generation:
+            # Feature 134 NFR-4: a v2 file skips the v1 chain but is NOT
+            # frozen — it runs its own forward-only lineage instead.
+            self._migrate_v2()
             return
 
         current = self.get_schema_version()
@@ -10221,6 +10449,32 @@ class EntityDatabase:
         for version in range(current + 1, target + 1):
             migration_fn = MIGRATIONS[version]
             migration_fn(self._conn)
+            _upsert_metadata(self._conn, "schema_version", str(version))
+            self._commit()
+
+    def _migrate_v2(self) -> None:
+        """Apply pending ``V2_MIGRATIONS`` to a v2-generation file.
+
+        Same loop shape as the v1 chain in :meth:`_migrate`: run each
+        pending version's function, then stamp ``schema_version`` to that
+        version via ``_upsert_metadata`` and commit, so an interruption
+        resumes from the last completed step rather than replaying the
+        whole chain. Called ONLY from :meth:`_migrate`'s v2 branch.
+
+        The v2 lineage starts at 1 (the cutover baseline, which has no
+        migration function of its own), so a file already at
+        ``max(V2_MIGRATIONS)`` iterates zero times — re-opening is a no-op,
+        not a re-run.
+        """
+        if not V2_MIGRATIONS:
+            return
+        current = self.get_schema_version()
+        target = max(V2_MIGRATIONS)
+
+        for version in range(current + 1, target + 1):
+            migration_fn = V2_MIGRATIONS.get(version)
+            if migration_fn is not None:
+                migration_fn(self._conn)
             _upsert_metadata(self._conn, "schema_version", str(version))
             self._commit()
 
